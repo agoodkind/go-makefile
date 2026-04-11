@@ -1,13 +1,15 @@
 .PHONY: lint fmt vet test govulncheck check
 
 GOLANGCI_LINT ?= golangci-lint
-GOFMT         ?= gofmt
+GOFUMPT       ?= gofumpt
+GOIMPORTS     ?= goimports
 
 lint:
 	$(GOLANGCI_LINT) run ./...
 
 fmt:
-	$(GOFMT) -w .
+	$(GOFUMPT) -w .
+	$(GOIMPORTS) -w .
 
 vet:
 	go vet ./...
