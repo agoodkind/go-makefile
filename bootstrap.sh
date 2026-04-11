@@ -120,5 +120,45 @@ else
     echo "created .gitignore"
 fi
 
+# --- .github/workflows/ci.yml ---
+if [ -f .github/workflows/ci.yml ]; then
+    skip .github/workflows/ci.yml
+else
+    mkdir -p .github/workflows
+    cat > .github/workflows/ci.yml <<CIYML
+name: CI
+on: [push, pull_request]
+jobs:
+  ci:
+    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
+    permissions:
+      contents: read
+CIYML
+    echo "created .github/workflows/ci.yml"
+fi
+
+# --- .github/workflows/release.yml ---
+if [ -f .github/workflows/release.yml ]; then
+    skip .github/workflows/release.yml
+else
+    mkdir -p .github/workflows
+    cat > .github/workflows/release.yml <<RELEASEYML
+name: Release
+on:
+  push:
+    branches: [main]
+concurrency:
+  group: release
+  cancel-in-progress: true
+jobs:
+  release:
+    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main
+    permissions:
+      contents: write
+    secrets: inherit
+RELEASEYML
+    echo "created .github/workflows/release.yml"
+fi
+
 echo ""
 echo "done. next: make"
