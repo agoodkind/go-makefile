@@ -6,84 +6,61 @@ Shared Go build targets and reusable GitHub Actions workflows for all `agoodkind
 
 | File | Purpose |
 |------|---------|
-| `go.mk` | Shared Makefile targets: `lint`, `fmt`, `vet`, `test`, `govulncheck`, `check` |
-| `.github/workflows/_ci.yml` | Reusable CI workflow (4 independent required-check jobs) |
-| `.github/workflows/_release.yml` | Reusable release workflow (timestamp tag + goreleaser) |
-| `goreleaser-template.yaml` | Auto-bootstrapped `.goreleaser.yaml` for new projects |
-| `golangci-template.yml` | Auto-bootstrapped `.golangci.yml` for new projects |
+| `go.mk` | Shared Makefile targets: `lint`, `fmt`, `vet`, `test`, `govulncheck`, `check`, `sync` |
+| `golangci-template.yml` | Canonical golangci-lint config — projects extend this |
+| `goreleaser-template.yaml` | Canonical goreleaser config — bootstrap fills in binary name |
+| `bootstrap.sh` | One-time project setup script |
+| `.github/workflows/_ci.yml` | Reusable CI workflow |
+| `.github/workflows/_release.yml` | Reusable release workflow |
 
 ---
 
-## Quickstart: adopting in a new Go project
+## Quickstart
 
-### 1. Bootstrap your Makefile
+Run once from the project root (requires `go.mod`):
 
-`go.mk`, `.golangci.yml`, and `.goreleaser.yaml` are all fetched at runtime — nothing is committed. GNU Make auto-downloads them on first use, then re-reads with the shared targets available.
-
-Add this to the top of your project `Makefile`:
-
-```makefile
-GO_MK_URL   := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
-GO_MK       := .make/go.mk
-GO_MK_CACHE := $(HOME)/.cache/go-makefile/go.mk
-
-$(GO_MK):
-	@mkdir -p $(dir $@)
-	@if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$@"; then \
-		mkdir -p "$(dir $(GO_MK_CACHE))" && cp "$@" "$(GO_MK_CACHE)"; \
-	elif [ -f "$(GO_MK_CACHE)" ]; then \
-		echo "warning: go.mk fetch failed, using cached version" >&2; \
-		cp "$(GO_MK_CACHE)" "$@"; \
-	else \
-		echo "error: go.mk fetch failed and no cache available" >&2; \
-		exit 1; \
-	fi
-
--include $(GO_MK)
-
-.PHONY: sync
-sync:
-	@mkdir -p "$(dir $(GO_MK))"
-	@if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$(GO_MK)"; then \
-		mkdir -p "$(dir $(GO_MK_CACHE))" && cp "$(GO_MK)" "$(GO_MK_CACHE)"; \
-		echo "go.mk updated"; \
-	else \
-		echo "error: go.mk fetch failed" >&2; \
-		exit 1; \
-	fi
+```bash
+curl -fsSL https://raw.githubusercontent.com/agoodkind/go-makefile/main/bootstrap.sh | bash
 ```
 
-Then add your project-specific targets below. Example:
+This creates:
+- `Makefile` — with runtime-fetch `go.mk` bootstrap + project-specific targets
+- `.golangci.yml` — extends the shared lint config
+- `.goreleaser.yaml` — filled in with the inferred binary name
+- `.gitignore` entry for `.make/`
 
-```makefile
-BINARY := your-project
-CMD    := ./cmd/$(BINARY)
+Skips any file that already exists. Fails clearly if `go.mod` is missing.
 
-.DEFAULT_GOAL := build
+---
 
-.PHONY: build deploy clean
+## How it works
 
-build:
-	go build $(CMD)
+### `go.mk`
 
-deploy:
-	go install $(CMD)
+Fetched at runtime into `.make/go.mk` — never committed. Any `make` target on a fresh clone auto-bootstraps via curl with a `~/.cache/go-makefile/go.mk` fallback. Run `make sync` to force-update.
 
-clean:
-	rm -f $(BINARY)
+Provides: `lint`, `fmt` (gofumpt + goimports), `vet`, `test`, `govulncheck`, `check`, `sync`.
+
+### `.golangci.yml`
+
+Committed per-project. The bootstrap generates a minimal file that `extends` the canonical config:
+
+```yaml
+extends:
+  - https://raw.githubusercontent.com/agoodkind/go-makefile/main/golangci-template.yml
 ```
 
-### 2. Ignore the fetched files
+Add project-specific overrides below the `extends` line.
 
-Add to `.gitignore`:
+### `.goreleaser.yaml`
 
-```
-.make/
-.golangci.yml
-.goreleaser.yaml
-```
+Committed per-project. The bootstrap fetches `goreleaser-template.yaml` and substitutes the binary name. Edit as needed after bootstrap.
 
-### 3. Wire up CI
+---
+
+## CI / releases
+
+### Wire up CI
 
 Create `.github/workflows/ci.yml`:
 
@@ -97,9 +74,9 @@ jobs:
     uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
 ```
 
-This gives you four independent required status checks: `Build and Test`, `Vet`, `Govulncheck`, `GoReleaser Config Check`.
+Four independent required checks: `Build and Test`, `Vet`, `Govulncheck`, `GoReleaser Config Check`.
 
-### 4. Wire up releases
+### Wire up releases
 
 Create `.github/workflows/release.yml`:
 
@@ -122,16 +99,4 @@ jobs:
     secrets: inherit
 ```
 
-Every push to `main` creates a release tagged `YYYYMMDDHHmm-<hex-build>-<short-sha>` (e.g. `202604101430-f-a1b2c3d`). A newer push cancels any in-progress release run.
-
----
-
-## How updates work
-
-### `go.mk`, `.golangci.yml`, `.goreleaser.yaml`
-
-All fetched fresh — never committed. Running any make target on a fresh clone auto-bootstraps via curl with a local cache fallback. Run `make sync` to force-update all three.
-
-### GitHub Actions workflows
-
-The CI and release workflows call `_ci.yml@main` and `_release.yml@main` — they always run the latest version on every push. No consumer action needed.
+Every push to `main` creates a release tagged `YYYYMMDDHHmm-<hex-build>-<short-sha>`.
