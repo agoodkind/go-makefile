@@ -7,29 +7,45 @@ Shared Go build targets and reusable GitHub Actions workflows for all `agoodkind
 | File | Purpose |
 |------|---------|
 | `go.mk` | Shared Makefile targets: `lint`, `fmt`, `vet`, `test`, `govulncheck`, `check` |
-| `.github/workflows/_ci.yml` | Reusable CI workflow (4 independent jobs, each a required check) |
+| `.github/workflows/_ci.yml` | Reusable CI workflow (4 independent required-check jobs) |
 | `.github/workflows/_release.yml` | Reusable release workflow (timestamp tag + goreleaser) |
 | `goreleaser-template.yaml` | Starter `.goreleaser.yaml` to copy into a new project |
+| `golangci-template.yml` | Starter `.golangci.yml` with preferred lint rules |
 
 ---
 
 ## Quickstart: adopting in a new Go project
 
-### 1. Add the subtree
+### 1. Bootstrap your Makefile
 
-```sh
-git subtree add --prefix=vendor/go.mk https://github.com/agoodkind/go-makefile.git main --squash
-```
+`go.mk` is fetched at runtime — nothing is committed. GNU Make will auto-download it the first time any target is run, then re-read the Makefile with the shared targets available.
 
-This drops `go.mk` (and friends) into `vendor/go.mk/` and records the subtree in git history. No submodule init needed.
-
-### 2. Include in your Makefile
-
-Add one line at the top of your `Makefile`, then define only project-specific targets below it:
+Add this to the top of your project `Makefile`:
 
 ```makefile
-include vendor/go.mk/go.mk
+GO_MK_URL := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
+GO_MK     := vendor/go.mk/go.mk
 
+# Auto-download go.mk if missing. GNU Make re-reads after building an
+# included file, so any target (make lint, make test, etc.) works on a
+# fresh clone without a separate bootstrap step.
+$(GO_MK):
+	@mkdir -p $(dir $@)
+	curl -fsSL $(GO_MK_URL) -o $@
+
+-include $(GO_MK)
+
+# Explicitly pull the latest go.mk (use in CI or to force an update locally).
+.PHONY: sync
+sync:
+	@mkdir -p $(dir $(GO_MK))
+	curl -fsSL $(GO_MK_URL) -o $(GO_MK)
+	@echo "go.mk updated"
+```
+
+Then add your project-specific targets below. Example:
+
+```makefile
 BINARY := your-project
 CMD    := ./cmd/$(BINARY)
 
@@ -47,7 +63,13 @@ clean:
 	rm -f $(BINARY)
 ```
 
-Shared targets available immediately: `make lint`, `make fmt`, `make vet`, `make test`, `make govulncheck`, `make check`.
+### 2. Ignore the fetched file
+
+Add to `.gitignore`:
+
+```
+vendor/go.mk/
+```
 
 ### 3. Wire up CI
 
@@ -64,6 +86,8 @@ jobs:
 ```
 
 This gives you four independent required status checks: `Build and Test`, `Vet`, `Govulncheck`, `GoReleaser Config Check`.
+
+The CI workflow fetches dependencies directly — no `make sync` step needed.
 
 ### 4. Wire up releases
 
@@ -93,17 +117,29 @@ Every push to `main` creates a release tagged `YYYYMMDDHHmm-<hex-build>-<short-s
 ### 5. Copy the goreleaser template
 
 ```sh
-cp vendor/go.mk/goreleaser-template.yaml .goreleaser.yaml
+cp <(curl -fsSL https://raw.githubusercontent.com/agoodkind/go-makefile/main/goreleaser-template.yaml) .goreleaser.yaml
 ```
 
-Then edit `.goreleaser.yaml` and set `project_name` and `builds.main`/`builds.binary` to match your project.
+Edit `.goreleaser.yaml` and set `project_name` and `builds.main`/`builds.binary`.
+
+### 6. Copy the golangci template
+
+```sh
+cp <(curl -fsSL https://raw.githubusercontent.com/agoodkind/go-makefile/main/golangci-template.yml) .golangci.yml
+```
 
 ---
 
-## Keeping the subtree up to date
+## How updates work
 
-When `go-makefile` is updated, pull changes into any project with:
+### `go.mk` (local make targets)
 
-```sh
-git subtree pull --prefix=vendor/go.mk https://github.com/agoodkind/go-makefile.git main --squash
-```
+Always fetched fresh. Running `make sync` pulls the latest version immediately. Running any make target on a fresh clone auto-bootstraps via curl. No subtree pull, no manual step.
+
+### GitHub Actions workflows
+
+The CI and release workflows call `_ci.yml@main` and `_release.yml@main` — they always run the latest version of the shared workflow on every push. No consumer action needed.
+
+### Templates (goreleaser, golangci)
+
+One-time copy. Update manually when needed by re-running the `cp` command above.
