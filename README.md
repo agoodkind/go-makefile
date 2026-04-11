@@ -6,7 +6,7 @@ Shared Go build targets and reusable GitHub Actions workflows for all `agoodkind
 
 | File | Purpose |
 |------|---------|
-| `go.mk` | Shared Makefile targets: `lint`, `fmt`, `vet`, `test`, `govulncheck`, `check`, `sync` |
+| `go.mk` | Shared Makefile targets (see file for full list) |
 | `golangci-template.yml` | Canonical golangci-lint config — projects extend this |
 | `goreleaser-template.yaml` | Canonical goreleaser config — bootstrap fills in binary name |
 | `bootstrap.sh` | One-time project setup script |
@@ -39,7 +39,7 @@ Skips any file that already exists. Fails clearly if `go.mod` is missing.
 
 Fetched at runtime into `.make/go.mk` — never committed. Any `make` target on a fresh clone auto-bootstraps via curl with a `~/.cache/go-makefile/go.mk` fallback. Run `make sync` to force-update.
 
-Provides: `lint`, `fmt` (gofumpt + goimports), `vet`, `test`, `govulncheck`, `check`, `sync`.
+Run `make help` or read `go.mk` directly for the current target list. Default goal is `check` (full battery).
 
 ### `.golangci.yml`
 
@@ -74,7 +74,7 @@ jobs:
     uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
 ```
 
-Four independent required checks: `Build and Test`, `Vet`, `Govulncheck`, `GoReleaser Config Check`.
+Runs the full check suite plus a GoReleaser config validation.
 
 ### Wire up releases
 

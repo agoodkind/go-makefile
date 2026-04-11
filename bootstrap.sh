@@ -70,7 +70,7 @@ sync:
 BINARY := $BINARY
 CMD    := $CMD
 
-.DEFAULT_GOAL := build
+.DEFAULT_GOAL := check
 
 .PHONY: build deploy clean
 
@@ -121,4 +121,4 @@ else
 fi
 
 echo ""
-echo "done. next: make build"
+echo "done. next: make"

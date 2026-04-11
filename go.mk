@@ -24,7 +24,7 @@ govulncheck:
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 	govulncheck ./...
 
-check: vet lint test govulncheck
+check: build vet lint test govulncheck
 
 sync:
 	@mkdir -p "$(dir $(GO_MK_CACHE))"
