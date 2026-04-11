@@ -24,7 +24,7 @@ Add this to the top of your project `Makefile`:
 
 ```makefile
 GO_MK_URL   := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
-GO_MK       := vendor/go.mk/go.mk
+GO_MK       := .make/go.mk
 GO_MK_CACHE := $(HOME)/.cache/go-makefile/go.mk
 
 # Auto-download go.mk if missing. On success, update the local cache.
@@ -83,7 +83,7 @@ clean:
 Add to `.gitignore`:
 
 ```
-vendor/go.mk/
+.make/
 ```
 
 ### 3. Wire up CI
