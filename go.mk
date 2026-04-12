@@ -1,4 +1,4 @@
-.PHONY: lint fmt vet test govulncheck check sync
+.PHONY: lint fmt vet test govulncheck check go-mk-sync
 
 GO_MK_URL   := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
 GO_MK_CACHE := $(HOME)/.cache/go-makefile/go.mk
@@ -26,7 +26,8 @@ govulncheck:
 
 check: build vet lint test govulncheck
 
-sync:
+# Renamed from 'sync' to avoid conflicts with project-level Makefile sync targets.
+go-mk-sync:
 	@mkdir -p "$(dir $(GO_MK_CACHE))"
 	@if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$(GO_MK)"; then \
 		cp "$(GO_MK)" "$(GO_MK_CACHE)"; \
