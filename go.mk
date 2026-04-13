@@ -1,4 +1,4 @@
-.PHONY: lint fmt vet test govulncheck check release go-mk-sync
+.PHONY: lint fmt vet test govulncheck check go-mk-sync
 
 GO_MK_URL   := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
 GO_MK_CACHE := $(HOME)/.cache/go-makefile/go.mk
@@ -25,12 +25,6 @@ govulncheck:
 	govulncheck ./...
 
 check: build vet lint test govulncheck
-
-# Local release with notarization. Requires notarize.env (gitignored).
-# Copy notarize.env.example to notarize.env and fill in your 1Password paths.
-release:
-	@[ -f notarize.env ] || { echo "notarize.env not found — copy notarize.env.example and fill in your 1Password op:// paths"; exit 1; }
-	op run --env-file=notarize.env -- goreleaser release --clean
 
 # Renamed from 'sync' to avoid conflicts with project-level Makefile sync targets.
 go-mk-sync:
