@@ -6,8 +6,7 @@ on:
 jobs:
   release:
     name: Release
-    # macOS runner required for xcrun notarytool (goreleaser notarize.macos).
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
@@ -18,22 +17,6 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-
-      # Load Apple credentials from 1Password using paths stored as GitHub Secrets.
-      # Each secret value is an op:// URI — no actual credentials in the workflow YAML.
-      # Skipped when OP_SERVICE_ACCOUNT_TOKEN is not configured.
-      - name: Load Apple credentials from 1Password
-        if: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN != '' }}
-        uses: 1password/load-secrets-action@v2
-        with:
-          export-env: true
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          APPLE_DEVELOPER_ID_CERT: ${{ secrets.APPLE_DEVELOPER_ID_CERT }}
-          APPLE_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
-          APPLE_NOTARYTOOL_ISSUER_ID: ${{ secrets.APPLE_NOTARYTOOL_ISSUER_ID }}
-          APPLE_NOTARYTOOL_KEY_ID: ${{ secrets.APPLE_NOTARYTOOL_KEY_ID }}
-          APPLE_NOTARYTOOL_KEY: ${{ secrets.APPLE_NOTARYTOOL_KEY }}
 
       - name: Compute release tag
         id: tag
@@ -63,8 +46,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEX_RUN: ${{ steps.tag.outputs.hex_run }}
-          APPLE_DEVELOPER_ID_CERT: ${{ secrets.APPLE_DEVELOPER_ID_CERT }}
-          APPLE_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
-          APPLE_NOTARYTOOL_ISSUER_ID: ${{ secrets.APPLE_NOTARYTOOL_ISSUER_ID }}
-          APPLE_NOTARYTOOL_KEY_ID: ${{ secrets.APPLE_NOTARYTOOL_KEY_ID }}
-          APPLE_NOTARYTOOL_KEY: ${{ secrets.APPLE_NOTARYTOOL_KEY }}
