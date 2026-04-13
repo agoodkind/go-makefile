@@ -2,19 +2,6 @@ name: Release
 
 on:
   workflow_call:
-    secrets:
-      OP_SERVICE_ACCOUNT_TOKEN:
-        required: false
-      APPLE_DEVELOPER_ID_CERT:
-        required: false
-      APPLE_DEVELOPER_ID_CERT_PASSWORD:
-        required: false
-      APPLE_NOTARYTOOL_ISSUER_ID:
-        required: false
-      APPLE_NOTARYTOOL_KEY_ID:
-        required: false
-      APPLE_NOTARYTOOL_KEY:
-        required: false
 
 jobs:
   release:
