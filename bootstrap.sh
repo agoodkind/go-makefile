@@ -224,81 +224,67 @@ fi
 echo ""
 
 # ---------------------------------------------------------------------------
+# Template render (render.go and templates from BASE_URL)
+# ---------------------------------------------------------------------------
+CACHE_ROOT="${HOME}/.cache/go-makefile"
+
+file_mtime() {
+	local f="$1"
+	local m
+	if m=$(stat -c %Y "$f" 2>/dev/null); then
+		echo "$m"
+		return
+	fi
+	stat -f %m "$f"
+}
+
+ensure_cached_asset() {
+	local rel="$1"
+	local url="${BASE_URL}/${rel}"
+	local dest="${CACHE_ROOT}/${rel}"
+	mkdir -p "$(dirname "$dest")"
+	local now
+	now=$(date +%s)
+	if [ -f "$dest" ]; then
+		local age
+		age=$((now - $(file_mtime "$dest")))
+		if [ "$age" -lt 86400 ]; then
+			echo "$dest"
+			return
+		fi
+	fi
+	if curl -fsSL --connect-timeout 5 --max-time 10 "$url" -o "${dest}.new" && mv "${dest}.new" "$dest"; then
+		echo "$dest"
+		return
+	fi
+	rm -f "${dest}.new"
+	if [ -f "$dest" ]; then
+		warn "${rel} fetch failed, using cached version"
+		echo "$dest"
+		return
+	fi
+	die "${rel} fetch failed and no cache available"
+}
+
+CTX_JSON=$(printf '{"Binary":"%s","Cmd":"%s","Layout":"%s","BaseURL":"%s"}\n' "$BINARY" "$CMD" "$LAYOUT" "$BASE_URL")
+
+render_artifact() {
+	local rel="$1"
+	local out="$2"
+	local tmpl_path
+	local render_path
+	tmpl_path=$(ensure_cached_asset "$rel")
+	render_path=$(ensure_cached_asset "render.go")
+	printf '%s' "$CTX_JSON" | go run "$render_path" "$tmpl_path" >"$out"
+}
+
+# ---------------------------------------------------------------------------
 # Makefile
 # ---------------------------------------------------------------------------
 if [ -f Makefile ]; then
 	skip Makefile
 else
-	{
-		cat <<MAKEFILE_PREAMBLE
-GO_MK_URL   := $BASE_URL/go.mk
-GO_MK       := .make/go.mk
-GO_MK_CACHE := \$(HOME)/.cache/go-makefile/go.mk
-MAKEFILE_PREAMBLE
-
-		# Binary projects define BINARY/CMD before the include so go.mk's
-		# 'ifndef CMD' can detect the layout and skip its default build.
-		if [ "$LAYOUT" = "binary" ]; then
-			cat <<MAKEFILE_BINARY_VARS
-
-BINARY := $BINARY
-CMD    := $CMD
-MAKEFILE_BINARY_VARS
-		fi
-
-		cat <<MAKEFILE_INCLUDE
-
-\$(GO_MK):
-	@mkdir -p \$(dir \$@)
-	@if curl -fsSL --connect-timeout 5 --max-time 10 "\$(GO_MK_URL)" -o "\$@"; then \\
-		mkdir -p "\$(dir \$(GO_MK_CACHE))" && cp "\$@" "\$(GO_MK_CACHE)"; \\
-	elif [ -f "\$(GO_MK_CACHE)" ]; then \\
-		echo "warning: go.mk fetch failed, using cached version" >&2; \\
-		cp "\$(GO_MK_CACHE)" "\$@"; \\
-	else \\
-		echo "error: go.mk fetch failed and no cache available" >&2; \\
-		exit 1; \\
-	fi
-
--include \$(GO_MK)
-
-.PHONY: update-go-mk
-update-go-mk:
-	@mkdir -p "\$(dir \$(GO_MK))"
-	@if curl -fsSL --connect-timeout 5 --max-time 10 "\$(GO_MK_URL)" -o "\$(GO_MK)"; then \\
-		mkdir -p "\$(dir \$(GO_MK_CACHE))" && cp "\$(GO_MK)" "\$(GO_MK_CACHE)"; \\
-		echo "go.mk updated"; \\
-	else \\
-		echo "error: go.mk fetch failed" >&2; \\
-		exit 1; \\
-	fi
-
-.DEFAULT_GOAL := check
-MAKEFILE_INCLUDE
-
-		if [ "$LAYOUT" = "binary" ]; then
-			cat <<MAKEFILE_BINARY
-
-.PHONY: build deploy clean
-
-build:
-	go build \$(CMD)
-
-deploy:
-	go install \$(CMD)
-
-clean:
-	rm -f \$(BINARY)
-MAKEFILE_BINARY
-		else
-			cat <<MAKEFILE_LIBRARY
-
-# Library module. No build, deploy, or clean targets defined locally.
-# The 'build' target comes from go.mk (runs 'go build ./...').
-# Other targets (check, fmt, lint, test, vet, govulncheck) also come from go.mk.
-MAKEFILE_LIBRARY
-		fi
-	} >Makefile
+	render_artifact "templates/Makefile.tmpl" Makefile
 	echo "created Makefile ($LAYOUT)"
 fi
 
@@ -308,12 +294,7 @@ fi
 if [ -f .golangci.yml ]; then
 	skip .golangci.yml
 else
-	cat >.golangci.yml <<GOLANGCI
-# Extends the shared agoodkind golangci config.
-# Add project specific overrides below.
-extends:
-  - $BASE_URL/golangci-template.yml
-GOLANGCI
+	render_artifact "templates/golangci.yml.tmpl" .golangci.yml
 	echo "created .golangci.yml"
 fi
 
@@ -324,9 +305,7 @@ if [ "$LAYOUT" = "binary" ]; then
 	if [ -f .goreleaser.yaml ]; then
 		skip .goreleaser.yaml
 	else
-		curl -fsSL "$BASE_URL/goreleaser-template.yaml" |
-			sed "s/BINARY/$BINARY/g" \
-				>.goreleaser.yaml
+		render_artifact "templates/goreleaser.yaml.tmpl" .goreleaser.yaml
 		echo "created .goreleaser.yaml"
 	fi
 fi
@@ -351,15 +330,7 @@ if [ -f .github/workflows/ci.yml ]; then
 	skip .github/workflows/ci.yml
 else
 	mkdir -p .github/workflows
-	cat >.github/workflows/ci.yml <<CIYML
-name: CI
-on: [push, pull_request]
-jobs:
-  ci:
-    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
-    permissions:
-      contents: read
-CIYML
+	render_artifact "templates/ci.yml.tmpl" .github/workflows/ci.yml
 	echo "created .github/workflows/ci.yml"
 fi
 
@@ -369,21 +340,7 @@ if [ "$LAYOUT" = "binary" ]; then
 		skip .github/workflows/release.yml
 	else
 		mkdir -p .github/workflows
-		cat >.github/workflows/release.yml <<RELEASEYML
-name: Release
-on:
-  push:
-    branches: [main]
-concurrency:
-  group: release
-  cancel-in-progress: true
-jobs:
-  release:
-    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main
-    permissions:
-      contents: write
-    secrets: inherit
-RELEASEYML
+		render_artifact "templates/release.yml.tmpl" .github/workflows/release.yml
 		echo "created .github/workflows/release.yml"
 	fi
 fi

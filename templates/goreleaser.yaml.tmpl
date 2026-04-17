@@ -1,0 +1,41 @@
+version: 2
+
+project_name: [[.Binary]]
+
+builds:
+  - id: [[.Binary]]
+    main: ./cmd/[[.Binary]]
+    binary: [[.Binary]]
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
+archives:
+  - id: [[.Binary]]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+release:
+  name_template: "{{ .Date }} · build {{ .Env.HEX_RUN }} · {{ .ShortCommit }}"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
