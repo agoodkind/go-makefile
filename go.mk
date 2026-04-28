@@ -43,23 +43,30 @@ check: build vet lint test govulncheck staticcheck-extra
 #   STATICCHECK_EXTRA_BUILD_PKG        (subpackage to `go build`)
 #
 # Optional knobs:
-#   STATICCHECK_EXTRA_FLAGS    args passed to the analyzer (default empty)
-#   STATICCHECK_EXTRA_TARGETS  packages to analyze            (default ./...)
-#   STATICCHECK_EXTRA_BASELINE baseline file                  (default .staticcheck-extra-baseline.txt)
+#   STATICCHECK_EXTRA_FLAGS         args passed to the analyzer (default empty)
+#   STATICCHECK_EXTRA_TARGETS       packages to analyze         (default ./...)
+#   STATICCHECK_EXTRA_BASELINE      baseline file               (default .staticcheck-extra-baseline.txt)
+#   STATICCHECK_EXTRA_EXCLUDE_PATHS comma-separated grep -E patterns matched
+#                                   against finding lines (file:line:col:msg).
+#                                   Any line that matches is dropped before
+#                                   the baseline diff. Use for generated code
+#                                   (e.g. "\.pb\.go:") or vendored paths.
 #
 # Behaviour:
 #   - If neither BIN nor BUILD_REPO set, target is a no-op (announces "skipped").
 #   - If BUILD_REPO+BUILD_PKG set, the analyzer is built into .make/ on demand.
+#   - Excluded lines are dropped before baseline comparison.
 #   - Findings are diffed against the baseline. NEW findings exit non-zero.
 #     RESOLVED findings print a hint to refresh the baseline but don't fail.
 #   - `make staticcheck-extra-baseline` re-captures the current findings.
 # ---------------------------------------------------------------------------
-STATICCHECK_EXTRA_BIN          ?=
-STATICCHECK_EXTRA_BUILD_REPO   ?=
-STATICCHECK_EXTRA_BUILD_PKG    ?=
-STATICCHECK_EXTRA_FLAGS        ?=
-STATICCHECK_EXTRA_TARGETS      ?= ./...
-STATICCHECK_EXTRA_BASELINE     ?= .staticcheck-extra-baseline.txt
+STATICCHECK_EXTRA_BIN           ?=
+STATICCHECK_EXTRA_BUILD_REPO    ?=
+STATICCHECK_EXTRA_BUILD_PKG     ?=
+STATICCHECK_EXTRA_FLAGS         ?=
+STATICCHECK_EXTRA_TARGETS       ?= ./...
+STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
+STATICCHECK_EXTRA_EXCLUDE_PATHS ?=
 
 # Variable resolution and build are deferred to recipe time so the project
 # Makefile can set STATICCHECK_EXTRA_* either before or after `-include`.
@@ -100,8 +107,14 @@ staticcheck-extra: staticcheck-extra-bin
 			echo "staticcheck-extra: binary $$bin not executable; skipping"; exit 0; \
 		fi; \
 		mkdir -p .make; \
+		excludes="$(STATICCHECK_EXTRA_EXCLUDE_PATHS)"; \
+		filter() { \
+			if [ -z "$$excludes" ]; then cat; return; fi; \
+			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
+			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat"; fi; \
+		}; \
 		"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS) 2>&1 \
-			| sed "s|$(CURDIR)/||g" | sort > .make/staticcheck-extra.out || true; \
+			| sed "s|$(CURDIR)/||g" | filter | sort > .make/staticcheck-extra.out || true; \
 		if [ ! -f "$(STATICCHECK_EXTRA_BASELINE)" ]; then \
 			touch "$(STATICCHECK_EXTRA_BASELINE)"; \
 		fi; \
@@ -129,8 +142,14 @@ staticcheck-extra-baseline: staticcheck-extra-bin
 		if [ -z "$$bin" ] || [ ! -x "$$bin" ]; then \
 			echo "staticcheck-extra: not configured; cannot refresh baseline"; exit 1; \
 		fi; \
+		excludes="$(STATICCHECK_EXTRA_EXCLUDE_PATHS)"; \
+		filter() { \
+			if [ -z "$$excludes" ]; then cat; return; fi; \
+			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
+			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat"; fi; \
+		}; \
 		"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS) 2>&1 \
-			| sed "s|$(CURDIR)/||g" | sort > "$(STATICCHECK_EXTRA_BASELINE)"; \
+			| sed "s|$(CURDIR)/||g" | filter | sort > "$(STATICCHECK_EXTRA_BASELINE)"; \
 		n=$$(wc -l < "$(STATICCHECK_EXTRA_BASELINE)"); \
 		echo "staticcheck-extra: baseline $(STATICCHECK_EXTRA_BASELINE) refreshed ($$n findings)"'
 
