@@ -58,27 +58,41 @@ Committed per-project. The bootstrap renders `templates/goreleaser.yaml.tmpl` to
 
 ---
 
-### `staticcheck-extra` (optional, plug an external analyzer)
+### `staticcheck-extra` (bundled AST analyzer set)
 
-For when `golangci-lint` isn't enough and you want to wire a custom
-analyzer (e.g. a project-specific `multichecker` binary like
-`clyde-staticcheck`) with a baseline-diff gate so only NEW findings
-fail the build.
+A small AST analyzer set ships in this repo at `staticcheck/`. It enforces
+boundary logging, structured slog hygiene, and type discipline. Five
+analyzers (all enabled by default):
 
-Project Makefile sets one or both ways to find the binary, plus its
-flags:
+| Flag | What it catches |
+|---|---|
+| `-missing_boundary_log` | `main()` functions missing a structured slog event |
+| `-slog_error_without_err` | error-level slog calls without an `err` field |
+| `-banned_direct_output` | `fmt.Print*`, stdlib `log.Print/Fatal/Panic` in production code |
+| `-hot_loop_info_log` | Info-level slog inside `for`/`range` loops |
+| `-no_any_or_empty_interface` | exported types/funcs using `any`/`interface{}` |
+
+Default behaviour: pulled via `go install github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest`,
+all 5 analyzers enabled. **Zero project Makefile setup required.**
+
+Per-project overrides:
 
 ```makefile
-# Either point at an existing built binary on $PATH or absolute path:
-STATICCHECK_EXTRA_BIN := /usr/local/bin/clyde-staticcheck
+# Pick a different analyzer subset (default enables all 5):
+STATICCHECK_EXTRA_FLAGS := -slog_error_without_err -hot_loop_info_log
 
-# OR have go.mk build it from a local Go repo on demand:
-STATICCHECK_EXTRA_BUILD_REPO := $(HOME)/Sites/clyde/
-STATICCHECK_EXTRA_BUILD_PKG  := ./cmd/clyde-staticcheck
+# Pin to a specific commit/tag/branch instead of @latest:
+STATICCHECK_EXTRA_INSTALL := github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@v0.1.0
 
-# Always set:
-STATICCHECK_EXTRA_FLAGS    := -slog_error_without_err -hot_loop_info_log
-STATICCHECK_EXTRA_TARGETS  := ./...                          # default
+# Bring your own analyzer binary:
+STATICCHECK_EXTRA_BIN := /usr/local/bin/my-analyzer
+
+# Or build from a local fork on disk:
+STATICCHECK_EXTRA_BUILD_REPO := $(HOME)/Sites/my-fork
+STATICCHECK_EXTRA_BUILD_PKG  := ./cmd/my-analyzer
+
+# Other knobs:
+STATICCHECK_EXTRA_TARGETS  := ./...                           # default
 STATICCHECK_EXTRA_BASELINE := .staticcheck-extra-baseline.txt # default
 ```
 

@@ -34,16 +34,23 @@ govulncheck:
 check: build vet lint test govulncheck staticcheck-extra
 
 # ---------------------------------------------------------------------------
-# staticcheck-extra: pluggable hook for an external analyzer binary
-# (e.g. clyde-staticcheck) with a baseline-diff gate so only NEW findings
-# fail the build. Disabled unless the project sets at least one of:
+# staticcheck-extra: AST analyzer pass with a baseline-diff gate so only NEW
+# findings fail the build. The default source is the analyzer set bundled
+# with go-makefile itself (github.com/agoodkind/go-makefile/staticcheck).
 #
-#   STATICCHECK_EXTRA_BIN              (path to a built analyzer binary)
-#   STATICCHECK_EXTRA_BUILD_REPO       (path to a local Go repo) +
-#   STATICCHECK_EXTRA_BUILD_PKG        (subpackage to `go build`)
+# Resolution order for the analyzer binary:
+#   1. STATICCHECK_EXTRA_BIN              (explicit path to a prebuilt binary)
+#   2. STATICCHECK_EXTRA_BUILD_REPO + _PKG (build from a local checkout)
+#   3. STATICCHECK_EXTRA_INSTALL          (go install <module>@<version>)
+#
+# The default is option 3 with a pinned go-makefile module path, so any
+# project that pulls in go.mk gets the analyzer set with zero extra config:
+#
+#   STATICCHECK_EXTRA_INSTALL = github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest
 #
 # Optional knobs:
-#   STATICCHECK_EXTRA_FLAGS         args passed to the analyzer (default empty)
+#   STATICCHECK_EXTRA_FLAGS         args passed to the analyzer (default
+#                                   enables all 5 bundled checks)
 #   STATICCHECK_EXTRA_TARGETS       packages to analyze         (default ./...)
 #   STATICCHECK_EXTRA_BASELINE      baseline file               (default .staticcheck-extra-baseline.txt)
 #   STATICCHECK_EXTRA_EXCLUDE_PATHS comma-separated grep -E patterns matched
@@ -53,8 +60,10 @@ check: build vet lint test govulncheck staticcheck-extra
 #                                   (e.g. "\.pb\.go:") or vendored paths.
 #
 # Behaviour:
-#   - If neither BIN nor BUILD_REPO set, target is a no-op (announces "skipped").
-#   - If BUILD_REPO+BUILD_PKG set, the analyzer is built into .make/ on demand.
+#   - If no source is configured (all three resolution paths empty), target
+#     is a no-op (announces "skipped").
+#   - The bundled analyzer set is the default, installed via `go install`
+#     into $(go env GOPATH)/bin on first run, then cached.
 #   - Excluded lines are dropped before baseline comparison.
 #   - Findings are diffed against the baseline. NEW findings exit non-zero.
 #     RESOLVED findings print a hint to refresh the baseline but don't fail.
@@ -63,7 +72,9 @@ check: build vet lint test govulncheck staticcheck-extra
 STATICCHECK_EXTRA_BIN           ?=
 STATICCHECK_EXTRA_BUILD_REPO    ?=
 STATICCHECK_EXTRA_BUILD_PKG     ?=
-STATICCHECK_EXTRA_FLAGS         ?=
+STATICCHECK_EXTRA_INSTALL       ?= github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest
+STATICCHECK_EXTRA_FLAGS         ?= -slog_error_without_err -banned_direct_output \
+	-hot_loop_info_log -missing_boundary_log -no_any_or_empty_interface
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
 STATICCHECK_EXTRA_EXCLUDE_PATHS ?=
@@ -78,23 +89,36 @@ staticcheck-extra-bin:
 		bin="$(STATICCHECK_EXTRA_BIN)"; \
 		repo="$(STATICCHECK_EXTRA_BUILD_REPO)"; \
 		pkg="$(STATICCHECK_EXTRA_BUILD_PKG)"; \
+		install="$(STATICCHECK_EXTRA_INSTALL)"; \
 		if [ -n "$$bin" ]; then \
 			[ -x "$$bin" ] || { echo "staticcheck-extra: $$bin not executable"; exit 1; }; \
 			exit 0; \
 		fi; \
-		if [ -z "$$repo" ]; then exit 0; fi; \
-		if [ ! -d "$$repo" ]; then \
-			echo "staticcheck-extra: build repo $$repo not present; skipping"; exit 0; \
+		if [ -n "$$repo" ]; then \
+			if [ ! -d "$$repo" ]; then \
+				echo "staticcheck-extra: build repo $$repo not present; skipping"; exit 0; \
+			fi; \
+			if [ -z "$$pkg" ]; then \
+				echo "staticcheck-extra: STATICCHECK_EXTRA_BUILD_PKG not set"; exit 1; \
+			fi; \
+			mkdir -p .make; \
+			out="$(CURDIR)/.make/staticcheck-extra"; \
+			newest_src=$$(find "$$repo" -name "*.go" -newer "$$out" 2>/dev/null | head -1 || true); \
+			if [ ! -x "$$out" ] || [ -n "$$newest_src" ]; then \
+				cd "$$repo" && go build -o "$$out" "$$pkg"; \
+			fi; \
+			exit 0; \
 		fi; \
-		if [ -z "$$pkg" ]; then \
-			echo "staticcheck-extra: STATICCHECK_EXTRA_BUILD_PKG not set"; exit 1; \
-		fi; \
+		if [ -z "$$install" ]; then exit 0; fi; \
 		mkdir -p .make; \
 		out="$(CURDIR)/.make/staticcheck-extra"; \
-		newest_src=$$(find "$$repo" -name "*.go" -newer "$$out" 2>/dev/null | head -1 || true); \
-		if [ ! -x "$$out" ] || [ -n "$$newest_src" ]; then \
-			cd "$$repo" && go build -o "$$out" "$$pkg"; \
-		fi'
+		base=$$(basename "$$install" | sed "s/@.*//"); \
+		gobin=$$(go env GOPATH)/bin; \
+		installed="$$gobin/$$base"; \
+		if [ ! -x "$$installed" ]; then \
+			GOBIN="$$gobin" go install "$$install"; \
+		fi; \
+		ln -sf "$$installed" "$$out"'
 
 staticcheck-extra: staticcheck-extra-bin
 	@bash -eu -o pipefail -c '\
