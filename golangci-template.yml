@@ -1,61 +1,71 @@
 version: "2"
+
+run:
+  timeout: 3m
+
 linters:
   enable:
-    - cyclop
-    - funlen
-    - gocognit
+    - bodyclose
+    - copyloopvar
+    - errcheck
+    - errorlint
+    - gocritic
+    - govet
+    - ineffassign
+    - intrange
     - misspell
-    - revive
+    - modernize
+    - nilerr
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - usetesting
+    - wastedassign
+    - whitespace
   settings:
-    cyclop:
-      max-complexity: 15
-    funlen:
-      lines: 80
-      statements: 50
-    gocognit:
-      min-complexity: 30
-    revive:
-      rules:
-        - name: exported
-        - name: unexported-return
-        - name: blank-imports
-        - name: context-as-argument
-        - name: error-return
-        - name: error-strings
-        - name: increment-decrement
-        - name: var-declaration
-        - name: range
-        - name: receiver-naming
-        - name: indent-error-flow
-        - name: empty-block
-        - name: superfluous-else
-        - name: unreachable-code
+    gocritic:
+      disabled-checks:
+        - singleCaseSwitch
+      enabled-checks:
+        - boolExprSimplify
+        - nilValReturn
   exclusions:
     generated: lax
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - unparam
     presets:
       - comments
       - common-false-positives
       - legacy
       - std-error-handling
     paths:
-      - .*_test.go
+      - vendor
       - gen
       - third_party$
       - builtin$
       - examples$
+
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
+
 formatters:
   enable:
-    - gofmt
     - gofumpt
     - goimports
   exclusions:
     generated: lax
     paths:
-      - .*_test.go
       - gen
       - third_party$
       - builtin$
       - examples$
+
+output:
+  sort-order:
+    - file
