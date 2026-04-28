@@ -58,6 +58,45 @@ Committed per-project. The bootstrap renders `templates/goreleaser.yaml.tmpl` to
 
 ---
 
+### `staticcheck-extra` (optional, plug an external analyzer)
+
+For when `golangci-lint` isn't enough and you want to wire a custom
+analyzer (e.g. a project-specific `multichecker` binary like
+`clyde-staticcheck`) with a baseline-diff gate so only NEW findings
+fail the build.
+
+Project Makefile sets one or both ways to find the binary, plus its
+flags:
+
+```makefile
+# Either point at an existing built binary on $PATH or absolute path:
+STATICCHECK_EXTRA_BIN := /usr/local/bin/clyde-staticcheck
+
+# OR have go.mk build it from a local Go repo on demand:
+STATICCHECK_EXTRA_BUILD_REPO := $(HOME)/Sites/clyde/
+STATICCHECK_EXTRA_BUILD_PKG  := ./cmd/clyde-staticcheck
+
+# Always set:
+STATICCHECK_EXTRA_FLAGS    := -slog_error_without_err -hot_loop_info_log
+STATICCHECK_EXTRA_TARGETS  := ./...                          # default
+STATICCHECK_EXTRA_BASELINE := .staticcheck-extra-baseline.txt # default
+```
+
+Targets:
+
+| Target | Behaviour |
+|---|---|
+| `staticcheck-extra` | Runs analyzer, diffs vs baseline. **NEW** findings fail. **Resolved** findings just print a hint. |
+| `staticcheck-extra-baseline` | Refresh the baseline file with current findings. Commit the baseline. |
+| `staticcheck-extra-bin` | Internal. Resolves or builds the analyzer binary. |
+
+Wired into `check` automatically. Passes silently when not configured.
+
+Document each baseline entry in a `STATICCHECK-NOTES.md` so the next
+person does not try to "fix" intentional exceptions.
+
+---
+
 ## CI / releases
 
 ### Wire up CI
