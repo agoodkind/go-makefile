@@ -73,8 +73,23 @@ STATICCHECK_EXTRA_BIN           ?=
 STATICCHECK_EXTRA_BUILD_REPO    ?=
 STATICCHECK_EXTRA_BUILD_PKG     ?=
 STATICCHECK_EXTRA_INSTALL       ?= github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest
-STATICCHECK_EXTRA_FLAGS         ?= -slog_error_without_err -banned_direct_output \
-	-hot_loop_info_log -missing_boundary_log -no_any_or_empty_interface
+STATICCHECK_EXTRA_FLAGS         ?= \
+	-slog_error_without_err \
+	-banned_direct_output \
+	-hot_loop_info_log \
+	-missing_boundary_log \
+	-no_any_or_empty_interface \
+	-wrapped_error_without_slog \
+	-os_exit_outside_main \
+	-context_todo_in_production \
+	-time_sleep_in_production \
+	-panic_in_production \
+	-time_now_outside_clock \
+	-goroutine_without_recover \
+	-silent_defer_close \
+	-slog_missing_trace_id \
+	-grpc_handler_missing_peer_enrichment \
+	-sensitive_field_in_log
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
 STATICCHECK_EXTRA_EXCLUDE_PATHS ?=

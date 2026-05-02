@@ -11,7 +11,7 @@ package staticcheck
 
 import "golang.org/x/tools/go/analysis"
 
-// Analyzers returns the 5 custom AST analyzers in this set.
+// Analyzers returns all custom AST analyzers in this set.
 func Analyzers() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
 		SlogErrorWithoutErrAnalyzer,
@@ -19,5 +19,16 @@ func Analyzers() []*analysis.Analyzer {
 		HotLoopInfoLogAnalyzer,
 		MissingBoundaryLogAnalyzer,
 		NoAnyOrEmptyInterfaceAnalyzer,
+		WrappedErrorWithoutSlogAnalyzer,
+		OsExitOutsideMainAnalyzer,
+		ContextTODOAnalyzer,
+		TimeSleepInProductionAnalyzer,
+		PanicInProductionAnalyzer,
+		TimeNowOutsideClockAnalyzer,
+		GoroutineWithoutRecoverAnalyzer,
+		SilentDeferCloseAnalyzer,
+		SlogMissingTraceIDAnalyzer,
+		GrpcHandlerWithoutPeerEnrichmentAnalyzer,
+		SensitiveFieldInLogAnalyzer,
 	}
 }
