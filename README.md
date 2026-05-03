@@ -5,9 +5,9 @@ Shared Go build targets and reusable GitHub Actions workflows for all `agoodkind
 ## What's in here
 
 | File | Purpose |
-|------|---------|
+| ---- | ------- |
 | `go.mk` | Shared Makefile targets (see file for full list) |
-| `golangci-template.yml` | Canonical golangci-lint config (projects extend this) |
+| `golangci-template.yml` | Canonical golangci-lint v2 config (projects extend this) |
 | `templates/goreleaser.yaml.tmpl` | Canonical goreleaser template (bootstrap fills in binary name) |
 | `bootstrap.sh` | One-time project setup script |
 | `.github/workflows/_ci.yml` | Reusable CI workflow |
@@ -24,10 +24,13 @@ curl -fsSL https://raw.githubusercontent.com/agoodkind/go-makefile/main/bootstra
 ```
 
 This creates:
+
 - `Makefile`, with runtime-fetch `go.mk` bootstrap + project-specific targets
 - `.golangci.yml`, extends the shared lint config
 - `.goreleaser.yaml`, filled in with the inferred binary name
 - `.gitignore` entry for `.make/`
+
+Generated `Makefile` files opt into every bundled `staticcheck-extra` analyzer and make `build` depend on `lint` before compiling.
 
 Skips any file that already exists. Fails clearly if `go.mod` is missing.
 
@@ -37,9 +40,17 @@ Skips any file that already exists. Fails clearly if `go.mod` is missing.
 
 ### `go.mk`
 
-Fetched at runtime into `.make/go.mk`, never committed. Any `make` target on a fresh clone auto-bootstraps via curl with a `~/.cache/go-makefile/go.mk` fallback. Run `make sync` to force-update.
+Fetched at runtime into `.make/go.mk`, never committed. Any `make` target on a fresh clone auto-bootstraps via curl with a `~/.cache/go-makefile/go.mk` fallback. Run `make update-go-mk` or `make go-mk-sync` to force-update.
 
 Run `make help` or read `go.mk` directly for the current target list. Default goal is `check` (full battery).
+
+The shared lint flow is:
+
+- `make lint-tools` installs `golangci-lint`, `gofumpt`, and `goimports`
+- `make lint` runs `golangci-lint run ./...`, the configured GolangCI formatters in diff mode, and `staticcheck-extra`
+- `make fmt` applies the configured GolangCI formatters
+- `make check` runs `build`, `vet`, `lint`, `test`, and `govulncheck`
+- bootstrapped repos override `build` so `make build` runs `lint` before `go build`
 
 ### `.golangci.yml`
 
@@ -50,7 +61,7 @@ extends:
   - https://raw.githubusercontent.com/agoodkind/go-makefile/main/golangci-template.yml
 ```
 
-Add project-specific overrides below the `extends` line.
+The shared template uses GolangCI-Lint v2 `linters.default: all`, then narrows behavior with explicit disables, exclusions, and formatter settings so intentionally noisy style rules stay opt-out by default. Add project-specific overrides below the `extends` line.
 
 ### `.goreleaser.yaml`
 
@@ -60,28 +71,39 @@ Committed per-project. The bootstrap renders `templates/goreleaser.yaml.tmpl` to
 
 ### `staticcheck-extra` (bundled AST analyzer set)
 
-A small AST analyzer set ships in this repo at `staticcheck/`. It enforces
-boundary logging, structured slog hygiene, and type discipline. Five
-analyzers (all enabled by default):
+A small AST analyzer set ships in this repo at `staticcheck/`. It enforces boundary logging, structured slog hygiene, and type discipline. Sixteen analyzers are enabled by default:
 
 | Flag | What it catches |
-|---|---|
-| `-missing_boundary_log` | `main()` functions missing a structured slog event |
-| `-slog_error_without_err` | error-level slog calls without an `err` field |
+| ---- | --------------- |
+| `-slog_error_without_err` | Error-level slog calls without an `err` field |
 | `-banned_direct_output` | `fmt.Print*`, stdlib `log.Print/Fatal/Panic` in production code |
 | `-hot_loop_info_log` | Info-level slog inside `for`/`range` loops |
-| `-no_any_or_empty_interface` | exported types/funcs using `any`/`interface{}` |
+| `-missing_boundary_log` | `main()` functions missing a structured slog event |
+| `-no_any_or_empty_interface` | Exported types and funcs using `any` or `interface{}` |
+| `-wrapped_error_without_slog` | Wrapped errors returned without a nearby structured error log |
+| `-os_exit_outside_main` | `os.Exit` calls outside `main()` |
+| `-context_todo_in_production` | `context.TODO()` in non-test, non-generated code |
+| `-time_sleep_in_production` | `time.Sleep` in non-test, non-generated code |
+| `-panic_in_production` | `panic` in non-test, non-generated code |
+| `-time_now_outside_clock` | `time.Now()` outside accepted clock boundaries |
+| `-goroutine_without_recover` | Goroutines launched without a recovery wrapper |
+| `-silent_defer_close` | Deferred `Close()` calls that discard errors silently |
+| `-slog_missing_trace_id` | Structured logs missing trace identifiers |
+| `-grpc_handler_missing_peer_enrichment` | gRPC handlers that do not enrich logs with peer details |
+| `-sensitive_field_in_log` | Structured logs that include fields likely to carry secrets |
 
-Default behaviour: pulled via `go install github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest`,
-all 5 analyzers enabled. **Zero project Makefile setup required.**
+Default behaviour: pulled via `go install github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest`, with the 5 core analyzers enabled by default. Bootstrapped repos set `STATICCHECK_EXTRA_FLAGS = $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)` to opt into all 16 bundled analyzers. Zero project Makefile setup is required.
 
 Per-project overrides:
 
 ```makefile
-# Pick a different analyzer subset (default enables all 5):
+# Pick a different analyzer subset (default enables the 5 core analyzers):
 STATICCHECK_EXTRA_FLAGS := -slog_error_without_err -hot_loop_info_log
 
-# Pin to a specific commit/tag/branch instead of @latest:
+# Opt into every bundled analyzer:
+STATICCHECK_EXTRA_FLAGS = $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
+
+# Pin to a specific commit, tag, or branch instead of @latest:
 STATICCHECK_EXTRA_INSTALL := github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@v0.1.0
 
 # Bring your own analyzer binary:
@@ -99,15 +121,14 @@ STATICCHECK_EXTRA_BASELINE := .staticcheck-extra-baseline.txt # default
 Targets:
 
 | Target | Behaviour |
-|---|---|
-| `staticcheck-extra` | Runs analyzer, diffs vs baseline. **NEW** findings fail. **Resolved** findings just print a hint. |
-| `staticcheck-extra-baseline` | Refresh the baseline file with current findings. Commit the baseline. |
+| ------ | --------- |
+| `staticcheck-extra` | Runs the custom analyzer set, diffs vs baseline, and fails on new findings. Resolved findings only print a refresh hint. |
+| `staticcheck-extra-baseline` | Refreshes `.staticcheck-extra-baseline.txt` with current findings. Commit the baseline only when remaining findings are intentional. |
 | `staticcheck-extra-bin` | Internal. Resolves or builds the analyzer binary. |
 
-Wired into `check` automatically. Passes silently when not configured.
+`make lint` and `make check` both include `staticcheck-extra` automatically.
 
-Document each baseline entry in a `STATICCHECK-NOTES.md` so the next
-person does not try to "fix" intentional exceptions.
+Document each baseline entry in a `STATICCHECK-NOTES.md` so the next person does not try to “fix” an intentional exception. When findings are resolved, refresh the baseline with `make staticcheck-extra-baseline` and commit the updated file.
 
 ---
 
@@ -127,7 +148,7 @@ jobs:
     uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
 ```
 
-Runs the full check suite plus a GoReleaser config validation.
+The reusable workflow runs a dedicated lint job, build and test, `go vet`, `govulncheck`, and a GoReleaser config validation.
 
 ### Wire up releases
 

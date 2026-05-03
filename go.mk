@@ -1,12 +1,16 @@
-.PHONY: lint fmt vet test govulncheck check release go-mk-sync \
-	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-bin
+.PHONY: lint lint-tools lint-golangci lint-format fmt vet test govulncheck check \
+	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-bin \
+	release go-mk-sync
 
 GO_MK_URL   := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
 GO_MK_CACHE := $(HOME)/.cache/go-makefile/go.mk
 
-GOLANGCI_LINT ?= golangci-lint
-GOFUMPT       ?= gofumpt
-GOIMPORTS     ?= goimports
+GOLANGCI_LINT         ?= golangci-lint
+GOFUMPT               ?= gofumpt
+GOIMPORTS             ?= goimports
+GOLANGCI_LINT_INSTALL ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
+GOFUMPT_INSTALL       ?= mvdan.cc/gofumpt@v0.9.2
+GOIMPORTS_INSTALL     ?= golang.org/x/tools/cmd/goimports@v0.44.0
 
 ifndef CMD
 .PHONY: build
@@ -14,12 +18,27 @@ build:
 	go build ./...
 endif
 
-lint:
+lint: lint-tools lint-golangci lint-format staticcheck-extra
+
+lint-tools:
+	go install $(GOLANGCI_LINT_INSTALL)
+	go install $(GOFUMPT_INSTALL)
+	go install $(GOIMPORTS_INSTALL)
+
+lint-golangci:
 	$(GOLANGCI_LINT) run ./...
 
-fmt:
-	$(GOFUMPT) -w .
-	$(GOIMPORTS) -w .
+lint-format:
+	@diff_output=$$($(GOLANGCI_LINT) fmt --diff ./...); \
+	if [ -n "$$diff_output" ]; then \
+		echo "golangci-lint formatters need to update:"; \
+		printf '%s\n' "$$diff_output"; \
+		echo "run make fmt"; \
+		exit 1; \
+	fi
+
+fmt: lint-tools
+	$(GOLANGCI_LINT) fmt ./...
 
 vet:
 	go vet ./...
@@ -31,7 +50,7 @@ govulncheck:
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 	govulncheck ./...
 
-check: build vet lint test govulncheck staticcheck-extra
+check: build vet lint test govulncheck
 
 # ---------------------------------------------------------------------------
 # staticcheck-extra: AST analyzer pass with a baseline-diff gate so only NEW
@@ -73,12 +92,13 @@ STATICCHECK_EXTRA_BIN           ?=
 STATICCHECK_EXTRA_BUILD_REPO    ?=
 STATICCHECK_EXTRA_BUILD_PKG     ?=
 STATICCHECK_EXTRA_INSTALL       ?= github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest
-STATICCHECK_EXTRA_FLAGS         ?= \
+STATICCHECK_EXTRA_CORE_FLAGS    ?= \
 	-slog_error_without_err \
 	-banned_direct_output \
 	-hot_loop_info_log \
 	-missing_boundary_log \
-	-no_any_or_empty_interface \
+	-no_any_or_empty_interface
+STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-wrapped_error_without_slog \
 	-os_exit_outside_main \
 	-context_todo_in_production \
@@ -90,6 +110,7 @@ STATICCHECK_EXTRA_FLAGS         ?= \
 	-slog_missing_trace_id \
 	-grpc_handler_missing_peer_enrichment \
 	-sensitive_field_in_log
+STATICCHECK_EXTRA_FLAGS         ?= $(STATICCHECK_EXTRA_CORE_FLAGS)
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
 STATICCHECK_EXTRA_EXCLUDE_PATHS ?=

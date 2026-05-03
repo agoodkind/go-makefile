@@ -6,7 +6,9 @@ GO_MK_CACHE := $(HOME)/.cache/go-makefile/go.mk
 BINARY := [[.Binary]]
 CMD    := [[.Cmd]]
 
-[[end]]
+[[- end]]
+STATICCHECK_EXTRA_FLAGS = $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
+
 $(GO_MK):
 	@mkdir -p $(dir $@)
 	@if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$@"; then \
@@ -37,7 +39,7 @@ update-go-mk:
 
 .PHONY: build deploy clean
 
-build:
+build: lint
 	go build $(CMD)
 
 deploy:
@@ -46,5 +48,7 @@ deploy:
 clean:
 	rm -f $(BINARY)
 [[else]]
-# The build target comes from go.mk. Check, fmt, lint, test, vet, and govulncheck do too.
+.PHONY: build
+build: lint
+	go build ./...
 [[end]]

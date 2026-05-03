@@ -346,4 +346,4 @@ if [ "$LAYOUT" = "binary" ]; then
 fi
 
 echo ""
-echo "done. next: make"
+echo "done. next: make lint"

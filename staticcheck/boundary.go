@@ -25,7 +25,7 @@ func runMissingBoundaryLog(pass *analysis.Pass) (any, error) {
 		}
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil || !isBoundaryFunction(path, fn) {
+			if !ok || fn.Body == nil || !isBoundaryFunction(fn) {
 				continue
 			}
 			if !functionHasBoundaryLog(fn) {
@@ -36,7 +36,7 @@ func runMissingBoundaryLog(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-func isBoundaryFunction(path string, fn *ast.FuncDecl) bool {
+func isBoundaryFunction(fn *ast.FuncDecl) bool {
 	return fn.Name.Name == "main"
 }
 
