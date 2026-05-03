@@ -46,3 +46,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEX_RUN: ${{ steps.tag.outputs.hex_run }}
+          APPLE_DEVELOPER_ID_CERT: ${{ secrets.APPLE_DEVELOPER_ID_CERT }}
+          APPLE_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
+          APPLE_NOTARYTOOL_ISSUER_ID: ${{ secrets.APPLE_NOTARYTOOL_ISSUER_ID }}
+          APPLE_NOTARYTOOL_KEY_ID: ${{ secrets.APPLE_NOTARYTOOL_KEY_ID }}
+          APPLE_NOTARYTOOL_KEY: ${{ secrets.APPLE_NOTARYTOOL_KEY }}

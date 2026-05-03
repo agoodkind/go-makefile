@@ -1,5 +1,5 @@
 .PHONY: build build-root build-staticcheck \
-	lint lint-root lint-staticcheck lint-tools lint-format \
+	lint lint-root lint-staticcheck lint-tools lint-format lint-gocyclo \
 	fmt vet vet-root vet-staticcheck test test-root test-staticcheck \
 	govulncheck govulncheck-root govulncheck-staticcheck \
 	staticcheck-extra staticcheck-extra-root staticcheck-extra-staticcheck \
@@ -20,7 +20,7 @@ build-root:
 build-staticcheck:
 	$(MAKE) -C staticcheck -f ../$(GO_MK) build
 
-lint: lint-tools lint-root lint-format staticcheck-extra lint-staticcheck
+lint: lint-tools lint-root lint-format lint-gocyclo staticcheck-extra lint-staticcheck
 
 lint-root:
 	$(GOLANGCI_LINT) run -c golangci-template.yml .
@@ -33,6 +33,9 @@ lint-tools:
 
 lint-format:
 	$(GOLANGCI_LINT) fmt --diff -c golangci-template.yml .
+
+lint-gocyclo:
+	$(MAKE) -f $(GO_MK) lint-gocyclo
 
 fmt:
 	$(GOLANGCI_LINT) fmt -c golangci-template.yml .

@@ -47,7 +47,7 @@ Run `make help` or read `go.mk` directly for the current target list. Default go
 The shared lint flow is:
 
 - `make lint-tools` installs `golangci-lint`, `gofumpt`, and `goimports`
-- `make lint` runs `golangci-lint run ./...`, the configured GolangCI formatters in diff mode, and `staticcheck-extra`
+- `make lint` runs `golangci-lint run ./...`, the configured GolangCI formatters in diff mode, `go tool gocyclo -over 40 .`, and `staticcheck-extra`
 - `make fmt` applies the configured GolangCI formatters
 - `make check` runs `build`, `vet`, `lint`, `test`, and `govulncheck`
 - bootstrapped repos override `build` so `make build` runs `lint` before `go build`
@@ -183,3 +183,5 @@ jobs:
 ```
 
 Every push to `main` creates a release tagged `YYYYMMDDHHmm-<hex-build>-<short-sha>`.
+
+The release template signs and notarizes macOS binaries through GoReleaser when Apple secrets are present. Configure `APPLE_DEVELOPER_ID_CERT`, `APPLE_DEVELOPER_ID_CERT_PASSWORD`, `APPLE_NOTARYTOOL_ISSUER_ID`, `APPLE_NOTARYTOOL_KEY_ID`, and `APPLE_NOTARYTOOL_KEY` as GitHub Actions secrets for CI. Copy `notarize.env.example` to `notarize.env` for local `make release` runs.
