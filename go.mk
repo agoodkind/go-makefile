@@ -86,7 +86,9 @@ check: build vet lint test govulncheck
 #   - Excluded lines are dropped before baseline comparison.
 #   - Findings are diffed against the baseline. NEW findings exit non-zero.
 #     RESOLVED findings print a hint to refresh the baseline but don't fail.
-#   - `make staticcheck-extra-baseline` re-captures the current findings.
+#   - `make staticcheck-extra-baseline` re-captures the current findings and
+#     records generated_at for the file plus first_added and last_seen UTC
+#     timestamps for each entry.
 # ---------------------------------------------------------------------------
 STATICCHECK_EXTRA_BIN           ?=
 STATICCHECK_EXTRA_BUILD_REPO    ?=
@@ -178,7 +180,17 @@ staticcheck-extra: staticcheck-extra-bin
 		if [ ! -f "$(STATICCHECK_EXTRA_BASELINE)" ]; then \
 			touch "$(STATICCHECK_EXTRA_BASELINE)"; \
 		fi; \
-		new=$$(comm -23 .make/staticcheck-extra.out "$(STATICCHECK_EXTRA_BASELINE)" || true); \
+		tab=$$(printf "\t"); \
+		metadata_prefix="$${tab}# staticcheck-extra:"; \
+		baseline_findings() { \
+			while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
+				case "$$baseline_line" in ""|\#*) continue ;; esac; \
+				finding="$${baseline_line%%$${metadata_prefix}*}"; \
+				[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
+			done < "$(STATICCHECK_EXTRA_BASELINE)" | sort; \
+		}; \
+		baseline_findings > .make/staticcheck-extra.baseline.out; \
+		new=$$(comm -23 .make/staticcheck-extra.out .make/staticcheck-extra.baseline.out || true); \
 		if [ -n "$$new" ]; then \
 			echo "NEW staticcheck-extra findings (not in baseline):"; \
 			echo "$$new"; \
@@ -187,7 +199,7 @@ staticcheck-extra: staticcheck-extra-bin
 			echo "  make staticcheck-extra-baseline"; \
 			exit 1; \
 		fi; \
-		gone=$$(comm -13 .make/staticcheck-extra.out "$(STATICCHECK_EXTRA_BASELINE)" || true); \
+		gone=$$(comm -13 .make/staticcheck-extra.out .make/staticcheck-extra.baseline.out || true); \
 		if [ -n "$$gone" ]; then \
 			echo "RESOLVED staticcheck-extra findings (please refresh baseline):"; \
 			echo "$$gone"; \
@@ -202,6 +214,7 @@ staticcheck-extra-baseline: staticcheck-extra-bin
 		if [ -z "$$bin" ] || [ ! -x "$$bin" ]; then \
 			echo "staticcheck-extra: not configured; cannot refresh baseline"; exit 1; \
 		fi; \
+		mkdir -p .make "$$(dirname "$(STATICCHECK_EXTRA_BASELINE)")"; \
 		excludes="$(STATICCHECK_EXTRA_EXCLUDE_PATHS)"; \
 		filter() { \
 			if [ -z "$$excludes" ]; then cat; return; fi; \
@@ -209,15 +222,43 @@ staticcheck-extra-baseline: staticcheck-extra-bin
 			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat"; fi; \
 		}; \
 		"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS) 2>&1 \
-			| sed "s|$(CURDIR)/||g" | filter | sort > "$(STATICCHECK_EXTRA_BASELINE)"; \
-		n=$$(wc -l < "$(STATICCHECK_EXTRA_BASELINE)"); \
+			| sed "s|$(CURDIR)/||g" | filter | sort > .make/staticcheck-extra.out || true; \
+		if [ ! -f "$(STATICCHECK_EXTRA_BASELINE)" ]; then \
+			touch "$(STATICCHECK_EXTRA_BASELINE)"; \
+		fi; \
+		now=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
+		tab=$$(printf "\t"); \
+		metadata_prefix="$${tab}# staticcheck-extra:"; \
+		tmp=".make/staticcheck-extra-baseline.tmp"; \
+		printf "# staticcheck-extra: generated_at=%s\n" "$$now" > "$$tmp"; \
+		while IFS= read -r finding || [ -n "$$finding" ]; do \
+			first_added=""; \
+			while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
+				case "$$baseline_line" in ""|\#*) continue ;; esac; \
+				baseline_finding="$${baseline_line%%$${metadata_prefix}*}"; \
+				[ "$$baseline_finding" = "$$finding" ] || continue; \
+				metadata="$${baseline_line#*$${metadata_prefix}}"; \
+				if [ "$$metadata" != "$$baseline_line" ]; then \
+					for metadata_field in $$metadata; do \
+						case "$$metadata_field" in first_added=*) first_added="$${metadata_field#first_added=}" ;; esac; \
+					done; \
+				fi; \
+				break; \
+			done < "$(STATICCHECK_EXTRA_BASELINE)"; \
+			if [ -z "$$first_added" ]; then \
+				first_added="$$now"; \
+			fi; \
+			printf "%s\t# staticcheck-extra:first_added=%s last_seen=%s\n" "$$finding" "$$first_added" "$$now" >> "$$tmp"; \
+		done < .make/staticcheck-extra.out; \
+		mv "$$tmp" "$(STATICCHECK_EXTRA_BASELINE)"; \
+		n=$$(wc -l < .make/staticcheck-extra.out); \
 		echo "staticcheck-extra: baseline $(STATICCHECK_EXTRA_BASELINE) refreshed ($$n findings)"'
 
 # Local release with notarization. Requires notarize.env (gitignored).
 # Copy notarize.env.example to notarize.env and fill in your 1Password paths.
 release:
 	@[ -f notarize.env ] || { echo "notarize.env not found. Copy notarize.env.example and fill in your 1Password op:// paths."; exit 1; }
-	op run --env-file=notarize.env -- goreleaser release --clean
+	op run --env-file=notarize.env "$$(printf '%s%s' - -)" goreleaser release --clean
 
 # Renamed from 'sync' to avoid conflicts with project-level Makefile sync targets.
 go-mk-sync:

@@ -123,10 +123,19 @@ Targets:
 | Target | Behaviour |
 | ------ | --------- |
 | `staticcheck-extra` | Runs the custom analyzer set, diffs vs baseline, and fails on new findings. Resolved findings only print a refresh hint. |
-| `staticcheck-extra-baseline` | Refreshes `.staticcheck-extra-baseline.txt` with current findings. Commit the baseline only when remaining findings are intentional. |
+| `staticcheck-extra-baseline` | Refreshes `.staticcheck-extra-baseline.txt` with current findings and writes `first_added` and `last_seen` UTC timestamps for each finding. Commit the baseline only when remaining findings are intentional. |
 | `staticcheck-extra-bin` | Internal. Resolves or builds the analyzer binary. |
 
 `make lint` and `make check` both include `staticcheck-extra` automatically.
+
+The baseline starts with a generated-at header, and each baseline entry keeps the analyzer output before a tab-separated metadata suffix, for example:
+
+```text
+# staticcheck-extra: generated_at=2026-05-03T18:30:00Z
+path/to/file.go:10:2: message<TAB># staticcheck-extra:first_added=2026-05-03T18:30:00Z last_seen=2026-05-03T18:30:00Z
+```
+
+The `staticcheck-extra` gate compares only the analyzer output portion, so refreshing `last_seen` does not create a new finding.
 
 Document each baseline entry in a `STATICCHECK-NOTES.md` so the next person does not try to “fix” an intentional exception. When findings are resolved, refresh the baseline with `make staticcheck-extra-baseline` and commit the updated file.
 

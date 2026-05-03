@@ -3,6 +3,8 @@
 	fmt vet vet-root vet-staticcheck test test-root test-staticcheck \
 	govulncheck govulncheck-root govulncheck-staticcheck \
 	staticcheck-extra staticcheck-extra-root staticcheck-extra-staticcheck \
+	staticcheck-extra-baseline staticcheck-extra-baseline-root \
+	staticcheck-extra-baseline-staticcheck \
 	check
 
 GO_MK := go.mk
@@ -67,5 +69,13 @@ staticcheck-extra-root:
 
 staticcheck-extra-staticcheck:
 	$(MAKE) -C staticcheck -f ../$(GO_MK) staticcheck-extra
+
+staticcheck-extra-baseline: staticcheck-extra-baseline-root staticcheck-extra-baseline-staticcheck
+
+staticcheck-extra-baseline-root:
+	$(MAKE) -f $(GO_MK) staticcheck-extra-baseline
+
+staticcheck-extra-baseline-staticcheck:
+	$(MAKE) -C staticcheck -f ../$(GO_MK) staticcheck-extra-baseline
 
 check: build vet lint test govulncheck
