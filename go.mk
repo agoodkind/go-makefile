@@ -1,4 +1,5 @@
-.PHONY: lint lint-tools lint-golangci lint-golangci-baseline lint-format lint-gocyclo fmt vet test govulncheck build-check check \
+.PHONY: build deploy clean help \
+	lint lint-tools lint-golangci lint-golangci-baseline lint-format lint-gocyclo fmt vet test govulncheck build-check check \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-bin \
 	release go-mk-sync
 
@@ -11,17 +12,49 @@ GOLANGCI_LINT_FLAGS    ?=
 GOLANGCI_LINT_BASELINE ?= .golangci-lint-baseline.txt
 GOFUMPT                ?= gofumpt
 GOIMPORTS              ?= goimports
-GOCYCLO_OVER          ?= 40
-GOLANGCI_LINT_INSTALL ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
-GOFUMPT_INSTALL       ?= mvdan.cc/gofumpt@v0.9.2
-GOIMPORTS_INSTALL     ?= golang.org/x/tools/cmd/goimports@v0.44.0
-BUILD_CHECKS          ?= true
+GOCYCLO_OVER           ?= 50
+GOCYCLO_TARGETS        ?= .
+GOLANGCI_LINT_INSTALL  ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
+GOFUMPT_INSTALL        ?= mvdan.cc/gofumpt@v0.9.2
+GOIMPORTS_INSTALL      ?= golang.org/x/tools/cmd/goimports@v0.44.0
+GO_BUILD_OUTPUT        ?= $(if $(strip $(CMD)),$(BINARY),)
+GO_BUILD_FLAGS         ?=
+GO_BUILD_OUTPUT_FLAGS  ?= $(if $(strip $(GO_BUILD_OUTPUT)),-o $(GO_BUILD_OUTPUT),)
+GO_BUILD_TARGETS       ?= $(if $(strip $(CMD)),$(CMD),./...)
+GO_TEST_TARGETS        ?= ./...
+GO_VET_TARGETS         ?= ./...
+GOVULNCHECK_TARGETS    ?= ./...
+GO_INSTALL_FLAGS       ?= $(GO_BUILD_FLAGS)
+GO_INSTALL_TARGET      ?= $(CMD)
+BUILD_CHECKS           ?= true
 
-ifndef CMD
-.PHONY: build
-build: $(default-build-deps)
-	go build ./...
+ifeq ($(BUILD_CHECKS),true)
+default-build-deps := build-check
+else
+default-build-deps :=
 endif
+
+build: $(default-build-deps)
+	go build $(GO_BUILD_OUTPUT_FLAGS) $(GO_BUILD_FLAGS) $(GO_BUILD_TARGETS)
+
+deploy:
+	@if [ -z "$(strip $(GO_INSTALL_TARGET))" ]; then echo "deploy: GO_INSTALL_TARGET is not set" >&2; exit 1; fi
+	go install $(GO_INSTALL_FLAGS) $(GO_INSTALL_TARGET)
+
+clean:
+	@if [ -z "$(strip $(BINARY))" ]; then echo "clean: BINARY is not set (skipped)"; exit 0; fi
+	rm -f $(BINARY)
+
+help:
+	@printf '%s\n' 'Common targets:'
+	@printf '  %-28s %s\n' 'build' 'run build-check, then go build $$(GO_BUILD_TARGETS)'
+	@printf '  %-28s %s\n' 'test' 'go test $$(GO_TEST_TARGETS)'
+	@printf '  %-28s %s\n' 'lint' 'install lint tools and run all lint gates'
+	@printf '  %-28s %s\n' 'build-check' 'run vet, lint, and govulncheck'
+	@printf '  %-28s %s\n' 'check' 'run build, then test'
+	@printf '  %-28s %s\n' 'fmt' 'apply configured golangci formatters'
+	@printf '  %-28s %s\n' 'deploy' 'go install $$(GO_INSTALL_TARGET)'
+	@printf '  %-28s %s\n' 'go-mk-sync' 'refresh $$(GO_MK) and $$(GO_MK_CACHE)'
 
 lint: lint-tools lint-golangci lint-format lint-gocyclo staticcheck-extra
 
@@ -117,26 +150,22 @@ lint-format:
 	fi
 
 lint-gocyclo:
-	go tool gocyclo -over $(GOCYCLO_OVER) .
+	go tool gocyclo -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS)
 
 fmt: lint-tools
 	$(GOLANGCI_LINT) fmt $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS)
 
 vet:
-	go vet ./...
+	go vet $(GO_VET_TARGETS)
 
 test:
-	go test ./...
+	go test $(GO_TEST_TARGETS)
 
 govulncheck:
 	go install golang.org/x/vuln/cmd/govulncheck@latest
-	govulncheck ./...
+	govulncheck $(GOVULNCHECK_TARGETS)
 
 build-check: vet lint govulncheck
-
-ifeq ($(BUILD_CHECKS),true)
-default-build-deps := build-check
-endif
 
 check: build test
 
@@ -157,7 +186,7 @@ check: build test
 #
 # Optional knobs:
 #   STATICCHECK_EXTRA_FLAGS         args passed to the analyzer (default
-#                                   enables all 5 bundled checks)
+#                                   enables every bundled check)
 #   STATICCHECK_EXTRA_TARGETS       packages to analyze         (default ./...)
 #   STATICCHECK_EXTRA_BASELINE      baseline file               (default .staticcheck-extra-baseline.txt)
 #   STATICCHECK_EXTRA_EXCLUDE_PATHS comma-separated grep -E patterns matched
@@ -203,7 +232,7 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-grpc_handler_missing_peer_enrichment \
 	-sensitive_field_in_log \
 	-nolint_ban
-STATICCHECK_EXTRA_FLAGS         ?= $(STATICCHECK_EXTRA_CORE_FLAGS)
+STATICCHECK_EXTRA_FLAGS         ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
 STATICCHECK_EXTRA_EXCLUDE_PATHS ?=
@@ -238,7 +267,7 @@ staticcheck-extra-bin:
 			base=$$(basename "$$install" | sed "s/@.*//"); \
 			gobin=$$(go env GOPATH)/bin; \
 			installed="$$gobin/$$base"; \
-			GOBIN="$$gobin" go install "$$install"; \
+			GOPROXY=direct GONOSUMDB=github.com/agoodkind/go-makefile,github.com/agoodkind/go-makefile/staticcheck GOBIN="$$gobin" go install "$$install"; \
 			ln -sf "$$installed" "$(CURDIR)/.make/staticcheck-extra"; \
 		}; \
 		if [ -n "$$bin" ]; then \
