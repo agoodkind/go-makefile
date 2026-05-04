@@ -25,12 +25,12 @@ curl -fsSL https://raw.githubusercontent.com/agoodkind/go-makefile/main/bootstra
 
 This creates:
 
-- `Makefile`, with runtime-fetch `go.mk` bootstrap + project-specific targets
+- `Makefile`, with parse-time `go.mk` fetch, cache fallback, and project identity variables
 - `.golangci.yml`, extends the shared lint config
 - `.goreleaser.yaml`, filled in with the inferred binary name
 - `.gitignore` entry for `.make/`
 
-Generated `Makefile` files opt into every bundled `staticcheck-extra` analyzer and make `build` run the full non-test quality gate before compiling.
+Generated `Makefile` files stay intentionally small. They set `BINARY` and `CMD` for binary repos, include the shared `go.mk`, and otherwise inherit the canonical build, deploy, clean, lint, baseline, and check targets.
 
 Skips any file that already exists. Fails clearly if `go.mod` is missing.
 
@@ -40,7 +40,7 @@ Skips any file that already exists. Fails clearly if `go.mod` is missing.
 
 ### `go.mk`
 
-Fetched at runtime into `.make/go.mk`, never committed. Any `make` target on a fresh clone auto-bootstraps via curl with a `~/.cache/go-makefile/go.mk` fallback. Run `make update-go-mk` or `make go-mk-sync` to force-update.
+Fetched into `.make/go.mk` before every Makefile parse, never committed. Every `make` invocation attempts to pull the latest remote `go.mk` with curl, updates `~/.cache/go-makefile/go.mk` on success, and falls back to the cached copy only when the remote is unavailable. Run `make update-go-mk` or `make go-mk-sync` to force the same refresh explicitly.
 
 Run `make help` or read `go.mk` directly for the current target list. Default goal is `check` (full battery).
 
@@ -49,12 +49,30 @@ The shared lint flow is:
 - `make lint-tools` installs `golangci-lint`, `gofumpt`, and `goimports`
 - `make lint-golangci` runs `golangci-lint run ./...`, diffs findings against `.golangci-lint-baseline.txt`, and fails only on new findings
 - `make lint-golangci-baseline` refreshes `.golangci-lint-baseline.txt` with current findings and `first_added` / `last_seen` timestamps
-- `make lint` runs baseline-gated `golangci-lint`, the configured GolangCI formatters in diff mode, `go tool gocyclo -over 40 .`, and `staticcheck-extra`
+- `make lint` runs baseline-gated `golangci-lint`, the configured GolangCI formatters in diff mode, `go tool gocyclo -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS)`, and `staticcheck-extra`
 - `make fmt` applies the configured GolangCI formatters
 - `make build-check` runs the full non-test quality gate: `vet`, `lint`, and `govulncheck`
-- `make build` runs `build-check`, then compiles
+- `make build` runs `build-check`, then `go build $(GO_BUILD_OUTPUT_FLAGS) $(GO_BUILD_FLAGS) $(GO_BUILD_TARGETS)`
+- `make deploy` runs `go install $(GO_INSTALL_FLAGS) $(GO_INSTALL_TARGET)` and requires `GO_INSTALL_TARGET` or `CMD`
+- `make clean` removes `$(BINARY)` when `BINARY` is set
 - `make check` runs `build`, then `test`
-- bootstrapped repos override `build` so `make build` still runs the shared non-test quality gate before `go build`
+
+The shared build flow is configured through variables instead of project-local target overrides:
+
+```makefile
+BINARY               := mycmd                         # optional; used by GO_BUILD_OUTPUT and clean
+CMD                  := ./cmd/mycmd                   # optional; sets default build/install target
+GO_BUILD_OUTPUT      := $(BINARY)                     # default when CMD is set; set empty to omit -o
+GO_BUILD_OUTPUT_FLAGS := -o $(GO_BUILD_OUTPUT)        # default when GO_BUILD_OUTPUT is set
+GO_BUILD_FLAGS       := -tags fdb                     # optional; used by build and install
+GO_BUILD_TARGETS     := ./cmd/server                  # default: $(CMD), else ./...
+GO_TEST_TARGETS      := ./...                         # default
+GO_VET_TARGETS       := ./...                         # default
+GOVULNCHECK_TARGETS  := ./...                         # default
+GO_INSTALL_FLAGS     := $(GO_BUILD_FLAGS)             # default
+GO_INSTALL_TARGET    := $(CMD)                        # default
+BUILD_CHECKS         := true                          # default; build depends on build-check
+```
 
 ### `.golangci.yml`
 
@@ -65,7 +83,7 @@ extends:
   - https://raw.githubusercontent.com/agoodkind/go-makefile/main/golangci-template.yml
 ```
 
-The shared template uses GolangCI-Lint v2 `linters.default: all`, then narrows behavior with explicit disables, exclusions, formatter settings, strict `nolintlint` requirements, and exported symbol doc checks so intentionally noisy style rules stay opt-out by default while comments must remain useful and explained. Add project-specific overrides below the `extends` line.
+The shared template uses GolangCI-Lint v2 `linters.default: all`, then narrows behavior with explicit disables, exclusions, formatter settings, `cyclop` complexity capped at 50, strict `nolintlint` requirements, and exported symbol doc checks so intentionally noisy style rules stay opt-out by default while comments must remain useful and explained. Add project-specific overrides below the `extends` line.
 
 ### `golangci-lint` baseline
 
@@ -118,15 +136,15 @@ A small AST analyzer set ships in this repo at `staticcheck/`. It enforces bound
 | `-sensitive_field_in_log` | Structured logs that include fields likely to carry secrets |
 | `-nolint_ban` | Any `//nolint` comment in production code |
 
-Default behaviour: pulled via `go install github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest`, with the 5 core analyzers enabled by default. Bootstrapped repos set `STATICCHECK_EXTRA_FLAGS = $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)` to opt into all 17 bundled analyzers. Zero project Makefile setup is required.
+Default behaviour: pulled via `go install github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest`, with all bundled analyzers enabled by default. Zero project Makefile setup is required.
 
 Per-project overrides:
 
 ```makefile
-# Pick a different analyzer subset (default enables the 5 core analyzers):
+# Pick a smaller analyzer subset:
 STATICCHECK_EXTRA_FLAGS := -slog_error_without_err -hot_loop_info_log
 
-# Opt into every bundled analyzer:
+# Restore the canonical full analyzer set explicitly:
 STATICCHECK_EXTRA_FLAGS = $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
 
 # Pin to a specific commit, tag, or branch instead of @latest:

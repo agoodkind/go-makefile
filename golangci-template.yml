@@ -28,6 +28,8 @@ linters:
     - wsl
     - wsl_v5
   settings:
+    cyclop:
+      max-complexity: 50
     godoclint:
       default: all
     nolintlint:
