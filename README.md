@@ -111,6 +111,7 @@ Per-project overrides:
 GOLANGCI_LINT_TARGETS  := ./...                         # default
 GOLANGCI_LINT_FLAGS    := -c .golangci.yml              # optional extra run flags
 GOLANGCI_LINT_BASELINE := .golangci-lint-baseline.txt   # default
+GOLANGCI_LINT_BASELINE_RUNS := 3                             # default
 ```
 
 Targets:
@@ -118,7 +119,7 @@ Targets:
 | Target | Behaviour |
 | ------ | --------- |
 | `lint-golangci` | Runs `golangci-lint`, diffs normalized findings against `.golangci-lint-baseline.txt`, and fails on new findings. |
-| `lint-golangci-baseline` | Refreshes `.golangci-lint-baseline.txt` with current findings and writes `first_added` and `last_seen` UTC timestamps for each finding. |
+| `lint-golangci-baseline` | Refreshes `.golangci-lint-baseline.txt` with current findings sampled across `$(GOLANGCI_LINT_BASELINE_RUNS)` runs and writes `first_added` and `last_seen` UTC timestamps for each finding. |
 
 Commit the baseline only when the remaining findings are intentional. Refresh it after fixing old findings so the baseline continues to describe the current tree.
 

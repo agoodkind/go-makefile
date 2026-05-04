@@ -10,6 +10,7 @@ GOLANGCI_LINT          ?= golangci-lint
 GOLANGCI_LINT_TARGETS  ?= ./...
 GOLANGCI_LINT_FLAGS    ?=
 GOLANGCI_LINT_BASELINE ?= .golangci-lint-baseline.txt
+GOLANGCI_LINT_BASELINE_RUNS ?= 3
 GOFUMPT                ?= gofumpt
 GOIMPORTS              ?= goimports
 GOCYCLO_OVER           ?= 50
@@ -107,10 +108,22 @@ lint-golangci-baseline: lint-tools
 		new_baseline=".make/golangci-lint-baseline.new"; \
 		baseline_output=".make/golangci-lint-baseline.baseline.out"; \
 		status=0; \
-		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$raw_output" 2>&1 || status=$$?; \
-		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$raw_output" \
-			| sed "s|$(CURDIR)/||g" \
-			| sort > "$$findings_output" || true; \
+		: > "$$raw_output"; \
+		: > "$$findings_output"; \
+		for run_index in $$(seq 1 $(GOLANGCI_LINT_BASELINE_RUNS)); do \
+			run_raw_output=".make/golangci-lint-baseline.$$run_index.raw.out"; \
+			run_findings_output=".make/golangci-lint-baseline.$$run_index.out"; \
+			run_status=0; \
+			$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$run_raw_output" 2>&1 || run_status=$$?; \
+			cat "$$run_raw_output" >> "$$raw_output"; \
+			grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$run_raw_output" \
+				| sed "s|$(CURDIR)/||g" \
+				| sort > "$$run_findings_output" || true; \
+			cat "$$run_findings_output" >> "$$findings_output"; \
+			if [ "$$run_status" -ne 0 ]; then status="$$run_status"; fi; \
+		done; \
+		sort -u "$$findings_output" > "$$findings_output.merged"; \
+		mv "$$findings_output.merged" "$$findings_output"; \
 		if [ ! -f "$(GOLANGCI_LINT_BASELINE)" ]; then touch "$(GOLANGCI_LINT_BASELINE)"; fi; \
 		now=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
 		tab=$$(printf "\t"); \
