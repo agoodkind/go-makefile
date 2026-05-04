@@ -99,7 +99,7 @@ extends:
   - https://raw.githubusercontent.com/agoodkind/go-makefile/main/golangci-template.yml
 ```
 
-The shared template uses GolangCI-Lint v2 `linters.default: all`, then narrows behavior with explicit disables, exclusions, formatter settings, `cyclop` complexity capped at 50, strict `nolintlint` requirements, and exported symbol doc checks so intentionally noisy style rules stay opt-out by default while comments must remain useful and explained. Add project-specific overrides below the `extends` line.
+The shared template uses GolangCI-Lint v2 `linters.default: all`, then narrows behavior with explicit disables, exclusions, formatter settings, `cyclop` complexity capped at 50, strict `nolintlint` requirements, and exported symbol doc checks so intentionally noisy style rules stay opt-out by default while comments must remain useful and explained. Shared lint gates exclude Go test files by default. Add project-specific overrides below the `extends` line.
 
 ### `golangci-lint` baseline
 
@@ -112,6 +112,8 @@ GOLANGCI_LINT_TARGETS  := ./...                         # default
 GOLANGCI_LINT_FLAGS    := -c .golangci.yml              # optional extra run flags
 GOLANGCI_LINT_BASELINE := .golangci-lint-baseline.txt   # default
 GOLANGCI_LINT_BASELINE_RUNS := 3                             # default
+GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS := _test\.go:                 # built-in
+GOLANGCI_LINT_EXCLUDE_PATHS := gen/:,third_party/:                # optional extra grep -E patterns
 ```
 
 Targets:
@@ -177,6 +179,8 @@ STATICCHECK_EXTRA_BUILD_PKG  := ./cmd/my-analyzer
 # Other knobs:
 STATICCHECK_EXTRA_TARGETS  := ./...                           # default
 STATICCHECK_EXTRA_BASELINE := .staticcheck-extra-baseline.txt # default
+STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS := _test\.go:         # built-in
+STATICCHECK_EXTRA_EXCLUDE_PATHS := \.pb\.go:,/api/            # optional extra grep -E patterns
 ```
 
 Targets:

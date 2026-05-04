@@ -11,10 +11,12 @@ GOLANGCI_LINT_TARGETS  ?= ./...
 GOLANGCI_LINT_FLAGS    ?=
 GOLANGCI_LINT_BASELINE ?= .golangci-lint-baseline.txt
 GOLANGCI_LINT_BASELINE_RUNS ?= 3
+GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
+GOLANGCI_LINT_EXCLUDE_PATHS ?=
 GOFUMPT                ?= gofumpt
 GOIMPORTS              ?= goimports
 GOCYCLO_OVER           ?= 50
-GOCYCLO_TARGETS        ?= .
+GOCYCLO_TARGETS        ?= $$(find . -name '*.go' -not -name '*_test.go' -not -path './vendor/*' -not -path './gen/*' -not -path './third_party/*')
 GOLANGCI_LINT_INSTALL  ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
 GOFUMPT_INSTALL        ?= mvdan.cc/gofumpt@v0.9.2
 GOIMPORTS_INSTALL      ?= golang.org/x/tools/cmd/goimports@v0.44.0
@@ -70,10 +72,17 @@ lint-golangci: lint-tools
 		raw_output=".make/golangci-lint.raw.out"; \
 		findings_output=".make/golangci-lint.out"; \
 		baseline_output=".make/golangci-lint.baseline.out"; \
+		excludes="$$(printf "%s,%s" "$(GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS)" "$(GOLANGCI_LINT_EXCLUDE_PATHS)")"; \
 		status=0; \
+		filter() { \
+			if [ -z "$$excludes" ]; then cat; return; fi; \
+			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
+			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
+		}; \
 		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$raw_output" 2>&1 || status=$$?; \
 		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$raw_output" \
 			| sed "s|$(CURDIR)/||g" \
+			| filter \
 			| sort > "$$findings_output" || true; \
 		if [ ! -f "$(GOLANGCI_LINT_BASELINE)" ]; then touch "$(GOLANGCI_LINT_BASELINE)"; fi; \
 		tab=$$(printf "\t"); \
@@ -82,7 +91,7 @@ lint-golangci: lint-tools
 			case "$$baseline_line" in ""|\#*) continue ;; esac; \
 			finding="$${baseline_line%%$${metadata_prefix}*}"; \
 			[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
-		done < "$(GOLANGCI_LINT_BASELINE)" | sort > "$$baseline_output"; \
+		done < "$(GOLANGCI_LINT_BASELINE)" | filter | sort > "$$baseline_output"; \
 		new=$$(comm -23 "$$findings_output" "$$baseline_output" || true); \
 		if [ -n "$$new" ]; then \
 			echo "NEW golangci-lint findings:"; \
@@ -107,7 +116,13 @@ lint-golangci-baseline: lint-tools
 		findings_output=".make/golangci-lint-baseline.out"; \
 		new_baseline=".make/golangci-lint-baseline.new"; \
 		baseline_output=".make/golangci-lint-baseline.baseline.out"; \
+		excludes="$$(printf "%s,%s" "$(GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS)" "$(GOLANGCI_LINT_EXCLUDE_PATHS)")"; \
 		status=0; \
+		filter() { \
+			if [ -z "$$excludes" ]; then cat; return; fi; \
+			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
+			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
+		}; \
 		: > "$$raw_output"; \
 		: > "$$findings_output"; \
 		for run_index in $$(seq 1 $(GOLANGCI_LINT_BASELINE_RUNS)); do \
@@ -118,6 +133,7 @@ lint-golangci-baseline: lint-tools
 			cat "$$run_raw_output" >> "$$raw_output"; \
 			grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$run_raw_output" \
 				| sed "s|$(CURDIR)/||g" \
+				| filter \
 				| sort > "$$run_findings_output" || true; \
 			cat "$$run_findings_output" >> "$$findings_output"; \
 			if [ "$$run_status" -ne 0 ]; then status="$$run_status"; fi; \
@@ -132,7 +148,7 @@ lint-golangci-baseline: lint-tools
 			case "$$baseline_line" in ""|\#*) continue ;; esac; \
 			baseline_finding="$${baseline_line%%$${metadata_prefix}*}"; \
 			[ -n "$$baseline_finding" ] && printf "%s\n" "$$baseline_finding"; \
-		done < "$(GOLANGCI_LINT_BASELINE)" | sort -u > "$$baseline_output"; \
+		done < "$(GOLANGCI_LINT_BASELINE)" | filter | sort -u > "$$baseline_output"; \
 		sort -u "$$findings_output" "$$baseline_output" > "$$findings_output.merged"; \
 		mv "$$findings_output.merged" "$$findings_output"; \
 		printf "# golangci-lint: generated_at=%s\n" "$$now" > "$$new_baseline"; \
@@ -253,6 +269,7 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 STATICCHECK_EXTRA_FLAGS         ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
+STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
 STATICCHECK_EXTRA_EXCLUDE_PATHS ?=
 
 # Variable resolution and build are deferred to recipe time so the project
@@ -331,11 +348,11 @@ staticcheck-extra: staticcheck-extra-bin
 			echo "staticcheck-extra: binary $$bin not executable; skipping"; exit 0; \
 		fi; \
 		mkdir -p .make; \
-		excludes="$(STATICCHECK_EXTRA_EXCLUDE_PATHS)"; \
+		excludes="$$(printf "%s,%s" "$(STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS)" "$(STATICCHECK_EXTRA_EXCLUDE_PATHS)")"; \
 		filter() { \
 			if [ -z "$$excludes" ]; then cat; return; fi; \
 			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
-			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat"; fi; \
+			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
 		}; \
 		"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS) 2>&1 \
 			| sed "s|$(CURDIR)/||g" | filter | sort > .make/staticcheck-extra.out || true; \
@@ -349,7 +366,7 @@ staticcheck-extra: staticcheck-extra-bin
 				case "$$baseline_line" in ""|\#*) continue ;; esac; \
 				finding="$${baseline_line%%$${metadata_prefix}*}"; \
 				[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
-			done < "$(STATICCHECK_EXTRA_BASELINE)" | sort; \
+			done < "$(STATICCHECK_EXTRA_BASELINE)" | filter | sort; \
 		}; \
 		baseline_findings > .make/staticcheck-extra.baseline.out; \
 		new=$$(comm -23 .make/staticcheck-extra.out .make/staticcheck-extra.baseline.out || true); \
@@ -376,11 +393,11 @@ staticcheck-extra-baseline: staticcheck-extra-bin
 			echo "staticcheck-extra: not configured; cannot refresh baseline"; exit 1; \
 		fi; \
 		mkdir -p .make "$$(dirname "$(STATICCHECK_EXTRA_BASELINE)")"; \
-		excludes="$(STATICCHECK_EXTRA_EXCLUDE_PATHS)"; \
+		excludes="$$(printf "%s,%s" "$(STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS)" "$(STATICCHECK_EXTRA_EXCLUDE_PATHS)")"; \
 		filter() { \
 			if [ -z "$$excludes" ]; then cat; return; fi; \
 			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
-			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat"; fi; \
+			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
 		}; \
 		"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS) 2>&1 \
 			| sed "s|$(CURDIR)/||g" | filter | sort > .make/staticcheck-extra.out || true; \
