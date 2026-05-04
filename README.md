@@ -52,8 +52,9 @@ The shared lint flow is:
 - `make lint` runs baseline-gated `golangci-lint`, the configured GolangCI formatters in diff mode, `go tool gocyclo -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS)`, and `staticcheck-extra`
 - `make fmt` applies the configured GolangCI formatters
 - `make build-check` runs the full non-test quality gate: `vet`, `lint`, and `govulncheck`
-- `make build` runs `build-check`, then `go build $(GO_BUILD_OUTPUT_FLAGS) $(GO_BUILD_FLAGS) $(GO_BUILD_TARGETS)`
-- `make deploy` runs `go install $(GO_INSTALL_FLAGS) $(GO_INSTALL_TARGET)` and requires `GO_INSTALL_TARGET` or `CMD`
+- `make build` runs `build-check`, then `$(GO_BUILD_ENV) $(GO) build $(GO_BUILD_OUTPUT_FLAGS) $(GO_BUILD_FLAGS) $(GO_BUILD_LDFLAGS_FLAGS) $(GO_BUILD_TARGETS)`
+- `make deploy` runs `$(GO_DEPLOY_COMMAND)` when set, otherwise `$(GO_INSTALL_ENV) $(GO) install $(GO_INSTALL_FLAGS) $(GO_INSTALL_LDFLAGS_FLAGS) $(GO_INSTALL_TARGET)` and requires `GO_INSTALL_TARGET` or `CMD`
+- `make install-binary` runs `build`, then installs `$(GO_INSTALL_BIN_SOURCE)` into `$(DESTDIR)$(GO_INSTALL_BIN_DIR)/$(GO_INSTALL_BIN_NAME)`
 - `make clean` removes `$(BINARY)` when `BINARY` is set
 - `make check` runs `build`, then `test`
 
@@ -62,15 +63,30 @@ The shared build flow is configured through variables instead of project-local t
 ```makefile
 BINARY               := mycmd                         # optional; used by GO_BUILD_OUTPUT and clean
 CMD                  := ./cmd/mycmd                   # optional; sets default build/install target
+GO                   := go                            # default Go command
+GO_ENV               := CGO_ENABLED=1                 # optional env prefix for Go commands
+GO_BUILD_ENV         := $(GO_ENV)                     # defaults to GO_ENV
 GO_BUILD_OUTPUT      := $(BINARY)                     # default when CMD is set; set empty to omit -o
 GO_BUILD_OUTPUT_FLAGS := -o $(GO_BUILD_OUTPUT)        # default when GO_BUILD_OUTPUT is set
 GO_BUILD_FLAGS       := -tags fdb                     # optional; used by build and install
+GO_BUILD_LDFLAGS     := -s -w                         # optional; converted to -ldflags "..."
 GO_BUILD_TARGETS     := ./cmd/server                  # default: $(CMD), else ./...
+GO_TEST_ENV          := $(GO_ENV)                     # defaults to GO_ENV
 GO_TEST_TARGETS      := ./...                         # default
+GO_VET_ENV           := $(GO_ENV)                     # defaults to GO_ENV
 GO_VET_TARGETS       := ./...                         # default
+GOVULNCHECK_ENV      := $(GO_ENV)                     # defaults to GO_ENV
 GOVULNCHECK_TARGETS  := ./...                         # default
 GO_INSTALL_FLAGS     := $(filter-out -o %,$(GO_BUILD_FLAGS)) # default
+GO_INSTALL_LDFLAGS   := $(GO_BUILD_LDFLAGS)           # optional; converted to -ldflags "..."
 GO_INSTALL_TARGET    := $(CMD)                        # default
+GO_DEPLOY_COMMAND    := ./scripts/deploy.sh           # optional; deploy delegates when set
+GO_DEPLOY_TARGETS    := preflight backup              # optional deploy prerequisites
+GO_DEPLOY_INSTALL    := true                          # default; set false when command owns deploy
+GO_INSTALL_BIN_DIR   := /opt/scripts                  # enables install-binary
+GO_INSTALL_BIN_SOURCE := $(GO_BUILD_OUTPUT)           # default
+GO_INSTALL_BIN_NAME  := $(BINARY)                     # default
+GO_INSTALL_BIN_MODE  := 0755                          # default
 BUILD_CHECKS         := true                          # default; build depends on build-check
 ```
 

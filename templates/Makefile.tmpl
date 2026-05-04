@@ -1,6 +1,6 @@
 GO_MK_URL   := [[.BaseURL]]/go.mk
 GO_MK       := .make/go.mk
-GO_MK_CACHE := $(HOME)/.cache/go-makefile/go.mk
+GO_MK_CACHE := $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile/go.mk
 [[if eq .Layout "binary"]]
 
 BINARY := [[.Binary]]

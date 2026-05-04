@@ -105,6 +105,7 @@ lint-golangci-baseline: lint-tools
 		raw_output=".make/golangci-lint-baseline.raw.out"; \
 		findings_output=".make/golangci-lint-baseline.out"; \
 		new_baseline=".make/golangci-lint-baseline.new"; \
+		baseline_output=".make/golangci-lint-baseline.baseline.out"; \
 		status=0; \
 		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$raw_output" 2>&1 || status=$$?; \
 		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$raw_output" \
@@ -114,6 +115,13 @@ lint-golangci-baseline: lint-tools
 		now=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
 		tab=$$(printf "\t"); \
 		metadata_prefix="$${tab}# golangci-lint:"; \
+		while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
+			case "$$baseline_line" in ""|\#*) continue ;; esac; \
+			baseline_finding="$${baseline_line%%$${metadata_prefix}*}"; \
+			[ -n "$$baseline_finding" ] && printf "%s\n" "$$baseline_finding"; \
+		done < "$(GOLANGCI_LINT_BASELINE)" | sort -u > "$$baseline_output"; \
+		sort -u "$$findings_output" "$$baseline_output" > "$$findings_output.merged"; \
+		mv "$$findings_output.merged" "$$findings_output"; \
 		printf "# golangci-lint: generated_at=%s\n" "$$now" > "$$new_baseline"; \
 		while IFS= read -r finding || [ -n "$$finding" ]; do \
 			first_added=""; \
