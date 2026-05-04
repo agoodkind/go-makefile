@@ -9,6 +9,7 @@ linters:
     - depguard
     - dupl
     - err113
+    - errcheck
     - exhaustruct
     - gochecknoglobals
     - gochecknoinits
