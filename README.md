@@ -30,7 +30,7 @@ This creates:
 - `.goreleaser.yaml`, filled in with the inferred binary name
 - `.gitignore` entry for `.make/`
 
-Generated `Makefile` files opt into every bundled `staticcheck-extra` analyzer and make `build` depend on `lint` before compiling.
+Generated `Makefile` files opt into every bundled `staticcheck-extra` analyzer and make `build` run the full non-test quality gate before compiling.
 
 Skips any file that already exists. Fails clearly if `go.mod` is missing.
 
@@ -47,10 +47,14 @@ Run `make help` or read `go.mk` directly for the current target list. Default go
 The shared lint flow is:
 
 - `make lint-tools` installs `golangci-lint`, `gofumpt`, and `goimports`
-- `make lint` runs `golangci-lint run ./...`, the configured GolangCI formatters in diff mode, `go tool gocyclo -over 40 .`, and `staticcheck-extra`
+- `make lint-golangci` runs `golangci-lint run ./...`, diffs findings against `.golangci-lint-baseline.txt`, and fails only on new findings
+- `make lint-golangci-baseline` refreshes `.golangci-lint-baseline.txt` with current findings and `first_added` / `last_seen` timestamps
+- `make lint` runs baseline-gated `golangci-lint`, the configured GolangCI formatters in diff mode, `go tool gocyclo -over 40 .`, and `staticcheck-extra`
 - `make fmt` applies the configured GolangCI formatters
-- `make check` runs `build`, `vet`, `lint`, `test`, and `govulncheck`
-- bootstrapped repos override `build` so `make build` runs `lint` before `go build`
+- `make build-check` runs the full non-test quality gate: `vet`, `lint`, and `govulncheck`
+- `make build` runs `build-check`, then compiles
+- `make check` runs `build`, then `test`
+- bootstrapped repos override `build` so `make build` still runs the shared non-test quality gate before `go build`
 
 ### `.golangci.yml`
 
@@ -61,7 +65,28 @@ extends:
   - https://raw.githubusercontent.com/agoodkind/go-makefile/main/golangci-template.yml
 ```
 
-The shared template uses GolangCI-Lint v2 `linters.default: all`, then narrows behavior with explicit disables, exclusions, and formatter settings so intentionally noisy style rules stay opt-out by default. Add project-specific overrides below the `extends` line.
+The shared template uses GolangCI-Lint v2 `linters.default: all`, then narrows behavior with explicit disables, exclusions, formatter settings, strict `nolintlint` requirements, and exported symbol doc checks so intentionally noisy style rules stay opt-out by default while comments must remain useful and explained. Add project-specific overrides below the `extends` line.
+
+### `golangci-lint` baseline
+
+The shared `lint-golangci` target runs `golangci-lint run` through the same baseline-diff gate used by Clyde. Existing findings live in `.golangci-lint-baseline.txt`; new findings fail the target, and resolved findings print a refresh hint without failing.
+
+Per-project overrides:
+
+```makefile
+GOLANGCI_LINT_TARGETS  := ./...                         # default
+GOLANGCI_LINT_FLAGS    := -c .golangci.yml              # optional extra run flags
+GOLANGCI_LINT_BASELINE := .golangci-lint-baseline.txt   # default
+```
+
+Targets:
+
+| Target | Behaviour |
+| ------ | --------- |
+| `lint-golangci` | Runs `golangci-lint`, diffs normalized findings against `.golangci-lint-baseline.txt`, and fails on new findings. |
+| `lint-golangci-baseline` | Refreshes `.golangci-lint-baseline.txt` with current findings and writes `first_added` and `last_seen` UTC timestamps for each finding. |
+
+Commit the baseline only when the remaining findings are intentional. Refresh it after fixing old findings so the baseline continues to describe the current tree.
 
 ### `.goreleaser.yaml`
 
@@ -71,7 +96,7 @@ Committed per-project. The bootstrap renders `templates/goreleaser.yaml.tmpl` to
 
 ### `staticcheck-extra` (bundled AST analyzer set)
 
-A small AST analyzer set ships in this repo at `staticcheck/`. It enforces boundary logging, structured slog hygiene, and type discipline. Sixteen analyzers are enabled by default:
+A small AST analyzer set ships in this repo at `staticcheck/`. It enforces boundary logging, structured slog hygiene, and type discipline. Seventeen analyzers are enabled by default:
 
 | Flag | What it catches |
 | ---- | --------------- |
@@ -91,8 +116,9 @@ A small AST analyzer set ships in this repo at `staticcheck/`. It enforces bound
 | `-slog_missing_trace_id` | Structured logs missing trace identifiers |
 | `-grpc_handler_missing_peer_enrichment` | gRPC handlers that do not enrich logs with peer details |
 | `-sensitive_field_in_log` | Structured logs that include fields likely to carry secrets |
+| `-nolint_ban` | Any `//nolint` comment in production code |
 
-Default behaviour: pulled via `go install github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest`, with the 5 core analyzers enabled by default. Bootstrapped repos set `STATICCHECK_EXTRA_FLAGS = $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)` to opt into all 16 bundled analyzers. Zero project Makefile setup is required.
+Default behaviour: pulled via `go install github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest`, with the 5 core analyzers enabled by default. Bootstrapped repos set `STATICCHECK_EXTRA_FLAGS = $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)` to opt into all 17 bundled analyzers. Zero project Makefile setup is required.
 
 Per-project overrides:
 

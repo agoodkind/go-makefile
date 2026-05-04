@@ -39,7 +39,7 @@ update-go-mk:
 
 .PHONY: build deploy clean
 
-build: lint
+build: $(default-build-deps)
 	go build $(CMD)
 
 deploy:
@@ -49,6 +49,6 @@ clean:
 	rm -f $(BINARY)
 [[else]]
 .PHONY: build
-build: lint
+build: $(default-build-deps)
 	go build ./...
 [[end]]

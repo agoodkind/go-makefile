@@ -1,21 +1,25 @@
-.PHONY: lint lint-tools lint-golangci lint-format lint-gocyclo fmt vet test govulncheck check \
+.PHONY: lint lint-tools lint-golangci lint-golangci-baseline lint-format lint-gocyclo fmt vet test govulncheck build-check check \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-bin \
 	release go-mk-sync
 
 GO_MK_URL   := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
 GO_MK_CACHE := $(HOME)/.cache/go-makefile/go.mk
 
-GOLANGCI_LINT         ?= golangci-lint
-GOFUMPT               ?= gofumpt
-GOIMPORTS             ?= goimports
+GOLANGCI_LINT          ?= golangci-lint
+GOLANGCI_LINT_TARGETS  ?= ./...
+GOLANGCI_LINT_FLAGS    ?=
+GOLANGCI_LINT_BASELINE ?= .golangci-lint-baseline.txt
+GOFUMPT                ?= gofumpt
+GOIMPORTS              ?= goimports
 GOCYCLO_OVER          ?= 40
 GOLANGCI_LINT_INSTALL ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
 GOFUMPT_INSTALL       ?= mvdan.cc/gofumpt@v0.9.2
 GOIMPORTS_INSTALL     ?= golang.org/x/tools/cmd/goimports@v0.44.0
+BUILD_CHECKS          ?= true
 
 ifndef CMD
 .PHONY: build
-build:
+build: $(default-build-deps)
 	go build ./...
 endif
 
@@ -26,11 +30,85 @@ lint-tools:
 	go install $(GOFUMPT_INSTALL)
 	go install $(GOIMPORTS_INSTALL)
 
-lint-golangci:
-	$(GOLANGCI_LINT) run ./...
+lint-golangci: lint-tools
+	@bash -eu -o pipefail -c '\
+		mkdir -p .make; \
+		raw_output=".make/golangci-lint.raw.out"; \
+		findings_output=".make/golangci-lint.out"; \
+		baseline_output=".make/golangci-lint.baseline.out"; \
+		status=0; \
+		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$raw_output" 2>&1 || status=$$?; \
+		perl -0pe "s/\\n\\s+/ /g" "$$raw_output" \
+			| grep -E "^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" \
+			| sed "s|$(CURDIR)/||g" \
+			| sort > "$$findings_output" || true; \
+		if [ ! -f "$(GOLANGCI_LINT_BASELINE)" ]; then touch "$(GOLANGCI_LINT_BASELINE)"; fi; \
+		tab=$$(printf "\t"); \
+		metadata_prefix="$${tab}# golangci-lint:"; \
+		while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
+			case "$$baseline_line" in ""|\#*) continue ;; esac; \
+			finding="$${baseline_line%%$${metadata_prefix}*}"; \
+			[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
+		done < "$(GOLANGCI_LINT_BASELINE)" | sort > "$$baseline_output"; \
+		new=$$(comm -23 "$$findings_output" "$$baseline_output" || true); \
+		if [ -n "$$new" ]; then \
+			echo "NEW golangci-lint findings (not in baseline):"; \
+			echo "$$new"; \
+			echo ""; \
+			echo "Either fix them, or refresh the baseline:"; \
+			echo "  make lint-golangci-baseline"; \
+			exit 1; \
+		fi; \
+		gone=$$(comm -13 "$$findings_output" "$$baseline_output" || true); \
+		if [ -n "$$gone" ]; then \
+			echo "RESOLVED golangci-lint findings (please refresh baseline):"; \
+			echo "$$gone"; \
+		fi; \
+		n=$$(wc -l < "$$findings_output"); \
+		echo "golangci-lint: OK ($$n findings, all in baseline)"; \
+		if [ "$$status" -ne 0 ] && [ ! -s "$$findings_output" ]; then cat "$$raw_output"; exit "$$status"; fi'
+
+lint-golangci-baseline: lint-tools
+	@bash -eu -o pipefail -c '\
+		mkdir -p .make "$$(dirname "$(GOLANGCI_LINT_BASELINE)")"; \
+		raw_output=".make/golangci-lint-baseline.raw.out"; \
+		findings_output=".make/golangci-lint-baseline.out"; \
+		new_baseline=".make/golangci-lint-baseline.new"; \
+		status=0; \
+		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$raw_output" 2>&1 || status=$$?; \
+		perl -0pe "s/\\n\\s+/ /g" "$$raw_output" \
+			| grep -E "^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" \
+			| sed "s|$(CURDIR)/||g" \
+			| sort > "$$findings_output" || true; \
+		if [ ! -f "$(GOLANGCI_LINT_BASELINE)" ]; then touch "$(GOLANGCI_LINT_BASELINE)"; fi; \
+		now=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
+		tab=$$(printf "\t"); \
+		metadata_prefix="$${tab}# golangci-lint:"; \
+		printf "# golangci-lint: generated_at=%s\n" "$$now" > "$$new_baseline"; \
+		while IFS= read -r finding || [ -n "$$finding" ]; do \
+			first_added=""; \
+			while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
+				case "$$baseline_line" in ""|\#*) continue ;; esac; \
+				baseline_finding="$${baseline_line%%$${metadata_prefix}*}"; \
+				[ "$$baseline_finding" = "$$finding" ] || continue; \
+				metadata="$${baseline_line#*$${metadata_prefix}}"; \
+				if [ "$$metadata" != "$$baseline_line" ]; then \
+					for metadata_field in $$metadata; do \
+						case "$$metadata_field" in first_added=*) first_added="$${metadata_field#first_added=}" ;; esac; \
+					done; \
+				fi; \
+				break; \
+			done < "$(GOLANGCI_LINT_BASELINE)"; \
+			if [ -z "$$first_added" ]; then first_added="$$now"; fi; \
+			printf "%s\t# golangci-lint:first_added=%s last_seen=%s\n" "$$finding" "$$first_added" "$$now" >> "$$new_baseline"; \
+		done < "$$findings_output"; \
+		mv "$$new_baseline" "$(GOLANGCI_LINT_BASELINE)"; \
+		n=$$(wc -l < "$$findings_output"); \
+		echo "golangci-lint: baseline $(GOLANGCI_LINT_BASELINE) refreshed ($$n findings)"; \
+		if [ "$$status" -ne 0 ] && [ "$$n" -eq 0 ]; then cat "$$raw_output"; exit "$$status"; fi'
 
 lint-format:
-	@diff_output=$$($(GOLANGCI_LINT) fmt --diff ./...); \
+	@diff_output=$$($(GOLANGCI_LINT) fmt --diff $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS)); \
 	if [ -n "$$diff_output" ]; then \
 		echo "golangci-lint formatters need to update:"; \
 		printf '%s\n' "$$diff_output"; \
@@ -42,7 +120,7 @@ lint-gocyclo:
 	go tool gocyclo -over $(GOCYCLO_OVER) .
 
 fmt: lint-tools
-	$(GOLANGCI_LINT) fmt ./...
+	$(GOLANGCI_LINT) fmt $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS)
 
 vet:
 	go vet ./...
@@ -54,7 +132,13 @@ govulncheck:
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 	govulncheck ./...
 
-check: build vet lint test govulncheck
+build-check: vet lint govulncheck
+
+ifeq ($(BUILD_CHECKS),true)
+default-build-deps := build-check
+endif
+
+check: build test
 
 # ---------------------------------------------------------------------------
 # staticcheck-extra: AST analyzer pass with a baseline-diff gate so only NEW
@@ -86,7 +170,9 @@ check: build vet lint test govulncheck
 #   - If no source is configured (all three resolution paths empty), target
 #     is a no-op (announces "skipped").
 #   - The bundled analyzer set is the default, installed via `go install`
-#     into $(go env GOPATH)/bin on first run, then cached.
+#     into $(go env GOPATH)/bin on first run, then cached. If the cached
+#     binary does not support the requested analyzer flags, it is rebuilt or
+#     reinstalled before analysis starts.
 #   - Excluded lines are dropped before baseline comparison.
 #   - Findings are diffed against the baseline. NEW findings exit non-zero.
 #     RESOLVED findings print a hint to refresh the baseline but don't fail.
@@ -115,7 +201,8 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-silent_defer_close \
 	-slog_missing_trace_id \
 	-grpc_handler_missing_peer_enrichment \
-	-sensitive_field_in_log
+	-sensitive_field_in_log \
+	-nolint_ban
 STATICCHECK_EXTRA_FLAGS         ?= $(STATICCHECK_EXTRA_CORE_FLAGS)
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
@@ -132,8 +219,31 @@ staticcheck-extra-bin:
 		repo="$(STATICCHECK_EXTRA_BUILD_REPO)"; \
 		pkg="$(STATICCHECK_EXTRA_BUILD_PKG)"; \
 		install="$(STATICCHECK_EXTRA_INSTALL)"; \
+		flags="$(STATICCHECK_EXTRA_FLAGS)"; \
+		missing_flags() { \
+			candidate="$$1"; \
+			available=$$("$$candidate" -flags 2>/dev/null || true); \
+			for flag in $$flags; do \
+				name="$${flag#-}"; \
+				printf "%s\n" "$$available" | grep -q "\"Name\": \"$$name\"" || return 0; \
+			done; \
+			return 1; \
+		}; \
+		build_from_repo() { \
+			mkdir -p .make; \
+			out="$(CURDIR)/.make/staticcheck-extra"; \
+			cd "$$repo" && go build -o "$$out" "$$pkg"; \
+		}; \
+		install_binary() { \
+			base=$$(basename "$$install" | sed "s/@.*//"); \
+			gobin=$$(go env GOPATH)/bin; \
+			installed="$$gobin/$$base"; \
+			GOBIN="$$gobin" go install "$$install"; \
+			ln -sf "$$installed" "$(CURDIR)/.make/staticcheck-extra"; \
+		}; \
 		if [ -n "$$bin" ]; then \
 			[ -x "$$bin" ] || { echo "staticcheck-extra: $$bin not executable"; exit 1; }; \
+			missing_flags "$$bin" && { echo "staticcheck-extra: $$bin does not support requested flags"; exit 1; }; \
 			exit 0; \
 		fi; \
 		if [ -n "$$repo" ]; then \
@@ -146,8 +256,8 @@ staticcheck-extra-bin:
 			mkdir -p .make; \
 			out="$(CURDIR)/.make/staticcheck-extra"; \
 			newest_src=$$(find "$$repo" -name "*.go" -newer "$$out" 2>/dev/null | head -1 || true); \
-			if [ ! -x "$$out" ] || [ -n "$$newest_src" ]; then \
-				cd "$$repo" && go build -o "$$out" "$$pkg"; \
+			if [ ! -x "$$out" ] || [ -n "$$newest_src" ] || missing_flags "$$out"; then \
+				build_from_repo; \
 			fi; \
 			exit 0; \
 		fi; \
@@ -157,10 +267,11 @@ staticcheck-extra-bin:
 		base=$$(basename "$$install" | sed "s/@.*//"); \
 		gobin=$$(go env GOPATH)/bin; \
 		installed="$$gobin/$$base"; \
-		if [ ! -x "$$installed" ]; then \
-			GOBIN="$$gobin" go install "$$install"; \
-		fi; \
-		ln -sf "$$installed" "$$out"'
+		if [ ! -x "$$installed" ] || missing_flags "$$installed"; then \
+			install_binary; \
+		else \
+			ln -sf "$$installed" "$$out"; \
+		fi'
 
 staticcheck-extra: staticcheck-extra-bin
 	@bash -eu -o pipefail -c '\

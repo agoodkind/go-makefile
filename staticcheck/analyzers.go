@@ -1,5 +1,5 @@
 // Package staticcheck exposes the custom analyzer set that ships alongside
-// go-makefile's `staticcheck-extra` system. The five analyzers enforce
+// go-makefile's `staticcheck-extra` system. The analyzers enforce
 // boundary logging, structured slog hygiene, and type discipline, all as
 // AST passes (no SSA, no whole-program analysis).
 //
@@ -30,5 +30,6 @@ func Analyzers() []*analysis.Analyzer {
 		SlogMissingTraceIDAnalyzer,
 		GrpcHandlerWithoutPeerEnrichmentAnalyzer,
 		SensitiveFieldInLogAnalyzer,
+		NolintBanAnalyzer,
 	}
 }

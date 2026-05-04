@@ -1,3 +1,5 @@
+// Command render applies go-makefile bootstrap templates to JSON context
+// from stdin.
 package main
 
 import (

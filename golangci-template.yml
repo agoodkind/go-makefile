@@ -6,7 +6,6 @@ run:
 linters:
   default: all
   disable:
-    - cyclop
     - depguard
     - dupl
     - err113
@@ -15,24 +14,26 @@ linters:
     - gochecknoinits
     - gocognit
     - goconst
-    - godoclint
-    - godot
     - godox
     - ireturn
     - lll
     - mnd
     - nilnil
     - nlreturn
-    - nolintlint
     - nonamedreturns
     - paralleltest
     - revive
     - tagliatelle
-    - unused
     - varnamelen
     - wsl
     - wsl_v5
   settings:
+    godoclint:
+      default: all
+    nolintlint:
+      require-specific: true
+      require-explanation: true
+      allow-no-explanation: []
     gocritic:
       disabled-checks:
         - singleCaseSwitch
@@ -42,7 +43,6 @@ linters:
   exclusions:
     generated: lax
     presets:
-      - comments
       - common-false-positives
       - legacy
       - std-error-handling

@@ -1,8 +1,6 @@
 staticcheck/.make/staticcheck-extra
 staticcheck/.make/staticcheck-extra.out
-staticcheck/.staticcheck-extra-baseline.txt
 .make/staticcheck-extra.out
 .make/staticcheck-extra
-.staticcheck-extra-baseline.txt
 go-makefile
 .make

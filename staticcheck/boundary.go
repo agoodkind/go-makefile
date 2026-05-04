@@ -1,4 +1,3 @@
-// Package staticcheck defines boundary logging enforcement analyzers.
 package staticcheck
 
 import (
@@ -8,6 +7,8 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
+// MissingBoundaryLogAnalyzer requires structured logging at process,
+// request, external-call, and state-mutation boundaries.
 var MissingBoundaryLogAnalyzer = &analysis.Analyzer{
 	Name: "missing_boundary_log",
 	Doc:  "requires structured logging at process, request, external-call, and state-mutation boundaries",

@@ -1,4 +1,3 @@
-// Package staticcheck defines strict type hygiene analyzers.
 package staticcheck
 
 import (
@@ -9,6 +8,8 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
+// NoAnyOrEmptyInterfaceAnalyzer rejects loose `any`, `interface{}`,
+// and `struct{}` protocol or domain shapes.
 var NoAnyOrEmptyInterfaceAnalyzer = &analysis.Analyzer{
 	Name: "no_any_or_empty_interface",
 	Doc:  "rejects loose any/interface{} and empty struct{} protocol/domain shapes",

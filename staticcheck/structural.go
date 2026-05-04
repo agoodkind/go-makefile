@@ -149,7 +149,7 @@ func isCloseMethodName(name string) bool {
 }
 
 // SlogMissingTraceIDAnalyzer flags slog.Info/Warn/Error/Debug calls
-// inside functions that receive a context.Context but that do NOT
+// inside functions that receive a [context.Context] but that do NOT
 // reference the context anywhere in the call's keyvals. Purpose:
 // surface log lines that are missing trace correlation.
 //

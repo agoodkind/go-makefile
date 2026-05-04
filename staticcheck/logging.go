@@ -1,4 +1,3 @@
-// Package staticcheck defines structured logging enforcement analyzers.
 package staticcheck
 
 import (
@@ -8,18 +7,24 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
+// SlogErrorWithoutErrAnalyzer requires structured slog error events to
+// carry an `err` field.
 var SlogErrorWithoutErrAnalyzer = &analysis.Analyzer{
 	Name: "slog_error_without_err",
 	Doc:  "requires structured slog error events to carry an err field",
 	Run:  runSlogErrorWithoutErr,
 }
 
+// BannedDirectOutputAnalyzer rejects direct diagnostic writes from
+// `fmt.Print*` and standard library `log` calls in production code.
 var BannedDirectOutputAnalyzer = &analysis.Analyzer{
 	Name: "banned_direct_output",
 	Doc:  "rejects fmt.Print* and stdlib log diagnostics in production code",
 	Run:  runBannedDirectOutput,
 }
 
+// HotLoopInfoLogAnalyzer rejects info-level structured logs directly
+// inside loops.
 var HotLoopInfoLogAnalyzer = &analysis.Analyzer{
 	Name: "hot_loop_info_log",
 	Doc:  "rejects info-level structured logs directly inside loops",

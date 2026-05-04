@@ -7,7 +7,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// OsExitOutsideMainAnalyzer flags os.Exit calls outside main() and
+// OsExitOutsideMainAnalyzer flags [os.Exit] calls outside main() and
 // init(). Production code should return an error up to a single
 // process-level boundary that decides whether to exit.
 //
@@ -55,9 +55,9 @@ func runOsExitOutsideMain(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-// ContextTODOAnalyzer flags context.TODO() in production code.
-// Use context.Background() at top-level entry points, otherwise
-// thread context.Context through function signatures.
+// ContextTODOAnalyzer flags [context.TODO] in production code.
+// Use [context.Background] at top-level entry points, otherwise thread
+// [context.Context] through function signatures.
 var ContextTODOAnalyzer = &analysis.Analyzer{
 	Name: "context_todo_in_production",
 	Doc:  "rejects context.TODO() in production code; use context.Background() or thread context",
@@ -88,9 +88,9 @@ func runContextTODO(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-// TimeSleepInProductionAnalyzer flags time.Sleep in production code.
-// Use time.NewTimer + select{} for cancellation, or
-// time.AfterFunc.
+// TimeSleepInProductionAnalyzer flags [time.Sleep] in production code.
+// Use [time.NewTimer] with select{} for cancellation, or
+// [time.AfterFunc].
 //
 // Allowed in main packages (CLI ergonomics), in _test.go files, and
 // behind //nolint:time_sleep_in_production.
@@ -168,7 +168,7 @@ func runPanicInProduction(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-// TimeNowOutsideClockAnalyzer flags time.Now() calls outside an
+// TimeNowOutsideClockAnalyzer flags [time.Now] calls outside an
 // allowed clock-injection point. Real-time wall clock makes code
 // untestable for time-sensitive logic. Acceptable patterns:
 //   - inside files matching `clock.go` (the project's own clock helpers)
