@@ -1,7 +1,7 @@
 .PHONY: build deploy clean help \
 	lint lint-tools lint-golangci lint-golangci-baseline lint-format lint-gocyclo fmt vet test govulncheck build-check check \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-bin \
-	release go-mk-sync
+	release go-mk-sync update-go-mk
 
 GO_MK_URL   := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
 GO_MK_CACHE := $(HOME)/.cache/go-makefile/go.mk
@@ -24,7 +24,7 @@ GO_BUILD_TARGETS       ?= $(if $(strip $(CMD)),$(CMD),./...)
 GO_TEST_TARGETS        ?= ./...
 GO_VET_TARGETS         ?= ./...
 GOVULNCHECK_TARGETS    ?= ./...
-GO_INSTALL_FLAGS       ?= $(GO_BUILD_FLAGS)
+GO_INSTALL_FLAGS       ?= $(filter-out -o %,$(GO_BUILD_FLAGS))
 GO_INSTALL_TARGET      ?= $(CMD)
 BUILD_CHECKS           ?= true
 
@@ -54,7 +54,7 @@ help:
 	@printf '  %-28s %s\n' 'check' 'run build, then test'
 	@printf '  %-28s %s\n' 'fmt' 'apply configured golangci formatters'
 	@printf '  %-28s %s\n' 'deploy' 'go install $$(GO_INSTALL_TARGET)'
-	@printf '  %-28s %s\n' 'go-mk-sync' 'refresh $$(GO_MK) and $$(GO_MK_CACHE)'
+	@printf '  %-28s %s\n' 'go-mk-sync/update-go-mk' 'refresh $$(GO_MK) and $$(GO_MK_CACHE)'
 
 lint: lint-tools lint-golangci lint-format lint-gocyclo staticcheck-extra
 
@@ -71,8 +71,7 @@ lint-golangci: lint-tools
 		baseline_output=".make/golangci-lint.baseline.out"; \
 		status=0; \
 		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$raw_output" 2>&1 || status=$$?; \
-		perl -0pe "s/\\n\\s+/ /g" "$$raw_output" \
-			| grep -E "^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" \
+		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$raw_output" \
 			| sed "s|$(CURDIR)/||g" \
 			| sort > "$$findings_output" || true; \
 		if [ ! -f "$(GOLANGCI_LINT_BASELINE)" ]; then touch "$(GOLANGCI_LINT_BASELINE)"; fi; \
@@ -85,20 +84,19 @@ lint-golangci: lint-tools
 		done < "$(GOLANGCI_LINT_BASELINE)" | sort > "$$baseline_output"; \
 		new=$$(comm -23 "$$findings_output" "$$baseline_output" || true); \
 		if [ -n "$$new" ]; then \
-			echo "NEW golangci-lint findings (not in baseline):"; \
+			echo "NEW golangci-lint findings:"; \
 			echo "$$new"; \
 			echo ""; \
-			echo "Either fix them, or refresh the baseline:"; \
-			echo "  make lint-golangci-baseline"; \
+			echo "Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks."; \
 			exit 1; \
 		fi; \
 		gone=$$(comm -13 "$$findings_output" "$$baseline_output" || true); \
 		if [ -n "$$gone" ]; then \
-			echo "RESOLVED golangci-lint findings (please refresh baseline):"; \
+			echo "RESOLVED golangci-lint findings:"; \
 			echo "$$gone"; \
 		fi; \
 		n=$$(wc -l < "$$findings_output"); \
-		echo "golangci-lint: OK ($$n findings, all in baseline)"; \
+		echo "golangci-lint: OK ($$n findings)"; \
 		if [ "$$status" -ne 0 ] && [ ! -s "$$findings_output" ]; then cat "$$raw_output"; exit "$$status"; fi'
 
 lint-golangci-baseline: lint-tools
@@ -109,8 +107,7 @@ lint-golangci-baseline: lint-tools
 		new_baseline=".make/golangci-lint-baseline.new"; \
 		status=0; \
 		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$raw_output" 2>&1 || status=$$?; \
-		perl -0pe "s/\\n\\s+/ /g" "$$raw_output" \
-			| grep -E "^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" \
+		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$raw_output" \
 			| sed "s|$(CURDIR)/||g" \
 			| sort > "$$findings_output" || true; \
 		if [ ! -f "$(GOLANGCI_LINT_BASELINE)" ]; then touch "$(GOLANGCI_LINT_BASELINE)"; fi; \
@@ -204,7 +201,7 @@ check: build test
 #     reinstalled before analysis starts.
 #   - Excluded lines are dropped before baseline comparison.
 #   - Findings are diffed against the baseline. NEW findings exit non-zero.
-#     RESOLVED findings print a hint to refresh the baseline but don't fail.
+#     RESOLVED findings print without failing.
 #   - `make staticcheck-extra-baseline` re-captures the current findings and
 #     records generated_at for the file plus first_added and last_seen UTC
 #     timestamps for each entry.
@@ -336,20 +333,19 @@ staticcheck-extra: staticcheck-extra-bin
 		baseline_findings > .make/staticcheck-extra.baseline.out; \
 		new=$$(comm -23 .make/staticcheck-extra.out .make/staticcheck-extra.baseline.out || true); \
 		if [ -n "$$new" ]; then \
-			echo "NEW staticcheck-extra findings (not in baseline):"; \
+			echo "NEW staticcheck-extra findings:"; \
 			echo "$$new"; \
 			echo ""; \
-			echo "Either fix them, or refresh the baseline:"; \
-			echo "  make staticcheck-extra-baseline"; \
+			echo "Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks."; \
 			exit 1; \
 		fi; \
 		gone=$$(comm -13 .make/staticcheck-extra.out .make/staticcheck-extra.baseline.out || true); \
 		if [ -n "$$gone" ]; then \
-			echo "RESOLVED staticcheck-extra findings (please refresh baseline):"; \
+			echo "RESOLVED staticcheck-extra findings:"; \
 			echo "$$gone"; \
 		fi; \
 		n=$$(wc -l < .make/staticcheck-extra.out); \
-		echo "staticcheck-extra: OK ($$n findings, all in baseline)"'
+		echo "staticcheck-extra: OK ($$n findings)"'
 
 staticcheck-extra-baseline: staticcheck-extra-bin
 	@bash -eu -o pipefail -c '\
@@ -405,7 +401,7 @@ release:
 	op run --env-file=notarize.env "$$(printf '%s%s' - -)" goreleaser release --clean
 
 # Renamed from 'sync' to avoid conflicts with project-level Makefile sync targets.
-go-mk-sync:
+update-go-mk go-mk-sync:
 	@mkdir -p "$(dir $(GO_MK_CACHE))"
 	@if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$(GO_MK)"; then \
 		cp "$(GO_MK)" "$(GO_MK_CACHE)"; \

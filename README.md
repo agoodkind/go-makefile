@@ -69,7 +69,7 @@ GO_BUILD_TARGETS     := ./cmd/server                  # default: $(CMD), else ./
 GO_TEST_TARGETS      := ./...                         # default
 GO_VET_TARGETS       := ./...                         # default
 GOVULNCHECK_TARGETS  := ./...                         # default
-GO_INSTALL_FLAGS     := $(GO_BUILD_FLAGS)             # default
+GO_INSTALL_FLAGS     := $(filter-out -o %,$(GO_BUILD_FLAGS)) # default
 GO_INSTALL_TARGET    := $(CMD)                        # default
 BUILD_CHECKS         := true                          # default; build depends on build-check
 ```
@@ -87,7 +87,7 @@ The shared template uses GolangCI-Lint v2 `linters.default: all`, then narrows b
 
 ### `golangci-lint` baseline
 
-The shared `lint-golangci` target runs `golangci-lint run` through the same baseline-diff gate used by Clyde. Existing findings live in `.golangci-lint-baseline.txt`; new findings fail the target, and resolved findings print a refresh hint without failing.
+The shared `lint-golangci` target runs `golangci-lint run` through the same baseline-diff gate used by Clyde. Existing findings live in `.golangci-lint-baseline.txt`; new findings fail the target, and resolved findings print without failing.
 
 Per-project overrides:
 
@@ -166,7 +166,7 @@ Targets:
 
 | Target | Behaviour |
 | ------ | --------- |
-| `staticcheck-extra` | Runs the custom analyzer set, diffs vs baseline, and fails on new findings. Resolved findings only print a refresh hint. |
+| `staticcheck-extra` | Runs the custom analyzer set, diffs vs baseline, and fails on new findings. Resolved findings print without failing. |
 | `staticcheck-extra-baseline` | Refreshes `.staticcheck-extra-baseline.txt` with current findings and writes `first_added` and `last_seen` UTC timestamps for each finding. Commit the baseline only when remaining findings are intentional. |
 | `staticcheck-extra-bin` | Internal. Resolves or builds the analyzer binary. |
 
