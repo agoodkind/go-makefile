@@ -1,1 +1,1 @@
-# golangci-lint: generated_at=2026-05-04T04:56:20Z
+# golangci-lint: generated_at=2026-05-04T04:58:55Z

@@ -1,6 +1,7 @@
-GO_MK_URL   := [[.BaseURL]]/go.mk
-GO_MK       := .make/go.mk
-GO_MK_CACHE := $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile/go.mk
+GO_MK_URL     := [[.BaseURL]]/go.mk
+GO_MK_API_URL := https://api.github.com/repos/agoodkind/go-makefile/contents/go.mk?ref=main
+GO_MK         := .make/go.mk
+GO_MK_CACHE   := $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile/go.mk
 [[if eq .Layout "binary"]]
 
 BINARY := [[.Binary]]
@@ -11,7 +12,7 @@ CMD    := [[.Cmd]]
 GO_MK_BOOTSTRAP := $(shell \
 	mkdir -p "$(dir $(GO_MK))" "$(dir $(GO_MK_CACHE))"; \
 	tmp="$(GO_MK).tmp"; \
-	if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)?v=$$(date +%s)" -o "$$tmp" || curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$$tmp"; then \
+	if curl -fsSL -H "Accept: application/vnd.github.raw" --connect-timeout 5 --max-time 10 "$(GO_MK_API_URL)" -o "$$tmp" || curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)?v=$$(date +%s)" -o "$$tmp" || curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$$tmp"; then \
 		mv "$$tmp" "$(GO_MK)"; \
 		cp "$(GO_MK)" "$(GO_MK_CACHE)"; \
 	elif [ -f "$(GO_MK_CACHE)" ]; then \
@@ -24,7 +25,7 @@ GO_MK_BOOTSTRAP := $(shell \
 
 $(GO_MK):
 	@mkdir -p $(dir $@)
-	@if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)?v=$$(date +%s)" -o "$@" || curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$@"; then \
+	@if curl -fsSL -H "Accept: application/vnd.github.raw" --connect-timeout 5 --max-time 10 "$(GO_MK_API_URL)" -o "$@" || curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)?v=$$(date +%s)" -o "$@" || curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$@"; then \
 		mkdir -p "$(dir $(GO_MK_CACHE))" && cp "$@" "$(GO_MK_CACHE)"; \
 	elif [ -f "$(GO_MK_CACHE)" ]; then \
 		echo "warning: go.mk fetch failed, using cached version" >&2; \
