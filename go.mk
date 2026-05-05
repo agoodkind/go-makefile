@@ -105,15 +105,28 @@ clean:
 endif
 
 help:
-	@printf '%s\n' 'Common targets:'
-	@printf '  %-28s %s\n' 'build' 'run build-check, then go build $$(GO_BUILD_TARGETS)'
-	@printf '  %-28s %s\n' 'test' 'go test $$(GO_TEST_TARGETS)'
-	@printf '  %-28s %s\n' 'lint' 'install lint tools and run all lint gates'
-	@printf '  %-28s %s\n' 'build-check' 'run vet, lint, and govulncheck'
-	@printf '  %-28s %s\n' 'check' 'run build, then test'
-	@printf '  %-28s %s\n' 'fmt' 'apply configured golangci formatters'
-	@printf '  %-28s %s\n' 'deploy' 'go install $$(GO_INSTALL_TARGET)'
-	@printf '  %-28s %s\n' 'go-mk-sync/update-go-mk' 'refresh $$(GO_MK) and $$(GO_MK_CACHE)'
+	@printf '%s\n' 'Canonical entry points (run these):'
+	@printf '  %-32s %s\n' 'build' 'vet + full lint + govulncheck, then go build'
+	@printf '  %-32s %s\n' 'check' 'build + test'
+	@printf '  %-32s %s\n' 'lint' 'just the full lint chain (no build, no test)'
+	@printf '  %-32s %s\n' 'build-check' 'vet + lint + govulncheck (no build)'
+	@printf '  %-32s %s\n' 'fmt' 'apply gofumpt + goimports'
+	@printf '  %-32s %s\n' 'test' 'go test ./...'
+	@printf '  %-32s %s\n' 'install / uninstall' 'atomic copy of dist/$$(BINARY) to $$(INSTALL_BIN)'
+	@printf '\n%s\n' 'Lint sub-targets (run individually only when iterating; usually run via build/check):'
+	@printf '  %-32s %s\n' 'lint-tools' 'install golangci-lint, gofumpt, goimports'
+	@printf '  %-32s %s\n' 'lint-golangci' 'golangci-lint with central golangci.yml + .golangci-lint-baseline.txt'
+	@printf '  %-32s %s\n' 'lint-format' 'gofumpt + goimports diff (no edits, gate only)'
+	@printf '  %-32s %s\n' 'lint-gocyclo' 'cyclomatic complexity gate'
+	@printf '  %-32s %s\n' 'lint-deadcode' 'unreachable functions + .deadcode-baseline.txt + DEADCODE_EXCLUDE_PATHS'
+	@printf '  %-32s %s\n' 'staticcheck-extra' 'strict custom analyzers + .staticcheck-extra-baseline.txt'
+	@printf '\n%s\n' 'Refresh baselines after fixing or accepting findings:'
+	@printf '  %-32s %s\n' 'lint-golangci-baseline' 'rebuild .golangci-lint-baseline.txt'
+	@printf '  %-32s %s\n' 'lint-deadcode-baseline' 'rebuild .deadcode-baseline.txt'
+	@printf '  %-32s %s\n' 'staticcheck-extra-baseline' 'rebuild .staticcheck-extra-baseline.txt'
+	@printf '\n%s\n' 'Pipeline maintenance:'
+	@printf '  %-32s %s\n' 'go-mk-sync / update-go-mk' 'refresh go.mk + sibling modules + golangci.yml'
+	@printf '  %-32s %s\n' 'deploy' 'go install $$(GO_INSTALL_TARGET) (legacy; prefer install)'
 
 lint: lint-tools lint-golangci lint-format lint-gocyclo lint-deadcode staticcheck-extra
 
