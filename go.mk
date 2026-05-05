@@ -310,7 +310,6 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-panic_in_production \
 	-time_now_outside_clock \
 	-goroutine_without_recover \
-	-silent_defer_close \
 	-slog_missing_trace_id \
 	-grpc_handler_missing_peer_enrichment \
 	-sensitive_field_in_log \
