@@ -1,0 +1,78 @@
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  default: all
+  disable:
+    - depguard
+    - dupl
+    - err113
+    - errcheck
+    - exhaustruct
+    - gochecknoglobals
+    - gochecknoinits
+    - gocognit
+    - goconst
+    - godox
+    - ireturn
+    - lll
+    - mnd
+    - nilnil
+    - nlreturn
+    - nonamedreturns
+    - paralleltest
+    - revive
+    - tagliatelle
+    - varnamelen
+    - wsl
+    - wsl_v5
+  settings:
+    cyclop:
+      max-complexity: 50
+    godoclint:
+      default: all
+    nolintlint:
+      require-specific: true
+      require-explanation: true
+      allow-no-explanation: []
+    gocritic:
+      disabled-checks:
+        - singleCaseSwitch
+      enabled-checks:
+        - boolExprSimplify
+        - nilValReturn
+  exclusions:
+    generated: lax
+    presets:
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - _test\.go
+      - vendor
+      - gen
+      - third_party$
+      - builtin$
+      - examples$
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - gen
+      - third_party$
+      - builtin$
+      - examples$
+
+output:
+  sort-order:
+    - file

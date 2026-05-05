@@ -1,14 +1,55 @@
 .PHONY: build deploy clean help \
 	lint lint-tools lint-golangci lint-golangci-baseline lint-format lint-gocyclo fmt vet test govulncheck build-check check \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-bin \
-	release go-mk-sync update-go-mk
+	go-mk-sync update-go-mk
 
-GO_MK_URL   := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
-GO_MK_CACHE := $(HOME)/.cache/go-makefile/go.mk
+GO_MK_URL       := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
+GO_MK_CACHE     := $(HOME)/.cache/go-makefile/go.mk
+GO_MK_BASE_URL  ?= https://raw.githubusercontent.com/agoodkind/go-makefile/main
+GO_MK_CACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile
+
+# go-mk-fetch-one: fetch one asset from go-makefile (relative path, e.g.
+# go-build.mk or golangci.yml) into .make/<path>. Honors GO_MK_DEV_DIR for
+# local dev iteration. Falls back to ~/.cache/go-makefile/ on network error.
+# Used by the GO_MK_MODULES bootstrap and the golangci config fetch below.
+# All output goes to stderr; $(call ...) evaluates to the empty string so
+# it's safe to use at the top level.
+go-mk-fetch-one = $(shell { \
+	mkdir -p .make "$(GO_MK_CACHE_DIR)"; \
+	target=".make/$(1)"; \
+	cache="$(GO_MK_CACHE_DIR)/$(1)"; \
+	if [ -n "$(GO_MK_DEV_DIR)" ] && [ -f "$(GO_MK_DEV_DIR)/$(1)" ]; then \
+		cp "$(GO_MK_DEV_DIR)/$(1)" "$$target"; \
+		printf '%s\n' "$(1): using dev override $(GO_MK_DEV_DIR)/$(1)"; \
+	else \
+		tmp="$$target.tmp"; \
+		if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)" -o "$$tmp" 2>/dev/null; then \
+			mv "$$tmp" "$$target"; cp "$$target" "$$cache"; \
+		elif [ -f "$$cache" ]; then \
+			rm -f "$$tmp"; cp "$$cache" "$$target"; \
+			printf '%s\n' "warning: $(1) fetch failed, using cached version"; \
+		elif [ ! -f "$$target" ]; then \
+			rm -f "$$tmp"; \
+			printf '%s\n' "error: $(1) fetch failed and no cache available"; \
+		fi; \
+	fi; \
+} 1>&2)
+
+# GO_MK_MODULES: project sets a list of sibling .mk files to fetch and include.
+# Example: GO_MK_MODULES := go-build.mk go-release.mk go-service.mk
+# Set BEFORE `-include $(GO_MK)` in the project Makefile.
+GO_MK_MODULES ?=
+$(foreach m,$(GO_MK_MODULES),$(call go-mk-fetch-one,$(m))$(eval -include .make/$(m)))
+
+# Centralized golangci-lint config. The canonical config lives at
+# go-makefile/golangci.yml. Consumers do not maintain their own .golangci.yml.
+# Projects override by setting GOLANGCI_LINT_FLAGS before -include $(GO_MK).
+GO_MK_GOLANGCI_CONFIG ?= .make/golangci.yml
+$(call go-mk-fetch-one,golangci.yml)
 
 GOLANGCI_LINT          ?= golangci-lint
 GOLANGCI_LINT_TARGETS  ?= ./...
-GOLANGCI_LINT_FLAGS    ?=
+GOLANGCI_LINT_FLAGS    ?= -c $(GO_MK_GOLANGCI_CONFIG)
 GOLANGCI_LINT_BASELINE ?= .golangci-lint-baseline.txt
 GOLANGCI_LINT_BASELINE_RUNS ?= 3
 GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
@@ -37,6 +78,10 @@ else
 default-build-deps :=
 endif
 
+# Legacy build/deploy/clean targets. When go-build.mk is opted in via
+# GO_MK_MODULES, it owns these and we skip the legacy definitions to avoid
+# Make's "overriding commands" warning.
+ifeq ($(filter go-build.mk,$(GO_MK_MODULES)),)
 build: $(default-build-deps)
 	go build $(GO_BUILD_OUTPUT_FLAGS) $(GO_BUILD_FLAGS) $(GO_BUILD_TARGETS)
 
@@ -47,6 +92,7 @@ deploy:
 clean:
 	@if [ -z "$(strip $(BINARY))" ]; then echo "clean: BINARY is not set (skipped)"; exit 0; fi
 	rm -f $(BINARY)
+endif
 
 help:
 	@printf '%s\n' 'Common targets:'
@@ -432,19 +478,22 @@ staticcheck-extra-baseline: staticcheck-extra-bin
 		n=$$(wc -l < .make/staticcheck-extra.out); \
 		echo "staticcheck-extra: baseline $(STATICCHECK_EXTRA_BASELINE) refreshed ($$n findings)"'
 
-# Local release with notarization. Requires notarize.env (gitignored).
-# Copy notarize.env.example to notarize.env and fill in your 1Password paths.
-release:
-	@[ -f notarize.env ] || { echo "notarize.env not found. Copy notarize.env.example and fill in your 1Password op:// paths."; exit 1; }
-	op run --env-file=notarize.env "$$(printf '%s%s' - -)" goreleaser release --clean
+# release/release-snapshot/release-local live in go-release.mk.
+# Project Makefiles opt in via:  GO_MK_MODULES += go-release.mk
 
+# Refresh go.mk plus every opt-in sibling module and the central golangci.yml.
 # Renamed from 'sync' to avoid conflicts with project-level Makefile sync targets.
 update-go-mk go-mk-sync:
-	@mkdir -p "$(dir $(GO_MK_CACHE))"
-	@if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$(GO_MK)"; then \
-		cp "$(GO_MK)" "$(GO_MK_CACHE)"; \
-		echo "go.mk updated"; \
-	else \
-		echo "error: go.mk fetch failed" >&2; \
-		exit 1; \
-	fi
+	@mkdir -p "$(dir $(GO_MK_CACHE))" "$(GO_MK_CACHE_DIR)"
+	@for f in go.mk golangci.yml $(GO_MK_MODULES); do \
+		url="$(GO_MK_BASE_URL)/$$f"; \
+		if [ "$$f" = "go.mk" ]; then dest="$(GO_MK)"; else dest=".make/$$f"; fi; \
+		mkdir -p "$$(dirname $$dest)"; \
+		if curl -fsSL --connect-timeout 5 --max-time 10 "$$url" -o "$$dest"; then \
+			cp "$$dest" "$(GO_MK_CACHE_DIR)/$$f"; \
+			echo "updated: $$f"; \
+		else \
+			echo "error: $$f fetch failed" >&2; \
+			exit 1; \
+		fi; \
+	done
