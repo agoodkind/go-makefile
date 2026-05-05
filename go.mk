@@ -114,17 +114,16 @@ endif
 help:
 	@printf '%s\n' 'Canonical entry points (run these):'
 	@printf '  %-32s %s\n' 'build' 'vet + full lint + govulncheck, then go build'
-	@printf '  %-32s %s\n' 'check' 'build + test'
+	@printf '  %-32s %s\n' 'check' 'alias for lint (run every gate)'
 	@printf '  %-32s %s\n' 'lint' 'just the full lint chain (no build, no test)'
 	@printf '  %-32s %s\n' 'build-check' 'vet + lint + govulncheck (no build)'
 	@printf '  %-32s %s\n' 'fmt' 'apply gofumpt + goimports'
 	@printf '  %-32s %s\n' 'test' 'go test ./...'
 	@printf '  %-32s %s\n' 'install / uninstall' 'atomic copy of dist/$$(BINARY) to $$(INSTALL_BIN)'
-	@printf '\n%s\n' 'Scoped iteration (lint just the files an agent has touched):'
-	@printf '  %-32s %s\n' 'lint-diff' 'lint files currently staged (git diff --cached). Same as pre-commit hook.'
-	@printf '  %-32s %s\n' 'lint-files LINT_FILES=...' 'lint a specific list of files. Baseline-gated by default.'
-	@printf '  %-32s %s\n' '  BASELINE=path' 'use alternate baseline file (default $$(GOLANGCI_LINT_BASELINE))'
-	@printf '  %-32s %s\n' '  BASELINE=""' 'no baseline gate; show all findings on listed files'
+	@printf '\n%s\n' 'Scoped iteration (run all lint gates against just the files an agent has touched):'
+	@printf '  %-32s %s\n' 'lint-diff' 'all gates against staged .go files (git diff --cached). Same as pre-commit.'
+	@printf '  %-32s %s\n' 'lint-files LINT_FILES=...' 'all gates against a specific list of files. Baseline-gated.'
+	@printf '  %-32s %s\n' '  BASELINE=""' 'disable baseline gates; show all findings on listed files'
 	@printf '\n%s\n' 'Lint sub-targets (run individually only when iterating; usually run via build/check):'
 	@printf '  %-32s %s\n' 'lint-tools' 'install golangci-lint, gofumpt, goimports'
 	@printf '  %-32s %s\n' 'lint-golangci' 'golangci-lint with central golangci.yml + .golangci-lint-baseline.txt'
@@ -248,27 +247,39 @@ lint-diff:
 		[ -z "$$files" ] && { echo "lint-diff: no staged .go files"; exit 0; }; \
 		$(MAKE) --no-print-directory lint-files LINT_FILES="$$files" BASELINE="$(BASELINE)"'
 
-lint-files: lint-tools
+lint-files: lint-tools staticcheck-extra-bin
 	@bash -eu -o pipefail -c '\
 		[ -z "$(LINT_FILES)" ] && { echo "lint-files: LINT_FILES is empty"; exit 0; }; \
 		pkgs=$$(printf "%s\n" $(LINT_FILES) | xargs -n1 dirname | sort -u | awk "{print \"./\" \$$0}" | tr "\n" " "); \
-		raw=$$(mktemp); \
-		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $$pkgs > "$$raw" 2>&1 || true; \
-		findings=$$(awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' "$$raw" | grep -E "^[^:]+\.go:[0-9]+:[0-9]+: " || true); \
-		rm -f "$$raw"; \
-		filtered=$$(echo "$$findings" | awk -v files="$(LINT_FILES)" '"'"'BEGIN { n=split(files, ff, /[ \t]+/); for (i=1; i<=n; i++) if (ff[i] != "") keep[ff[i]]=1 } { for (f in keep) if (index($$0, f ":") == 1) { print; next } }'"'"'); \
-		[ -z "$$filtered" ] && { echo "lint-files: OK (0 findings)"; exit 0; }; \
-		if [ -z "$(BASELINE)" ]; then echo "$$filtered"; exit 1; fi; \
-		bkeys=$$(mktemp); \
-		[ -f "$(BASELINE)" ] && awk '"'"'function k(s,    o) { if (match(s, /:[0-9]+:[0-9]+:/)) o = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else o = s; while (index(o, "../")==1) o = substr(o, 4); return o } /^[ \t]*$$/||/^#/{next} { i=index($$0, "\t"); f=(i>0)?substr($$0, 1, i-1):$$0; print k(f) }'"'"' "$(BASELINE)" > "$$bkeys"; \
-		new=$$(echo "$$filtered" | awk -v bkeys="$$bkeys" '"'"'function k(s,    o) { if (match(s, /:[0-9]+:[0-9]+:/)) o = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else o = s; while (index(o, "../")==1) o = substr(o, 4); return o } BEGIN { while ((getline x < bkeys) > 0) bk[x]=1 } { if (!(k($$0) in bk)) print }'"'"'); \
-		rm -f "$$bkeys"; \
-		[ -z "$$new" ] && { echo "lint-files: OK (0 new findings vs $(BASELINE))"; exit 0; }; \
-		echo "NEW findings on listed files (vs $(BASELINE)):"; \
-		echo "$$new"; \
-		echo ""; \
-		echo "Run with BASELINE=\"\" to see all findings (skip baseline gate)."; \
-		exit 1'
+		files="$(LINT_FILES)"; \
+		gate_disabled="$$([ -z "$(BASELINE)" ] && echo 1 || echo 0)"; \
+		run_gate() { \
+			local name="$$1" cmd="$$2" baseline="$$3"; \
+			local raw filtered findings new bkeys st; \
+			raw=$$(mktemp); \
+			eval "$$cmd" > "$$raw" 2>&1 || true; \
+			findings=$$(awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' "$$raw" | grep -E "^[^:]+\.go:[0-9]+:[0-9]+: " || true); \
+			rm -f "$$raw"; \
+			filtered=$$(echo "$$findings" | awk -v files="$$files" '"'"'BEGIN { n=split(files, ff, /[ \t]+/); for (i=1; i<=n; i++) if (ff[i] != "") keep[ff[i]]=1 } { for (f in keep) if (index($$0, f ":") == 1) { print; next } }'"'"'); \
+			[ -z "$$filtered" ] && { echo "$$name: OK (0 findings on listed files)"; return 0; }; \
+			if [ "$$gate_disabled" = "1" ]; then echo "$$name findings on listed files:"; echo "$$filtered"; return 1; fi; \
+			bkeys=$$(mktemp); \
+			[ -f "$$baseline" ] && awk '"'"'function k(s,    o) { if (match(s, /:[0-9]+:[0-9]+:/)) o = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else o = s; while (index(o, "../")==1) o = substr(o, 4); return o } /^[ \t]*$$/||/^#/{next} { i=index($$0, "\t"); f=(i>0)?substr($$0, 1, i-1):$$0; print k(f) }'"'"' "$$baseline" > "$$bkeys"; \
+			new=$$(echo "$$filtered" | awk -v bkeys="$$bkeys" '"'"'function k(s,    o) { if (match(s, /:[0-9]+:[0-9]+:/)) o = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else o = s; while (index(o, "../")==1) o = substr(o, 4); return o } BEGIN { while ((getline x < bkeys) > 0) bk[x]=1 } { if (!(k($$0) in bk)) print }'"'"'); \
+			rm -f "$$bkeys"; \
+			[ -z "$$new" ] && { echo "$$name: OK (0 new findings vs $$baseline)"; return 0; }; \
+			echo "$$name NEW findings on listed files (vs $$baseline):"; \
+			echo "$$new"; \
+			return 1; \
+		}; \
+		status=0; \
+		run_gate golangci-lint "$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $$pkgs" "$(GOLANGCI_LINT_BASELINE)" || status=1; \
+		run_gate staticcheck-extra ".make/staticcheck-extra $(STATICCHECK_EXTRA_FLAGS) $$pkgs" "$(STATICCHECK_EXTRA_BASELINE)" || status=1; \
+		if [ "$$status" -ne 0 ] && [ "$$gate_disabled" != "1" ]; then \
+			echo ""; \
+			echo "Run with BASELINE=\"\" to see all findings (skip baseline gate)."; \
+		fi; \
+		exit "$$status"'
 
 lint-golangci-baseline: lint-tools
 	@bash -eu -o pipefail -c '\
@@ -456,7 +467,10 @@ lint-deadcode-baseline:
 
 build-check: vet lint govulncheck
 
-check: build test
+# `check` is an alias for `lint`. Both run every lint gate (golangci-lint,
+# format, gocyclo, deadcode, staticcheck-extra). To build + test, use
+# `make build` (which runs lint via build-check) and `make test`.
+check: lint
 
 # baseline refreshes every gate's baseline file in one shot. Gated behind
 # BASELINE_CONFIRM because baselining blindly hides defects: an agent that
