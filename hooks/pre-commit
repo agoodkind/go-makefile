@@ -45,16 +45,16 @@ while IFS= read -r f; do
 done <<< "$staged"
 
 # Run both gates the build pipeline runs:
-#   - lint-files: unified golangci target. Internally expands LINT_FILES
-#     to package scope (typecheck gets siblings), filters findings to
-#     LINT_FILES only, baseline-gates by default. Same target agents use.
+#   - lint-diff: agent-callable target that lints staged .go files via
+#     golangci-lint (typecheck gets package siblings, output filtered to
+#     staged files, baseline-gated by default).
 #   - staticcheck-extra: catches custom analyzers (no_any, slog/boundary
 #     hygiene, thin_wrapper, etc.) that golangci-lint doesn't run.
 status=0
 for mk_dir in "${!by_dir[@]}"; do
     files="${by_dir[$mk_dir]}"
     pkgs=$(printf '%s\n' $files | xargs -n1 dirname 2>/dev/null | sort -u | awk '{print "./" $0}' | tr '\n' ' ')
-    (cd "$mk_dir" && make lint-files LINT_FILES="$files" >&2) || status=$?
+    (cd "$mk_dir" && make lint-diff >&2) || status=$?
     (cd "$mk_dir" && make staticcheck-extra STATICCHECK_EXTRA_TARGETS="$pkgs" >&2) || status=$?
 done
 exit "$status"

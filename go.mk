@@ -1,5 +1,5 @@
 .PHONY: build deploy clean help \
-	lint lint-tools lint-golangci lint-golangci-baseline lint-files lint-format lint-gocyclo fmt vet test govulncheck build-check check \
+	lint lint-tools lint-golangci lint-golangci-baseline lint-files lint-diff lint-format lint-gocyclo fmt vet test govulncheck build-check check \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-bin \
 	baseline \
 	go-mk-sync update-go-mk smoke-fetch
@@ -120,8 +120,11 @@ help:
 	@printf '  %-32s %s\n' 'fmt' 'apply gofumpt + goimports'
 	@printf '  %-32s %s\n' 'test' 'go test ./...'
 	@printf '  %-32s %s\n' 'install / uninstall' 'atomic copy of dist/$$(BINARY) to $$(INSTALL_BIN)'
-	@printf '\n%s\n' 'Scoped iteration (parallel agents linting only their files):'
-	@printf '  %-32s %s\n' 'lint-files LINT_FILES=...' 'golangci-lint scoped to LINT_FILES (no baseline gate)'
+	@printf '\n%s\n' 'Scoped iteration (lint just the files an agent has touched):'
+	@printf '  %-32s %s\n' 'lint-diff' 'lint files currently staged (git diff --cached). Same as pre-commit hook.'
+	@printf '  %-32s %s\n' 'lint-files LINT_FILES=...' 'lint a specific list of files. Baseline-gated by default.'
+	@printf '  %-32s %s\n' '  BASELINE=path' 'use alternate baseline file (default $$(GOLANGCI_LINT_BASELINE))'
+	@printf '  %-32s %s\n' '  BASELINE=""' 'no baseline gate; show all findings on listed files'
 	@printf '\n%s\n' 'Lint sub-targets (run individually only when iterating; usually run via build/check):'
 	@printf '  %-32s %s\n' 'lint-tools' 'install golangci-lint, gofumpt, goimports'
 	@printf '  %-32s %s\n' 'lint-golangci' 'golangci-lint with central golangci.yml + .golangci-lint-baseline.txt'
@@ -232,6 +235,18 @@ LINT_FILES ?= ./...
 # findings on listed files surface). Set BASELINE=other.txt to use any
 # alternate baseline file.
 BASELINE ?= $(GOLANGCI_LINT_BASELINE)
+
+# lint-diff: lint exactly the .go files in the current `git diff --cached`
+# (staged changes). Same logic the pre-commit hook uses, exposed as a
+# target so agents can run it directly. Pure alias around lint-files.
+# TODO: smarter mode that filters findings to only changed lines (via
+# golangci-lint --new-from-rev=HEAD); deferred until line-level filtering
+# is needed widely.
+lint-diff:
+	@bash -eu -o pipefail -c '\
+		files=$$(git diff --cached --name-only --relative --diff-filter=ACM 2>/dev/null | grep "\.go$$" | tr "\n" " " || true); \
+		[ -z "$$files" ] && { echo "lint-diff: no staged .go files"; exit 0; }; \
+		$(MAKE) --no-print-directory lint-files LINT_FILES="$$files" BASELINE="$(BASELINE)"'
 
 lint-files: lint-tools
 	@bash -eu -o pipefail -c '\
