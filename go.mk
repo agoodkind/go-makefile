@@ -60,6 +60,7 @@ GOFUMPT                ?= gofumpt
 GOIMPORTS              ?= goimports
 GOCYCLO_OVER           ?= 50
 GOCYCLO_TARGETS        ?= $$(find . -name '*.go' -not -name '*_test.go' -not -path './vendor/*' -not -path './gen/*' -not -path './third_party/*')
+GOCYCLO_INSTALL        ?= github.com/fzipp/gocyclo/cmd/gocyclo@latest
 GOLANGCI_LINT_INSTALL  ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
 GOFUMPT_INSTALL        ?= mvdan.cc/gofumpt@v0.9.2
 GOIMPORTS_INSTALL      ?= golang.org/x/tools/cmd/goimports@v0.44.0
@@ -232,7 +233,7 @@ lint-format:
 	fi
 
 lint-gocyclo:
-	go tool gocyclo -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS)
+	@go run $(GOCYCLO_INSTALL) -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS)
 
 fmt: lint-tools
 	$(GOLANGCI_LINT) fmt $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS)
