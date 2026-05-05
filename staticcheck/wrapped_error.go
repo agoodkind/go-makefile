@@ -179,24 +179,36 @@ func hasNolintComment(file *ast.File, fset *token.FileSet, pos token.Pos, name s
 	return false
 }
 
-// isPureValidatorByName carves out functions whose responsibility is pure
-// data transformation (parse/validate/encode/decode/marshal/unmarshal) or
-// pure I/O surface (read/write). These functions wrap and return errors
-// because the call site is the right layer to log; forcing them to also
-// log themselves would pollute their signature with a logger parameter
-// that only one error path needs.
+// isPureValidatorByName carves out functions whose name matches a
+// stdlib codec or io interface convention. The call site of these
+// functions is the layer responsible for logging the error, so the
+// function itself returning a wrapped error without slog is correct.
+//
+// The set is intentionally narrow:
+//
+//   - Marshal*, Unmarshal* prefix matches the stdlib codec convention
+//     (MarshalJSON, UnmarshalBinary, MarshalText, MarshalProto, etc.).
+//     Anything that implements one of the stdlib codec interfaces uses
+//     this naming, and the contract is "return an error; caller logs".
+//
+//   - Exact match on the canonical io interface method names. These
+//     are the methods you implement to satisfy io.Reader, io.Writer,
+//     io.WriterTo, io.ReaderFrom, io.ByteReader, io.ByteWriter, etc.
+//     The stdlib calls these from contexts that already log on error.
+//
+// Functions named readConfig, writeFile, parseUserInput, validateOrder,
+// encodeRequest, formatResponse, etc. are NOT in this set. Those are
+// high-level orchestration that should log at the boundary it owns.
+// If a custom function (e.g., WriteFrame) is genuinely a pure encoder,
+// either rename it to MarshalBinary/-shape or use a per-line
+// //nolint:wrapped_error_without_slog directive at the return site.
 func isPureValidatorByName(name string) bool {
-	lower := strings.ToLower(name)
-	for _, prefix := range []string{
-		"parse", "validate",
-		"encode", "decode",
-		"marshal", "unmarshal",
-		"format",
-		"read", "write",
-	} {
-		if strings.HasPrefix(lower, prefix) {
-			return true
-		}
+	if strings.HasPrefix(name, "Marshal") || strings.HasPrefix(name, "Unmarshal") {
+		return true
+	}
+	switch name {
+	case "Read", "Write", "ReadAt", "WriteAt", "WriteTo", "ReadFrom", "ReadByte", "WriteByte", "ReadRune", "WriteRune":
+		return true
 	}
 	return false
 }
