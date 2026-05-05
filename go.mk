@@ -170,7 +170,7 @@ lint-golangci: lint-tools
 		}; \
 		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$raw_output" 2>&1 || status=$$?; \
 		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$raw_output" \
-			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); print }'"'"' \
+			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
 			| filter \
 			| sort > "$$findings_output" || true; \
 		if [ ! -f "$(GOLANGCI_LINT_BASELINE)" ]; then touch "$(GOLANGCI_LINT_BASELINE)"; fi; \
@@ -182,7 +182,7 @@ lint-golangci: lint-tools
 			[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
 		done < "$(GOLANGCI_LINT_BASELINE)" | filter | sort > "$$baseline_output"; \
 		keyize() { \
-			awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) print substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else print $$0 }'"'"' "$$1"; \
+			awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) out=substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else out=$$0; while (index(out, "../")==1) out=substr(out, 4); print out }'"'"' "$$1"; \
 		}; \
 		findings_keys=".make/golangci-lint.keys.out"; \
 		baseline_keys=".make/golangci-lint.keys.baseline.out"; \
@@ -193,7 +193,7 @@ lint-golangci: lint-tools
 		comm -23 "$$findings_keys" "$$baseline_keys" > "$$new_keys_file" || true; \
 		comm -13 "$$findings_keys" "$$baseline_keys" > "$$gone_keys_file" || true; \
 		map_keys_to_originals() { \
-			awk '"'"'NR==FNR{keyset[$$0]=1; next} { if (match($$0, /:[0-9]+:[0-9]+:/)) k = substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else k = $$0; if (k in keyset) print }'"'"' "$$1" "$$2"; \
+			awk '"'"'NR==FNR{keyset[$$0]=1; next} { if (match($$0, /:[0-9]+:[0-9]+:/)) k = substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else k = $$0; while (index(k, "../")==1) k = substr(k, 4); if (k in keyset) print }'"'"' "$$1" "$$2"; \
 		}; \
 		new=$$(map_keys_to_originals "$$new_keys_file" "$$findings_output"); \
 		if [ -n "$$new" ]; then \
@@ -253,7 +253,7 @@ lint-golangci-baseline: lint-tools
 			$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$run_raw_output" 2>&1 || run_status=$$?; \
 			cat "$$run_raw_output" >> "$$raw_output"; \
 			grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$run_raw_output" \
-				| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); print }'"'"' \
+				| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
 				| filter \
 				| sort > "$$run_findings_output" || true; \
 			cat "$$run_findings_output" >> "$$findings_output"; \
@@ -273,7 +273,7 @@ lint-golangci-baseline: lint-tools
 		sort -u "$$findings_output" "$$baseline_output" > "$$findings_output.merged"; \
 		mv "$$findings_output.merged" "$$findings_output"; \
 		printf "# golangci-lint: generated_at=%s\n" "$$now" > "$$new_baseline"; \
-		awk -v now="$$now" -v mp="$${metadata_prefix}" -v lname=golangci-lint -v kmf="$(GOLANGCI_LINT_BASELINE)" '"'"'function key(s) { if (match(s, /:[0-9]+:[0-9]+:/)) return substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); return s } BEGIN { while ((getline line < kmf) > 0) { if (line ~ /^#/) continue; if (line ~ /^[ \t]*$$/) continue; idx = index(line, mp); if (idx > 0) { finding = substr(line, 1, idx-1); meta = substr(line, idx + length(mp)); fa = ""; n = split(meta, ff, " "); for (i = 1; i <= n; i++) if (ff[i] ~ /^first_added=/) fa = substr(ff[i], 13); km[key(finding)] = fa } else km[key(line)] = "" } close(kmf) } { k = key($$0); fa = (k in km) ? km[k] : ""; if (fa == "") fa = now; printf "%s\t# %s:first_added=%s last_seen=%s\n", $$0, lname, fa, now }'"'"' "$$findings_output" >> "$$new_baseline"; \
+		awk -v now="$$now" -v mp="$${metadata_prefix}" -v lname=golangci-lint -v kmf="$(GOLANGCI_LINT_BASELINE)" '"'"'function key(s,    out) { if (match(s, /:[0-9]+:[0-9]+:/)) out = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else out = s; while (index(out, "../")==1) out = substr(out, 4); return out } BEGIN { while ((getline line < kmf) > 0) { if (line ~ /^#/) continue; if (line ~ /^[ \t]*$$/) continue; idx = index(line, mp); if (idx > 0) { finding = substr(line, 1, idx-1); meta = substr(line, idx + length(mp)); fa = ""; n = split(meta, ff, " "); for (i = 1; i <= n; i++) if (ff[i] ~ /^first_added=/) fa = substr(ff[i], 13); km[key(finding)] = fa } else km[key(line)] = "" } close(kmf) } { k = key($$0); fa = (k in km) ? km[k] : ""; if (fa == "") fa = now; printf "%s\t# %s:first_added=%s last_seen=%s\n", $$0, lname, fa, now }'"'"' "$$findings_output" >> "$$new_baseline"; \
 		mv "$$new_baseline" "$(GOLANGCI_LINT_BASELINE)"; \
 		n=$$(wc -l < "$$findings_output"); \
 		echo "golangci-lint: baseline $(GOLANGCI_LINT_BASELINE) refreshed ($$n findings)"; \
@@ -345,7 +345,7 @@ lint-deadcode:
 		}; \
 		"$$(go env GOPATH)/bin/deadcode" $(DEADCODE_TARGETS) > "$$raw" 2>&1 || true; \
 		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+:" "$$raw" \
-			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); print }'"'"' \
+			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
 			| filter \
 			| sort > "$$findings" || true; \
 		if [ ! -f "$(DEADCODE_BASELINE)" ]; then touch "$(DEADCODE_BASELINE)"; fi; \
@@ -356,7 +356,7 @@ lint-deadcode:
 			finding="$${baseline_line%%$${metadata_prefix}*}"; \
 			[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
 		done < "$(DEADCODE_BASELINE)" | filter | sort > "$$baseline" || true; \
-		keyize() { awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) print substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else print $$0 }'"'"' "$$1"; }; \
+		keyize() { awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) out=substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else out=$$0; while (index(out, "../")==1) out=substr(out, 4); print out }'"'"' "$$1"; }; \
 		findings_keys=".make/deadcode.keys.out"; \
 		baseline_keys=".make/deadcode.keys.baseline.out"; \
 		new_keys=".make/deadcode.keys.new"; \
@@ -365,7 +365,7 @@ lint-deadcode:
 		keyize "$$baseline" | sort -u > "$$baseline_keys"; \
 		comm -23 "$$findings_keys" "$$baseline_keys" > "$$new_keys" || true; \
 		comm -13 "$$findings_keys" "$$baseline_keys" > "$$gone_keys" || true; \
-		map_keys() { awk '"'"'NR==FNR{keyset[$$0]=1; next} { if (match($$0, /:[0-9]+:[0-9]+:/)) k = substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else k = $$0; if (k in keyset) print }'"'"' "$$1" "$$2"; }; \
+		map_keys() { awk '"'"'NR==FNR{keyset[$$0]=1; next} { if (match($$0, /:[0-9]+:[0-9]+:/)) k = substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else k = $$0; while (index(k, "../")==1) k = substr(k, 4); if (k in keyset) print }'"'"' "$$1" "$$2"; }; \
 		new=$$(map_keys "$$new_keys" "$$findings"); \
 		if [ -n "$$new" ]; then \
 			echo "NEW deadcode findings:"; \
@@ -400,7 +400,7 @@ lint-deadcode-baseline:
 		}; \
 		"$$(go env GOPATH)/bin/deadcode" $(DEADCODE_TARGETS) > "$$raw" 2>&1 || true; \
 		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+:" "$$raw" \
-			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); print }'"'"' \
+			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
 			| filter \
 			| sort -u > "$$findings" || true; \
 		if [ ! -f "$(DEADCODE_BASELINE)" ]; then touch "$(DEADCODE_BASELINE)"; fi; \
@@ -409,7 +409,7 @@ lint-deadcode-baseline:
 		metadata_prefix="$${tab}# deadcode:"; \
 		new_baseline=".make/deadcode-baseline.new"; \
 		printf "# deadcode: generated_at=%s\n" "$$now" > "$$new_baseline"; \
-		awk -v now="$$now" -v mp="$${metadata_prefix}" -v lname=deadcode -v kmf="$(DEADCODE_BASELINE)" '"'"'function key(s) { if (match(s, /:[0-9]+:[0-9]+:/)) return substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); return s } BEGIN { while ((getline line < kmf) > 0) { if (line ~ /^#/) continue; if (line ~ /^[ \t]*$$/) continue; idx = index(line, mp); if (idx > 0) { finding = substr(line, 1, idx-1); meta = substr(line, idx + length(mp)); fa = ""; n = split(meta, ff, " "); for (i = 1; i <= n; i++) if (ff[i] ~ /^first_added=/) fa = substr(ff[i], 13); km[key(finding)] = fa } else km[key(line)] = "" } close(kmf) } { k = key($$0); fa = (k in km) ? km[k] : ""; if (fa == "") fa = now; printf "%s\t# %s:first_added=%s last_seen=%s\n", $$0, lname, fa, now }'"'"' "$$findings" >> "$$new_baseline"; \
+		awk -v now="$$now" -v mp="$${metadata_prefix}" -v lname=deadcode -v kmf="$(DEADCODE_BASELINE)" '"'"'function key(s,    out) { if (match(s, /:[0-9]+:[0-9]+:/)) out = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else out = s; while (index(out, "../")==1) out = substr(out, 4); return out } BEGIN { while ((getline line < kmf) > 0) { if (line ~ /^#/) continue; if (line ~ /^[ \t]*$$/) continue; idx = index(line, mp); if (idx > 0) { finding = substr(line, 1, idx-1); meta = substr(line, idx + length(mp)); fa = ""; n = split(meta, ff, " "); for (i = 1; i <= n; i++) if (ff[i] ~ /^first_added=/) fa = substr(ff[i], 13); km[key(finding)] = fa } else km[key(line)] = "" } close(kmf) } { k = key($$0); fa = (k in km) ? km[k] : ""; if (fa == "") fa = now; printf "%s\t# %s:first_added=%s last_seen=%s\n", $$0, lname, fa, now }'"'"' "$$findings" >> "$$new_baseline"; \
 		mv "$$new_baseline" "$(DEADCODE_BASELINE)"; \
 		n=$$(wc -l < "$$findings"); \
 		echo "deadcode: baseline $(DEADCODE_BASELINE) refreshed ($$n findings)"'
@@ -621,7 +621,7 @@ staticcheck-extra: staticcheck-extra-bin
 			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
 		}; \
 		"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS) 2>&1 \
-			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); print }'"'"' | filter | sort > .make/staticcheck-extra.out || true; \
+			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort > .make/staticcheck-extra.out || true; \
 		if [ ! -f "$(STATICCHECK_EXTRA_BASELINE)" ]; then \
 			touch "$(STATICCHECK_EXTRA_BASELINE)"; \
 		fi; \
@@ -635,12 +635,12 @@ staticcheck-extra: staticcheck-extra-bin
 			done < "$(STATICCHECK_EXTRA_BASELINE)" | filter | sort; \
 		}; \
 		baseline_findings > .make/staticcheck-extra.baseline.out; \
-		keyize() { awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) print substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else print $$0 }'"'"' "$$1"; }; \
+		keyize() { awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) out=substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else out=$$0; while (index(out, "../")==1) out=substr(out, 4); print out }'"'"' "$$1"; }; \
 		keyize .make/staticcheck-extra.out | sort -u > .make/staticcheck-extra.keys.out; \
 		keyize .make/staticcheck-extra.baseline.out | sort -u > .make/staticcheck-extra.keys.baseline.out; \
 		comm -23 .make/staticcheck-extra.keys.out .make/staticcheck-extra.keys.baseline.out > .make/staticcheck-extra.keys.new || true; \
 		comm -13 .make/staticcheck-extra.keys.out .make/staticcheck-extra.keys.baseline.out > .make/staticcheck-extra.keys.gone || true; \
-		map_keys() { awk '"'"'NR==FNR{keyset[$$0]=1; next} { if (match($$0, /:[0-9]+:[0-9]+:/)) k = substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else k = $$0; if (k in keyset) print }'"'"' "$$1" "$$2"; }; \
+		map_keys() { awk '"'"'NR==FNR{keyset[$$0]=1; next} { if (match($$0, /:[0-9]+:[0-9]+:/)) k = substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else k = $$0; while (index(k, "../")==1) k = substr(k, 4); if (k in keyset) print }'"'"' "$$1" "$$2"; }; \
 		new=$$(map_keys .make/staticcheck-extra.keys.new .make/staticcheck-extra.out); \
 		if [ -n "$$new" ]; then \
 			echo "NEW staticcheck-extra findings:"; \
@@ -672,7 +672,7 @@ staticcheck-extra-baseline: staticcheck-extra-bin
 			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
 		}; \
 		"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS) 2>&1 \
-			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); print }'"'"' | filter | sort > .make/staticcheck-extra.out || true; \
+			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort > .make/staticcheck-extra.out || true; \
 		if [ ! -f "$(STATICCHECK_EXTRA_BASELINE)" ]; then \
 			touch "$(STATICCHECK_EXTRA_BASELINE)"; \
 		fi; \
@@ -681,7 +681,7 @@ staticcheck-extra-baseline: staticcheck-extra-bin
 		metadata_prefix="$${tab}# staticcheck-extra:"; \
 		tmp=".make/staticcheck-extra-baseline.tmp"; \
 		printf "# staticcheck-extra: generated_at=%s\n" "$$now" > "$$tmp"; \
-		awk -v now="$$now" -v mp="$${metadata_prefix}" -v lname=staticcheck-extra -v kmf="$(STATICCHECK_EXTRA_BASELINE)" '"'"'function key(s) { if (match(s, /:[0-9]+:[0-9]+:/)) return substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); return s } BEGIN { while ((getline line < kmf) > 0) { if (line ~ /^#/) continue; if (line ~ /^[ \t]*$$/) continue; idx = index(line, mp); if (idx > 0) { finding = substr(line, 1, idx-1); meta = substr(line, idx + length(mp)); fa = ""; n = split(meta, ff, " "); for (i = 1; i <= n; i++) if (ff[i] ~ /^first_added=/) fa = substr(ff[i], 13); km[key(finding)] = fa } else km[key(line)] = "" } close(kmf) } { k = key($$0); fa = (k in km) ? km[k] : ""; if (fa == "") fa = now; printf "%s\t# %s:first_added=%s last_seen=%s\n", $$0, lname, fa, now }'"'"' .make/staticcheck-extra.out >> "$$tmp"; \
+		awk -v now="$$now" -v mp="$${metadata_prefix}" -v lname=staticcheck-extra -v kmf="$(STATICCHECK_EXTRA_BASELINE)" '"'"'function key(s,    out) { if (match(s, /:[0-9]+:[0-9]+:/)) out = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else out = s; while (index(out, "../")==1) out = substr(out, 4); return out } BEGIN { while ((getline line < kmf) > 0) { if (line ~ /^#/) continue; if (line ~ /^[ \t]*$$/) continue; idx = index(line, mp); if (idx > 0) { finding = substr(line, 1, idx-1); meta = substr(line, idx + length(mp)); fa = ""; n = split(meta, ff, " "); for (i = 1; i <= n; i++) if (ff[i] ~ /^first_added=/) fa = substr(ff[i], 13); km[key(finding)] = fa } else km[key(line)] = "" } close(kmf) } { k = key($$0); fa = (k in km) ? km[k] : ""; if (fa == "") fa = now; printf "%s\t# %s:first_added=%s last_seen=%s\n", $$0, lname, fa, now }'"'"' .make/staticcheck-extra.out >> "$$tmp"; \
 		mv "$$tmp" "$(STATICCHECK_EXTRA_BASELINE)"; \
 		n=$$(wc -l < .make/staticcheck-extra.out); \
 		echo "staticcheck-extra: baseline $(STATICCHECK_EXTRA_BASELINE) refreshed ($$n findings)"'
