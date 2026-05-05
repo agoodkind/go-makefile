@@ -240,7 +240,8 @@ file_mtime() {
 
 ensure_cached_asset() {
 	local rel="$1"
-	local url="${BASE_URL}/${rel}"
+	local raw_url="${BASE_URL}/${rel}"
+	local api_url="https://api.github.com/repos/agoodkind/go-makefile/contents/${rel}?ref=main"
 	local dest="${CACHE_ROOT}/${rel}"
 	mkdir -p "$(dirname "$dest")"
 	local now
@@ -253,7 +254,13 @@ ensure_cached_asset() {
 			return
 		fi
 	fi
-	if curl -fsSL --connect-timeout 5 --max-time 10 "$url" -o "${dest}.new" && mv "${dest}.new" "$dest"; then
+	# Try GitHub Contents API first to bypass the raw-content CDN (which can
+	# serve stale bytes for several minutes). Fall back to cache-busted raw,
+	# then plain raw.
+	if curl -fsSL -H "Accept: application/vnd.github.raw" --connect-timeout 5 --max-time 10 "$api_url" -o "${dest}.new" \
+		|| curl -fsSL --connect-timeout 5 --max-time 10 "${raw_url}?v=$(date +%s)" -o "${dest}.new" \
+		|| curl -fsSL --connect-timeout 5 --max-time 10 "$raw_url" -o "${dest}.new"; then
+		mv "${dest}.new" "$dest"
 		echo "$dest"
 		return
 	fi
