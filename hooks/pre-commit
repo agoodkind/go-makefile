@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# pre-commit: run lint on staged .go files. Fail commit on any finding.
+# Canonical lives in agoodkind/go-makefile; consumer repos symlink to it.
+# Honors `git commit --no-verify` per git convention (no extra blocking).
+
+set -eu
+
+# Find staged Go files (Added, Copied, Modified). Skip if none.
+staged=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep -E '\.go$' || true)
+[ -z "$staged" ] && exit 0
+
+# Project must have go-makefile pipeline (`make help` will list lint-files).
+# Skip silently when run in a repo that doesn't use the pipeline.
+if ! grep -qE '^(include|-include) bootstrap\.mk$' Makefile 2>/dev/null \
+   && [ ! -f .make/go.mk ]; then
+    exit 0
+fi
+
+# lint-files runs golangci-lint scoped to the listed paths with the central
+# config and no baseline gate. Output goes through to stderr; non-zero exit
+# blocks the commit.
+LINT_FILES="$(echo "$staged" | tr '\n' ' ')" make lint-files >&2
