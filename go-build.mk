@@ -57,9 +57,6 @@ endif
 ifeq ($(strip $(CMD)),)
 $(error go-build.mk: CMD is not set)
 endif
-ifeq ($(strip $(VPKG)),)
-$(error go-build.mk: VPKG is not set)
-endif
 
 DIST_DIR ?= dist
 DIST_BIN := $(DIST_DIR)/$(BINARY)
@@ -73,13 +70,18 @@ GIT_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo 
 GIT_DIRTY   := $(shell git diff --quiet 2>/dev/null && echo false || echo true)
 BUILD_TIME  := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# Stamped LDFLAGS. Project's VPKG must define matching string vars (Commit,
-# Version, Dirty, BuildTime). If GKLOG_VPKG is set, cross-stamp gklog too.
-GO_BUILD_LDFLAGS := \
+# Stamped LDFLAGS. VPKG is optional; when set, the project's version package
+# must define matching string vars (Commit, Version, Dirty, BuildTime). When
+# unset, no stamping happens and the binary builds without metadata. If
+# GKLOG_VPKG is set, cross-stamp gklog as well.
+GO_BUILD_LDFLAGS :=
+ifneq ($(strip $(VPKG)),)
+GO_BUILD_LDFLAGS += \
 	-X $(VPKG).Commit=$(GIT_COMMIT) \
 	-X $(VPKG).Version=$(GIT_VERSION) \
 	-X $(VPKG).Dirty=$(GIT_DIRTY) \
 	-X $(VPKG).BuildTime=$(BUILD_TIME)
+endif
 
 ifneq ($(strip $(GKLOG_VPKG)),)
 GO_BUILD_LDFLAGS += \
@@ -89,14 +91,15 @@ GO_BUILD_LDFLAGS += \
 	-X $(GKLOG_VPKG).BinHash=
 endif
 
-GO_BUILD_TAGS         ?=
-GO_BUILD_TAGS_FLAG    := $(if $(strip $(GO_BUILD_TAGS)),-tags '$(GO_BUILD_TAGS)',)
-GO_BUILD_EXTRA_FLAGS  ?=
+GO_BUILD_TAGS          ?=
+GO_BUILD_TAGS_FLAG     := $(if $(strip $(GO_BUILD_TAGS)),-tags '$(GO_BUILD_TAGS)',)
+GO_BUILD_LDFLAGS_FLAG  := $(if $(strip $(GO_BUILD_LDFLAGS)),-ldflags '$(GO_BUILD_LDFLAGS)',)
+GO_BUILD_EXTRA_FLAGS   ?=
 
 # Override go.mk's GO_BUILD_FLAGS so its `build` target picks up our ldflags
 # even when called via the legacy path. The standardized `build` below uses
 # the same vars.
-GO_BUILD_FLAGS := $(GO_BUILD_TAGS_FLAG) -ldflags '$(GO_BUILD_LDFLAGS)' $(GO_BUILD_EXTRA_FLAGS)
+GO_BUILD_FLAGS := $(GO_BUILD_TAGS_FLAG) $(GO_BUILD_LDFLAGS_FLAG) $(GO_BUILD_EXTRA_FLAGS)
 
 # Build runs build-check (vet+lint+govulncheck) from go.mk first, unless
 # BUILD_CHECKS=false is set.
