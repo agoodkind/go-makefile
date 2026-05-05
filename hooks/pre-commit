@@ -44,15 +44,16 @@ while IFS= read -r f; do
     fi
 done <<< "$staged"
 
-# Map staged files to their package directories. golangci-lint requires the
-# whole package for typecheck; passing individual files means undefined
-# identifiers from sibling files break the typecheck step. Linting at the
-# package level gives the linter complete inputs while still scoping work
-# to what changed.
+# Map staged files to package directories. Run the same baseline-gated
+# lint-golangci as `make build`, scoped to those packages. This ensures:
+#   1. Typecheck has the whole package (not partial files), so it works.
+#   2. Only NEW findings (not in baseline) surface, matching `make build`
+#      semantics. Existing baselined findings stay quiet.
+#   3. Scope is limited to changed code, so commit-time work is bounded.
 status=0
 for mk_dir in "${!by_dir[@]}"; do
     files="${by_dir[$mk_dir]}"
-    pkgs=$(printf '%s\n' $files | xargs -n1 dirname 2>/dev/null | sort -u | sed 's|^|./|; s|^\./\.$|./|' | tr '\n' ' ')
-    (cd "$mk_dir" && LINT_FILES="$pkgs" make lint-files >&2) || status=$?
+    pkgs=$(printf '%s\n' $files | xargs -n1 dirname 2>/dev/null | sort -u | sed 's|^|./|' | tr '\n' ' ')
+    (cd "$mk_dir" && make lint-golangci GOLANGCI_LINT_TARGETS="$pkgs" >&2) || status=$?
 done
 exit "$status"
