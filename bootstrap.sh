@@ -305,13 +305,17 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# .golangci.yml
+# .golangci.yml is intentionally NOT rendered into the project. The central
+# golangci config is fetched at runtime by go.mk into .make/golangci.yml and
+# is wired into GOLANGCI_LINT_FLAGS automatically. A per-repo .golangci.yml
+# would split the config between project-local and central and let agents
+# weaken rules without going through go-makefile. If a project genuinely
+# needs an override, do it in go-makefile/golangci.yml so every consumer
+# picks it up. If a stale per-repo .golangci.yml exists from before the
+# centralization, warn so the developer removes it.
 # ---------------------------------------------------------------------------
 if [ -f .golangci.yml ]; then
-	skip .golangci.yml
-else
-	render_artifact "templates/golangci.yml.tmpl" .golangci.yml
-	echo "created .golangci.yml"
+	warn ".golangci.yml exists in project root. The central go-makefile/golangci.yml fetched into .make/golangci.yml is the canonical config; the per-repo file is ignored by GOLANGCI_LINT_FLAGS. Remove it or move overrides upstream into go-makefile."
 fi
 
 # ---------------------------------------------------------------------------
@@ -362,4 +366,16 @@ if [ "$LAYOUT" = "binary" ]; then
 fi
 
 echo ""
-echo "done. next: make lint"
+echo "done."
+echo ""
+echo "Lint and build are centralized in go-makefile. The canonical entry points are:"
+echo ""
+echo "  make build   vet + full lint chain + govulncheck, then go build"
+echo "  make check   build + test"
+echo "  make lint    just the full lint chain"
+echo "  make fmt     apply gofumpt + goimports"
+echo ""
+echo "Run 'make help' for the full target list, including per-linter sub-targets"
+echo "and baseline-refresh targets. Do not add project-local lint, deadcode, audit,"
+echo "or staticcheck targets; doing so splits enforcement and lets agents bypass"
+echo "the central rules."

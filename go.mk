@@ -1,5 +1,5 @@
 .PHONY: build deploy clean help \
-	lint lint-tools lint-golangci lint-golangci-baseline lint-format lint-gocyclo fmt vet test govulncheck build-check check \
+	lint lint-tools lint-golangci lint-golangci-baseline lint-files lint-format lint-gocyclo fmt vet test govulncheck build-check check \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-bin \
 	go-mk-sync update-go-mk
 
@@ -113,6 +113,8 @@ help:
 	@printf '  %-32s %s\n' 'fmt' 'apply gofumpt + goimports'
 	@printf '  %-32s %s\n' 'test' 'go test ./...'
 	@printf '  %-32s %s\n' 'install / uninstall' 'atomic copy of dist/$$(BINARY) to $$(INSTALL_BIN)'
+	@printf '\n%s\n' 'Scoped iteration (parallel agents linting only their files):'
+	@printf '  %-32s %s\n' 'lint-files LINT_FILES=...' 'golangci-lint scoped to LINT_FILES (no baseline gate)'
 	@printf '\n%s\n' 'Lint sub-targets (run individually only when iterating; usually run via build/check):'
 	@printf '  %-32s %s\n' 'lint-tools' 'install golangci-lint, gofumpt, goimports'
 	@printf '  %-32s %s\n' 'lint-golangci' 'golangci-lint with central golangci.yml + .golangci-lint-baseline.txt'
@@ -186,6 +188,24 @@ lint-golangci: lint-tools
 		n=$$(wc -l < "$$findings_output"); \
 		echo "golangci-lint: OK ($$n findings)"; \
 		if [ "$$status" -ne 0 ] && [ ! -s "$$findings_output" ]; then cat "$$raw_output"; exit "$$status"; fi'
+
+# lint-files runs golangci-lint scoped to LINT_FILES with the central config
+# but WITHOUT the baseline gate. Use it while iterating on a change set,
+# especially when parallel agents touch different parts of the tree and want
+# to lint only their files. Switch to `make lint` (or check) for the full
+# baseline-gated pipeline before commit.
+#
+# Examples:
+#   make lint-files LINT_FILES="cmd/foo/main.go cmd/foo/router.go"
+#   make lint-files LINT_FILES=./internal/auth/...
+#
+# Other linters accept the same scope via their own *_TARGETS env vars,
+# e.g. make staticcheck-extra STATICCHECK_EXTRA_TARGETS=./internal/auth/...
+LINT_FILES ?= ./...
+
+.PHONY: lint-files
+lint-files: lint-tools
+	$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(LINT_FILES)
 
 lint-golangci-baseline: lint-tools
 	@bash -eu -o pipefail -c '\
