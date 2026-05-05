@@ -9,14 +9,45 @@ set -eu
 staged=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep -E '\.go$' || true)
 [ -z "$staged" ] && exit 0
 
-# Project must have go-makefile pipeline (`make help` will list lint-files).
-# Skip silently when run in a repo that doesn't use the pipeline.
-if ! grep -qE '^(include|-include) bootstrap\.mk$' Makefile 2>/dev/null \
-   && [ ! -f .make/go.mk ]; then
-    exit 0
-fi
+# Group staged files by the directory of their nearest ancestor Makefile.
+# Works for both single-Makefile-at-root layouts (clyde, agent-gate, etc.)
+# and subdir layouts (dots/, mwan/go/) where the git root has no Makefile.
+git_root=$(git rev-parse --show-toplevel)
 
-# lint-files runs golangci-lint scoped to the listed paths with the central
-# config and no baseline gate. Output goes through to stderr; non-zero exit
-# blocks the commit.
-LINT_FILES="$(echo "$staged" | tr '\n' ' ')" make lint-files >&2
+find_makefile_dir() {
+    local f="$1"
+    local d
+    d=$(dirname "$git_root/$f")
+    while [ "$d" != "/" ] && [ "$d" != "$git_root/.." ]; do
+        if [ -f "$d/Makefile" ] && grep -qE '^(include|-include) bootstrap\.mk$' "$d/Makefile" 2>/dev/null; then
+            printf '%s\n' "$d"
+            return 0
+        fi
+        d=$(dirname "$d")
+    done
+    return 1
+}
+
+declare -A by_dir
+while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if mk_dir=$(find_makefile_dir "$f"); then
+        # Convert f (relative to git_root) into a path relative to mk_dir.
+        # Pure shell, no python dep.
+        mk_dir_rel="${mk_dir#$git_root/}"
+        if [ "$mk_dir_rel" = "$mk_dir" ]; then
+            rel_path="$f"
+        else
+            rel_path="${f#$mk_dir_rel/}"
+        fi
+        by_dir[$mk_dir]+="$rel_path "
+    fi
+done <<< "$staged"
+
+# Run lint-files once per Makefile-bearing dir. Any non-zero exit blocks.
+status=0
+for mk_dir in "${!by_dir[@]}"; do
+    files="${by_dir[$mk_dir]}"
+    (cd "$mk_dir" && LINT_FILES="$files" make lint-files >&2) || status=$?
+done
+exit "$status"
