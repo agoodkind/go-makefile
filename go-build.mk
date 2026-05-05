@@ -71,10 +71,15 @@ GIT_DIRTY   := $(shell git diff --quiet 2>/dev/null && echo false || echo true)
 BUILD_TIME  := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Stamped LDFLAGS. VPKG is optional; when set, the project's version package
-# must define matching string vars (Commit, Version, Dirty, BuildTime). When
-# unset, no stamping happens and the binary builds without metadata. If
-# GKLOG_VPKG is set, cross-stamp gklog as well.
-GO_BUILD_LDFLAGS :=
+# must define matching exported string vars (Commit, Version, Dirty, BuildTime).
+# When unset, no canonical stamping happens. If GKLOG_VPKG is set, cross-stamp
+# gklog as well.
+#
+# Projects with non-standard version field naming (e.g. unexported, or different
+# names) can pre-populate GO_BUILD_LDFLAGS in their Makefile BEFORE -include
+# $(GO_MK); the ?= here preserves their value, and the conditional += blocks
+# below still extend it for VPKG/GKLOG_VPKG when set.
+GO_BUILD_LDFLAGS ?=
 ifneq ($(strip $(VPKG)),)
 GO_BUILD_LDFLAGS += \
 	-X $(VPKG).Commit=$(GIT_COMMIT) \
