@@ -273,23 +273,7 @@ lint-golangci-baseline: lint-tools
 		sort -u "$$findings_output" "$$baseline_output" > "$$findings_output.merged"; \
 		mv "$$findings_output.merged" "$$findings_output"; \
 		printf "# golangci-lint: generated_at=%s\n" "$$now" > "$$new_baseline"; \
-		while IFS= read -r finding || [ -n "$$finding" ]; do \
-			first_added=""; \
-			while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
-				case "$$baseline_line" in ""|\#*) continue ;; esac; \
-				baseline_finding="$${baseline_line%%$${metadata_prefix}*}"; \
-				[ "$$baseline_finding" = "$$finding" ] || continue; \
-				metadata="$${baseline_line#*$${metadata_prefix}}"; \
-				if [ "$$metadata" != "$$baseline_line" ]; then \
-					for metadata_field in $$metadata; do \
-						case "$$metadata_field" in first_added=*) first_added="$${metadata_field#first_added=}" ;; esac; \
-					done; \
-				fi; \
-				break; \
-			done < "$(GOLANGCI_LINT_BASELINE)"; \
-			if [ -z "$$first_added" ]; then first_added="$$now"; fi; \
-			printf "%s\t# golangci-lint:first_added=%s last_seen=%s\n" "$$finding" "$$first_added" "$$now" >> "$$new_baseline"; \
-		done < "$$findings_output"; \
+		awk -v now="$$now" -v mp="$${metadata_prefix}" -v lname=golangci-lint '"'"'function key(s) { if (match(s, /:[0-9]+:[0-9]+:/)) return substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); return s } NR==FNR { if ($$0 ~ /^#/ || $$0 ~ /^[ \t]*$$/) next; idx = index($$0, mp); if (idx > 0) { finding = substr($$0, 1, idx-1); meta = substr($$0, idx + length(mp)); fa = ""; n = split(meta, ff, " "); for (i = 1; i <= n; i++) if (ff[i] ~ /^first_added=/) fa = substr(ff[i], 14); km[key(finding)] = fa } else km[key($$0)] = ""; next } { k = key($$0); fa = (k in km) ? km[k] : ""; if (fa == "") fa = now; printf "%s\t# %s:first_added=%s last_seen=%s\n", $$0, lname, fa, now }'"'"' "$(GOLANGCI_LINT_BASELINE)" "$$findings_output" >> "$$new_baseline"; \
 		mv "$$new_baseline" "$(GOLANGCI_LINT_BASELINE)"; \
 		n=$$(wc -l < "$$findings_output"); \
 		echo "golangci-lint: baseline $(GOLANGCI_LINT_BASELINE) refreshed ($$n findings)"; \
