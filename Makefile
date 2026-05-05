@@ -16,6 +16,14 @@ GO_MK := go.mk
 ROOT_LINT_ARGS  := GOLANGCI_LINT_FLAGS="-c golangci.yml" GOLANGCI_LINT_TARGETS=.
 STATIC_LINT_ARGS := GOLANGCI_LINT_FLAGS="-c ../golangci.yml" GOLANGCI_LINT_TARGETS=./...
 
+# Dog-food: build the staticcheck-extra binary from this checkout instead of
+# `go install ...@latest`, so analyzer changes are exercised before push.
+STATICCHECK_EXTRA_LOCAL_ARGS := \
+	STATICCHECK_EXTRA_BUILD_REPO="$(CURDIR)/staticcheck" \
+	STATICCHECK_EXTRA_BUILD_PKG=./cmd/staticcheck-extra
+ROOT_LINT_ARGS  += $(STATICCHECK_EXTRA_LOCAL_ARGS)
+STATIC_LINT_ARGS += $(STATICCHECK_EXTRA_LOCAL_ARGS)
+
 ROOT_GO_MK   := $(MAKE) -f $(GO_MK) $(ROOT_LINT_ARGS)
 STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
 

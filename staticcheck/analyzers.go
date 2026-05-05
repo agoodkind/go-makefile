@@ -32,5 +32,6 @@ func Analyzers() []*analysis.Analyzer {
 		SensitiveFieldInLogAnalyzer,
 		NolintBanAnalyzer,
 		StringSwitchShouldBeEnumAnalyzer,
+		ThinWrapperAnalyzer,
 	}
 }

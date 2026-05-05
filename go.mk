@@ -480,7 +480,8 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-grpc_handler_missing_peer_enrichment \
 	-sensitive_field_in_log \
 	-nolint_ban \
-	-string_switch_should_be_enum
+	-string_switch_should_be_enum \
+	-thin_wrapper_to_launderable_call
 STATICCHECK_EXTRA_FLAGS         ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
