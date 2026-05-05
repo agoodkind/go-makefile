@@ -6,11 +6,16 @@
 GO_MK_URL       := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
 GO_MK_CACHE     := $(HOME)/.cache/go-makefile/go.mk
 GO_MK_BASE_URL  ?= https://raw.githubusercontent.com/agoodkind/go-makefile/main
+GO_MK_API_BASE  ?= https://api.github.com/repos/agoodkind/go-makefile/contents
+GO_MK_API_REF   ?= main
 GO_MK_CACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile
 
 # go-mk-fetch-one: fetch one asset from go-makefile (relative path, e.g.
 # go-build.mk or golangci.yml) into .make/<path>. Honors GO_MK_DEV_DIR for
-# local dev iteration. Falls back to ~/.cache/go-makefile/ on network error.
+# local dev iteration. Tries the GitHub Contents API first to bypass the
+# raw-content CDN (which can serve stale bytes for several minutes after a
+# push), then falls back to a cache-busted raw URL, then plain raw, then
+# the local ~/.cache/go-makefile copy.
 # Used by the GO_MK_MODULES bootstrap and the golangci config fetch below.
 # All output goes to stderr; $(call ...) evaluates to the empty string so
 # it's safe to use at the top level.
@@ -23,7 +28,9 @@ go-mk-fetch-one = $(shell { \
 		printf '%s\n' "$(1): using dev override $(GO_MK_DEV_DIR)/$(1)"; \
 	else \
 		tmp="$$target.tmp"; \
-		if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)" -o "$$tmp" 2>/dev/null; then \
+		if curl -fsSL -H "Accept: application/vnd.github.raw" --connect-timeout 5 --max-time 10 "$(GO_MK_API_BASE)/$(1)?ref=$(GO_MK_API_REF)" -o "$$tmp" 2>/dev/null \
+			|| curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)?v=$$(date +%s)" -o "$$tmp" 2>/dev/null \
+			|| curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)" -o "$$tmp" 2>/dev/null; then \
 			mv "$$tmp" "$$target"; cp "$$target" "$$cache"; \
 		elif [ -f "$$cache" ]; then \
 			rm -f "$$tmp"; cp "$$cache" "$$target"; \
