@@ -372,7 +372,17 @@ lint-deadcode:
 			finding="$${baseline_line%%$${metadata_prefix}*}"; \
 			[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
 		done < "$(DEADCODE_BASELINE)" | filter | sort > "$$baseline" || true; \
-		new=$$(comm -23 "$$findings" "$$baseline" || true); \
+		keyize() { awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) print substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else print $$0 }'"'"' "$$1"; }; \
+		findings_keys=".make/deadcode.keys.out"; \
+		baseline_keys=".make/deadcode.keys.baseline.out"; \
+		new_keys=".make/deadcode.keys.new"; \
+		gone_keys=".make/deadcode.keys.gone"; \
+		keyize "$$findings" | sort -u > "$$findings_keys"; \
+		keyize "$$baseline" | sort -u > "$$baseline_keys"; \
+		comm -23 "$$findings_keys" "$$baseline_keys" > "$$new_keys" || true; \
+		comm -13 "$$findings_keys" "$$baseline_keys" > "$$gone_keys" || true; \
+		map_keys() { awk '"'"'NR==FNR{keyset[$$0]=1; next} { if (match($$0, /:[0-9]+:[0-9]+:/)) k = substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else k = $$0; if (k in keyset) print }'"'"' "$$1" "$$2"; }; \
+		new=$$(map_keys "$$new_keys" "$$findings"); \
 		if [ -n "$$new" ]; then \
 			echo "NEW deadcode findings:"; \
 			echo "$$new"; \
@@ -380,7 +390,7 @@ lint-deadcode:
 			echo "Remove the dead code or document why it stays. Do not silence the check."; \
 			exit 1; \
 		fi; \
-		gone=$$(comm -13 "$$findings" "$$baseline" || true); \
+		gone=$$(map_keys "$$gone_keys" "$$baseline"); \
 		if [ -n "$$gone" ]; then \
 			echo "RESOLVED deadcode findings:"; \
 			echo "$$gone"; \
@@ -657,7 +667,13 @@ staticcheck-extra: staticcheck-extra-bin
 			done < "$(STATICCHECK_EXTRA_BASELINE)" | filter | sort; \
 		}; \
 		baseline_findings > .make/staticcheck-extra.baseline.out; \
-		new=$$(comm -23 .make/staticcheck-extra.out .make/staticcheck-extra.baseline.out || true); \
+		keyize() { awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) print substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else print $$0 }'"'"' "$$1"; }; \
+		keyize .make/staticcheck-extra.out | sort -u > .make/staticcheck-extra.keys.out; \
+		keyize .make/staticcheck-extra.baseline.out | sort -u > .make/staticcheck-extra.keys.baseline.out; \
+		comm -23 .make/staticcheck-extra.keys.out .make/staticcheck-extra.keys.baseline.out > .make/staticcheck-extra.keys.new || true; \
+		comm -13 .make/staticcheck-extra.keys.out .make/staticcheck-extra.keys.baseline.out > .make/staticcheck-extra.keys.gone || true; \
+		map_keys() { awk '"'"'NR==FNR{keyset[$$0]=1; next} { if (match($$0, /:[0-9]+:[0-9]+:/)) k = substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else k = $$0; if (k in keyset) print }'"'"' "$$1" "$$2"; }; \
+		new=$$(map_keys .make/staticcheck-extra.keys.new .make/staticcheck-extra.out); \
 		if [ -n "$$new" ]; then \
 			echo "NEW staticcheck-extra findings:"; \
 			echo "$$new"; \
@@ -665,7 +681,7 @@ staticcheck-extra: staticcheck-extra-bin
 			echo "Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks."; \
 			exit 1; \
 		fi; \
-		gone=$$(comm -13 .make/staticcheck-extra.out .make/staticcheck-extra.baseline.out || true); \
+		gone=$$(map_keys .make/staticcheck-extra.keys.gone .make/staticcheck-extra.baseline.out); \
 		if [ -n "$$gone" ]; then \
 			echo "RESOLVED staticcheck-extra findings:"; \
 			echo "$$gone"; \
