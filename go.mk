@@ -170,7 +170,7 @@ lint-golangci: lint-tools
 		}; \
 		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$raw_output" 2>&1 || status=$$?; \
 		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$raw_output" \
-			| sed "s|$(CURDIR)/||g" \
+			| sed -e "s|$$PWD/||g" -e "s|$(CURDIR)/||g" \
 			| filter \
 			| sort > "$$findings_output" || true; \
 		if [ ! -f "$(GOLANGCI_LINT_BASELINE)" ]; then touch "$(GOLANGCI_LINT_BASELINE)"; fi; \
@@ -239,7 +239,7 @@ lint-golangci-baseline: lint-tools
 			$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$run_raw_output" 2>&1 || run_status=$$?; \
 			cat "$$run_raw_output" >> "$$raw_output"; \
 			grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$run_raw_output" \
-				| sed "s|$(CURDIR)/||g" \
+				| sed -e "s|$$PWD/||g" -e "s|$(CURDIR)/||g" \
 				| filter \
 				| sort > "$$run_findings_output" || true; \
 			cat "$$run_findings_output" >> "$$findings_output"; \
@@ -347,7 +347,7 @@ lint-deadcode:
 		}; \
 		"$$(go env GOPATH)/bin/deadcode" $(DEADCODE_TARGETS) > "$$raw" 2>&1 || true; \
 		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+:" "$$raw" \
-			| sed "s|$(CURDIR)/||g" \
+			| sed -e "s|$$PWD/||g" -e "s|$(CURDIR)/||g" \
 			| filter \
 			| sort > "$$findings" || true; \
 		if [ ! -f "$(DEADCODE_BASELINE)" ]; then touch "$(DEADCODE_BASELINE)"; fi; \
@@ -392,7 +392,7 @@ lint-deadcode-baseline:
 		}; \
 		"$$(go env GOPATH)/bin/deadcode" $(DEADCODE_TARGETS) > "$$raw" 2>&1 || true; \
 		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+:" "$$raw" \
-			| sed "s|$(CURDIR)/||g" \
+			| sed -e "s|$$PWD/||g" -e "s|$(CURDIR)/||g" \
 			| filter \
 			| sort -u > "$$findings" || true; \
 		if [ ! -f "$(DEADCODE_BASELINE)" ]; then touch "$(DEADCODE_BASELINE)"; fi; \
@@ -629,7 +629,7 @@ staticcheck-extra: staticcheck-extra-bin
 			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
 		}; \
 		"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS) 2>&1 \
-			| sed "s|$(CURDIR)/||g" | filter | sort > .make/staticcheck-extra.out || true; \
+			| sed -e "s|$$PWD/||g" -e "s|$(CURDIR)/||g" | filter | sort > .make/staticcheck-extra.out || true; \
 		if [ ! -f "$(STATICCHECK_EXTRA_BASELINE)" ]; then \
 			touch "$(STATICCHECK_EXTRA_BASELINE)"; \
 		fi; \
@@ -674,7 +674,7 @@ staticcheck-extra-baseline: staticcheck-extra-bin
 			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
 		}; \
 		"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS) 2>&1 \
-			| sed "s|$(CURDIR)/||g" | filter | sort > .make/staticcheck-extra.out || true; \
+			| sed -e "s|$$PWD/||g" -e "s|$(CURDIR)/||g" | filter | sort > .make/staticcheck-extra.out || true; \
 		if [ ! -f "$(STATICCHECK_EXTRA_BASELINE)" ]; then \
 			touch "$(STATICCHECK_EXTRA_BASELINE)"; \
 		fi; \
