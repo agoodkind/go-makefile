@@ -181,7 +181,19 @@ lint-golangci: lint-tools
 			finding="$${baseline_line%%$${metadata_prefix}*}"; \
 			[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
 		done < "$(GOLANGCI_LINT_BASELINE)" | filter | sort > "$$baseline_output"; \
-		new=$$(comm -23 "$$findings_output" "$$baseline_output" || true); \
+		keyize() { \
+			awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) print substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else print $$0 }'"'"' "$$1"; \
+		}; \
+		findings_keys=".make/golangci-lint.keys.out"; \
+		baseline_keys=".make/golangci-lint.keys.baseline.out"; \
+		keyize "$$findings_output" | sort -u > "$$findings_keys"; \
+		keyize "$$baseline_output" | sort -u > "$$baseline_keys"; \
+		new_keys=$$(comm -23 "$$findings_keys" "$$baseline_keys" || true); \
+		gone_keys=$$(comm -13 "$$findings_keys" "$$baseline_keys" || true); \
+		map_keys_to_originals() { \
+			awk -v keys="$$1" '"'"'BEGIN{ n=split(keys, ks, "\n"); for(i=1;i<=n;i++) keyset[ks[i]]=1 } { if (match($$0, /:[0-9]+:[0-9]+:/)) { k = substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH) } else { k = $$0 } if (k in keyset) print }'"'"' "$$2"; \
+		}; \
+		new=$$(map_keys_to_originals "$$new_keys" "$$findings_output"); \
 		if [ -n "$$new" ]; then \
 			echo "NEW golangci-lint findings:"; \
 			echo "$$new"; \
@@ -189,7 +201,7 @@ lint-golangci: lint-tools
 			echo "Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks."; \
 			exit 1; \
 		fi; \
-		gone=$$(comm -13 "$$findings_output" "$$baseline_output" || true); \
+		gone=$$(map_keys_to_originals "$$gone_keys" "$$baseline_output"); \
 		if [ -n "$$gone" ]; then \
 			echo "RESOLVED golangci-lint findings:"; \
 			echo "$$gone"; \
