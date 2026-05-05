@@ -141,14 +141,28 @@ help:
 	@printf '  %-32s %s\n' 'smoke-fetch' 'force a network fetch (bypassing GO_MK_DEV_DIR) to verify the curl chain'
 	@printf '  %-32s %s\n' 'deploy' 'go install $$(GO_INSTALL_TARGET) (legacy; prefer install)'
 
-# Bypass: when BYPASS_LINT matches today's BYPASS_TOKEN_CMD output, the lint
-# chain is skipped with a loud stderr warning. Composable: BYPASS_TOKEN_CMD
-# defaults to today's Wikipedia featured article slug, but can be swapped to
-# any rotating public-or-private endpoint that emits a string per day.
-# This is a trapdoor for unblocking builds when lint itself is broken; it is
-# not a routine path. Mismatched or stale tokens fall through and lint runs.
+# Bypass: when BYPASS_LINT matches today's slugified BYPASS_TOKEN_CMD output,
+# the lint chain reports findings but exits 0 (non-blocking). Composable:
+# BYPASS_TOKEN_CMD defaults to today's Wikipedia featured article slug, but
+# can be swapped to any rotating public-or-private endpoint that emits a
+# string per day. This is a trapdoor for unblocking builds when lint itself
+# is broken; it is not a routine path. Mismatched/stale tokens fall through
+# silently, exposing no signal that the mechanism exists.
+#
+# Both sides (BYPASS_TOKEN_CMD output and user's BYPASS_LINT) are normalized
+# through `_bypass_slugify` so unicode in article titles (e.g. Katipō,
+# São_Paulo, Édith_Piaf) doesn't force the user to type non-ASCII characters.
 BYPASS_LINT      ?=
 BYPASS_TOKEN_CMD ?= curl -fsSL "https://en.wikipedia.org/api/rest_v1/feed/featured/$$(date -u +%Y/%m/%d)" | jq -r '.tfa.titles.canonical'
+
+# _bypass_slugify reads stdin and writes a normalized lowercase ASCII slug.
+# iconv //TRANSLIT folds accents (ō -> o); the tr step drops any artifact
+# characters iconv leaves behind so the result is purely [a-z0-9_-].
+# Wrapped in `{ ... ; true; }` so that macOS iconv's exit code 1 on
+# transliteration warnings does not trip the recipe's pipefail.
+define _bypass_slugify
+	{ iconv -f UTF-8 -t ASCII//TRANSLIT 2>/dev/null || cat; } | LC_ALL=C tr -cd 'A-Za-z0-9_-' | LC_ALL=C tr 'A-Z' 'a-z'
+endef
 
 LINT_GATES := lint-tools lint-golangci lint-format lint-gocyclo lint-deadcode staticcheck-extra
 
@@ -157,9 +171,9 @@ lint:
 		status=0; \
 		$(MAKE) --no-print-directory $(LINT_GATES) || status=$$?; \
 		[ "$$status" -eq 0 ] && exit 0; \
-		bypass="$(BYPASS_LINT)"; \
+		bypass=$$(printf "%s" "$(BYPASS_LINT)" | $(_bypass_slugify)); \
 		if [ -n "$$bypass" ]; then \
-			expected=$$($(BYPASS_TOKEN_CMD) 2>/dev/null || true); \
+			expected=$$($(BYPASS_TOKEN_CMD) 2>/dev/null | $(_bypass_slugify) || true); \
 			if [ -n "$$expected" ] && [ "$$bypass" = "$$expected" ]; then \
 				if [ "$(BYPASS_CONFIRM)" = "1" ]; then \
 					printf "\n***********************************************************************\n" >&2; \
