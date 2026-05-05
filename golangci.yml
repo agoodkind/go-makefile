@@ -46,6 +46,12 @@ linters:
 
     godoclint:
       default: all
+      disable:
+        # godoc line length check fires noisily on long sentences without
+        # surfacing real defects. The other godoclint rules (start-with-name,
+        # missing periods, stdlib doclinks, deprecated tag, package doc)
+        # carry the actual signal.
+        - max-len
 
     perfsprint:
       # Disable the fmt.Errorf("plain") -> errors.New nudge: it is real but

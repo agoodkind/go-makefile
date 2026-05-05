@@ -1,1 +1,0 @@
-# staticcheck-extra: generated_at=2026-05-03T18:43:56Z

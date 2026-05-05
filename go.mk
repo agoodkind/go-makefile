@@ -1,7 +1,7 @@
 .PHONY: build deploy clean help \
 	lint lint-tools lint-golangci lint-golangci-baseline lint-files lint-format lint-gocyclo fmt vet test govulncheck build-check check \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-bin \
-	go-mk-sync update-go-mk
+	go-mk-sync update-go-mk smoke-fetch
 
 GO_MK_URL       := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
 GO_MK_CACHE     := $(HOME)/.cache/go-makefile/go.mk
@@ -128,6 +128,7 @@ help:
 	@printf '  %-32s %s\n' 'staticcheck-extra-baseline' 'rebuild .staticcheck-extra-baseline.txt'
 	@printf '\n%s\n' 'Pipeline maintenance:'
 	@printf '  %-32s %s\n' 'go-mk-sync / update-go-mk' 'refresh go.mk + sibling modules + golangci.yml'
+	@printf '  %-32s %s\n' 'smoke-fetch' 'force a network fetch (bypassing GO_MK_DEV_DIR) to verify the curl chain'
 	@printf '  %-32s %s\n' 'deploy' 'go install $$(GO_INSTALL_TARGET) (legacy; prefer install)'
 
 lint: lint-tools lint-golangci lint-format lint-gocyclo lint-deadcode staticcheck-extra
@@ -655,6 +656,22 @@ staticcheck-extra-baseline: staticcheck-extra-bin
 
 # release/release-snapshot/release-local live in go-release.mk.
 # Project Makefiles opt in via:  GO_MK_MODULES += go-release.mk
+
+# smoke-fetch exercises the network fetch path end-to-end, even when the
+# local-development override (GO_MK_DEV_DIR) is set in the shell. It clears
+# the per-repo .make cache, runs make help with GO_MK_DEV_DIR forced empty
+# inside the recursion, and confirms that go.mk plus every sibling module
+# plus the central golangci.yml all download cleanly via the 3-tier
+# (API, cache-busted raw, raw) chain.
+#
+# Useful before pushing a go-makefile change so a developer can verify the
+# version on main is still working through the curl path that consumers
+# actually take when GO_MK_DEV_DIR is unset.
+.PHONY: smoke-fetch
+smoke-fetch:
+	@rm -rf .make
+	@GO_MK_DEV_DIR= $(MAKE) --no-print-directory help >/dev/null
+	@echo "smoke-fetch: OK ($$(ls .make 2>/dev/null | wc -l | tr -d ' ') assets fetched into .make/)"
 
 # Refresh go.mk plus every opt-in sibling module and the central golangci.yml.
 # Renamed from 'sync' to avoid conflicts with project-level Makefile sync targets.
