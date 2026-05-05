@@ -129,6 +129,16 @@ func runTimeSleepInProduction(pass *analysis.Pass) (any, error) {
 
 // PanicInProductionAnalyzer flags panic() outside init(), test files,
 // and recovery handlers.
+//
+// Allowed escapes:
+//   - inside func init()
+//   - inside _test.go files
+//   - inside functions whose name starts with `Must`. This mirrors the
+//     stdlib convention (regexp.MustCompile, template.Must). Such
+//     functions document via their name that they panic on error.
+//     They are typically called from startup contexts where panic is
+//     the right behaviour because there is no recovery path.
+//   - //nolint:panic_in_production on the call line
 var PanicInProductionAnalyzer = &analysis.Analyzer{
 	Name: "panic_in_production",
 	Doc:  "rejects panic() in production code outside init(); return error up the stack",
@@ -147,6 +157,9 @@ func runPanicInProduction(pass *analysis.Pass) (any, error) {
 				continue
 			}
 			if fn.Name.Name == "init" {
+				continue
+			}
+			if strings.HasPrefix(fn.Name.Name, "Must") {
 				continue
 			}
 			ast.Inspect(fn.Body, func(node ast.Node) bool {

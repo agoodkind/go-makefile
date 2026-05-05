@@ -179,9 +179,21 @@ func hasNolintComment(file *ast.File, fset *token.FileSet, pos token.Pos, name s
 	return false
 }
 
+// isPureValidatorByName carves out functions whose responsibility is pure
+// data transformation (parse/validate/encode/decode/marshal/unmarshal) or
+// pure I/O surface (read/write). These functions wrap and return errors
+// because the call site is the right layer to log; forcing them to also
+// log themselves would pollute their signature with a logger parameter
+// that only one error path needs.
 func isPureValidatorByName(name string) bool {
 	lower := strings.ToLower(name)
-	for _, prefix := range []string{"parse", "validate", "decode", "marshal", "unmarshal"} {
+	for _, prefix := range []string{
+		"parse", "validate",
+		"encode", "decode",
+		"marshal", "unmarshal",
+		"format",
+		"read", "write",
+	} {
 		if strings.HasPrefix(lower, prefix) {
 			return true
 		}
