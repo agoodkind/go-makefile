@@ -228,7 +228,16 @@ LINT_FILES ?= ./...
 
 .PHONY: lint-files
 lint-files: lint-tools
-	$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(LINT_FILES)
+	@bash -eu -o pipefail -c '\
+		[ -z "$(LINT_FILES)" ] && { echo "lint-files: LINT_FILES is empty"; exit 0; }; \
+		pkgs=$$(printf "%s\n" $(LINT_FILES) | xargs -n1 dirname | sort -u | awk "{print \"./\" \$$0}" | tr "\n" " "); \
+		raw=$$(mktemp); \
+		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $$pkgs > "$$raw" 2>&1 || true; \
+		filtered=$$(awk -v files="$(LINT_FILES)" '"'"'BEGIN { n=split(files, ff, /[ \t]+/); for (i=1; i<=n; i++) if (ff[i] != "") keep[ff[i]]=1 } { line=$$0; while (index(line, "../")==1) line=substr(line, 4); for (f in keep) if (index(line, f ":") == 1) { print; next } }'"'"' "$$raw"); \
+		rm -f "$$raw"; \
+		[ -z "$$filtered" ] && { echo "lint-files: OK (0 findings)"; exit 0; }; \
+		echo "$$filtered"; \
+		exit 1'
 
 lint-golangci-baseline: lint-tools
 	@bash -eu -o pipefail -c '\
