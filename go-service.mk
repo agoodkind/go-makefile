@@ -27,13 +27,13 @@ ifeq ($(strip $(LAUNCHD_LABEL))$(strip $(SYSTEMD_UNIT)),)
 $(error go-service.mk: set LAUNCHD_LABEL and/or SYSTEMD_UNIT in the project Makefile)
 endif
 
-LAUNCHD_PLIST    := $(HOME)/Library/LaunchAgents/$(LAUNCHD_LABEL).plist
-LAUNCHD_TEMPLATE := packaging/macos/$(LAUNCHD_LABEL).plist.in
-LAUNCHD_DOMAIN   := gui/$(shell id -u)
+LAUNCHD_PLIST    ?= $(HOME)/Library/LaunchAgents/$(LAUNCHD_LABEL).plist
+LAUNCHD_TEMPLATE ?= packaging/macos/$(LAUNCHD_LABEL).plist.in
+LAUNCHD_DOMAIN   ?= gui/$(shell id -u)
 
-SYSTEMD_USER_DIR  := $(HOME)/.config/systemd/user
-SYSTEMD_USER_UNIT := $(SYSTEMD_USER_DIR)/$(SYSTEMD_UNIT)
-SYSTEMD_TEMPLATE  := packaging/systemd/$(SYSTEMD_UNIT).in
+SYSTEMD_USER_DIR  ?= $(HOME)/.config/systemd/user
+SYSTEMD_USER_UNIT ?= $(SYSTEMD_USER_DIR)/$(SYSTEMD_UNIT)
+SYSTEMD_TEMPLATE  ?= packaging/systemd/$(SYSTEMD_UNIT).in
 
 LOG_PATH ?= $(HOME)/Library/Logs/$(BINARY).log
 
