@@ -161,11 +161,14 @@ lint:
 		if [ -n "$$bypass" ]; then \
 			expected=$$($(BYPASS_TOKEN_CMD) 2>/dev/null || true); \
 			if [ -n "$$expected" ] && [ "$$bypass" = "$$expected" ]; then \
-				printf "\n***********************************************************************\n" >&2; \
-				printf "*** LINT FINDINGS NON-BLOCKING via BYPASS_LINT=%s\n" "$$expected" >&2; \
-				printf "*** Findings reported above but build proceeds. Do not merge without fixing.\n" >&2; \
-				printf "***********************************************************************\n\n" >&2; \
-				exit 0; \
+				if [ "$(BYPASS_CONFIRM)" = "1" ]; then \
+					printf "\n***********************************************************************\n" >&2; \
+					printf "*** LINT FINDINGS NON-BLOCKING via BYPASS_LINT=%s\n" "$$expected" >&2; \
+					printf "*** Findings reported above but build proceeds. Do not merge without fixing.\n" >&2; \
+					printf "***********************************************************************\n\n" >&2; \
+					exit 0; \
+				fi; \
+				printf "\nIf you are sure, please re-run with BYPASS_CONFIRM=1\n\n" >&2; \
 			fi; \
 		fi; \
 		exit "$$status"'
