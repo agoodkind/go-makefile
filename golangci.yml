@@ -10,6 +10,7 @@ linters:
     - dupl                # noisy on legitimate similar shapes
     - err113              # we use fmt.Errorf %w consistently
     - errcheck            # superseded by wrapcheck
+    - forbidigo           # superseded by staticcheck-extra banned_direct_output (which honors package main)
     - gochecknoglobals    # var blocks are fine
     - gochecknoinits      # init() is fine for once.Do registration
     - goconst             # noisy on enum-like literals
