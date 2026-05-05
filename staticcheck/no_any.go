@@ -105,7 +105,7 @@ func checkDeclaredType(pass *analysis.Pass, spec *ast.TypeSpec) {
 	if t := pass.TypesInfo.TypeOf(spec.Type); t != nil {
 		if reason := bannedReason(t); reason != "" {
 			pass.Reportf(spec.Pos(),
-				"type %s expands to %s, which is forbidden; declare a deeply enumerated named type instead",
+				"type %s expands to %s, which is forbidden; define a deeply enumerated named type instead",
 				spec.Name.Name, reason)
 		}
 	}
@@ -117,7 +117,7 @@ func checkDeclaredType(pass *analysis.Pass, spec *ast.TypeSpec) {
 			}
 			if reason := bannedReason(ft); reason != "" {
 				pass.Reportf(field.Pos(),
-					"struct field type %s expands to %s; declare a deeply enumerated named type",
+					"struct field type %s expands to %s; define a deeply enumerated named type",
 					types.ExprString(field.Type), reason)
 			}
 		}
@@ -133,7 +133,7 @@ func checkSignatureExpr(pass *analysis.Pass, expr ast.Expr) {
 	if t := pass.TypesInfo.TypeOf(expr); t != nil {
 		if reason := bannedReason(t); reason != "" {
 			pass.Reportf(expr.Pos(),
-				"signature uses %s, which expands to %s; declare a deeply enumerated named type",
+				"signature uses %s, which expands to %s; define a deeply enumerated named type",
 				types.ExprString(expr), reason)
 		}
 	}
@@ -147,11 +147,11 @@ func astCheckExpr(pass *analysis.Pass, expr ast.Expr) {
 		switch typed := node.(type) {
 		case *ast.Ident:
 			if typed.Name == "any" {
-				pass.Reportf(typed.Pos(), "do not use any; declare a deeply enumerated named type")
+				pass.Reportf(typed.Pos(), "do not use any; define a deeply enumerated named type")
 			}
 		case *ast.InterfaceType:
 			if len(typed.Methods.List) == 0 {
-				pass.Reportf(typed.Pos(), "do not use interface{}; declare a deeply enumerated named type")
+				pass.Reportf(typed.Pos(), "do not use interface{}; define a deeply enumerated named type")
 			}
 		}
 		return true
