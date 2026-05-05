@@ -38,8 +38,10 @@ go-mk-fetch-one = $(shell { \
 # GO_MK_MODULES: project sets a list of sibling .mk files to fetch and include.
 # Example: GO_MK_MODULES := go-build.mk go-release.mk go-service.mk
 # Set BEFORE `-include $(GO_MK)` in the project Makefile.
+# Modules are fetched here at parse time but `-include`d at the END of go.mk
+# so they see all of go.mk's definitions (default-build-deps etc.).
 GO_MK_MODULES ?=
-$(foreach m,$(GO_MK_MODULES),$(call go-mk-fetch-one,$(m))$(eval -include .make/$(m)))
+$(foreach m,$(GO_MK_MODULES),$(call go-mk-fetch-one,$(m)))
 
 # Centralized golangci-lint config. The canonical config lives at
 # go-makefile/golangci.yml. Consumers do not maintain their own .golangci.yml.
@@ -497,3 +499,7 @@ update-go-mk go-mk-sync:
 			exit 1; \
 		fi; \
 	done
+
+# Include opt-in modules at end so they see all go.mk definitions
+# (e.g., default-build-deps).
+$(foreach m,$(GO_MK_MODULES),$(eval -include .make/$(m)))

@@ -24,8 +24,9 @@ LIBRARY ?=
 
 ifeq ($(strip $(LIBRARY)),1)
 
-build:
-	@echo "library mode: build is a no-op"
+# Library mode: no binary to produce, but lint/vet/govulncheck still gate.
+build: $(default-build-deps)
+	@echo "library mode: no binary to build"
 
 install:
 	@echo "library mode: install is a no-op"
