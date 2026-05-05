@@ -1,116 +1,107 @@
-.PHONY: build build-root build-staticcheck \
-	build-check build-check-root build-check-staticcheck \
-	lint lint-root lint-staticcheck lint-tools lint-golangci-baseline \
-	lint-golangci-baseline-root lint-golangci-baseline-staticcheck \
-	lint-format lint-format-root lint-format-staticcheck lint-gocyclo \
-	fmt fmt-root fmt-staticcheck vet vet-root vet-staticcheck test test-root test-staticcheck \
-	govulncheck govulncheck-root govulncheck-staticcheck \
-	staticcheck-extra staticcheck-extra-root staticcheck-extra-staticcheck \
-	staticcheck-extra-baseline staticcheck-extra-baseline-root \
-	staticcheck-extra-baseline-staticcheck \
-	check
+# go-makefile's own Makefile. This repo is the source of the central
+# pipeline every other repo consumes. It eats its own dog food by running
+# go.mk against itself. Run `make help` for the canonical entry points
+# (build/check/lint/fmt) and per-linter sub-targets.
+#
+# Layout: two Go modules in this tree.
+#   .            render.go (bootstrap renderer) plus the project README/configs.
+#   staticcheck/ the custom analyzer set (clyde-staticcheck-style strict checks).
+# Each gate runs the central go.mk pipeline against both modules.
 
 GO_MK := go.mk
-GOLANGCI_LINT ?= golangci-lint
-ROOT_GO_MK := $(MAKE) -f $(GO_MK)
-STATICCHECK_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK)
-ROOT_GOLANGCI_ARGS := GOLANGCI_LINT_FLAGS="-c golangci-template.yml" GOLANGCI_LINT_TARGETS=.
-STATICCHECK_GOLANGCI_ARGS := GOLANGCI_LINT_FLAGS="-c ../golangci-template.yml"
+
+# Canonical golangci config lives in this repo at golangci.yml.
+# golangci-template.yml is the legacy name kept for backward compat with
+# any pre-centralization consumer that still does `extends: ...template.yml`.
+ROOT_LINT_ARGS  := GOLANGCI_LINT_FLAGS="-c golangci.yml" GOLANGCI_LINT_TARGETS=.
+STATIC_LINT_ARGS := GOLANGCI_LINT_FLAGS="-c ../golangci.yml" GOLANGCI_LINT_TARGETS=./...
+
+ROOT_GO_MK   := $(MAKE) -f $(GO_MK) $(ROOT_LINT_ARGS)
+STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
 
 .DEFAULT_GOAL := check
 
-build: build-check build-root build-staticcheck
+.PHONY: build check lint fmt vet test govulncheck build-check \
+        lint-tools lint-golangci lint-files lint-format lint-gocyclo lint-deadcode staticcheck-extra \
+        lint-golangci-baseline lint-deadcode-baseline staticcheck-extra-baseline \
+        help
 
-build-root:
-	go build .
+# Each gate target runs the central go.mk recipe twice, once per Go module.
+# The static analyzer module runs with BUILD_CHECKS=false on build because
+# it has no main package (would no-op anyway via go.mk's library handling)
+# and we do not want it pulling its own build-check chain through this
+# coordinating Makefile.
 
-build-staticcheck:
-	$(STATICCHECK_GO_MK) BUILD_CHECKS=false build
+build:
+	$(ROOT_GO_MK) build
+	$(STATIC_GO_MK) BUILD_CHECKS=false build
 
-build-check: build-check-root build-check-staticcheck
+build-check:
+	$(ROOT_GO_MK) build-check
+	$(STATIC_GO_MK) build-check
 
-build-check-root: vet-root lint-tools lint-root lint-format-root lint-gocyclo staticcheck-extra-root govulncheck-root
-
-build-check-staticcheck:
-	$(STATICCHECK_GO_MK) $(STATICCHECK_GOLANGCI_ARGS) build-check
-
-lint: lint-tools lint-root lint-format lint-gocyclo staticcheck-extra lint-staticcheck
-
-lint-golangci-baseline: lint-golangci-baseline-root lint-golangci-baseline-staticcheck
-
-lint-golangci-baseline-root:
-	$(ROOT_GO_MK) $(ROOT_GOLANGCI_ARGS) lint-golangci-baseline
-
-lint-golangci-baseline-staticcheck:
-	$(STATICCHECK_GO_MK) $(STATICCHECK_GOLANGCI_ARGS) lint-golangci-baseline
-
-lint-root:
-	$(ROOT_GO_MK) $(ROOT_GOLANGCI_ARGS) lint-golangci
-
-lint-staticcheck:
-	$(STATICCHECK_GO_MK) $(STATICCHECK_GOLANGCI_ARGS) lint-golangci
+lint:
+	$(ROOT_GO_MK) lint
+	$(STATIC_GO_MK) lint
 
 lint-tools:
 	$(ROOT_GO_MK) lint-tools
 
-lint-format: lint-format-root lint-format-staticcheck
+lint-golangci:
+	$(ROOT_GO_MK) lint-golangci
+	$(STATIC_GO_MK) lint-golangci
 
-lint-format-root:
-	$(GOLANGCI_LINT) fmt --diff -c golangci-template.yml .
+lint-golangci-baseline:
+	$(ROOT_GO_MK) lint-golangci-baseline
+	$(STATIC_GO_MK) lint-golangci-baseline
 
-lint-format-staticcheck:
-	cd staticcheck && $(GOLANGCI_LINT) fmt --diff -c ../golangci-template.yml ./...
+# lint-files runs golangci-lint scoped to LINT_FILES against the root module
+# only (file-scoped lints in the staticcheck submodule require a different
+# working directory). When iterating on the analyzer, pass LINT_FILES with
+# the staticcheck/ paths and run from inside staticcheck/ explicitly.
+lint-files:
+	$(ROOT_GO_MK) lint-files
+
+lint-format:
+	$(ROOT_GO_MK) lint-format
+	$(STATIC_GO_MK) lint-format
 
 lint-gocyclo:
 	$(ROOT_GO_MK) lint-gocyclo
 
-fmt: fmt-root fmt-staticcheck
+lint-deadcode:
+	$(ROOT_GO_MK) lint-deadcode
+	$(STATIC_GO_MK) lint-deadcode
 
-fmt-root:
-	$(GOLANGCI_LINT) fmt -c golangci-template.yml .
+lint-deadcode-baseline:
+	$(ROOT_GO_MK) lint-deadcode-baseline
+	$(STATIC_GO_MK) lint-deadcode-baseline
 
-fmt-staticcheck:
-	cd staticcheck && $(GOLANGCI_LINT) fmt -c ../golangci-template.yml ./...
-
-vet: vet-root vet-staticcheck
-
-vet-root:
-	go vet .
-
-vet-staticcheck:
-	$(STATICCHECK_GO_MK) vet
-
-test: test-root test-staticcheck
-
-test-root:
-	go test .
-
-test-staticcheck:
-	$(STATICCHECK_GO_MK) test
-
-govulncheck: govulncheck-root govulncheck-staticcheck
-
-govulncheck-root:
-	go install golang.org/x/vuln/cmd/govulncheck@latest
-	govulncheck .
-
-govulncheck-staticcheck:
-	$(STATICCHECK_GO_MK) govulncheck
-
-staticcheck-extra: staticcheck-extra-root staticcheck-extra-staticcheck
-
-staticcheck-extra-root:
+staticcheck-extra:
 	$(ROOT_GO_MK) staticcheck-extra
+	$(STATIC_GO_MK) staticcheck-extra
 
-staticcheck-extra-staticcheck:
-	$(STATICCHECK_GO_MK) staticcheck-extra
-
-staticcheck-extra-baseline: staticcheck-extra-baseline-root staticcheck-extra-baseline-staticcheck
-
-staticcheck-extra-baseline-root:
+staticcheck-extra-baseline:
 	$(ROOT_GO_MK) staticcheck-extra-baseline
+	$(STATIC_GO_MK) staticcheck-extra-baseline
 
-staticcheck-extra-baseline-staticcheck:
-	$(STATICCHECK_GO_MK) staticcheck-extra-baseline
+fmt:
+	$(ROOT_GO_MK) fmt
+	$(STATIC_GO_MK) fmt
+
+vet:
+	$(ROOT_GO_MK) vet
+	$(STATIC_GO_MK) vet
+
+test:
+	$(ROOT_GO_MK) test
+	$(STATIC_GO_MK) test
+
+govulncheck:
+	$(ROOT_GO_MK) govulncheck
+	$(STATIC_GO_MK) govulncheck
 
 check: build test
+
+help:
+	$(ROOT_GO_MK) help

@@ -37,8 +37,23 @@ func runMissingBoundaryLog(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
+// isBoundaryFunction reports true for functions that sit on a documented
+// boundary: process entrypoints (main), inbound HTTP handlers identified by
+// the canonical (ResponseWriter, *Request) signature, and any function whose
+// body crosses an external-call boundary (exec, http.Serve, os file
+// mutation). Each kind requires a structured log line per the
+// missing_boundary_log analyzer doc; without one we fail the gate.
 func isBoundaryFunction(fn *ast.FuncDecl) bool {
-	return fn.Name.Name == "main"
+	if fn.Name.Name == "main" {
+		return true
+	}
+	if hasHTTPHandlerSignature(fn) {
+		return true
+	}
+	if functionHasExternalBoundary(fn) {
+		return true
+	}
+	return false
 }
 
 func hasHTTPHandlerSignature(fn *ast.FuncDecl) bool {

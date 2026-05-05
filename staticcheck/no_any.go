@@ -1,7 +1,6 @@
 package staticcheck
 
 import (
-	"fmt"
 	"go/ast"
 	"go/types"
 	"strings"
@@ -45,55 +44,55 @@ func runNoAnyOrEmptyInterface(pass *analysis.Pass) (any, error) {
 		if isTestFile(path) || isGeneratedFile(file) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
 			continue
 		}
-		allowSignatureAny := allowsDynamicBoundary(path)
-		ast.Inspect(file, func(n ast.Node) bool {
-			switch node := n.(type) {
-			case *ast.TypeSpec:
-				// type X = ...; type X ...; struct/interface declarations.
-				// Always checked, even in allowlisted files. The alias name
-				// escapes the file in which it was declared.
-				checkDeclaredType(pass, node)
-			case *ast.FuncType:
-				// Function signatures: top-level funcs, methods, interface
-				// methods, function-value fields, function literals, closures.
-				// Subject to the per-file dynamic-boundary allowlist so adapter
-				// code that bridges a genuinely dynamic upstream protocol can
-				// still take any directly.
-				if !allowSignatureAny {
-					if node.Params != nil {
-						for _, p := range node.Params.List {
-							checkSignatureExpr(pass, p.Type)
-						}
-					}
-					if node.Results != nil {
-						for _, r := range node.Results.List {
-							checkSignatureExpr(pass, r.Type)
-						}
-					}
-				}
-			case *ast.ValueSpec:
-				// var x any, var x map[string]any, etc. Local and package-level.
-				if node.Type != nil {
-					checkSignatureExpr(pass, node.Type)
-				}
-			case *ast.CompositeLit:
-				// map[string]any{}, []any{}, []map[string]any{...}, etc. Catches
-				// the m := map[string]any{} laundering pattern that avoids
-				// declaring the var with an explicit any type.
-				if node.Type != nil {
-					checkSignatureExpr(pass, node.Type)
-				}
-			case *ast.TypeAssertExpr:
-				// v.(any), v.(map[string]any). Type assertions can not silently
-				// expand a typed value into a banned shape.
-				if node.Type != nil {
-					checkSignatureExpr(pass, node.Type)
-				}
-			}
-			return true
-		})
+		walkFileForBannedShapes(pass, file, allowsDynamicBoundary(path))
 	}
 	return nil, nil
+}
+
+// walkFileForBannedShapes traverses every node in file and dispatches each
+// kind to its specific check helper. Splitting per-node-kind keeps each
+// branch readable and the cognitive complexity inside the inspector low.
+func walkFileForBannedShapes(pass *analysis.Pass, file *ast.File, allowSignatureAny bool) {
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.TypeSpec:
+			checkDeclaredType(pass, node)
+		case *ast.FuncType:
+			if !allowSignatureAny {
+				checkFuncTypeSignature(pass, node)
+			}
+		case *ast.ValueSpec:
+			if node.Type != nil {
+				checkSignatureExpr(pass, node.Type)
+			}
+		case *ast.CompositeLit:
+			if node.Type != nil {
+				checkSignatureExpr(pass, node.Type)
+			}
+		case *ast.TypeAssertExpr:
+			if node.Type != nil {
+				checkSignatureExpr(pass, node.Type)
+			}
+		}
+		return true
+	})
+}
+
+// checkFuncTypeSignature walks both params and results of a FuncType and
+// reports any banned shape. Catches top-level funcs, methods, interface
+// methods, function-value fields, function literals, and closures.
+// Subject to the per-file dynamic-boundary allowlist at the call site.
+func checkFuncTypeSignature(pass *analysis.Pass, ft *ast.FuncType) {
+	if ft.Params != nil {
+		for _, p := range ft.Params.List {
+			checkSignatureExpr(pass, p.Type)
+		}
+	}
+	if ft.Results != nil {
+		for _, r := range ft.Results.List {
+			checkSignatureExpr(pass, r.Type)
+		}
+	}
 }
 
 // checkDeclaredType inspects a type declaration. It catches both literal
@@ -176,30 +175,30 @@ func bannedReason(t types.Type) string {
 		return ""
 	case *types.Map:
 		if r := bannedReason(x.Key()); r != "" {
-			return fmt.Sprintf("map with key %s", r)
+			return "map with key " + r
 		}
 		if r := bannedReason(x.Elem()); r != "" {
-			return fmt.Sprintf("map with value %s", r)
+			return "map with value " + r
 		}
 		return ""
 	case *types.Slice:
 		if r := bannedReason(x.Elem()); r != "" {
-			return fmt.Sprintf("slice of %s", r)
+			return "slice of " + r
 		}
 		return ""
 	case *types.Array:
 		if r := bannedReason(x.Elem()); r != "" {
-			return fmt.Sprintf("array of %s", r)
+			return "array of " + r
 		}
 		return ""
 	case *types.Chan:
 		if r := bannedReason(x.Elem()); r != "" {
-			return fmt.Sprintf("channel of %s", r)
+			return "channel of " + r
 		}
 		return ""
 	case *types.Pointer:
 		if r := bannedReason(x.Elem()); r != "" {
-			return fmt.Sprintf("pointer to %s", r)
+			return "pointer to " + r
 		}
 		return ""
 	}

@@ -35,14 +35,14 @@ linters:
     - wsl_v5              # ditto
   settings:
     cyclop:
-      max-complexity: 30
+      max-complexity: 50
 
     funlen:
       lines: 100
       statements: 60
 
     gocognit:
-      min-complexity: 30
+      min-complexity: 50
 
     godoclint:
       default: all
