@@ -44,20 +44,17 @@ while IFS= read -r f; do
     fi
 done <<< "$staged"
 
-# Map staged files to package directories. Run the same baseline-gated
-# lint-golangci as `make build`, scoped to those packages. This ensures:
-#   1. Typecheck has the whole package (not partial files), so it works.
-#   2. Only NEW findings (not in baseline) surface, matching `make build`
-#      semantics. Existing baselined findings stay quiet.
-#   3. Scope is limited to changed code, so commit-time work is bounded.
+# Run both gates the build pipeline runs:
+#   - lint-files: unified golangci target. Internally expands LINT_FILES
+#     to package scope (typecheck gets siblings), filters findings to
+#     LINT_FILES only, baseline-gates by default. Same target agents use.
+#   - staticcheck-extra: catches custom analyzers (no_any, slog/boundary
+#     hygiene, thin_wrapper, etc.) that golangci-lint doesn't run.
 status=0
 for mk_dir in "${!by_dir[@]}"; do
     files="${by_dir[$mk_dir]}"
     pkgs=$(printf '%s\n' $files | xargs -n1 dirname 2>/dev/null | sort -u | awk '{print "./" $0}' | tr '\n' ' ')
-    # Run both gates the build pipeline runs, scoped to changed packages.
-    # golangci-lint catches the bulk of issues; staticcheck-extra catches the
-    # custom analyzers (no_any, slog/boundary hygiene, thin_wrapper, etc.).
-    (cd "$mk_dir" && make lint-golangci GOLANGCI_LINT_TARGETS="$pkgs" >&2) || status=$?
+    (cd "$mk_dir" && make lint-files LINT_FILES="$files" >&2) || status=$?
     (cd "$mk_dir" && make staticcheck-extra STATICCHECK_EXTRA_TARGETS="$pkgs" >&2) || status=$?
 done
 exit "$status"

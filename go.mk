@@ -227,16 +227,28 @@ lint-golangci: lint-tools
 LINT_FILES ?= ./...
 
 .PHONY: lint-files
+LINT_RAW ?=
+
 lint-files: lint-tools
 	@bash -eu -o pipefail -c '\
 		[ -z "$(LINT_FILES)" ] && { echo "lint-files: LINT_FILES is empty"; exit 0; }; \
 		pkgs=$$(printf "%s\n" $(LINT_FILES) | xargs -n1 dirname | sort -u | awk "{print \"./\" \$$0}" | tr "\n" " "); \
 		raw=$$(mktemp); \
 		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $$pkgs > "$$raw" 2>&1 || true; \
-		filtered=$$(awk -v files="$(LINT_FILES)" '"'"'BEGIN { n=split(files, ff, /[ \t]+/); for (i=1; i<=n; i++) if (ff[i] != "") keep[ff[i]]=1 } { line=$$0; while (index(line, "../")==1) line=substr(line, 4); for (f in keep) if (index(line, f ":") == 1) { print; next } }'"'"' "$$raw"); \
+		findings=$$(awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' "$$raw" | grep -E "^[^:]+\.go:[0-9]+:[0-9]+: " || true); \
 		rm -f "$$raw"; \
+		filtered=$$(echo "$$findings" | awk -v files="$(LINT_FILES)" '"'"'BEGIN { n=split(files, ff, /[ \t]+/); for (i=1; i<=n; i++) if (ff[i] != "") keep[ff[i]]=1 } { for (f in keep) if (index($$0, f ":") == 1) { print; next } }'"'"'); \
 		[ -z "$$filtered" ] && { echo "lint-files: OK (0 findings)"; exit 0; }; \
-		echo "$$filtered"; \
+		if [ -n "$(LINT_RAW)" ]; then echo "$$filtered"; exit 1; fi; \
+		bkeys=$$(mktemp); \
+		[ -f "$(GOLANGCI_LINT_BASELINE)" ] && awk '"'"'function k(s,    o) { if (match(s, /:[0-9]+:[0-9]+:/)) o = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else o = s; while (index(o, "../")==1) o = substr(o, 4); return o } /^[ \t]*$$/||/^#/{next} { i=index($$0, "\t"); f=(i>0)?substr($$0, 1, i-1):$$0; print k(f) }'"'"' "$(GOLANGCI_LINT_BASELINE)" > "$$bkeys"; \
+		new=$$(echo "$$filtered" | awk -v bkeys="$$bkeys" '"'"'function k(s,    o) { if (match(s, /:[0-9]+:[0-9]+:/)) o = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else o = s; while (index(o, "../")==1) o = substr(o, 4); return o } BEGIN { while ((getline x < bkeys) > 0) bk[x]=1 } { if (!(k($$0) in bk)) print }'"'"'); \
+		rm -f "$$bkeys"; \
+		[ -z "$$new" ] && { echo "lint-files: OK (0 new findings)"; exit 0; }; \
+		echo "NEW findings on listed files:"; \
+		echo "$$new"; \
+		echo ""; \
+		echo "Run with LINT_RAW=1 to see all findings."; \
 		exit 1'
 
 lint-golangci-baseline: lint-tools
