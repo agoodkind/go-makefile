@@ -357,7 +357,13 @@ staticcheck-extra-bin:
 			base=$$(basename "$$install" | sed "s/@.*//"); \
 			gobin=$$(go env GOPATH)/bin; \
 			installed="$$gobin/$$base"; \
-			GOPROXY=direct GONOSUMDB=github.com/agoodkind/go-makefile,github.com/agoodkind/go-makefile/staticcheck GOBIN="$$gobin" go install "$$install"; \
+			err_log=$$(mktemp -t staticcheck-extra-install.XXXXXX); \
+			if ! GOPROXY=direct GONOSUMDB=github.com/agoodkind/go-makefile,github.com/agoodkind/go-makefile/staticcheck GOBIN="$$gobin" go install "$$install" 2>"$$err_log"; then \
+				cat "$$err_log" >&2; \
+				rm -f "$$err_log"; \
+				return 1; \
+			fi; \
+			rm -f "$$err_log"; \
 			ln -sf "$$installed" "$(CURDIR)/.make/staticcheck-extra"; \
 		}; \
 		if [ -n "$$bin" ]; then \
@@ -493,13 +499,19 @@ staticcheck-extra-baseline: staticcheck-extra-bin
 
 # Refresh go.mk plus every opt-in sibling module and the central golangci.yml.
 # Renamed from 'sync' to avoid conflicts with project-level Makefile sync targets.
+# Uses the same 3-tier (API, cache-busted raw, raw) chain as go-mk-fetch-one
+# so a freshly pushed update lands without waiting for raw-CDN invalidation,
+# and curl stderr stays silent on retry-and-succeed cases.
 update-go-mk go-mk-sync:
 	@mkdir -p "$(dir $(GO_MK_CACHE))" "$(GO_MK_CACHE_DIR)"
 	@for f in go.mk golangci.yml $(GO_MK_MODULES); do \
-		url="$(GO_MK_BASE_URL)/$$f"; \
+		api_url="$(GO_MK_API_BASE)/$$f?ref=$(GO_MK_API_REF)"; \
+		raw_url="$(GO_MK_BASE_URL)/$$f"; \
 		if [ "$$f" = "go.mk" ]; then dest="$(GO_MK)"; else dest=".make/$$f"; fi; \
 		mkdir -p "$$(dirname $$dest)"; \
-		if curl -fsSL --connect-timeout 5 --max-time 10 "$$url" -o "$$dest"; then \
+		if curl -fsSL -H "Accept: application/vnd.github.raw" --connect-timeout 5 --max-time 10 "$$api_url" -o "$$dest" 2>/dev/null \
+			|| curl -fsSL --connect-timeout 5 --max-time 10 "$$raw_url?v=$$(date +%s)" -o "$$dest" 2>/dev/null \
+			|| curl -fsSL --connect-timeout 5 --max-time 10 "$$raw_url" -o "$$dest" 2>/dev/null; then \
 			cp "$$dest" "$(GO_MK_CACHE_DIR)/$$f"; \
 			echo "updated: $$f"; \
 		else \
