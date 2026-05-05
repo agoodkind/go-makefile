@@ -44,10 +44,15 @@ while IFS= read -r f; do
     fi
 done <<< "$staged"
 
-# Run lint-files once per Makefile-bearing dir. Any non-zero exit blocks.
+# Map staged files to their package directories. golangci-lint requires the
+# whole package for typecheck; passing individual files means undefined
+# identifiers from sibling files break the typecheck step. Linting at the
+# package level gives the linter complete inputs while still scoping work
+# to what changed.
 status=0
 for mk_dir in "${!by_dir[@]}"; do
     files="${by_dir[$mk_dir]}"
-    (cd "$mk_dir" && LINT_FILES="$files" make lint-files >&2) || status=$?
+    pkgs=$(printf '%s\n' $files | xargs -n1 dirname 2>/dev/null | sort -u | sed 's|^|./|; s|^\./\.$|./|' | tr '\n' ' ')
+    (cd "$mk_dir" && LINT_FILES="$pkgs" make lint-files >&2) || status=$?
 done
 exit "$status"
