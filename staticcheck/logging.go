@@ -55,6 +55,11 @@ func runBannedDirectOutput(pass *analysis.Pass) (any, error) {
 		if isTestFile(path) || isGeneratedFile(file) || isProtobufGeneratedPath(path) {
 			continue
 		}
+		// Files in `package main` may emit user-facing CLI output via fmt.
+		// Library/internal code is still routed through slog.
+		if file.Name != nil && file.Name.Name == "main" {
+			continue
+		}
 		ast.Inspect(file, func(node ast.Node) bool {
 			call, ok := node.(*ast.CallExpr)
 			if !ok {

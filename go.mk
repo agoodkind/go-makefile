@@ -380,7 +380,8 @@ staticcheck-extra-bin:
 		base=$$(basename "$$install" | sed "s/@.*//"); \
 		gobin=$$(go env GOPATH)/bin; \
 		installed="$$gobin/$$base"; \
-		if [ ! -x "$$installed" ] || missing_flags "$$installed"; then \
+		case "$$install" in *@latest) at_latest=1 ;; *) at_latest=0 ;; esac; \
+		if [ ! -x "$$installed" ] || [ "$$at_latest" = "1" ] || missing_flags "$$installed"; then \
 			install_binary; \
 		else \
 			ln -sf "$$installed" "$$out"; \

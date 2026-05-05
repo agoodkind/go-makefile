@@ -36,13 +36,12 @@ func runNoAnyOrEmptyInterface(pass *analysis.Pass) (any, error) {
 					if !ok {
 						continue
 					}
-					if !ast.IsExported(typeSpec.Name.Name) {
-						continue
-					}
+					// Both exported and unexported type declarations are
+					// checked; internal `any` use leaks to boundaries.
 					checkTypeExpr(pass, typeSpec.Type)
 				}
 			case *ast.FuncDecl:
-				if !ast.IsExported(d.Name.Name) || d.Type == nil {
+				if d.Type == nil {
 					continue
 				}
 				if d.Type.Params != nil {

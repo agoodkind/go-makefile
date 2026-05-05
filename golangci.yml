@@ -67,9 +67,7 @@ linters:
 
     exhaustruct:
       include:
-        - 'goodkind\.io/.*/internal/domain\..*'
-        - 'goodkind\.io/.*/internal/event\..*'
-        - 'goodkind\.io/.*/internal/config\..*'
+        - 'goodkind\.io/.*/internal/.*'
 
     wrapcheck:
       ignoreSigs:
