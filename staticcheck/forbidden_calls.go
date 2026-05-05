@@ -2,6 +2,7 @@ package staticcheck
 
 import (
 	"go/ast"
+	"go/types"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -159,7 +160,7 @@ func runPanicInProduction(pass *analysis.Pass) (any, error) {
 			if fn.Name.Name == "init" {
 				continue
 			}
-			if strings.HasPrefix(fn.Name.Name, "Must") {
+			if isStdlibMustShape(pass, fn) {
 				continue
 			}
 			ast.Inspect(fn.Body, func(node ast.Node) bool {
@@ -222,4 +223,42 @@ func runTimeNowOutsideClock(pass *analysis.Pass) (any, error) {
 		})
 	}
 	return nil, nil
+}
+
+// isStdlibMustShape reports whether fn matches the stdlib Must*
+// convention: name starts with "Must" AND the signature does not
+// return an error. Stdlib examples: regexp.MustCompile returns
+// *Regexp; template.Must takes (T, error) and returns T. Both
+// document via name and shape that on failure they panic, which is
+// the pattern this carve-out is intended to permit.
+//
+// A function named MustOrchestrate that returns an error is not
+// the stdlib pattern. It is using Must* as a label while still
+// carrying error returns, which suggests the panic is being used
+// as a control-flow shortcut and should be replaced with proper
+// error handling.
+func isStdlibMustShape(pass *analysis.Pass, fn *ast.FuncDecl) bool {
+	if fn == nil || fn.Name == nil {
+		return false
+	}
+	if !strings.HasPrefix(fn.Name.Name, "Must") {
+		return false
+	}
+	if pass.TypesInfo == nil {
+		return false
+	}
+	obj := pass.TypesInfo.Defs[fn.Name]
+	if obj == nil {
+		return false
+	}
+	sig, ok := obj.Type().(*types.Signature)
+	if !ok {
+		return false
+	}
+	for i := 0; i < sig.Results().Len(); i++ {
+		if isErrorType(sig.Results().At(i).Type()) {
+			return false
+		}
+	}
+	return true
 }
