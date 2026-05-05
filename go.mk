@@ -1,6 +1,7 @@
 .PHONY: build deploy clean help \
 	lint lint-tools lint-golangci lint-golangci-baseline lint-files lint-format lint-gocyclo fmt vet test govulncheck build-check check \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-bin \
+	baseline \
 	go-mk-sync update-go-mk smoke-fetch
 
 GO_MK_URL       := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
@@ -10,51 +11,18 @@ GO_MK_API_BASE  ?= https://api.github.com/repos/agoodkind/go-makefile/contents
 GO_MK_API_REF   ?= main
 GO_MK_CACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile
 
-# go-mk-fetch-one: fetch one asset from go-makefile (relative path, e.g.
-# go-build.mk or golangci.yml) into .make/<path>. Honors GO_MK_DEV_DIR for
-# local dev iteration. Tries the GitHub Contents API first to bypass the
-# raw-content CDN (which can serve stale bytes for several minutes after a
-# push), then falls back to a cache-busted raw URL, then plain raw, then
-# the local ~/.cache/go-makefile copy.
-# Used by the GO_MK_MODULES bootstrap and the golangci config fetch below.
-# All output goes to stderr; $(call ...) evaluates to the empty string so
-# it's safe to use at the top level.
-go-mk-fetch-one = $(shell { \
-	mkdir -p .make "$(GO_MK_CACHE_DIR)"; \
-	target=".make/$(1)"; \
-	cache="$(GO_MK_CACHE_DIR)/$(1)"; \
-	if [ -n "$(GO_MK_DEV_DIR)" ] && [ -f "$(GO_MK_DEV_DIR)/$(1)" ]; then \
-		cp "$(GO_MK_DEV_DIR)/$(1)" "$$target"; \
-		printf '%s\n' "$(1): using dev override $(GO_MK_DEV_DIR)/$(1)"; \
-	else \
-		tmp="$$target.tmp"; \
-		if curl -fsSL -H "Accept: application/vnd.github.raw" --connect-timeout 5 --max-time 10 "$(GO_MK_API_BASE)/$(1)?ref=$(GO_MK_API_REF)" -o "$$tmp" 2>/dev/null \
-			|| curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)?v=$$(date +%s)" -o "$$tmp" 2>/dev/null \
-			|| curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)" -o "$$tmp" 2>/dev/null; then \
-			mv "$$tmp" "$$target"; cp "$$target" "$$cache"; \
-		elif [ -f "$$cache" ]; then \
-			rm -f "$$tmp"; cp "$$cache" "$$target"; \
-			printf '%s\n' "warning: $(1) fetch failed, using cached version"; \
-		elif [ ! -f "$$target" ]; then \
-			rm -f "$$tmp"; \
-			printf '%s\n' "error: $(1) fetch failed and no cache available"; \
-		fi; \
-	fi; \
-} 1>&2)
-
-# GO_MK_MODULES: project sets a list of sibling .mk files to fetch and include.
-# Example: GO_MK_MODULES := go-build.mk go-release.mk go-service.mk
-# Set BEFORE `-include $(GO_MK)` in the project Makefile.
-# Modules are fetched here at parse time but `-include`d at the END of go.mk
-# so they see all of go.mk's definitions (default-build-deps etc.).
+# go.mk, golangci.yml, and every sibling module in GO_MK_MODULES are fetched
+# by bootstrap-include.sh, which the consumer Makefile invokes once at parse
+# time before -include $(GO_MK). By the time go.mk itself is parsed, .make/
+# already contains every asset declared in GO_MK_MODULES. This file just
+# declares the modules list and -includes them at the END so they see all
+# of go.mk's variables (default-build-deps etc.).
 GO_MK_MODULES ?=
-$(foreach m,$(GO_MK_MODULES),$(call go-mk-fetch-one,$(m)))
 
-# Centralized golangci-lint config. The canonical config lives at
-# go-makefile/golangci.yml. Consumers do not maintain their own .golangci.yml.
-# Projects override by setting GOLANGCI_LINT_FLAGS before -include $(GO_MK).
+# Centralized golangci-lint config path. bootstrap-include.sh has already
+# placed the file at .make/golangci.yml; this just exposes the path so the
+# default GOLANGCI_LINT_FLAGS below can reference it.
 GO_MK_GOLANGCI_CONFIG ?= .make/golangci.yml
-$(call go-mk-fetch-one,golangci.yml)
 
 GOLANGCI_LINT          ?= golangci-lint
 GOLANGCI_LINT_TARGETS  ?= ./...
@@ -122,7 +90,8 @@ help:
 	@printf '  %-32s %s\n' 'lint-gocyclo' 'cyclomatic complexity gate'
 	@printf '  %-32s %s\n' 'lint-deadcode' 'unreachable functions + .deadcode-baseline.txt + DEADCODE_EXCLUDE_PATHS'
 	@printf '  %-32s %s\n' 'staticcheck-extra' 'strict custom analyzers + .staticcheck-extra-baseline.txt'
-	@printf '\n%s\n' 'Refresh baselines after fixing or accepting findings:'
+	@printf '\n%s\n' 'Refresh baselines after fixing in code first (do NOT use to silence findings):'
+	@printf '  %-32s %s\n' 'baseline BASELINE_CONFIRM=1' 'rebuild all three baseline files (gated; ask user)'
 	@printf '  %-32s %s\n' 'lint-golangci-baseline' 'rebuild .golangci-lint-baseline.txt'
 	@printf '  %-32s %s\n' 'lint-deadcode-baseline' 'rebuild .deadcode-baseline.txt'
 	@printf '  %-32s %s\n' 'staticcheck-extra-baseline' 'rebuild .staticcheck-extra-baseline.txt'
@@ -418,6 +387,42 @@ build-check: vet lint govulncheck
 
 check: build test
 
+# baseline refreshes every gate's baseline file in one shot. Gated behind
+# BASELINE_CONFIRM because baselining blindly hides defects: an agent that
+# treats baseline as "make the lint warnings go away" silently weakens the
+# central pipeline. The expected workflow is read findings, attempt to fix
+# them in code, and only then accept the residual into the baseline with
+# the user's explicit consent.
+#
+# Run with:
+#   make baseline BASELINE_CONFIRM=1
+#
+# Individual baseline targets (lint-golangci-baseline, lint-deadcode-baseline,
+# staticcheck-extra-baseline) remain available when only one needs refreshing.
+.PHONY: baseline
+baseline:
+	@case "$(BASELINE_CONFIRM)" in \
+		1|y|yes|Y|YES) ;; \
+		*) \
+			printf '%s\n' \
+				"baseline refresh refused without explicit confirmation." \
+				"" \
+				"This target rewrites .golangci-lint-baseline.txt, .deadcode-baseline.txt," \
+				"and .staticcheck-extra-baseline.txt to match the current finding set." \
+				"" \
+				"Agents: do NOT run this to silence lint warnings. The expected workflow is:" \
+				"  1. Read findings: make lint, make lint-deadcode, make staticcheck-extra." \
+				"  2. Faithfully attempt to fix each finding in code." \
+				"  3. After fixing what you can, ask the user to confirm before baselining the rest." \
+				"  4. Only then run: make baseline BASELINE_CONFIRM=1" \
+				"" \
+				"Baselining without fixing first hides real defects and degrades the pipeline." >&2; \
+			exit 1 ;; \
+	esac
+	@$(MAKE) --no-print-directory lint-golangci-baseline
+	@$(MAKE) --no-print-directory lint-deadcode-baseline
+	@$(MAKE) --no-print-directory staticcheck-extra-baseline
+
 # ---------------------------------------------------------------------------
 # staticcheck-extra: AST analyzer pass with a baseline-diff gate so only NEW
 # findings fail the build. The default source is the analyzer set bundled
@@ -459,8 +464,15 @@ check: build test
 #     timestamps for each entry.
 # ---------------------------------------------------------------------------
 STATICCHECK_EXTRA_BIN           ?=
-STATICCHECK_EXTRA_BUILD_REPO    ?=
-STATICCHECK_EXTRA_BUILD_PKG     ?=
+# When GO_MK_DEV_DIR is set and the dev checkout contains the analyzer
+# source, build the binary from that checkout rather than from
+# `go install ...@latest`. Without this, dev `go.mk` could declare new
+# analyzer flags (e.g. -thin_wrapper_to_launderable_call) that the
+# remote-installed binary does not yet support, because the local
+# checkout has unpushed commits. Building from the same source as the
+# flags eliminates that drift class entirely.
+STATICCHECK_EXTRA_BUILD_REPO    ?= $(if $(and $(GO_MK_DEV_DIR),$(wildcard $(GO_MK_DEV_DIR)/staticcheck/cmd/staticcheck-extra)),$(GO_MK_DEV_DIR)/staticcheck)
+STATICCHECK_EXTRA_BUILD_PKG     ?= $(if $(STATICCHECK_EXTRA_BUILD_REPO),./cmd/staticcheck-extra)
 STATICCHECK_EXTRA_INSTALL       ?= github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest
 STATICCHECK_EXTRA_CORE_FLAGS    ?= \
 	-slog_error_without_err \
