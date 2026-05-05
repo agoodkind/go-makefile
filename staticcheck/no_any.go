@@ -172,6 +172,11 @@ func bannedReason(t types.Type) string {
 		if x.NumMethods() == 0 && x.NumEmbeddeds() == 0 {
 			return "any (empty interface)"
 		}
+		for i := range x.NumEmbeddeds() {
+			if r := bannedReason(x.EmbeddedType(i)); r != "" {
+				return "interface embedding " + r
+			}
+		}
 		return ""
 	case *types.Map:
 		if r := bannedReason(x.Key()); r != "" {
