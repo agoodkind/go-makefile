@@ -54,6 +54,10 @@ status=0
 for mk_dir in "${!by_dir[@]}"; do
     files="${by_dir[$mk_dir]}"
     pkgs=$(printf '%s\n' $files | xargs -n1 dirname 2>/dev/null | sort -u | sed 's|^|./|' | tr '\n' ' ')
+    # Run both gates the build pipeline runs, scoped to changed packages.
+    # golangci-lint catches the bulk of issues; staticcheck-extra catches the
+    # custom analyzers (no_any, slog/boundary hygiene, thin_wrapper, etc.).
     (cd "$mk_dir" && make lint-golangci GOLANGCI_LINT_TARGETS="$pkgs" >&2) || status=$?
+    (cd "$mk_dir" && make staticcheck-extra STATICCHECK_EXTRA_TARGETS="$pkgs" >&2) || status=$?
 done
 exit "$status"
