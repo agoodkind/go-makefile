@@ -266,7 +266,16 @@ ensure_cached_asset() {
 	die "${rel} fetch failed and no cache available"
 }
 
-CTX_JSON=$(printf '{"Binary":"%s","Cmd":"%s","Layout":"%s","BaseURL":"%s"}\n' "$BINARY" "$CMD" "$LAYOUT" "$BASE_URL")
+# VPKG points at the project's version package. We emit it only when an
+# internal/version directory already exists, so newly scaffolded tiny binaries
+# do not get a stamping flag pointing at a package they have not written yet.
+# Library layouts never get VPKG (they are stamped by their binary consumers).
+VPKG=""
+if [ "$LAYOUT" = "binary" ] && [ -d "internal/version" ]; then
+	VPKG="$MODULE/internal/version"
+fi
+
+CTX_JSON=$(printf '{"Binary":"%s","Cmd":"%s","Layout":"%s","Vpkg":"%s","BaseURL":"%s"}\n' "$BINARY" "$CMD" "$LAYOUT" "$VPKG" "$BASE_URL")
 
 render_artifact() {
 	local rel="$1"

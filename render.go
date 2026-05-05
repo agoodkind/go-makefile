@@ -18,6 +18,7 @@ type context struct {
 	Binary  string `json:"Binary"`
 	Cmd     string `json:"Cmd"`
 	Layout  string `json:"Layout"`
+	Vpkg    string `json:"Vpkg"`
 	BaseURL string `json:"BaseURL"`
 }
 

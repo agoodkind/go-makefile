@@ -8,12 +8,22 @@ GO_MK_CACHE   := $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile/go.mk
 # without committing/pushing first.
 GO_MK_DEV_DIR ?=
 [[if eq .Layout "binary"]]
-
+# Identity
 BINARY := [[.Binary]]
 CMD    := [[.Cmd]]
+[[if .Vpkg]]VPKG   := [[.Vpkg]]
+[[end]]
+# Pipeline modules (fetched + included by go.mk).
+# Add go-service.mk if this binary ships as a daemon (set LAUNCHD_LABEL,
+# SYSTEMD_UNIT, and LOG_PATH BEFORE -include $(GO_MK)).
+GO_MK_MODULES := go-build.mk go-release.mk
+[[else]]
+# Library mode: build/install are no-ops; lint/vet/test from go.mk apply.
+LIBRARY := 1
 
-[[- end]]
-
+# Pipeline modules (fetched + included by go.mk).
+GO_MK_MODULES := go-build.mk
+[[end]]
 GO_MK_BOOTSTRAP := $(shell \
 	mkdir -p "$(dir $(GO_MK))" "$(dir $(GO_MK_CACHE))"; \
 	if [ -n "$(GO_MK_DEV_DIR)" ] && [ -f "$(GO_MK_DEV_DIR)/go.mk" ]; then \
