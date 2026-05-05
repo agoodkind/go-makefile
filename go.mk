@@ -227,7 +227,11 @@ lint-golangci: lint-tools
 LINT_FILES ?= ./...
 
 .PHONY: lint-files
-LINT_RAW ?=
+# BASELINE: which file to gate findings against. Default = the canonical
+# golangci baseline file. Set BASELINE="" to disable the gate (all
+# findings on listed files surface). Set BASELINE=other.txt to use any
+# alternate baseline file.
+BASELINE ?= $(GOLANGCI_LINT_BASELINE)
 
 lint-files: lint-tools
 	@bash -eu -o pipefail -c '\
@@ -239,16 +243,16 @@ lint-files: lint-tools
 		rm -f "$$raw"; \
 		filtered=$$(echo "$$findings" | awk -v files="$(LINT_FILES)" '"'"'BEGIN { n=split(files, ff, /[ \t]+/); for (i=1; i<=n; i++) if (ff[i] != "") keep[ff[i]]=1 } { for (f in keep) if (index($$0, f ":") == 1) { print; next } }'"'"'); \
 		[ -z "$$filtered" ] && { echo "lint-files: OK (0 findings)"; exit 0; }; \
-		if [ -n "$(LINT_RAW)" ]; then echo "$$filtered"; exit 1; fi; \
+		if [ -z "$(BASELINE)" ]; then echo "$$filtered"; exit 1; fi; \
 		bkeys=$$(mktemp); \
-		[ -f "$(GOLANGCI_LINT_BASELINE)" ] && awk '"'"'function k(s,    o) { if (match(s, /:[0-9]+:[0-9]+:/)) o = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else o = s; while (index(o, "../")==1) o = substr(o, 4); return o } /^[ \t]*$$/||/^#/{next} { i=index($$0, "\t"); f=(i>0)?substr($$0, 1, i-1):$$0; print k(f) }'"'"' "$(GOLANGCI_LINT_BASELINE)" > "$$bkeys"; \
+		[ -f "$(BASELINE)" ] && awk '"'"'function k(s,    o) { if (match(s, /:[0-9]+:[0-9]+:/)) o = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else o = s; while (index(o, "../")==1) o = substr(o, 4); return o } /^[ \t]*$$/||/^#/{next} { i=index($$0, "\t"); f=(i>0)?substr($$0, 1, i-1):$$0; print k(f) }'"'"' "$(BASELINE)" > "$$bkeys"; \
 		new=$$(echo "$$filtered" | awk -v bkeys="$$bkeys" '"'"'function k(s,    o) { if (match(s, /:[0-9]+:[0-9]+:/)) o = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else o = s; while (index(o, "../")==1) o = substr(o, 4); return o } BEGIN { while ((getline x < bkeys) > 0) bk[x]=1 } { if (!(k($$0) in bk)) print }'"'"'); \
 		rm -f "$$bkeys"; \
-		[ -z "$$new" ] && { echo "lint-files: OK (0 new findings)"; exit 0; }; \
-		echo "NEW findings on listed files:"; \
+		[ -z "$$new" ] && { echo "lint-files: OK (0 new findings vs $(BASELINE))"; exit 0; }; \
+		echo "NEW findings on listed files (vs $(BASELINE)):"; \
 		echo "$$new"; \
 		echo ""; \
-		echo "Run with LINT_RAW=1 to see all findings."; \
+		echo "Run with BASELINE=\"\" to see all findings (skip baseline gate)."; \
 		exit 1'
 
 lint-golangci-baseline: lint-tools
