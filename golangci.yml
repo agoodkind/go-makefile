@@ -76,12 +76,13 @@ linters:
       rules:
         - name: exported              # every exported symbol has godoc
         - name: package-comments      # every package has a doc comment
-        - name: unused-parameter
-        - name: unused-receiver
         - name: empty-block
         - name: indent-error-flow
         - name: var-naming
         - name: comment-spacings
+        # unused-parameter / unused-receiver: dropped. Interface stubs and
+        # callbacks legitimately keep params for the contract; method
+        # receivers stay even when unused for symmetry across a type.
 
     exhaustive:
       default-signifies-exhaustive: false  # require explicit cases
