@@ -8,20 +8,28 @@ linters:
   disable:
     - depguard            # we use staticcheck-extra for ban-lists
     - dupl                # noisy on legitimate similar shapes
+    - embeddedstructfieldcheck  # cosmetic: blank line after embedded fields
     - err113              # we use fmt.Errorf %w consistently
     - errcheck            # superseded by wrapcheck
     - forbidigo           # superseded by staticcheck-extra banned_direct_output (which honors package main)
+    - funcorder           # cosmetic: method/constructor ordering
     - gochecknoglobals    # var blocks are fine
     - gochecknoinits      # init() is fine for once.Do registration
     - goconst             # noisy on enum-like literals
+    - godot               # overlaps godoclint (comment ending periods)
     - godox               # TODO/FIXME comments are fine in dev
+    - inamedparam         # cosmetic: interface method param naming
     - ireturn             # adapter layers do return interfaces intentionally
     - lll                 # godoclint covers comment width
     - mnd                 # magic numbers fire too often
     - nilnil              # we use (T, error) = (nil, nil) intentionally
     - nlreturn            # cosmetic
+    - noinlineerr         # style preference; if err := ... is idiomatic Go, no defect surfaced
     - nonamedreturns      # named returns used in some patterns
     - paralleltest        # not all tests can be parallel
+    - perfsprint          # micro-perf; fmt.Errorf("plain")->errors.New rarely material
+    - prealloc            # micro-perf; pre-allocate slice rarely material in non-hot paths
+    - tagalign            # cosmetic: struct tag whitespace alignment
     - tagliatelle         # JSON casing not enforced
     - varnamelen          # short names in tight scopes are fine
     - wsl                 # cosmetic whitespace
