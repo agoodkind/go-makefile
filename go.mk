@@ -11,18 +11,51 @@ GO_MK_API_BASE  ?= https://api.github.com/repos/agoodkind/go-makefile/contents
 GO_MK_API_REF   ?= main
 GO_MK_CACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile
 
-# go.mk, golangci.yml, and every sibling module in GO_MK_MODULES are fetched
-# by bootstrap-include.sh, which the consumer Makefile invokes once at parse
-# time before -include $(GO_MK). By the time go.mk itself is parsed, .make/
-# already contains every asset declared in GO_MK_MODULES. This file just
-# declares the modules list and -includes them at the END so they see all
-# of go.mk's variables (default-build-deps etc.).
-GO_MK_MODULES ?=
+# go-mk-fetch-one: fetch one asset from go-makefile (relative path, e.g.
+# go-build.mk or golangci.yml) into .make/<path>. Honors GO_MK_DEV_DIR for
+# local dev iteration. Tries the GitHub Contents API first to bypass the
+# raw-content CDN (which can serve stale bytes for several minutes after a
+# push), then falls back to a cache-busted raw URL, then plain raw, then
+# the local ~/.cache/go-makefile copy.
+# Used by the GO_MK_MODULES bootstrap and the golangci config fetch below.
+# All output goes to stderr; $(call ...) evaluates to the empty string so
+# it's safe to use at the top level.
+go-mk-fetch-one = $(shell { \
+	mkdir -p .make "$(GO_MK_CACHE_DIR)"; \
+	target=".make/$(1)"; \
+	cache="$(GO_MK_CACHE_DIR)/$(1)"; \
+	if [ -n "$(GO_MK_DEV_DIR)" ] && [ -f "$(GO_MK_DEV_DIR)/$(1)" ]; then \
+		cp "$(GO_MK_DEV_DIR)/$(1)" "$$target"; \
+		printf '%s\n' "$(1): using dev override $(GO_MK_DEV_DIR)/$(1)"; \
+	else \
+		tmp="$$target.tmp"; \
+		if curl -fsSL -H "Accept: application/vnd.github.raw" --connect-timeout 5 --max-time 10 "$(GO_MK_API_BASE)/$(1)?ref=$(GO_MK_API_REF)" -o "$$tmp" 2>/dev/null \
+			|| curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)?v=$$(date +%s)" -o "$$tmp" 2>/dev/null \
+			|| curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)" -o "$$tmp" 2>/dev/null; then \
+			mv "$$tmp" "$$target"; cp "$$target" "$$cache"; \
+		elif [ -f "$$cache" ]; then \
+			rm -f "$$tmp"; cp "$$cache" "$$target"; \
+			printf '%s\n' "warning: $(1) fetch failed, using cached version"; \
+		elif [ ! -f "$$target" ]; then \
+			rm -f "$$tmp"; \
+			printf '%s\n' "error: $(1) fetch failed and no cache available"; \
+		fi; \
+	fi; \
+} 1>&2)
 
-# Centralized golangci-lint config path. bootstrap-include.sh has already
-# placed the file at .make/golangci.yml; this just exposes the path so the
-# default GOLANGCI_LINT_FLAGS below can reference it.
+# GO_MK_MODULES: project sets a list of sibling .mk files to fetch and include.
+# Example: GO_MK_MODULES := go-build.mk go-release.mk go-service.mk
+# Set BEFORE `-include $(GO_MK)` in the project Makefile.
+# Modules are fetched here at parse time but `-include`d at the END of go.mk
+# so they see all of go.mk's definitions (default-build-deps etc.).
+GO_MK_MODULES ?=
+$(foreach m,$(GO_MK_MODULES),$(call go-mk-fetch-one,$(m)))
+
+# Centralized golangci-lint config. The canonical config lives at
+# go-makefile/golangci.yml. Consumers do not maintain their own .golangci.yml.
+# Projects override by setting GOLANGCI_LINT_FLAGS before -include $(GO_MK).
 GO_MK_GOLANGCI_CONFIG ?= .make/golangci.yml
+$(call go-mk-fetch-one,golangci.yml)
 
 GOLANGCI_LINT          ?= golangci-lint
 GOLANGCI_LINT_TARGETS  ?= ./...

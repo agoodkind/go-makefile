@@ -106,12 +106,36 @@ GO_BUILD_EXTRA_FLAGS   ?=
 # the same vars.
 GO_BUILD_FLAGS := $(GO_BUILD_TAGS_FLAG) $(GO_BUILD_LDFLAGS_FLAG) $(GO_BUILD_EXTRA_FLAGS)
 
+# Codesign: macOS-only, opt-in. Project sets BUNDLE_ID; identity is
+# auto-detected from the keychain or pinned via CERT_ID in config.mk.
+# CODESIGN_TIMESTAMP defaults to `none` for local dev (no Apple timestamp
+# server round-trip); release flow overrides to `timestamp` for notarize.
+# Linux/Windows skip the macro entirely via the uname guard.
+BUNDLE_ID          ?= io.goodkind.$(BINARY)
+CODESIGN_IDENTITY  ?= $(or $(CERT_ID),$(shell if [ "$$(uname)" = "Darwin" ]; then security find-identity -v -p codesigning 2>/dev/null | awk '/Developer ID Application/ { print $$2; exit }'; fi))
+CODESIGN_TIMESTAMP ?= none
+
+define codesign_binary
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		if [ -z "$(CODESIGN_IDENTITY)" ]; then \
+			echo "No Developer ID Application signing identity found."; \
+			echo "Set CERT_ID in config.mk or install a Developer ID Application certificate."; \
+			exit 1; \
+		fi; \
+		echo "Signing $(1) with $(CODESIGN_IDENTITY)..."; \
+		codesign --force --sign "$(CODESIGN_IDENTITY)" --identifier "$(BUNDLE_ID)" --options runtime --timestamp=$(CODESIGN_TIMESTAMP) "$(1)"; \
+		codesign --verify --verbose=2 "$(1)"; \
+	fi
+endef
+
 # Build runs build-check (vet+lint+govulncheck) from go.mk first, unless
-# BUILD_CHECKS=false is set.
+# BUILD_CHECKS=false is set. On macOS, the resulting binary is signed in
+# place before install copies it.
 build: $(default-build-deps)
 	@mkdir -p $(DIST_DIR)
 	go build $(GO_BUILD_FLAGS) -o $(DIST_BIN) $(CMD)
 	@echo "built: $(DIST_BIN)"
+	$(call codesign_binary,$(DIST_BIN))
 
 # Atomic install to $(INSTALL_BIN) via mktemp + rename. Avoids a torn binary
 # if the cp is interrupted mid-write.
