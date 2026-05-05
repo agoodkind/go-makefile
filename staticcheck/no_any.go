@@ -3,7 +3,6 @@ package staticcheck
 import (
 	"fmt"
 	"go/ast"
-	"go/token"
 	"go/types"
 	"strings"
 
@@ -47,35 +46,52 @@ func runNoAnyOrEmptyInterface(pass *analysis.Pass) (any, error) {
 			continue
 		}
 		allowSignatureAny := allowsDynamicBoundary(path)
-		for _, decl := range file.Decls {
-			switch d := decl.(type) {
-			case *ast.GenDecl:
-				if d.Tok != token.TYPE {
-					continue
-				}
-				for _, spec := range d.Specs {
-					typeSpec, ok := spec.(*ast.TypeSpec)
-					if !ok {
-						continue
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.TypeSpec:
+				// type X = ...; type X ...; struct/interface declarations.
+				// Always checked, even in allowlisted files. The alias name
+				// escapes the file in which it was declared.
+				checkDeclaredType(pass, node)
+			case *ast.FuncType:
+				// Function signatures: top-level funcs, methods, interface
+				// methods, function-value fields, function literals, closures.
+				// Subject to the per-file dynamic-boundary allowlist so adapter
+				// code that bridges a genuinely dynamic upstream protocol can
+				// still take any directly.
+				if !allowSignatureAny {
+					if node.Params != nil {
+						for _, p := range node.Params.List {
+							checkSignatureExpr(pass, p.Type)
+						}
 					}
-					checkDeclaredType(pass, typeSpec)
-				}
-			case *ast.FuncDecl:
-				if d.Type == nil || allowSignatureAny {
-					continue
-				}
-				if d.Type.Params != nil {
-					for _, p := range d.Type.Params.List {
-						checkSignatureExpr(pass, p.Type)
+					if node.Results != nil {
+						for _, r := range node.Results.List {
+							checkSignatureExpr(pass, r.Type)
+						}
 					}
 				}
-				if d.Type.Results != nil {
-					for _, r := range d.Type.Results.List {
-						checkSignatureExpr(pass, r.Type)
-					}
+			case *ast.ValueSpec:
+				// var x any, var x map[string]any, etc. Local and package-level.
+				if node.Type != nil {
+					checkSignatureExpr(pass, node.Type)
+				}
+			case *ast.CompositeLit:
+				// map[string]any{}, []any{}, []map[string]any{...}, etc. Catches
+				// the m := map[string]any{} laundering pattern that avoids
+				// declaring the var with an explicit any type.
+				if node.Type != nil {
+					checkSignatureExpr(pass, node.Type)
+				}
+			case *ast.TypeAssertExpr:
+				// v.(any), v.(map[string]any). Type assertions can not silently
+				// expand a typed value into a banned shape.
+				if node.Type != nil {
+					checkSignatureExpr(pass, node.Type)
 				}
 			}
-		}
+			return true
+		})
 	}
 	return nil, nil
 }

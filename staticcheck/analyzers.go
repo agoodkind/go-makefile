@@ -31,5 +31,6 @@ func Analyzers() []*analysis.Analyzer {
 		GrpcHandlerWithoutPeerEnrichmentAnalyzer,
 		SensitiveFieldInLogAnalyzer,
 		NolintBanAnalyzer,
+		StringSwitchShouldBeEnumAnalyzer,
 	}
 }

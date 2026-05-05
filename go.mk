@@ -115,12 +115,21 @@ help:
 	@printf '  %-28s %s\n' 'deploy' 'go install $$(GO_INSTALL_TARGET)'
 	@printf '  %-28s %s\n' 'go-mk-sync/update-go-mk' 'refresh $$(GO_MK) and $$(GO_MK_CACHE)'
 
-lint: lint-tools lint-golangci lint-format lint-gocyclo staticcheck-extra
+lint: lint-tools lint-golangci lint-format lint-gocyclo lint-deadcode staticcheck-extra
 
+# go install at @latest issues HEAD requests to the GitHub Contents API to
+# resolve module versions. When unauthenticated, GitHub rate-limits and the
+# 403 stderr leaks even on retry-and-succeed. We capture stderr to a temp
+# file and replay it only on failure so transient noise stays quiet while
+# real install errors still surface.
 lint-tools:
-	go install $(GOLANGCI_LINT_INSTALL)
-	go install $(GOFUMPT_INSTALL)
-	go install $(GOIMPORTS_INSTALL)
+	@err=$$(mktemp -t go-mk-lint-tools.XXXXXX); \
+	if ! { go install $(GOLANGCI_LINT_INSTALL) && \
+	       go install $(GOFUMPT_INSTALL) && \
+	       go install $(GOIMPORTS_INSTALL); } 2>"$$err"; then \
+		cat "$$err" >&2; rm -f "$$err"; exit 1; \
+	fi; \
+	rm -f "$$err"
 
 lint-golangci: lint-tools
 	@bash -eu -o pipefail -c '\
@@ -240,7 +249,12 @@ lint-format:
 	fi
 
 lint-gocyclo:
-	@go run $(GOCYCLO_INSTALL) -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS)
+	@err=$$(mktemp -t go-mk-gocyclo.XXXXXX); \
+	if ! go install $(GOCYCLO_INSTALL) 2>"$$err"; then \
+		cat "$$err" >&2; rm -f "$$err"; exit 1; \
+	fi; \
+	rm -f "$$err"; \
+	"$$(go env GOPATH)/bin/gocyclo" -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS)
 
 fmt: lint-tools
 	$(GOLANGCI_LINT) fmt $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS)
@@ -252,8 +266,119 @@ test:
 	go test $(GO_TEST_TARGETS)
 
 govulncheck:
-	go install golang.org/x/vuln/cmd/govulncheck@latest
-	govulncheck $(GOVULNCHECK_TARGETS)
+	@err=$$(mktemp -t go-mk-vuln.XXXXXX); \
+	if ! go install golang.org/x/vuln/cmd/govulncheck@latest 2>"$$err"; then \
+		cat "$$err" >&2; rm -f "$$err"; exit 1; \
+	fi; \
+	rm -f "$$err"; \
+	"$$(go env GOPATH)/bin/govulncheck" $(GOVULNCHECK_TARGETS)
+
+# lint-deadcode runs golang.org/x/tools/cmd/deadcode and gates new findings
+# against a baseline file. Same pattern as staticcheck-extra: existing dead
+# code is captured in .deadcode-baseline.txt, only new findings fail the
+# build. Refresh with `make lint-deadcode-baseline` after intentionally
+# removing dead code or when the analyzer's reachability rules change.
+DEADCODE_INSTALL          ?= golang.org/x/tools/cmd/deadcode@latest
+DEADCODE_TARGETS          ?= ./...
+DEADCODE_BASELINE         ?= .deadcode-baseline.txt
+DEADCODE_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
+DEADCODE_EXCLUDE_PATHS    ?=
+
+.PHONY: lint-deadcode lint-deadcode-baseline
+
+lint-deadcode:
+	@bash -eu -o pipefail -c '\
+		err=$$(mktemp -t go-mk-deadcode-install.XXXXXX); \
+		if ! go install $(DEADCODE_INSTALL) 2>"$$err"; then \
+			cat "$$err" >&2; rm -f "$$err"; exit 1; \
+		fi; \
+		rm -f "$$err"; \
+		mkdir -p .make; \
+		raw=".make/deadcode.raw.out"; \
+		findings=".make/deadcode.out"; \
+		baseline=".make/deadcode.baseline.out"; \
+		excludes="$$(printf "%s,%s" "$(DEADCODE_DEFAULT_EXCLUDE_PATHS)" "$(DEADCODE_EXCLUDE_PATHS)")"; \
+		filter() { \
+			if [ -z "$$excludes" ]; then cat; return; fi; \
+			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
+			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
+		}; \
+		"$$(go env GOPATH)/bin/deadcode" $(DEADCODE_TARGETS) > "$$raw" 2>&1 || true; \
+		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+:" "$$raw" \
+			| sed "s|$(CURDIR)/||g" \
+			| filter \
+			| sort > "$$findings" || true; \
+		if [ ! -f "$(DEADCODE_BASELINE)" ]; then touch "$(DEADCODE_BASELINE)"; fi; \
+		tab=$$(printf "\t"); \
+		metadata_prefix="$${tab}# deadcode:"; \
+		while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
+			case "$$baseline_line" in ""|\#*) continue ;; esac; \
+			finding="$${baseline_line%%$${metadata_prefix}*}"; \
+			[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
+		done < "$(DEADCODE_BASELINE)" | filter | sort > "$$baseline" || true; \
+		new=$$(comm -23 "$$findings" "$$baseline" || true); \
+		if [ -n "$$new" ]; then \
+			echo "NEW deadcode findings:"; \
+			echo "$$new"; \
+			echo ""; \
+			echo "Remove the dead code or document why it stays. Do not silence the check."; \
+			exit 1; \
+		fi; \
+		gone=$$(comm -13 "$$findings" "$$baseline" || true); \
+		if [ -n "$$gone" ]; then \
+			echo "RESOLVED deadcode findings:"; \
+			echo "$$gone"; \
+		fi; \
+		n=$$(wc -l < "$$findings"); \
+		echo "deadcode: OK ($$n findings)"'
+
+lint-deadcode-baseline:
+	@bash -eu -o pipefail -c '\
+		err=$$(mktemp -t go-mk-deadcode-install.XXXXXX); \
+		if ! go install $(DEADCODE_INSTALL) 2>"$$err"; then \
+			cat "$$err" >&2; rm -f "$$err"; exit 1; \
+		fi; \
+		rm -f "$$err"; \
+		mkdir -p .make "$$(dirname "$(DEADCODE_BASELINE)")"; \
+		raw=".make/deadcode-baseline.raw.out"; \
+		findings=".make/deadcode-baseline.out"; \
+		excludes="$$(printf "%s,%s" "$(DEADCODE_DEFAULT_EXCLUDE_PATHS)" "$(DEADCODE_EXCLUDE_PATHS)")"; \
+		filter() { \
+			if [ -z "$$excludes" ]; then cat; return; fi; \
+			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
+			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
+		}; \
+		"$$(go env GOPATH)/bin/deadcode" $(DEADCODE_TARGETS) > "$$raw" 2>&1 || true; \
+		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+:" "$$raw" \
+			| sed "s|$(CURDIR)/||g" \
+			| filter \
+			| sort -u > "$$findings" || true; \
+		if [ ! -f "$(DEADCODE_BASELINE)" ]; then touch "$(DEADCODE_BASELINE)"; fi; \
+		now=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
+		tab=$$(printf "\t"); \
+		metadata_prefix="$${tab}# deadcode:"; \
+		new_baseline=".make/deadcode-baseline.new"; \
+		printf "# deadcode: generated_at=%s\n" "$$now" > "$$new_baseline"; \
+		while IFS= read -r finding || [ -n "$$finding" ]; do \
+			first_added=""; \
+			while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
+				case "$$baseline_line" in ""|\#*) continue ;; esac; \
+				baseline_finding="$${baseline_line%%$${metadata_prefix}*}"; \
+				[ "$$baseline_finding" = "$$finding" ] || continue; \
+				metadata="$${baseline_line#*$${metadata_prefix}}"; \
+				if [ "$$metadata" != "$$baseline_line" ]; then \
+					for metadata_field in $$metadata; do \
+						case "$$metadata_field" in first_added=*) first_added="$${metadata_field#first_added=}" ;; esac; \
+					done; \
+				fi; \
+				break; \
+			done < "$(DEADCODE_BASELINE)"; \
+			if [ -z "$$first_added" ]; then first_added="$$now"; fi; \
+			printf "%s\t# deadcode:first_added=%s last_seen=%s\n" "$$finding" "$$first_added" "$$now" >> "$$new_baseline"; \
+		done < "$$findings"; \
+		mv "$$new_baseline" "$(DEADCODE_BASELINE)"; \
+		n=$$(wc -l < "$$findings"); \
+		echo "deadcode: baseline $(DEADCODE_BASELINE) refreshed ($$n findings)"'
 
 build-check: vet lint govulncheck
 
@@ -320,7 +445,8 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-slog_missing_trace_id \
 	-grpc_handler_missing_peer_enrichment \
 	-sensitive_field_in_log \
-	-nolint_ban
+	-nolint_ban \
+	-string_switch_should_be_enum
 STATICCHECK_EXTRA_FLAGS         ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
