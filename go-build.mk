@@ -15,6 +15,11 @@
 #
 # Targets exposed: build, install, uninstall, version-info, clean-dist.
 # Override go.mk's `build`/`deploy`/`clean` defaults with the standardized flow.
+#
+# Strict staticcheck-extra is the default for every consumer that opts into
+# this module. Projects can soften via STATICCHECK_EXTRA_FLAGS in their own
+# Makefile if needed.
+STATICCHECK_EXTRA_FLAGS ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
 
 .PHONY: build install uninstall version-info clean-dist
 

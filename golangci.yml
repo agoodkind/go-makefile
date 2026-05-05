@@ -6,43 +6,82 @@ run:
 linters:
   default: all
   disable:
-    - depguard
-    - dupl
-    - err113
-    - errcheck
-    - exhaustruct
-    - gochecknoglobals
-    - gochecknoinits
-    - gocognit
-    - goconst
-    - godox
-    - ireturn
-    - lll
-    - mnd
-    - nilnil
-    - nlreturn
-    - nonamedreturns
-    - paralleltest
-    - revive
-    - tagliatelle
-    - varnamelen
-    - wsl
-    - wsl_v5
+    - depguard            # we use staticcheck-extra for ban-lists
+    - dupl                # noisy on legitimate similar shapes
+    - err113              # we use fmt.Errorf %w consistently
+    - errcheck            # superseded by wrapcheck
+    - gochecknoglobals    # var blocks are fine
+    - gochecknoinits      # init() is fine for once.Do registration
+    - goconst             # noisy on enum-like literals
+    - godox               # TODO/FIXME comments are fine in dev
+    - ireturn             # adapter layers do return interfaces intentionally
+    - lll                 # godoclint covers comment width
+    - mnd                 # magic numbers fire too often
+    - nilnil              # we use (T, error) = (nil, nil) intentionally
+    - nlreturn            # cosmetic
+    - nonamedreturns      # named returns used in some patterns
+    - paralleltest        # not all tests can be parallel
+    - tagliatelle         # JSON casing not enforced
+    - varnamelen          # short names in tight scopes are fine
+    - wsl                 # cosmetic whitespace
+    - wsl_v5              # ditto
   settings:
     cyclop:
-      max-complexity: 50
+      max-complexity: 30
+
+    funlen:
+      lines: 100
+      statements: 60
+
+    gocognit:
+      min-complexity: 30
+
     godoclint:
       default: all
+
     nolintlint:
       require-specific: true
       require-explanation: true
       allow-no-explanation: []
+
     gocritic:
       disabled-checks:
         - singleCaseSwitch
       enabled-checks:
         - boolExprSimplify
         - nilValReturn
+
+    revive:
+      rules:
+        - name: exported              # every exported symbol has godoc
+        - name: package-comments      # every package has a doc comment
+        - name: unused-parameter
+        - name: unused-receiver
+        - name: empty-block
+        - name: indent-error-flow
+        - name: var-naming
+        - name: comment-spacings
+
+    exhaustive:
+      default-signifies-exhaustive: false  # require explicit cases
+
+    exhaustruct:
+      include:
+        - 'goodkind\.io/.*/internal/domain\..*'
+        - 'goodkind\.io/.*/internal/event\..*'
+        - 'goodkind\.io/.*/internal/config\..*'
+
+    wrapcheck:
+      ignoreSigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - errors.Join(
+        - .Wrap(
+        - .Wrapf(
+        - .WithMessage(
+        - .WithMessagef(
+
   exclusions:
     generated: lax
     presets:
