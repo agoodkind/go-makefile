@@ -27,7 +27,6 @@ linters:
     - noinlineerr         # style preference; if err := ... is idiomatic Go, no defect surfaced
     - nonamedreturns      # named returns used in some patterns
     - paralleltest        # not all tests can be parallel
-    - perfsprint          # micro-perf; fmt.Errorf("plain")->errors.New rarely material
     - prealloc            # micro-perf; pre-allocate slice rarely material in non-hot paths
     - tagalign            # cosmetic: struct tag whitespace alignment
     - tagliatelle         # JSON casing not enforced
@@ -47,6 +46,13 @@ linters:
 
     godoclint:
       default: all
+
+    perfsprint:
+      # Disable the fmt.Errorf("plain") -> errors.New nudge: it is real but
+      # mechanical and the volume drowns out higher-signal findings. The other
+      # checks stay on, including sprintf1 which catches actual bugs like
+      # fmt.Sprintf("%s", x) for non-string x.
+      errorf: false
 
     nolintlint:
       require-specific: true
@@ -79,7 +85,7 @@ linters:
         - 'goodkind\.io/.*/internal/.*'
 
     wrapcheck:
-      ignoreSigs:
+      ignore-sigs:
         - .Errorf(
         - errors.New(
         - errors.Unwrap(
