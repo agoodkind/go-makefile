@@ -68,7 +68,11 @@ GOLANGCI_LINT_TARGETS  ?= ./...
 # Default is half the available cores so a `make build` does not pin the
 # machine. Override with `make build LINT_CONCURRENCY=8` (or 0 for no cap).
 LINT_CONCURRENCY       ?= $(shell n=$$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4); echo $$((n/2 > 0 ? n/2 : 1)))
-GOLANGCI_LINT_FLAGS    ?= -c $(GO_MK_GOLANGCI_CONFIG) $(if $(filter-out 0,$(LINT_CONCURRENCY)),--concurrency=$(LINT_CONCURRENCY))
+# GOLANGCI_LINT_FLAGS holds flags accepted by BOTH `golangci-lint run` and
+# `golangci-lint fmt`. The `--concurrency` flag is `run`-only, so it lives
+# in GOLANGCI_LINT_RUN_FLAGS which only the run sites reference.
+GOLANGCI_LINT_FLAGS    ?= -c $(GO_MK_GOLANGCI_CONFIG)
+GOLANGCI_LINT_RUN_FLAGS ?= $(GOLANGCI_LINT_FLAGS) $(if $(filter-out 0,$(LINT_CONCURRENCY)),--concurrency=$(LINT_CONCURRENCY))
 GOLANGCI_LINT_BASELINE ?= .golangci-lint-baseline.txt
 GOLANGCI_LINT_BASELINE_RUNS ?= 3
 GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
@@ -217,7 +221,7 @@ lint-golangci: lint-tools
 			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
 			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
 		}; \
-		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$raw_output" 2>&1 || status=$$?; \
+		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$raw_output" 2>&1 || status=$$?; \
 		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$raw_output" \
 			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
 			| filter \
@@ -320,7 +324,7 @@ lint-files: lint-tools staticcheck-extra-bin
 			return 1; \
 		}; \
 		status=0; \
-		run_gate golangci-lint "$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $$pkgs" "$(GOLANGCI_LINT_BASELINE)" || status=1; \
+		run_gate golangci-lint "$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_FLAGS) $$pkgs" "$(GOLANGCI_LINT_BASELINE)" || status=1; \
 		run_gate staticcheck-extra ".make/staticcheck-extra $(STATICCHECK_EXTRA_FLAGS) $$pkgs" "$(STATICCHECK_EXTRA_BASELINE)" || status=1; \
 		if [ "$$status" -ne 0 ] && [ "$$gate_disabled" != "1" ]; then \
 			echo ""; \
@@ -348,7 +352,7 @@ lint-golangci-baseline: lint-tools
 			run_raw_output=".make/golangci-lint-baseline.$$run_index.raw.out"; \
 			run_findings_output=".make/golangci-lint-baseline.$$run_index.out"; \
 			run_status=0; \
-			$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$run_raw_output" 2>&1 || run_status=$$?; \
+			$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$run_raw_output" 2>&1 || run_status=$$?; \
 			cat "$$run_raw_output" >> "$$raw_output"; \
 			grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$run_raw_output" \
 				| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
