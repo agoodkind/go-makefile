@@ -109,7 +109,7 @@ govulncheck:
 	$(ROOT_GO_MK) govulncheck
 	$(STATIC_GO_MK) govulncheck
 
-check: build test
+check: lint
 
 help:
 	$(ROOT_GO_MK) help

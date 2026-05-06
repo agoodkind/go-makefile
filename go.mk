@@ -171,12 +171,12 @@ define _bypass_slugify
 	{ iconv -f UTF-8 -t ASCII//TRANSLIT 2>/dev/null || cat; } | LC_ALL=C tr -cd 'A-Za-z0-9_-' | LC_ALL=C tr 'A-Z' 'a-z'
 endef
 
-LINT_GATES := lint-tools lint-golangci lint-format lint-gocyclo lint-deadcode staticcheck-extra
+LINT_GATES := lint-golangci lint-format lint-gocyclo lint-deadcode staticcheck-extra
 
-lint:
+lint: lint-tools
 	@bash -eu -o pipefail -c '\
 		status=0; \
-		$(MAKE) --no-print-directory $(LINT_GATES) || status=$$?; \
+		$(MAKE) --no-print-directory -k $(LINT_GATES) || status=$$?; \
 		[ "$$status" -eq 0 ] && exit 0; \
 		bypass=$$(printf "%s" "$(BYPASS_LINT)" | $(_bypass_slugify)); \
 		if [ -n "$$bypass" ]; then \
@@ -824,7 +824,6 @@ update-go-mk go-mk-sync:
 		if curl -fsSL -H "Accept: application/vnd.github.raw" --connect-timeout 5 --max-time 10 "$$api_url" -o "$$dest" 2>/dev/null \
 			|| curl -fsSL --connect-timeout 5 --max-time 10 "$$raw_url?v=$$(date +%s)" -o "$$dest" 2>/dev/null \
 			|| curl -fsSL --connect-timeout 5 --max-time 10 "$$raw_url" -o "$$dest" 2>/dev/null; then \
-			cp "$$dest" "$(GO_MK_CACHE_DIR)/$$f"; \
 			echo "updated: $$f"; \
 		else \
 			echo "error: $$f fetch failed" >&2; \
