@@ -34,7 +34,6 @@ go-mk-fetch-one = $(shell { \
 	target=".make/$(1)"; \
 	if [ -n "$(GO_MK_DEV_DIR)" ] && [ -f "$(GO_MK_DEV_DIR)/$(1)" ]; then \
 		cp "$(GO_MK_DEV_DIR)/$(1)" "$$target"; \
-		printf '%s\n' "$(1): using dev override $(GO_MK_DEV_DIR)/$(1)"; \
 	else \
 		tmp="$$target.tmp"; \
 		if command -v gh >/dev/null 2>&1 && gh api "repos/agoodkind/go-makefile/contents/$(1)?ref=$(GO_MK_API_REF)" -H "Accept: application/vnd.github.raw" > "$$tmp" 2>/dev/null \

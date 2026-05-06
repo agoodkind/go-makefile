@@ -113,7 +113,6 @@ fetch_one() {
 
     if [ -n "$GO_MK_DEV_DIR" ] && [ -f "$GO_MK_DEV_DIR/$rel" ]; then
         cp "$GO_MK_DEV_DIR/$rel" "$target"
-        printf '%s\n' "$rel: using dev override $GO_MK_DEV_DIR/$rel" >&2
         return 0
     fi
 
