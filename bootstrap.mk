@@ -14,7 +14,11 @@ GO_MK_BASE_URL ?= https://raw.githubusercontent.com/agoodkind/go-makefile/main
 GO_MK_API_REPO ?= agoodkind/go-makefile
 GO_MK_API_REF  ?= main
 
+# _go_mk_fetch exists here because bootstrap.mk must fetch go.mk before any
+# go.mk helpers are available. After go.mk is included, go.mk:go-mk-fetch-one
+# owns sibling module/config fetches.
 # Fetch chain at parse time: dev override > gh api (authenticated) > raw URL.
+# TODO(fetch-order): keep this order aligned with go.mk:go-mk-fetch-one.
 # TODO(moratorium): on-disk cache fallback removed; restore once primary path
 # is demonstrably reliable. Until then fail loud rather than serve stale.
 define _go_mk_fetch

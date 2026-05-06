@@ -1,6 +1,6 @@
 .PHONY: build deploy clean help \
 	lint lint-tools lint-golangci lint-golangci-baseline lint-files lint-diff lint-format lint-gocyclo fmt vet test govulncheck build-check check \
-	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-bin \
+	lint-deadcode lint-deadcode-baseline staticcheck-extra staticcheck-extra-baseline staticcheck-extra-bin \
 	baseline \
 	go-mk-sync update-go-mk smoke-fetch
 
@@ -12,12 +12,18 @@ GO_MK_API_REF   ?= main
 GO_MK_CACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile
 
 # go-mk-fetch-one: fetch one asset from go-makefile (relative path, e.g.
-# go-build.mk or golangci.yml) into .make/<path>. Fetch order:
+# go-build.mk or golangci.yml) into .make/<path>. This exists inside go.mk
+# because go.mk owns transitive module/config fetches after bootstrap.mk has
+# fetched and included go.mk itself. Fetch order:
 #   1. GO_MK_DEV_DIR override (local-checkout copy, for iteration)
 #   2. gh api (authenticated, no rate limit; requires `gh auth login`)
 #   3. raw URL with cache-bust (anonymous CDN, may serve stale bytes for
 #      several minutes after a push)
 #   4. raw URL plain
+#
+# TODO(fetch-order): keep this chain aligned with bootstrap.mk:_go_mk_fetch,
+# which is duplicated intentionally because bootstrap.mk must fetch go.mk
+# before any go.mk functions are available.
 #
 # TODO(moratorium): the legacy ~/.cache/go-makefile fallback was removed
 # because a stale cache silently masked an upstream breakage and froze every
@@ -29,24 +35,25 @@ GO_MK_CACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile
 #
 # All output goes to stderr; $(call ...) evaluates to the empty string so
 # it's safe to use at the top level.
-go-mk-fetch-one = $(shell { \
-	mkdir -p .make; \
-	target=".make/$(1)"; \
-	if [ -n "$(GO_MK_DEV_DIR)" ] && [ -f "$(GO_MK_DEV_DIR)/$(1)" ]; then \
-		cp "$(GO_MK_DEV_DIR)/$(1)" "$$target"; \
+define _go_mk_fetch_commands
+	mkdir -p "$$(dirname "$(2)")"; \
+	tmp="$(2).tmp"; \
+	if [ -n "$(3)" ] && [ -f "$(3)/$(1)" ]; then \
+		cp "$(3)/$(1)" "$(2)"; \
 	else \
-		tmp="$$target.tmp"; \
 		if command -v gh >/dev/null 2>&1 && gh api "repos/agoodkind/go-makefile/contents/$(1)?ref=$(GO_MK_API_REF)" -H "Accept: application/vnd.github.raw" > "$$tmp" 2>/dev/null \
 			|| curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)?v=$$(date +%s)" -o "$$tmp" 2>/dev/null \
 			|| curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)" -o "$$tmp" 2>/dev/null; then \
-			[ -s "$$tmp" ] && mv "$$tmp" "$$target" || { rm -f "$$tmp"; printf '%s\n' "error: $(1) fetched empty body"; exit 1; }; \
+			[ -s "$$tmp" ] && mv "$$tmp" "$(2)" || { rm -f "$$tmp"; printf '%s\n' "error: $(1) fetched empty body"; exit 1; }; \
 		else \
 			rm -f "$$tmp"; \
 			printf '%s\n' "error: $(1) fetch failed; no cache fallback (moratorium). Run: gh auth login"; \
 			exit 1; \
 		fi; \
-	fi; \
-} 1>&2)
+	fi
+endef
+
+go-mk-fetch-one = $(shell { $(call _go_mk_fetch_commands,$(1),.make/$(1),$(GO_MK_DEV_DIR)); } 1>&2)
 
 # GO_MK_MODULES: project sets a list of sibling .mk files to fetch and include.
 # Example: GO_MK_MODULES := go-build.mk go-release.mk go-service.mk
@@ -279,12 +286,15 @@ lint-golangci: lint-tools
 # e.g. make staticcheck-extra STATICCHECK_EXTRA_TARGETS=./internal/auth/...
 LINT_FILES ?= ./...
 
-.PHONY: lint-files
 # BASELINE: which file to gate findings against. Default = the canonical
 # golangci baseline file. Set BASELINE="" to disable the gate (all
 # findings on listed files surface). Set BASELINE=other.txt to use any
 # alternate baseline file.
 BASELINE ?= $(GOLANGCI_LINT_BASELINE)
+
+define go_mk_scoped_lint_shell
+@bash -eu -o pipefail -c
+endef
 
 # lint-diff: lint exactly the .go files in the current `git diff --cached`
 # (staged changes). Same logic the pre-commit hook uses, exposed as a
@@ -293,13 +303,13 @@ BASELINE ?= $(GOLANGCI_LINT_BASELINE)
 # golangci-lint --new-from-rev=HEAD); deferred until line-level filtering
 # is needed widely.
 lint-diff:
-	@bash -eu -o pipefail -c '\
+	$(go_mk_scoped_lint_shell) '\
 		files=$$(git diff --cached --name-only --relative --diff-filter=ACM 2>/dev/null | grep "\.go$$" | tr "\n" " " || true); \
 		[ -z "$$files" ] && { echo "lint-diff: no staged .go files"; exit 0; }; \
 		$(MAKE) --no-print-directory lint-files LINT_FILES="$$files" BASELINE="$(BASELINE)"'
 
 lint-files: lint-tools staticcheck-extra-bin
-	@bash -eu -o pipefail -c '\
+	$(go_mk_scoped_lint_shell) '\
 		[ -z "$(LINT_FILES)" ] && { echo "lint-files: LINT_FILES is empty"; exit 0; }; \
 		pkgs=$$(printf "%s\n" $(LINT_FILES) | xargs -n1 dirname | sort -u | awk "{print \"./\" \$$0}" | tr "\n" " "); \
 		files="$(LINT_FILES)"; \
@@ -426,8 +436,6 @@ DEADCODE_BASELINE         ?= .deadcode-baseline.txt
 DEADCODE_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
 DEADCODE_EXCLUDE_PATHS    ?=
 
-.PHONY: lint-deadcode lint-deadcode-baseline
-
 lint-deadcode:
 	@bash -eu -o pipefail -c '\
 		err=$$(mktemp -t go-mk-deadcode-install.XXXXXX); \
@@ -535,7 +543,6 @@ check: lint
 #
 # Individual baseline targets (lint-golangci-baseline, lint-deadcode-baseline,
 # staticcheck-extra-baseline) remain available when only one needs refreshing.
-.PHONY: baseline
 baseline:
 	@case "$(BASELINE_CONFIRM)" in \
 		1|y|yes|Y|YES) ;; \
@@ -795,18 +802,20 @@ staticcheck-extra-baseline: staticcheck-extra-bin
 
 # smoke-fetch exercises the network fetch path end-to-end, even when the
 # local-development override (GO_MK_DEV_DIR) is set in the shell. It clears
-# the per-repo .make cache, runs make help with GO_MK_DEV_DIR forced empty
-# inside the recursion, and confirms that go.mk plus every sibling module
-# plus the central golangci.yml all download cleanly via the 3-tier
-# (API, cache-busted raw, raw) chain.
+# the per-repo .make cache and confirms that go.mk plus every sibling module
+# plus the central golangci.yml all download cleanly through the same fetch
+# helper used by go-mk-fetch-one and update-go-mk.
 #
 # Useful before pushing a go-makefile change so a developer can verify the
 # version on main is still working through the curl path that consumers
 # actually take when GO_MK_DEV_DIR is unset.
-.PHONY: smoke-fetch
 smoke-fetch:
 	@rm -rf .make
-	@GO_MK_DEV_DIR= $(MAKE) --no-print-directory help >/dev/null
+	@mkdir -p .make
+	@for f in go.mk golangci.yml $(GO_MK_MODULES); do \
+		dest=".make/$$f"; \
+		$(call _go_mk_fetch_commands,$$f,$$dest,); \
+	done
 	@echo "smoke-fetch: OK ($$(ls .make 2>/dev/null | wc -l | tr -d ' ') assets fetched into .make/)"
 
 # Refresh go.mk plus every opt-in sibling module and the central golangci.yml.
@@ -815,20 +824,11 @@ smoke-fetch:
 # so a freshly pushed update lands without waiting for raw-CDN invalidation,
 # and curl stderr stays silent on retry-and-succeed cases.
 update-go-mk go-mk-sync:
-	@mkdir -p "$(dir $(GO_MK_CACHE))" "$(GO_MK_CACHE_DIR)"
+	@mkdir -p "$(dir $(GO_MK_CACHE))"
 	@for f in go.mk golangci.yml $(GO_MK_MODULES); do \
-		api_url="$(GO_MK_API_BASE)/$$f?ref=$(GO_MK_API_REF)"; \
-		raw_url="$(GO_MK_BASE_URL)/$$f"; \
 		if [ "$$f" = "go.mk" ]; then dest="$(GO_MK)"; else dest=".make/$$f"; fi; \
-		mkdir -p "$$(dirname $$dest)"; \
-		if curl -fsSL -H "Accept: application/vnd.github.raw" --connect-timeout 5 --max-time 10 "$$api_url" -o "$$dest" 2>/dev/null \
-			|| curl -fsSL --connect-timeout 5 --max-time 10 "$$raw_url?v=$$(date +%s)" -o "$$dest" 2>/dev/null \
-			|| curl -fsSL --connect-timeout 5 --max-time 10 "$$raw_url" -o "$$dest" 2>/dev/null; then \
-			echo "updated: $$f"; \
-		else \
-			echo "error: $$f fetch failed" >&2; \
-			exit 1; \
-		fi; \
+		$(call _go_mk_fetch_commands,$$f,$$dest,); \
+		echo "updated: $$f"; \
 	done
 
 # Include opt-in modules at end so they see all go.mk definitions

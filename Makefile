@@ -28,9 +28,9 @@ STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
 .DEFAULT_GOAL := check
 
 .PHONY: build check lint fmt vet test govulncheck build-check \
-        lint-tools lint-golangci lint-files lint-format lint-gocyclo lint-deadcode staticcheck-extra \
+        lint-tools lint-golangci lint-files lint-diff lint-format lint-gocyclo lint-deadcode staticcheck-extra \
         lint-golangci-baseline lint-deadcode-baseline staticcheck-extra-baseline \
-        help
+        baseline go-mk-sync update-go-mk smoke-fetch help
 
 # Each gate target runs the central go.mk recipe twice, once per Go module.
 # The static analyzer module runs with BUILD_CHECKS=false on build because
@@ -67,6 +67,9 @@ lint-golangci-baseline:
 # the staticcheck/ paths and run from inside staticcheck/ explicitly.
 lint-files:
 	$(ROOT_GO_MK) lint-files
+
+lint-diff:
+	$(ROOT_GO_MK) lint-diff
 
 lint-format:
 	$(ROOT_GO_MK) lint-format
@@ -106,6 +109,16 @@ test:
 govulncheck:
 	$(ROOT_GO_MK) govulncheck
 	$(STATIC_GO_MK) govulncheck
+
+baseline:
+	$(ROOT_GO_MK) baseline
+	$(STATIC_GO_MK) baseline
+
+go-mk-sync update-go-mk:
+	$(ROOT_GO_MK) update-go-mk
+
+smoke-fetch:
+	$(ROOT_GO_MK) smoke-fetch
 
 check: lint
 
