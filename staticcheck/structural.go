@@ -25,8 +25,7 @@ var GoroutineWithoutRecoverAnalyzer = &analysis.Analyzer{
 
 func runGoroutineWithoutRecover(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
-		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
+		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
@@ -317,8 +316,7 @@ var SilentDeferCloseAnalyzer = &analysis.Analyzer{
 
 func runSilentDeferClose(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
-		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
+		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
@@ -368,8 +366,7 @@ var SlogMissingTraceIDAnalyzer = &analysis.Analyzer{
 
 func runSlogMissingTraceID(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
-		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
+		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
 		checkSlogMissingTraceIDInFile(pass, file)

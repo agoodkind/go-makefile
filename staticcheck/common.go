@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -16,8 +17,12 @@ func fileName(pass *analysis.Pass, pos token.Pos) string {
 }
 
 func reportAtf(pass *analysis.Pass, file *ast.File, preferred token.Pos, format string, args ...any) {
+	position := diagnosticPos(pass, file, preferred)
+	if !diagnosticPathIsActionable(pass, position) {
+		return
+	}
 	pass.Report(analysis.Diagnostic{
-		Pos:     diagnosticPos(pass, file, preferred),
+		Pos:     position,
 		Message: fmt.Sprintf(format, args...),
 	})
 }
@@ -65,6 +70,15 @@ func pathIsWithin(path string, dir string) bool {
 
 func isTestFile(path string) bool {
 	return strings.HasSuffix(path, "_test.go")
+}
+
+func shouldAnalyzeFile(pass *analysis.Pass, file *ast.File) bool {
+	path := fileName(pass, file.Pos())
+	return !isTestFile(path) &&
+		!isGeneratedFile(file, path) &&
+		!isGeneratedTestMainFile(file, path) &&
+		!isProtobufGeneratedPath(path) &&
+		!isStaticcheckPath(path)
 }
 
 // isGeneratedFile returns true when the file is conventionally generated
@@ -128,6 +142,87 @@ func generatedFilenameLooksConventional(path string) bool {
 		}
 	}
 	return base == "bindata.go"
+}
+
+func isGeneratedTestMainFile(file *ast.File, path string) bool {
+	if file == nil || file.Name == nil || file.Name.Name != "main" {
+		return false
+	}
+	cacheDescriptorPath := isGoBuildCacheDescriptorPath(path)
+	if !cacheDescriptorPath && filepath.Base(path) != "_testmain.go" {
+		return false
+	}
+	if !cacheDescriptorPath && !hasGeneratedComment(file) {
+		return false
+	}
+	return importsPath(file, "testing/internal/testdeps") &&
+		assignsSelector(file, "testdeps", "ModulePath") &&
+		assignsSelector(file, "testdeps", "ImportPath") &&
+		hasFunction(file, "main")
+}
+
+func hasGeneratedComment(file *ast.File) bool {
+	for _, group := range file.Comments {
+		for _, comment := range group.List {
+			text := strings.ToLower(comment.Text)
+			if strings.Contains(text, "code generated") || strings.Contains(text, "do not edit") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func importsPath(file *ast.File, importPath string) bool {
+	for _, spec := range file.Imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			continue
+		}
+		if path == importPath {
+			return true
+		}
+	}
+	return false
+}
+
+func assignsSelector(file *ast.File, receiver string, name string) bool {
+	found := false
+	ast.Inspect(file, func(node ast.Node) bool {
+		if found {
+			return false
+		}
+		assignment, ok := node.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		for _, expr := range assignment.Lhs {
+			selector, ok := expr.(*ast.SelectorExpr)
+			if !ok || selector.Sel == nil || selector.Sel.Name != name {
+				continue
+			}
+			ident, ok := selector.X.(*ast.Ident)
+			if ok && ident.Name == receiver {
+				found = true
+				return false
+			}
+		}
+		return true
+	})
+	return found
+}
+
+func hasFunction(file *ast.File, name string) bool {
+	for _, declaration := range file.Decls {
+		functionDeclaration, ok := declaration.(*ast.FuncDecl)
+		if !ok || functionDeclaration.Name == nil {
+			continue
+		}
+		if functionDeclaration.Name.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func packagePath(pass *analysis.Pass) string {

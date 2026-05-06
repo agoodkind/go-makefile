@@ -25,8 +25,7 @@ var OsExitOutsideMainAnalyzer = &analysis.Analyzer{
 
 func runOsExitOutsideMain(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
-		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
+		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
 		for _, decl := range file.Decls {
@@ -74,8 +73,7 @@ var ContextTODOAnalyzer = &analysis.Analyzer{
 
 func runContextTODO(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
-		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
+		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
@@ -110,8 +108,7 @@ var TimeSleepInProductionAnalyzer = &analysis.Analyzer{
 
 func runTimeSleepInProduction(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
-		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
+		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
 		if pass.Pkg != nil && pass.Pkg.Name() == "main" {
@@ -155,8 +152,7 @@ var PanicInProductionAnalyzer = &analysis.Analyzer{
 
 func runPanicInProduction(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
-		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
+		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
 		for _, decl := range file.Decls {
@@ -207,8 +203,7 @@ var TimeNowOutsideClockAnalyzer = &analysis.Analyzer{
 
 func runTimeNowOutsideClock(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
-		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
+		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
 		if pass.Pkg != nil && pass.Pkg.Name() == "main" {

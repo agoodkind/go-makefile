@@ -31,8 +31,7 @@ func runGrpcHandlerWithoutPeerEnrichment(pass *analysis.Pass) (any, error) {
 		return nil, nil
 	}
 	for _, file := range pass.Files {
-		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
+		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
 		for _, decl := range file.Decls {
@@ -196,8 +195,7 @@ var sensitiveKeyPrefixes = []string{
 
 func runSensitiveFieldInLog(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
-		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
+		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
 		ast.Inspect(file, func(node ast.Node) bool {

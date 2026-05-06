@@ -37,8 +37,7 @@ func runNoAnyOrEmptyInterface(pass *analysis.Pass) (any, error) {
 		return nil, nil
 	}
 	for _, file := range pass.Files {
-		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
+		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
 		walkFileForBannedShapes(pass, file)

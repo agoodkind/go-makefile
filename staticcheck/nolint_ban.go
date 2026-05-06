@@ -22,8 +22,7 @@ var NolintBanAnalyzer = &analysis.Analyzer{
 
 func runNolintBan(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
-		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
+		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
 		for _, group := range file.Comments {
