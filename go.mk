@@ -228,13 +228,14 @@ lint-golangci: lint-tools
 		findings_output=".make/golangci-lint.out"; \
 		baseline_output=".make/golangci-lint.baseline.out"; \
 		excludes="$$(printf "%s,%s" "$(GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS)" "$(GOLANGCI_LINT_EXCLUDE_PATHS)")"; \
-		status=0; \
+		run_status=0; \
+		gate_status=0; \
 		filter() { \
 			if [ -z "$$excludes" ]; then cat; return; fi; \
 			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
 			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
 		}; \
-		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$raw_output" 2>&1 || status=$$?; \
+		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$raw_output" 2>&1 || run_status=$$?; \
 		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$raw_output" \
 			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
 			| filter \
@@ -261,22 +262,29 @@ lint-golangci: lint-tools
 		map_keys_to_originals() { \
 			awk '"'"'NR==FNR{keyset[$$0]=1; next} { if (match($$0, /:[0-9]+:[0-9]+:/)) k = substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else k = $$0; while (index(k, "../")==1) k = substr(k, 4); if (k in keyset) print }'"'"' "$$1" "$$2"; \
 		}; \
+		new_count=0; \
 		new=$$(map_keys_to_originals "$$new_keys_file" "$$findings_output"); \
 		if [ -n "$$new" ]; then \
+			new_count=$$(printf "%s\n" "$$new" | wc -l | tr -d " "); \
 			echo "NEW golangci-lint findings:"; \
 			echo "$$new"; \
 			echo ""; \
 			echo "Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks."; \
-			exit 1; \
+			gate_status=1; \
 		fi; \
 		gone=$$(map_keys_to_originals "$$gone_keys_file" "$$baseline_output"); \
-		if [ -n "$$gone" ]; then \
-			echo "RESOLVED golangci-lint findings:"; \
-			echo "$$gone"; \
+		gone_count=0; \
+		if [ -n "$$gone" ]; then gone_count=$$(printf "%s\n" "$$gone" | wc -l | tr -d " "); fi; \
+		if [ "$$gate_status" -ne 0 ]; then \
+			echo "golangci-lint: FAILED ($$new_count new findings)"; \
+			exit "$$gate_status"; \
 		fi; \
-		n=$$(wc -l < "$$findings_output"); \
-		echo "golangci-lint: OK ($$n findings)"; \
-		if [ "$$status" -ne 0 ] && [ ! -s "$$findings_output" ]; then cat "$$raw_output"; exit "$$status"; fi'
+		if [ "$$gone_count" -gt 0 ]; then \
+			echo "golangci-lint: OK (no new findings; $$gone_count old saved findings are fixed now; run make lint-golangci-baseline to update the saved list)"; \
+		else \
+			echo "golangci-lint: OK (no new findings)"; \
+		fi; \
+		if [ "$$run_status" -ne 0 ] && [ ! -s "$$findings_output" ]; then cat "$$raw_output"; exit "$$run_status"; fi'
 
 # lint-files runs golangci-lint scoped to LINT_FILES with the central config
 # but WITHOUT the baseline gate. Use it while iterating on a change set,
@@ -482,21 +490,29 @@ lint-deadcode:
 		comm -23 "$$findings_keys" "$$baseline_keys" > "$$new_keys" || true; \
 		comm -13 "$$findings_keys" "$$baseline_keys" > "$$gone_keys" || true; \
 		map_keys() { awk '"'"'NR==FNR{keyset[$$0]=1; next} { if (match($$0, /:[0-9]+:[0-9]+:/)) k = substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else k = $$0; while (index(k, "../")==1) k = substr(k, 4); if (k in keyset) print }'"'"' "$$1" "$$2"; }; \
+		gate_status=0; \
+		new_count=0; \
 		new=$$(map_keys "$$new_keys" "$$findings"); \
 		if [ -n "$$new" ]; then \
+			new_count=$$(printf "%s\n" "$$new" | wc -l | tr -d " "); \
 			echo "NEW deadcode findings:"; \
 			echo "$$new"; \
 			echo ""; \
 			echo "Remove the dead code or document why it stays. Do not silence the check."; \
-			exit 1; \
+			gate_status=1; \
 		fi; \
 		gone=$$(map_keys "$$gone_keys" "$$baseline"); \
-		if [ -n "$$gone" ]; then \
-			echo "RESOLVED deadcode findings:"; \
-			echo "$$gone"; \
+		gone_count=0; \
+		if [ -n "$$gone" ]; then gone_count=$$(printf "%s\n" "$$gone" | wc -l | tr -d " "); fi; \
+		if [ "$$gate_status" -ne 0 ]; then \
+			echo "deadcode: FAILED ($$new_count new findings)"; \
+			exit "$$gate_status"; \
 		fi; \
-		n=$$(wc -l < "$$findings"); \
-		echo "deadcode: OK ($$n findings)"'
+		if [ "$$gone_count" -gt 0 ]; then \
+			echo "deadcode: OK (no new findings; $$gone_count old saved findings are fixed now; run make lint-deadcode-baseline to update the saved list)"; \
+		else \
+			echo "deadcode: OK (no new findings)"; \
+		fi'
 
 lint-deadcode-baseline:
 	@bash -eu -o pipefail -c '\
@@ -758,21 +774,29 @@ staticcheck-extra: staticcheck-extra-bin
 		comm -23 .make/staticcheck-extra.keys.out .make/staticcheck-extra.keys.baseline.out > .make/staticcheck-extra.keys.new || true; \
 		comm -13 .make/staticcheck-extra.keys.out .make/staticcheck-extra.keys.baseline.out > .make/staticcheck-extra.keys.gone || true; \
 		map_keys() { awk '"'"'NR==FNR{keyset[$$0]=1; next} { if (match($$0, /:[0-9]+:[0-9]+:/)) k = substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else k = $$0; while (index(k, "../")==1) k = substr(k, 4); if (k in keyset) print }'"'"' "$$1" "$$2"; }; \
+		gate_status=0; \
+		new_count=0; \
 		new=$$(map_keys .make/staticcheck-extra.keys.new .make/staticcheck-extra.out); \
 		if [ -n "$$new" ]; then \
+			new_count=$$(printf "%s\n" "$$new" | wc -l | tr -d " "); \
 			echo "NEW staticcheck-extra findings:"; \
 			echo "$$new"; \
 			echo ""; \
 			echo "Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks."; \
-			exit 1; \
+			gate_status=1; \
 		fi; \
 		gone=$$(map_keys .make/staticcheck-extra.keys.gone .make/staticcheck-extra.baseline.out); \
-		if [ -n "$$gone" ]; then \
-			echo "RESOLVED staticcheck-extra findings:"; \
-			echo "$$gone"; \
+		gone_count=0; \
+		if [ -n "$$gone" ]; then gone_count=$$(printf "%s\n" "$$gone" | wc -l | tr -d " "); fi; \
+		if [ "$$gate_status" -ne 0 ]; then \
+			echo "staticcheck-extra: FAILED ($$new_count new findings)"; \
+			exit "$$gate_status"; \
 		fi; \
-		n=$$(wc -l < .make/staticcheck-extra.out); \
-		echo "staticcheck-extra: OK ($$n findings)"'
+		if [ "$$gone_count" -gt 0 ]; then \
+			echo "staticcheck-extra: OK (no new findings; $$gone_count old saved findings are fixed now; run make staticcheck-extra-baseline to update the saved list)"; \
+		else \
+			echo "staticcheck-extra: OK (no new findings)"; \
+		fi'
 
 staticcheck-extra-baseline: staticcheck-extra-bin
 	@bash -eu -o pipefail -c '\
