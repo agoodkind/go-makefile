@@ -77,10 +77,7 @@ func generatedFilenameLooksConventional(path string) bool {
 			return true
 		}
 	}
-	if base == "bindata.go" {
-		return true
-	}
-	return false
+	return base == "bindata.go"
 }
 
 func packagePath(pass *analysis.Pass) string {

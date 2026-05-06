@@ -234,7 +234,7 @@ func runTimeNowOutsideClock(pass *analysis.Pass) (any, error) {
 
 // isStdlibMustShape reports whether fn matches the stdlib Must*
 // convention: name starts with "Must" AND the signature does not
-// return an error. Stdlib examples: regexp.MustCompile returns
+// return an error. Stdlib examples: [regexp.MustCompile] returns
 // *Regexp; template.Must takes (T, error) and returns T. Both
 // document via name and shape that on failure they panic, which is
 // the pattern this carve-out is intended to permit.
@@ -262,8 +262,8 @@ func isStdlibMustShape(pass *analysis.Pass, fn *ast.FuncDecl) bool {
 	if !ok {
 		return false
 	}
-	for i := 0; i < sig.Results().Len(); i++ {
-		if isErrorType(sig.Results().At(i).Type()) {
+	for result := range sig.Results().Variables() {
+		if isErrorType(result.Type()) {
 			return false
 		}
 	}

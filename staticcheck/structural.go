@@ -147,33 +147,45 @@ func funcLitBodyHandlesRecover(body *ast.BlockStmt) bool {
 	if body == nil {
 		return false
 	}
+	recoverName := recoverBindingName(body)
+	if recoverName == "" {
+		return false
+	}
+	if bodyRepanicsWithName(body, recoverName) {
+		return false
+	}
+	return recoverNameHasUsefulReference(body, recoverName)
+}
+
+func recoverBindingName(body *ast.BlockStmt) string {
 	recoverName := ""
 	ast.Inspect(body, func(n ast.Node) bool {
 		if recoverName != "" {
 			return false
 		}
-		switch s := n.(type) {
-		case *ast.AssignStmt:
-			if name, ok := assignBindsRecover(s); ok {
-				recoverName = name
-				return false
-			}
-		case *ast.IfStmt:
-			if init, ok := s.Init.(*ast.AssignStmt); ok {
-				if name, ok := assignBindsRecover(init); ok {
-					recoverName = name
-					return false
-				}
-			}
+		name, ok := recoverBindingNameFromNode(n)
+		if ok {
+			recoverName = name
+			return false
 		}
 		return true
 	})
-	if recoverName == "" {
-		return false
+	return recoverName
+}
+
+func recoverBindingNameFromNode(node ast.Node) (string, bool) {
+	switch s := node.(type) {
+	case *ast.AssignStmt:
+		return assignBindsRecover(s)
+	case *ast.IfStmt:
+		if init, ok := s.Init.(*ast.AssignStmt); ok {
+			return assignBindsRecover(init)
+		}
 	}
-	// Reject re-panic stubs: any `panic(recoverName)` call in the body
-	// indicates the deferred function is just routing the panic back
-	// up. The goroutine is not actually rescued.
+	return "", false
+}
+
+func bodyRepanicsWithName(body *ast.BlockStmt, recoverName string) bool {
 	rePanic := false
 	ast.Inspect(body, func(n ast.Node) bool {
 		if rePanic {
@@ -183,23 +195,25 @@ func funcLitBodyHandlesRecover(body *ast.BlockStmt) bool {
 		if !ok {
 			return true
 		}
-		id, ok := call.Fun.(*ast.Ident)
-		if !ok || id.Name != "panic" || len(call.Args) != 1 {
-			return true
-		}
-		argIdent, ok := call.Args[0].(*ast.Ident)
-		if ok && argIdent.Name == recoverName {
+		if callPanicsWithName(call, recoverName) {
 			rePanic = true
 			return false
 		}
 		return true
 	})
-	if rePanic {
+	return rePanic
+}
+
+func callPanicsWithName(call *ast.CallExpr, recoverName string) bool {
+	id, ok := call.Fun.(*ast.Ident)
+	if !ok || id.Name != "panic" || len(call.Args) != 1 {
 		return false
 	}
-	// Real handling: the bound name must appear somewhere other than
-	// inside a `recoverName != nil` style conditional, otherwise the
-	// body inspects the result but does nothing with it.
+	argIdent, ok := call.Args[0].(*ast.Ident)
+	return ok && argIdent.Name == recoverName
+}
+
+func recoverNameHasUsefulReference(body *ast.BlockStmt, recoverName string) bool {
 	useful := false
 	ast.Inspect(body, func(n ast.Node) bool {
 		if useful {
@@ -285,36 +299,6 @@ func isNilLit(e ast.Expr) bool {
 	return ok && id.Name == "nil"
 }
 
-// identIsOnlyPanicArg is retained for backward compatibility with any
-// callers that only need the panic-arg check.
-func identIsOnlyPanicArg(body *ast.BlockStmt, target *ast.Ident) bool {
-	parents := map[ast.Node]ast.Node{}
-	var stack []ast.Node
-	ast.Inspect(body, func(n ast.Node) bool {
-		if n == nil {
-			if len(stack) > 0 {
-				stack = stack[:len(stack)-1]
-			}
-			return true
-		}
-		if len(stack) > 0 {
-			parents[n] = stack[len(stack)-1]
-		}
-		stack = append(stack, n)
-		return true
-	})
-	parent := parents[target]
-	call, ok := parent.(*ast.CallExpr)
-	if !ok {
-		return false
-	}
-	id, ok := call.Fun.(*ast.Ident)
-	if !ok || id.Name != "panic" {
-		return false
-	}
-	return len(call.Args) == 1 && call.Args[0] == target
-}
-
 // SilentDeferCloseAnalyzer flags `defer x.Close()` patterns where
 // the Close return value is dropped silently. Standard idioms:
 //
@@ -388,39 +372,49 @@ func runSlogMissingTraceID(pass *analysis.Pass) (any, error) {
 		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
 			continue
 		}
-		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
-				continue
-			}
-			ctxName := contextParamName(fn)
-			if ctxName == "" {
-				continue
-			}
-			ast.Inspect(fn.Body, func(node ast.Node) bool {
-				call, ok := node.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				if !isAnyLevelSlogCall(call) {
-					return true
-				}
-				if hasNolintComment(file, pass.Fset, call.Pos(), "slog_missing_trace_id") {
-					return true
-				}
-				_, name, _ := selectorName(call.Fun)
-				if strings.HasSuffix(name, "Context") {
-					return true
-				}
-				if callReferencesIdent(call, ctxName) {
-					return true
-				}
-				pass.Reportf(call.Pos(), "slog call inside func taking context.Context does not pass the ctx; use slog.%sContext or include ctx for trace correlation", name)
-				return true
-			})
-		}
+		checkSlogMissingTraceIDInFile(pass, file)
 	}
 	return nil, nil
+}
+
+func checkSlogMissingTraceIDInFile(pass *analysis.Pass, file *ast.File) {
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		ctxName := contextParamName(fn)
+		if ctxName == "" {
+			continue
+		}
+		reportSlogCallsWithoutTraceID(pass, file, fn, ctxName)
+	}
+}
+
+func reportSlogCallsWithoutTraceID(pass *analysis.Pass, file *ast.File, fn *ast.FuncDecl, ctxName string) {
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if slogCallHasTraceContext(pass, file, call, ctxName) {
+			return true
+		}
+		_, name, _ := selectorName(call.Fun)
+		pass.Reportf(call.Pos(), "slog call inside func taking context.Context does not pass the ctx; use slog.%sContext or include ctx for trace correlation", name)
+		return true
+	})
+}
+
+func slogCallHasTraceContext(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, ctxName string) bool {
+	if !isAnyLevelSlogCall(call) {
+		return true
+	}
+	if hasNolintComment(file, pass.Fset, call.Pos(), "slog_missing_trace_id") {
+		return true
+	}
+	_, name, _ := selectorName(call.Fun)
+	return strings.HasSuffix(name, "Context") || callReferencesIdent(call, ctxName)
 }
 
 func isAnyLevelSlogCall(call *ast.CallExpr) bool {

@@ -10,6 +10,12 @@ GO_MK_BASE_URL  ?= https://raw.githubusercontent.com/agoodkind/go-makefile/main
 GO_MK_API_BASE  ?= https://api.github.com/repos/agoodkind/go-makefile/contents
 GO_MK_API_REF   ?= main
 GO_MK_CACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile
+GO_MK_ENTRY_MAKEFILE := $(firstword $(MAKEFILE_LIST))
+GO_MK_ENTRY_BASENAME := $(notdir $(GO_MK_ENTRY_MAKEFILE))
+GO_MK_RECURSIVE_MAKE := $(MAKE)
+ifeq ($(filter Makefile makefile GNUmakefile,$(GO_MK_ENTRY_BASENAME)),)
+GO_MK_RECURSIVE_MAKE := $(MAKE) -f "$(GO_MK_ENTRY_MAKEFILE)"
+endif
 
 # go-mk-fetch-one: fetch one asset from go-makefile (relative path, e.g.
 # go-build.mk or golangci.yml) into .make/<path>. This exists inside go.mk
@@ -183,7 +189,7 @@ LINT_GATES := lint-golangci lint-format lint-gocyclo lint-deadcode staticcheck-e
 lint: lint-tools
 	@bash -eu -o pipefail -c '\
 		status=0; \
-		$(MAKE) --no-print-directory -k $(LINT_GATES) || status=$$?; \
+		$(GO_MK_RECURSIVE_MAKE) --no-print-directory -k $(LINT_GATES) || status=$$?; \
 		[ "$$status" -eq 0 ] && exit 0; \
 		bypass=$$(printf "%s" "$(BYPASS_LINT)" | $(_bypass_slugify)); \
 		if [ -n "$$bypass" ]; then \

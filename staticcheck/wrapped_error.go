@@ -36,7 +36,7 @@ import (
 //     WriteByte/ReadRune/WriteRune). Such functions are silently
 //     exempted because their callers are responsible for logging.
 //
-// nolint comments are NOT a fix path. The nolint_ban analyzer
+// Nolint comments are NOT a fix path. The nolint_ban analyzer
 // rejects them in production code; baseline the finding instead if
 // the call is intentionally silent and a rename does not apply.
 var WrappedErrorWithoutSlogAnalyzer = &analysis.Analyzer{
@@ -59,13 +59,13 @@ func runWrappedErrorWithoutSlog(pass *analysis.Pass) (any, error) {
 			if isPureCodecOrIOFunc(pass, fn) {
 				continue
 			}
-			analyzeFuncForWrappedReturns(pass, file, fn)
+			analyzeFuncForWrappedReturns(pass, fn)
 		}
 	}
 	return nil, nil
 }
 
-func analyzeFuncForWrappedReturns(pass *analysis.Pass, file *ast.File, fn *ast.FuncDecl) {
+func analyzeFuncForWrappedReturns(pass *analysis.Pass, fn *ast.FuncDecl) {
 	hasSlog := funcContainsSlogErrorOrWarn(fn.Body)
 	if hasSlog {
 		return
@@ -183,7 +183,7 @@ func hasNolintComment(file *ast.File, fset *token.FileSet, pos token.Pos, name s
 }
 
 // isPureCodecOrIOFunc carves out functions whose name AND signature
-// both conform to a stdlib codec or io interface. Both checks are
+// both conform to a stdlib codec or standard I/O method shape. Both checks are
 // required so an LLM cannot rename a high-level orchestrator to
 // MarshalSomething or Read and slip past the rule. The call site of
 // a real codec/io method is the layer responsible for logging the
@@ -198,17 +198,17 @@ func hasNolintComment(file *ast.File, fset *token.FileSet, pos token.Pos, name s
 //	UnmarshalJSON, UnmarshalBinary, UnmarshalText, etc. with
 //	signature ([]byte) error. Unmarshal* prefix.
 //
-//	io.Reader.Read and io.Writer.Write: ([]byte) (int, error).
-//	io.ReaderAt.ReadAt and io.WriterAt.WriteAt: ([]byte, int64) (int, error).
+//	[io.Reader].Read and [io.Writer].Write: ([]byte) (int, error).
+//	[io.ReaderAt].ReadAt and [io.WriterAt].WriteAt: ([]byte, int64) (int, error).
 //	io.WriterTo.WriteTo: (io.Writer) (int64, error).
-//	io.ReaderFrom.ReadFrom: (io.Reader) (int64, error).
+//	[io.ReaderFrom].ReadFrom: ([io.Reader]) (int64, error).
 //	io.ByteReader.ReadByte: () (byte, error).
 //	io.ByteWriter.WriteByte: (byte) error.
 //	io.RuneReader.ReadRune: () (rune, int, error).
 //	WriteRune: (rune) (int, error).
 //
 // A method named Read whose signature is `Read() error` is NOT
-// exempted because it does not satisfy io.Reader. A function named
+// exempted because it does not satisfy [io.Reader]. A function named
 // MarshalAndSendOrder is NOT exempted because its signature does not
 // match the stdlib codec convention.
 func isPureCodecOrIOFunc(pass *analysis.Pass, fn *ast.FuncDecl) bool {
@@ -267,7 +267,7 @@ func matchesUnmarshalShape(sig *types.Signature) bool {
 		isErrorType(sig.Results().At(0).Type())
 }
 
-// matchesReadWriteShape verifies io.Reader.Read or io.Writer.Write
+// matchesReadWriteShape verifies [io.Reader].Read or [io.Writer].Write
 // signature: ([]byte) (int, error).
 func matchesReadWriteShape(sig *types.Signature) bool {
 	return sig.Params().Len() == 1 &&
@@ -277,7 +277,7 @@ func matchesReadWriteShape(sig *types.Signature) bool {
 		isErrorType(sig.Results().At(1).Type())
 }
 
-// matchesReadWriteAtShape verifies io.ReaderAt or io.WriterAt
+// matchesReadWriteAtShape verifies [io.ReaderAt] or [io.WriterAt]
 // signature: ([]byte, int64) (int, error).
 func matchesReadWriteAtShape(sig *types.Signature) bool {
 	return sig.Params().Len() == 2 &&
@@ -298,8 +298,8 @@ func matchesWriteToShape(sig *types.Signature) bool {
 		isErrorType(sig.Results().At(1).Type())
 }
 
-// matchesReadFromShape verifies io.ReaderFrom.ReadFrom
-// signature: (io.Reader) (int64, error).
+// matchesReadFromShape verifies [io.ReaderFrom].ReadFrom
+// signature: ([io.Reader]) (int64, error).
 func matchesReadFromShape(sig *types.Signature) bool {
 	return sig.Params().Len() == 1 &&
 		isNamedType(sig.Params().At(0).Type(), "io", "Reader") &&
