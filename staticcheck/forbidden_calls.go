@@ -34,7 +34,14 @@ func runOsExitOutsideMain(pass *analysis.Pass) (any, error) {
 			if !ok || fn.Body == nil {
 				continue
 			}
-			if fn.Name.Name == "main" || fn.Name.Name == "init" {
+			// init() is the package-init function in any package.
+			// main() is only special in package main; a function named
+			// main in any other package is just a regular function and
+			// should not get the os.Exit exemption (laundering vector).
+			if fn.Name.Name == "init" {
+				continue
+			}
+			if fn.Name.Name == "main" && pass.Pkg != nil && pass.Pkg.Name() == "main" {
 				continue
 			}
 			ast.Inspect(fn.Body, func(node ast.Node) bool {
