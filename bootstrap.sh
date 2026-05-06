@@ -343,28 +343,6 @@ else
 	echo "created .gitignore"
 fi
 
-# ---------------------------------------------------------------------------
-# GitHub workflows
-# ---------------------------------------------------------------------------
-if [ -f .github/workflows/ci.yml ]; then
-	skip .github/workflows/ci.yml
-else
-	mkdir -p .github/workflows
-	render_artifact "templates/ci.yml.tmpl" .github/workflows/ci.yml
-	echo "created .github/workflows/ci.yml"
-fi
-
-# Release workflow only for binary layout. Libraries are tagged, not released.
-if [ "$LAYOUT" = "binary" ]; then
-	if [ -f .github/workflows/release.yml ]; then
-		skip .github/workflows/release.yml
-	else
-		mkdir -p .github/workflows
-		render_artifact "templates/release.yml.tmpl" .github/workflows/release.yml
-		echo "created .github/workflows/release.yml"
-	fi
-fi
-
 echo ""
 echo "done."
 echo ""

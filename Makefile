@@ -11,8 +11,6 @@
 GO_MK := go.mk
 
 # Canonical golangci config lives in this repo at golangci.yml.
-# golangci-template.yml is the legacy name kept for backward compat with
-# any pre-centralization consumer that still does `extends: ...template.yml`.
 ROOT_LINT_ARGS  := GOLANGCI_LINT_FLAGS="-c golangci.yml" GOLANGCI_LINT_TARGETS=.
 STATIC_LINT_ARGS := GOLANGCI_LINT_FLAGS="-c ../golangci.yml" GOLANGCI_LINT_TARGETS=./...
 

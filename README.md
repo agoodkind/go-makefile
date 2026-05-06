@@ -7,7 +7,7 @@ Shared Go build targets and reusable GitHub Actions workflows for all `agoodkind
 | File | Purpose |
 | ---- | ------- |
 | `go.mk` | Shared Makefile targets (see file for full list) |
-| `golangci-template.yml` | Canonical golangci-lint v2 config (projects extend this) |
+| `golangci.yml` | Canonical golangci-lint v2 config |
 | `templates/goreleaser.yaml.tmpl` | Canonical goreleaser template (bootstrap fills in binary name) |
 | `bootstrap.sh` | One-time project setup script |
 | `.github/workflows/_ci.yml` | Reusable CI workflow |
@@ -26,7 +26,6 @@ curl -fsSL https://raw.githubusercontent.com/agoodkind/go-makefile/main/bootstra
 This creates:
 
 - `Makefile`, with parse-time `go.mk` fetch, cache fallback, and project identity variables
-- `.golangci.yml`, extends the shared lint config
 - `.goreleaser.yaml`, filled in with the inferred binary name
 - `.gitignore` entry for `.make/`
 
@@ -90,16 +89,11 @@ GO_INSTALL_BIN_MODE  := 0755                          # default
 BUILD_CHECKS         := true                          # default; build depends on build-check
 ```
 
-### `.golangci.yml`
+### GolangCI-Lint config
 
-Committed per-project. The bootstrap generates a minimal file that `extends` the canonical config:
+The canonical config lives in this repo at `golangci.yml`. Consumer projects use the central config that `go.mk` fetches into `.make/golangci.yml` at runtime, so bootstrap does not generate a per-project `.golangci.yml`.
 
-```yaml
-extends:
-  - https://raw.githubusercontent.com/agoodkind/go-makefile/main/golangci-template.yml
-```
-
-The shared template uses GolangCI-Lint v2 `linters.default: all`, then narrows behavior with explicit disables, exclusions, formatter settings, `cyclop` complexity capped at 50, strict `nolintlint` requirements, and exported symbol doc checks so intentionally noisy style rules stay opt-out by default while comments must remain useful and explained. Shared lint gates exclude Go test files by default. Add project-specific overrides below the `extends` line.
+The shared config uses GolangCI-Lint v2 `linters.default: all`, then narrows behavior with explicit disables, exclusions, formatter settings, `cyclop` complexity capped at 50, strict `nolintlint` requirements, and exported symbol doc checks so intentionally noisy style rules stay opt-out by default while comments must remain useful and explained. Shared lint gates exclude Go test files by default.
 
 ### `golangci-lint` baseline
 
