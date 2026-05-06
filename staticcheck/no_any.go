@@ -3,7 +3,6 @@ package staticcheck
 import (
 	"go/ast"
 	"go/types"
-	"strings"
 
 	"golang.org/x/tools/go/analysis"
 )
@@ -13,22 +12,20 @@ import (
 // or contains one as a leaf element of a map, slice, array, channel, or
 // pointer.
 //
-// Two scopes apply:
+// There is no per-file or per-package allowlist. Every Go file in the
+// project (excluding tests, generated code, and the analyzer's own source)
+// is checked uniformly. Files that legitimately need to handle dynamic
+// payloads at the protocol boundary must do so behind a typed adapter
+// (json.RawMessage, a sealed interface marker, a deeply enumerated
+// struct shape) rather than by passing `any` through internal helpers.
 //
-//   - Type declarations (alias and named) are checked everywhere except
-//     tests, generated code, and the analyzer's own source. The per-file
-//     dynamic-boundary allowlist does not apply to type declarations
-//     because the alias name escapes the file it was declared in. A
-//     `type InputAttr = any` declared inside an allowlisted adapter file
-//     spreads through every signature that names `InputAttr`, which is
-//     functionally identical to writing `any` in those signatures.
-//
-//   - Function parameters and return types are checked everywhere except
-//     tests, generated code, the analyzer's own source, and files in the
-//     per-file dynamic-boundary allowlist. Adapter code that bridges to
-//     a genuinely dynamic upstream protocol may use `any` directly inside
-//     the allowlisted file; it may not declare type aliases that propagate
-//     `any` outside it.
+// The historical per-file allowlist was removed because it enabled
+// helper-extraction laundering: an LLM could split a complex function
+// into smaller helpers inside an allowlisted file, drive cyclomatic
+// complexity numbers down, and silently spread `any` through the new
+// helpers. With no allowlist, every helper that takes or returns `any`
+// must justify itself in code review (or be baselined), which is
+// visible.
 var NoAnyOrEmptyInterfaceAnalyzer = &analysis.Analyzer{
 	Name: "no_any_or_empty_interface",
 	Doc:  "rejects any, interface{}, and aliases or named types that expand to them",
@@ -44,7 +41,7 @@ func runNoAnyOrEmptyInterface(pass *analysis.Pass) (any, error) {
 		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
 			continue
 		}
-		walkFileForBannedShapes(pass, file, allowsDynamicBoundary(path))
+		walkFileForBannedShapes(pass, file)
 	}
 	return nil, nil
 }
@@ -52,15 +49,13 @@ func runNoAnyOrEmptyInterface(pass *analysis.Pass) (any, error) {
 // walkFileForBannedShapes traverses every node in file and dispatches each
 // kind to its specific check helper. Splitting per-node-kind keeps each
 // branch readable and the cognitive complexity inside the inspector low.
-func walkFileForBannedShapes(pass *analysis.Pass, file *ast.File, allowSignatureAny bool) {
+func walkFileForBannedShapes(pass *analysis.Pass, file *ast.File) {
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.TypeSpec:
 			checkDeclaredType(pass, node)
 		case *ast.FuncType:
-			if !allowSignatureAny {
-				checkFuncTypeSignature(pass, node)
-			}
+			checkFuncTypeSignature(pass, node)
 		case *ast.ValueSpec:
 			if node.Type != nil {
 				checkSignatureExpr(pass, node.Type)
@@ -81,7 +76,7 @@ func walkFileForBannedShapes(pass *analysis.Pass, file *ast.File, allowSignature
 // checkFuncTypeSignature walks both params and results of a FuncType and
 // reports any banned shape. Catches top-level funcs, methods, interface
 // methods, function-value fields, function literals, and closures.
-// Subject to the per-file dynamic-boundary allowlist at the call site.
+// Applied uniformly across every non-test, non-generated file.
 func checkFuncTypeSignature(pass *analysis.Pass, ft *ast.FuncType) {
 	if ft.Params != nil {
 		for _, p := range ft.Params.List {
@@ -210,23 +205,3 @@ func bannedReason(t types.Type) string {
 	return ""
 }
 
-func allowsDynamicBoundary(path string) bool {
-	allowed := []string{
-		"internal/adapter/codex/backend.go",
-		"internal/adapter/codex/continuation.go",
-		"internal/adapter/codex/native_tools.go",
-		"internal/adapter/codex/protocol.go",
-		"internal/adapter/codex/request_builder.go",
-		"internal/adapter/codex/transport_request.go",
-		"internal/adapter/codex/transport_ws.go",
-		"internal/adapter/codex/ws_session.go",
-		"internal/adapter/codex/delta_input.go",
-		"internal/adapter/openai/",
-	}
-	for _, item := range allowed {
-		if strings.Contains(path, item) {
-			return true
-		}
-	}
-	return false
-}
