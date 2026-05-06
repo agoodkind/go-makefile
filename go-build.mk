@@ -114,6 +114,8 @@ GO_BUILD_FLAGS := $(GO_BUILD_TAGS_FLAG) $(GO_BUILD_LDFLAGS_FLAG) $(GO_BUILD_EXTR
 BUNDLE_ID          ?= io.goodkind.$(BINARY)
 CODESIGN_IDENTITY  ?= $(or $(CERT_ID),$(shell if [ "$$(uname)" = "Darwin" ]; then security find-identity -v -p codesigning 2>/dev/null | awk '/Developer ID Application/ { print $$2; exit }'; fi))
 CODESIGN_TIMESTAMP ?= none
+CODESIGN_ENTITLEMENTS ?=
+CODESIGN_ENTITLEMENTS_FLAG := $(if $(strip $(CODESIGN_ENTITLEMENTS)),--entitlements "$(CODESIGN_ENTITLEMENTS)",)
 
 define codesign_binary
 	@if [ "$$(uname)" = "Darwin" ]; then \
@@ -123,7 +125,7 @@ define codesign_binary
 			exit 1; \
 		fi; \
 		echo "Signing $(1) with $(CODESIGN_IDENTITY)..."; \
-		codesign --force --sign "$(CODESIGN_IDENTITY)" --identifier "$(BUNDLE_ID)" --options runtime --timestamp=$(CODESIGN_TIMESTAMP) "$(1)"; \
+		codesign --force --sign "$(CODESIGN_IDENTITY)" --identifier "$(BUNDLE_ID)" --options runtime --timestamp=$(CODESIGN_TIMESTAMP) $(CODESIGN_ENTITLEMENTS_FLAG) "$(1)"; \
 		codesign --verify --verbose=2 "$(1)"; \
 	fi
 endef
@@ -164,6 +166,7 @@ version-info:
 	@echo "build_time:  $(BUILD_TIME)"
 	@echo "tags:        $(GO_BUILD_TAGS)"
 	@echo "cgo_enabled: $(CGO_ENABLED)"
+	@echo "codesign_entitlements: $(CODESIGN_ENTITLEMENTS)"
 	@echo "install_dir: $(INSTALL_DIR)"
 
 clean-dist:
