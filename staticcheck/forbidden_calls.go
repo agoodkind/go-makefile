@@ -189,21 +189,19 @@ func runPanicInProduction(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-// TimeNowOutsideClockAnalyzer flags [time.Now] calls outside an
-// allowed clock-injection point. Real-time wall clock makes code
-// untestable for time-sensitive logic. Acceptable patterns:
+// TimeNowOutsideClockAnalyzer flags [time.Now] calls in production code.
+// Real-time wall clock makes code untestable for time-sensitive logic.
+// There is no per-file allowlist for clock helpers; the project's chosen
+// clock helper is itself flagged and must be baselined explicitly so its
+// existence is visible in source control rather than implicit in a path
+// match. Acceptable escapes:
+//
 //   - inside _test.go
 //   - inside main packages (CLI startup logging)
-//   - inside a file whose path indicates a clock helper. Required:
-//     EITHER the file lives in a directory named `clock` (path
-//     contains `/clock/`), OR the package itself is named `clock`.
-//     A file named `clock.go` inside an unrelated package no longer
-//     qualifies; that was a laundering vector where an LLM could
-//     rename `orchestrator.go` to `clock.go` and slip past the rule.
 //   - //nolint:time_now_outside_clock on the call line
 var TimeNowOutsideClockAnalyzer = &analysis.Analyzer{
 	Name: "time_now_outside_clock",
-	Doc:  "rejects time.Now() outside designated clock-injection points; pass clock.Clock for testability",
+	Doc:  "rejects time.Now() outside main packages and tests; pass clock.Clock for testability",
 	Run:  runTimeNowOutsideClock,
 }
 
@@ -211,9 +209,6 @@ func runTimeNowOutsideClock(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
 		path := fileName(pass, file.Pos())
 		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
-			continue
-		}
-		if isClockHelperFile(path, pass) {
 			continue
 		}
 		if pass.Pkg != nil && pass.Pkg.Name() == "main" {
@@ -235,21 +230,6 @@ func runTimeNowOutsideClock(pass *analysis.Pass) (any, error) {
 		})
 	}
 	return nil, nil
-}
-
-// isClockHelperFile reports whether the file is a recognised clock-injection
-// helper. The check requires either a directory named `clock` in the path,
-// or the file's package itself being named `clock`. Bare `clock.go` in an
-// unrelated package no longer qualifies because that was a laundering
-// vector (rename orchestrator.go to clock.go to silence the rule).
-func isClockHelperFile(path string, pass *analysis.Pass) bool {
-	if strings.Contains(path, "/clock/") {
-		return true
-	}
-	if pass.Pkg != nil && pass.Pkg.Name() == "clock" {
-		return true
-	}
-	return false
 }
 
 // isStdlibMustShape reports whether fn matches the stdlib Must*
