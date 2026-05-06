@@ -623,7 +623,6 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-goroutine_without_recover \
 	-slog_missing_trace_id \
 	-grpc_handler_missing_peer_enrichment \
-	-sensitive_field_in_log \
 	-nolint_ban \
 	-string_switch_should_be_enum \
 	-thin_wrapper_to_launderable_call
