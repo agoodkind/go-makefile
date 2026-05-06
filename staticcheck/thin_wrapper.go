@@ -74,7 +74,7 @@ func runThinWrapper(pass *analysis.Pass) (any, error) {
 			if !forwardsAllParams(fn, call) {
 				continue
 			}
-			pass.Reportf(fn.Pos(), "function %q is a thin wrapper around a wrapcheck-ignored constructor; call it directly at the use site so wrapcheck sees the real call (or add real logic to the wrapper)", fn.Name.Name)
+			reportAtf(pass, file, fn.Pos(), "function %q is a thin wrapper around a wrapcheck-ignored constructor; call it directly at the use site so wrapcheck sees the real call (or add real logic to the wrapper)", fn.Name.Name)
 		}
 	}
 	return nil, nil

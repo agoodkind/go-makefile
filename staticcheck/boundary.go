@@ -30,7 +30,7 @@ func runMissingBoundaryLog(pass *analysis.Pass) (any, error) {
 				continue
 			}
 			if !functionHasBoundaryLog(fn) {
-				pass.Reportf(fn.Pos(), "boundary function must emit at least one structured slog event")
+				reportAtf(pass, file, fn.Pos(), "boundary function must emit at least one structured slog event")
 			}
 		}
 	}

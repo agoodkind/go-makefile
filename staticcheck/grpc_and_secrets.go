@@ -52,7 +52,7 @@ func runGrpcHandlerWithoutPeerEnrichment(pass *analysis.Pass) (any, error) {
 			if !funcContainsAnySlogCall(fn.Body) {
 				continue
 			}
-			pass.Reportf(fn.Pos(), "gRPC handler %s logs without enriching context with peer info; call peer.FromContext or metadata.FromIncomingContext", fn.Name.Name)
+			reportAtf(pass, file, fn.Pos(), "gRPC handler %s logs without enriching context with peer info; call peer.FromContext or metadata.FromIncomingContext", fn.Name.Name)
 		}
 	}
 	return nil, nil
@@ -216,7 +216,7 @@ func runSensitiveFieldInLog(pass *analysis.Pass) (any, error) {
 				lower := strings.ToLower(lit)
 				for _, prefix := range sensitiveKeyPrefixes {
 					if strings.Contains(lower, prefix) {
-						pass.Reportf(arg.Pos(), "slog key %q looks sensitive; redact, log a summary, or //nolint:sensitive_field_in_log", lit)
+						reportAtf(pass, file, arg.Pos(), "slog key %q looks sensitive; redact, log a summary, or //nolint:sensitive_field_in_log", lit)
 						break
 					}
 				}

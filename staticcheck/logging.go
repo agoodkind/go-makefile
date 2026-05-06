@@ -42,7 +42,7 @@ func runSlogErrorWithoutErr(pass *analysis.Pass) (any, error) {
 			if !ok || !isErrorSlogCall(call) || hasErrAttr(call) {
 				return true
 			}
-			pass.Reportf(call.Pos(), "error-level slog event must include an err field")
+			reportAtf(pass, file, call.Pos(), "error-level slog event must include an err field")
 			return true
 		})
 	}
@@ -70,10 +70,10 @@ func runBannedDirectOutput(pass *analysis.Pass) (any, error) {
 				return true
 			}
 			if receiver == "fmt" && (name == "Print" || name == "Printf" || name == "Println") {
-				pass.Reportf(call.Pos(), "do not use fmt.%s for production diagnostics; use slog or write to an explicit user-facing writer", name)
+				reportAtf(pass, file, call.Pos(), "do not use fmt.%s for production diagnostics; use slog or write to an explicit user-facing writer", name)
 			}
 			if receiver == "log" && (strings.HasPrefix(name, "Print") || strings.HasPrefix(name, "Fatal") || strings.HasPrefix(name, "Panic")) {
-				pass.Reportf(call.Pos(), "do not use log.%s for production diagnostics; use structured slog", name)
+				reportAtf(pass, file, call.Pos(), "do not use log.%s for production diagnostics; use structured slog", name)
 			}
 			return true
 		})
@@ -90,9 +90,9 @@ func runHotLoopInfoLog(pass *analysis.Pass) (any, error) {
 		ast.Inspect(file, func(node ast.Node) bool {
 			switch loop := node.(type) {
 			case *ast.ForStmt:
-				reportInfoLogsInLoop(pass, loop.Body)
+				reportInfoLogsInLoop(pass, file, loop.Body)
 			case *ast.RangeStmt:
-				reportInfoLogsInLoop(pass, loop.Body)
+				reportInfoLogsInLoop(pass, file, loop.Body)
 			}
 			return true
 		})
@@ -150,7 +150,7 @@ func hasErrAttr(call *ast.CallExpr) bool {
 	return false
 }
 
-func reportInfoLogsInLoop(pass *analysis.Pass, body *ast.BlockStmt) {
+func reportInfoLogsInLoop(pass *analysis.Pass, file *ast.File, body *ast.BlockStmt) {
 	if body == nil {
 		return
 	}
@@ -159,7 +159,7 @@ func reportInfoLogsInLoop(pass *analysis.Pass, body *ast.BlockStmt) {
 		if !ok || !isInfoSlogCall(call) {
 			return true
 		}
-		pass.Reportf(call.Pos(), "do not emit info-level slog events directly inside loops; log state transitions or summaries")
+		reportAtf(pass, file, call.Pos(), "do not emit info-level slog events directly inside loops; log state transitions or summaries")
 		return true
 	})
 }

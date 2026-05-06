@@ -42,11 +42,11 @@ func runGoroutineWithoutRecover(pass *analysis.Pass) (any, error) {
 				// Goroutine launches a named func. Caller's func body is not
 				// visible here without a callgraph. Force the launch site to
 				// wrap in a FuncLit with recover, or use an explicit nolint.
-				pass.Reportf(gostmt.Pos(), "goroutine launched against a named func; wrap in a func literal that defers recover() or use //nolint:goroutine_without_recover")
+				reportAtf(pass, file, gostmt.Pos(), "goroutine launched against a named func; wrap in a func literal that defers recover() or use //nolint:goroutine_without_recover")
 				return true
 			}
 			if !funcLitHasDeferredRecover(lit) {
-				pass.Reportf(gostmt.Pos(), "goroutine launched without a deferred recover(); add `defer func() { if r := recover(); r != nil { slog.Error(...) } }()` or //nolint:goroutine_without_recover")
+				reportAtf(pass, file, gostmt.Pos(), "goroutine launched without a deferred recover(); add `defer func() { if r := recover(); r != nil { slog.Error(...) } }()` or //nolint:goroutine_without_recover")
 			}
 			return true
 		})
@@ -336,7 +336,7 @@ func runSilentDeferClose(pass *analysis.Pass) (any, error) {
 			if !isCloseMethodName(name) {
 				return true
 			}
-			pass.Reportf(def.Pos(), "bare `defer .%s()` drops the error; wrap in `defer func() { _ = ...%s() }()` for intentional silence or check err with slog.Warn", name, name)
+			reportAtf(pass, file, def.Pos(), "bare `defer .%s()` drops the error; wrap in `defer func() { _ = ...%s() }()` for intentional silence or check err with slog.Warn", name, name)
 			return true
 		})
 	}
@@ -401,7 +401,7 @@ func reportSlogCallsWithoutTraceID(pass *analysis.Pass, file *ast.File, fn *ast.
 			return true
 		}
 		_, name, _ := selectorName(call.Fun)
-		pass.Reportf(call.Pos(), "slog call inside func taking context.Context does not pass the ctx; use slog.%sContext or include ctx for trace correlation", name)
+		reportAtf(pass, file, call.Pos(), "slog call inside func taking context.Context does not pass the ctx; use slog.%sContext or include ctx for trace correlation", name)
 		return true
 	})
 }

@@ -29,7 +29,7 @@ func runNolintBan(pass *analysis.Pass) (any, error) {
 		for _, group := range file.Comments {
 			for _, c := range group.List {
 				if strings.Contains(c.Text, "//nolint") {
-					pass.Reportf(c.Pos(), "nolint comment suppresses linter findings inline; document exceptions in the staticcheck-extra baseline or a golangci-lint issue-exclusion rule instead")
+					reportAtf(pass, file, c.Pos(), "nolint comment suppresses linter findings inline; document exceptions in the staticcheck-extra baseline or a golangci-lint issue-exclusion rule instead")
 				}
 			}
 		}

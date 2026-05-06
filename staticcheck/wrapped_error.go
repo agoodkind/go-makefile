@@ -59,13 +59,13 @@ func runWrappedErrorWithoutSlog(pass *analysis.Pass) (any, error) {
 			if isPureCodecOrIOFunc(pass, fn) {
 				continue
 			}
-			analyzeFuncForWrappedReturns(pass, fn)
+			analyzeFuncForWrappedReturns(pass, file, fn)
 		}
 	}
 	return nil, nil
 }
 
-func analyzeFuncForWrappedReturns(pass *analysis.Pass, fn *ast.FuncDecl) {
+func analyzeFuncForWrappedReturns(pass *analysis.Pass, file *ast.File, fn *ast.FuncDecl) {
 	hasSlog := funcContainsSlogErrorOrWarn(fn.Body)
 	if hasSlog {
 		return
@@ -78,7 +78,7 @@ func analyzeFuncForWrappedReturns(pass *analysis.Pass, fn *ast.FuncDecl) {
 		if !returnWrapsError(ret) {
 			return true
 		}
-		pass.Reportf(ret.Pos(), "function %s returns a wrapped error without an accompanying slog.Error/Warn; log before returning, or rename to a stdlib codec/io shape (Marshal*/Unmarshal*/Read/Write/etc.) if this is a pure encoder", fn.Name.Name)
+		reportAtf(pass, file, ret.Pos(), "function %s returns a wrapped error without an accompanying slog.Error/Warn; log before returning, or rename to a stdlib codec/io shape (Marshal*/Unmarshal*/Read/Write/etc.) if this is a pure encoder", fn.Name.Name)
 		return true
 	})
 }

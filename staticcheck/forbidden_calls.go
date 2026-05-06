@@ -54,7 +54,7 @@ func runOsExitOutsideMain(pass *analysis.Pass) (any, error) {
 					return true
 				}
 				if recv == "os" && name == "Exit" && !hasNolintComment(file, pass.Fset, call.Pos(), "os_exit_outside_main") {
-					pass.Reportf(call.Pos(), "os.Exit called outside main()/init(); return error to caller instead")
+					reportAtf(pass, file, call.Pos(), "os.Exit called outside main()/init(); return error to caller instead")
 				}
 				return true
 			})
@@ -88,7 +88,7 @@ func runContextTODO(pass *analysis.Pass) (any, error) {
 				return true
 			}
 			if recv == "context" && name == "TODO" && !hasNolintComment(file, pass.Fset, call.Pos(), "context_todo_in_production") {
-				pass.Reportf(call.Pos(), "context.TODO() in production code; use context.Background() or thread context from caller")
+				reportAtf(pass, file, call.Pos(), "context.TODO() in production code; use context.Background() or thread context from caller")
 			}
 			return true
 		})
@@ -127,7 +127,7 @@ func runTimeSleepInProduction(pass *analysis.Pass) (any, error) {
 				return true
 			}
 			if recv == "time" && name == "Sleep" && !hasNolintComment(file, pass.Fset, call.Pos(), "time_sleep_in_production") {
-				pass.Reportf(call.Pos(), "time.Sleep in production library code; use time.NewTimer + select for cancellation")
+				reportAtf(pass, file, call.Pos(), "time.Sleep in production library code; use time.NewTimer + select for cancellation")
 			}
 			return true
 		})
@@ -180,7 +180,7 @@ func runPanicInProduction(pass *analysis.Pass) (any, error) {
 					return true
 				}
 				if ident.Name == "panic" && !hasNolintComment(file, pass.Fset, call.Pos(), "panic_in_production") {
-					pass.Reportf(call.Pos(), "panic() called in production code; return error up the stack")
+					reportAtf(pass, file, call.Pos(), "panic() called in production code; return error up the stack")
 				}
 				return true
 			})
@@ -224,7 +224,7 @@ func runTimeNowOutsideClock(pass *analysis.Pass) (any, error) {
 				return true
 			}
 			if recv == "time" && name == "Now" && !hasNolintComment(file, pass.Fset, call.Pos(), "time_now_outside_clock") {
-				pass.Reportf(call.Pos(), "time.Now() outside clock helper; inject a clock.Clock for testability or //nolint:time_now_outside_clock")
+				reportAtf(pass, file, call.Pos(), "time.Now() outside clock helper; inject a clock.Clock for testability or //nolint:time_now_outside_clock")
 			}
 			return true
 		})

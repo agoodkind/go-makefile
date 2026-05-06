@@ -53,20 +53,20 @@ func walkFileForBannedShapes(pass *analysis.Pass, file *ast.File) {
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.TypeSpec:
-			checkDeclaredType(pass, node)
+			checkDeclaredType(pass, file, node)
 		case *ast.FuncType:
-			checkFuncTypeSignature(pass, node)
+			checkFuncTypeSignature(pass, file, node)
 		case *ast.ValueSpec:
 			if node.Type != nil {
-				checkSignatureExpr(pass, node.Type)
+				checkSignatureExpr(pass, file, node.Type)
 			}
 		case *ast.CompositeLit:
 			if node.Type != nil {
-				checkSignatureExpr(pass, node.Type)
+				checkSignatureExpr(pass, file, node.Type)
 			}
 		case *ast.TypeAssertExpr:
 			if node.Type != nil {
-				checkSignatureExpr(pass, node.Type)
+				checkSignatureExpr(pass, file, node.Type)
 			}
 		}
 		return true
@@ -77,15 +77,15 @@ func walkFileForBannedShapes(pass *analysis.Pass, file *ast.File) {
 // reports any banned shape. Catches top-level funcs, methods, interface
 // methods, function-value fields, function literals, and closures.
 // Applied uniformly across every non-test, non-generated file.
-func checkFuncTypeSignature(pass *analysis.Pass, ft *ast.FuncType) {
+func checkFuncTypeSignature(pass *analysis.Pass, file *ast.File, ft *ast.FuncType) {
 	if ft.Params != nil {
 		for _, p := range ft.Params.List {
-			checkSignatureExpr(pass, p.Type)
+			checkSignatureExpr(pass, file, p.Type)
 		}
 	}
 	if ft.Results != nil {
 		for _, r := range ft.Results.List {
-			checkSignatureExpr(pass, r.Type)
+			checkSignatureExpr(pass, file, r.Type)
 		}
 	}
 }
@@ -95,11 +95,11 @@ func checkFuncTypeSignature(pass *analysis.Pass, ft *ast.FuncType) {
 // types whose underlying shape resolves to a forbidden composition. Struct
 // field types are walked separately so a struct literal-declaring an `any`
 // field gets a per-field report.
-func checkDeclaredType(pass *analysis.Pass, spec *ast.TypeSpec) {
-	astCheckExpr(pass, spec.Type)
+func checkDeclaredType(pass *analysis.Pass, file *ast.File, spec *ast.TypeSpec) {
+	astCheckExpr(pass, file, spec.Type)
 	if t := pass.TypesInfo.TypeOf(spec.Type); t != nil {
 		if reason := bannedReason(t); reason != "" {
-			pass.Reportf(spec.Pos(),
+			reportAtf(pass, file, spec.Pos(),
 				"type %s expands to %s, which is forbidden; define a deeply enumerated named type instead",
 				spec.Name.Name, reason)
 		}
@@ -111,7 +111,7 @@ func checkDeclaredType(pass *analysis.Pass, spec *ast.TypeSpec) {
 				continue
 			}
 			if reason := bannedReason(ft); reason != "" {
-				pass.Reportf(field.Pos(),
+				reportAtf(pass, file, field.Pos(),
 					"struct field type %s expands to %s; define a deeply enumerated named type",
 					types.ExprString(field.Type), reason)
 			}
@@ -123,11 +123,11 @@ func checkDeclaredType(pass *analysis.Pass, spec *ast.TypeSpec) {
 // both an AST scan for literal `any` / `interface{}` and a types-system scan
 // that follows aliases. The types-system scan ensures a signature that uses
 // a named alias whose underlying is forbidden gets reported.
-func checkSignatureExpr(pass *analysis.Pass, expr ast.Expr) {
-	astCheckExpr(pass, expr)
+func checkSignatureExpr(pass *analysis.Pass, file *ast.File, expr ast.Expr) {
+	astCheckExpr(pass, file, expr)
 	if t := pass.TypesInfo.TypeOf(expr); t != nil {
 		if reason := bannedReason(t); reason != "" {
-			pass.Reportf(expr.Pos(),
+			reportAtf(pass, file, expr.Pos(),
 				"signature uses %s, which expands to %s; define a deeply enumerated named type",
 				types.ExprString(expr), reason)
 		}
@@ -137,16 +137,16 @@ func checkSignatureExpr(pass *analysis.Pass, expr ast.Expr) {
 // astCheckExpr reports literal `any` identifiers and bare `interface{}`
 // types found anywhere in expr. Catches the case before TypesInfo runs and
 // keeps the report attached to the source position the author wrote.
-func astCheckExpr(pass *analysis.Pass, expr ast.Expr) {
+func astCheckExpr(pass *analysis.Pass, file *ast.File, expr ast.Expr) {
 	ast.Inspect(expr, func(node ast.Node) bool {
 		switch typed := node.(type) {
 		case *ast.Ident:
 			if typed.Name == "any" {
-				pass.Reportf(typed.Pos(), "do not use any; define a deeply enumerated named type")
+				reportAtf(pass, file, typed.Pos(), "do not use any; define a deeply enumerated named type")
 			}
 		case *ast.InterfaceType:
 			if len(typed.Methods.List) == 0 {
-				pass.Reportf(typed.Pos(), "do not use interface{}; define a deeply enumerated named type")
+				reportAtf(pass, file, typed.Pos(), "do not use interface{}; define a deeply enumerated named type")
 			}
 		}
 		return true

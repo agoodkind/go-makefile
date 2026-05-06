@@ -1,8 +1,10 @@
 package staticcheck
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -11,6 +13,54 @@ import (
 
 func fileName(pass *analysis.Pass, pos token.Pos) string {
 	return filepath.ToSlash(pass.Fset.Position(pos).Filename)
+}
+
+func reportAtf(pass *analysis.Pass, file *ast.File, preferred token.Pos, format string, args ...any) {
+	pass.Report(analysis.Diagnostic{
+		Pos:     diagnosticPos(pass, file, preferred),
+		Message: fmt.Sprintf(format, args...),
+	})
+}
+
+func diagnosticPos(pass *analysis.Pass, file *ast.File, preferred token.Pos) token.Pos {
+	if preferred.IsValid() && diagnosticPathIsActionable(pass, preferred) {
+		return preferred
+	}
+	if file != nil && file.Package.IsValid() {
+		return file.Package
+	}
+	if file != nil && file.Pos().IsValid() {
+		return file.Pos()
+	}
+	return preferred
+}
+
+func diagnosticPathIsActionable(pass *analysis.Pass, pos token.Pos) bool {
+	path := fileName(pass, pos)
+	return path != "" && !isGoBuildCacheDescriptorPath(path)
+}
+
+func isGoBuildCacheDescriptorPath(path string) bool {
+	slashPath := filepath.ToSlash(filepath.Clean(path))
+	if !strings.HasSuffix(filepath.Base(slashPath), "-d") {
+		return false
+	}
+	if gocache := os.Getenv("GOCACHE"); gocache != "" {
+		if pathIsWithin(slashPath, filepath.ToSlash(filepath.Clean(gocache))) {
+			return true
+		}
+	}
+	if userCacheDir, err := os.UserCacheDir(); err == nil {
+		goBuildCache := filepath.ToSlash(filepath.Join(userCacheDir, "go-build"))
+		if pathIsWithin(slashPath, goBuildCache) {
+			return true
+		}
+	}
+	return strings.Contains(slashPath, "/go-build/")
+}
+
+func pathIsWithin(path string, dir string) bool {
+	return path == dir || strings.HasPrefix(path, dir+"/")
 }
 
 func isTestFile(path string) bool {
@@ -41,7 +91,7 @@ func isGeneratedFile(file *ast.File, path string) bool {
 	if file == nil {
 		return false
 	}
-	if !generatedFilenameLooksConventional(path) {
+	if !generatedFilenameLooksConventional(path) && !isGoBuildCacheDescriptorPath(path) {
 		return false
 	}
 	for _, group := range file.Comments {

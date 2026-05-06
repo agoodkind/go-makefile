@@ -74,12 +74,12 @@ func inspectStringSwitches(pass *analysis.Pass, file *ast.File) {
 		if !ok {
 			return true
 		}
-		reportBareStringSwitch(pass, sw)
+		reportBareStringSwitch(pass, file, sw)
 		return true
 	})
 }
 
-func reportBareStringSwitch(pass *analysis.Pass, sw *ast.SwitchStmt) {
+func reportBareStringSwitch(pass *analysis.Pass, file *ast.File, sw *ast.SwitchStmt) {
 	if !switchHasBareStringTag(pass, sw) {
 		return
 	}
@@ -87,7 +87,7 @@ func reportBareStringSwitch(pass *analysis.Pass, sw *ast.SwitchStmt) {
 	if stringLitCases < 2 || otherCases > 0 {
 		return
 	}
-	pass.Reportf(sw.Pos(),
+	reportAtf(pass, file, sw.Pos(),
 		"switch on bare string with %d string-literal cases; declare a named enum type and switch on its constants",
 		stringLitCases)
 }
