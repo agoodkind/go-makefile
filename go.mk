@@ -229,7 +229,7 @@ lint-golangci: lint-tools
 			case "$$baseline_line" in ""|\#*) continue ;; esac; \
 			finding="$${baseline_line%%$${metadata_prefix}*}"; \
 			[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
-		done < "$(GOLANGCI_LINT_BASELINE)" | filter | sort > "$$baseline_output"; \
+		done < "$(GOLANGCI_LINT_BASELINE)" | awk '"'"'{ while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort > "$$baseline_output"; \
 		keyize() { \
 			awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) out=substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else out=$$0; while (index(out, "../")==1) out=substr(out, 4); print out }'"'"' "$$1"; \
 		}; \
@@ -453,7 +453,7 @@ lint-deadcode:
 			case "$$baseline_line" in ""|\#*) continue ;; esac; \
 			finding="$${baseline_line%%$${metadata_prefix}*}"; \
 			[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
-		done < "$(DEADCODE_BASELINE)" | filter | sort > "$$baseline" || true; \
+		done < "$(DEADCODE_BASELINE)" | awk '"'"'{ while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort > "$$baseline" || true; \
 		keyize() { awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) out=substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else out=$$0; while (index(out, "../")==1) out=substr(out, 4); print out }'"'"' "$$1"; }; \
 		findings_keys=".make/deadcode.keys.out"; \
 		baseline_keys=".make/deadcode.keys.baseline.out"; \
@@ -732,7 +732,7 @@ staticcheck-extra: staticcheck-extra-bin
 				case "$$baseline_line" in ""|\#*) continue ;; esac; \
 				finding="$${baseline_line%%$${metadata_prefix}*}"; \
 				[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
-			done < "$(STATICCHECK_EXTRA_BASELINE)" | filter | sort; \
+			done < "$(STATICCHECK_EXTRA_BASELINE)" | awk '"'"'{ while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort; \
 		}; \
 		baseline_findings > .make/staticcheck-extra.baseline.out; \
 		keyize() { awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) out=substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else out=$$0; while (index(out, "../")==1) out=substr(out, 4); print out }'"'"' "$$1"; }; \
