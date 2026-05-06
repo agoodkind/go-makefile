@@ -65,7 +65,11 @@ $(call go-mk-fetch-one,golangci.yml)
 
 GOLANGCI_LINT          ?= golangci-lint
 GOLANGCI_LINT_TARGETS  ?= ./...
-GOLANGCI_LINT_FLAGS    ?= -c $(GO_MK_GOLANGCI_CONFIG)
+# LINT_CONCURRENCY caps the number of CPU workers golangci-lint spawns.
+# Default is half the available cores so a `make build` does not pin the
+# machine. Override with `make build LINT_CONCURRENCY=8` (or 0 for no cap).
+LINT_CONCURRENCY       ?= $(shell n=$$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4); echo $$((n/2 > 0 ? n/2 : 1)))
+GOLANGCI_LINT_FLAGS    ?= -c $(GO_MK_GOLANGCI_CONFIG) $(if $(filter-out 0,$(LINT_CONCURRENCY)),--concurrency=$(LINT_CONCURRENCY))
 GOLANGCI_LINT_BASELINE ?= .golangci-lint-baseline.txt
 GOLANGCI_LINT_BASELINE_RUNS ?= 3
 GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
