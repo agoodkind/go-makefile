@@ -32,7 +32,7 @@ func runGrpcHandlerWithoutPeerEnrichment(pass *analysis.Pass) (any, error) {
 	}
 	for _, file := range pass.Files {
 		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
+		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
 			continue
 		}
 		for _, decl := range file.Decls {
@@ -165,17 +165,39 @@ var SensitiveFieldInLogAnalyzer = &analysis.Analyzer{
 	Run:  runSensitiveFieldInLog,
 }
 
+// sensitiveKeyPrefixes is intentionally broad. The heuristic looks at
+// keyval names in slog calls and warns on anything that looks like
+// secret-bearing material. The list is biased toward false-positive
+// over false-negative because the cost of a fake match is a
+// //nolint annotation, while the cost of a missed match is leaking
+// secrets in production logs.
+//
+// The tokens are matched as substrings AND as prefixes against the
+// lowercased keyval name. An LLM trying to launder by renaming
+// `password` to `pwd`, `passwd`, `pass`, `secret_value`, etc. lands
+// on a different entry in this list. To genuinely launder you would
+// need to invent a name that does not contain any sensitive token
+// substring, which is itself suspicious in code review.
 var sensitiveKeyPrefixes = []string{
-	"password", "passwd", "pwd",
-	"secret", "token", "apikey", "api_key",
-	"private_key", "privatekey", "key_pem",
-	"bearer", "credential", "cred",
+	"password", "passwd", "pwd", "pass",
+	"secret", "secrets",
+	"token", "tokens", "access_token", "refresh_token", "id_token",
+	"apikey", "api_key", "api-key",
+	"private_key", "privatekey", "private-key",
+	"key_pem", "keypem", "pem",
+	"bearer", "auth", "authorization", "authn", "authentication",
+	"credential", "credentials", "cred", "creds",
+	"jwt", "session", "session_id", "cookie", "csrf",
+	"oauth", "client_secret", "clientsecret",
+	"signature", "signing_key", "hmac",
+	"ssh_key", "sshkey", "private", "privkey",
+	"otp", "mfa", "totp", "passcode", "pin",
 }
 
 func runSensitiveFieldInLog(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
 		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
+		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
 			continue
 		}
 		ast.Inspect(file, func(node ast.Node) bool {

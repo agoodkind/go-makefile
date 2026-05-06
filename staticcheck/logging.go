@@ -34,7 +34,7 @@ var HotLoopInfoLogAnalyzer = &analysis.Analyzer{
 func runSlogErrorWithoutErr(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
 		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file) || isProtobufGeneratedPath(path) {
+		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) {
 			continue
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
@@ -52,7 +52,7 @@ func runSlogErrorWithoutErr(pass *analysis.Pass) (any, error) {
 func runBannedDirectOutput(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
 		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file) || isProtobufGeneratedPath(path) {
+		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) {
 			continue
 		}
 		// Files in `package main` may emit user-facing CLI output via fmt.
@@ -84,7 +84,7 @@ func runBannedDirectOutput(pass *analysis.Pass) (any, error) {
 func runHotLoopInfoLog(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
 		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file) || isProtobufGeneratedPath(path) {
+		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) {
 			continue
 		}
 		ast.Inspect(file, func(node ast.Node) bool {

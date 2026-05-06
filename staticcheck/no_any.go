@@ -41,7 +41,7 @@ func runNoAnyOrEmptyInterface(pass *analysis.Pass) (any, error) {
 	}
 	for _, file := range pass.Files {
 		path := fileName(pass, file.Pos())
-		if isTestFile(path) || isGeneratedFile(file) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
+		if isTestFile(path) || isGeneratedFile(file, path) || isProtobufGeneratedPath(path) || isStaticcheckPath(path) {
 			continue
 		}
 		walkFileForBannedShapes(pass, file, allowsDynamicBoundary(path))
