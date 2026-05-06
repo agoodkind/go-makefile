@@ -362,7 +362,6 @@ lint-golangci-baseline: lint-tools
 		raw_output=".make/golangci-lint-baseline.raw.out"; \
 		findings_output=".make/golangci-lint-baseline.out"; \
 		new_baseline=".make/golangci-lint-baseline.new"; \
-		baseline_output=".make/golangci-lint-baseline.baseline.out"; \
 		excludes="$$(printf "%s,%s" "$(GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS)" "$(GOLANGCI_LINT_EXCLUDE_PATHS)")"; \
 		status=0; \
 		filter() { \
@@ -391,13 +390,6 @@ lint-golangci-baseline: lint-tools
 		now=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
 		tab=$$(printf "\t"); \
 		metadata_prefix="$${tab}# golangci-lint:"; \
-		while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
-			case "$$baseline_line" in ""|\#*) continue ;; esac; \
-			baseline_finding="$${baseline_line%%$${metadata_prefix}*}"; \
-			[ -n "$$baseline_finding" ] && printf "%s\n" "$$baseline_finding"; \
-		done < "$(GOLANGCI_LINT_BASELINE)" | filter | sort -u > "$$baseline_output"; \
-		awk '"'"'function key(s,    out) { if (match(s, /:[0-9]+:[0-9]+:/)) out = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else out = s; while (index(out, "../")==1) out = substr(out, 4); return out } { k = key($$0); if (!(k in pick) || (substr(pick[k], 1, 3) == "../" && substr($$0, 1, 3) != "../")) pick[k] = $$0 } END { for (k in pick) print pick[k] }'"'"' "$$findings_output" "$$baseline_output" | sort > "$$findings_output.merged"; \
-		mv "$$findings_output.merged" "$$findings_output"; \
 		printf "# golangci-lint: generated_at=%s\n" "$$now" > "$$new_baseline"; \
 		awk -v now="$$now" -v mp="$${metadata_prefix}" -v lname=golangci-lint -v kmf="$(GOLANGCI_LINT_BASELINE)" '"'"'function key(s,    out) { if (match(s, /:[0-9]+:[0-9]+:/)) out = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else out = s; while (index(out, "../")==1) out = substr(out, 4); return out } BEGIN { while ((getline line < kmf) > 0) { if (line ~ /^#/) continue; if (line ~ /^[ \t]*$$/) continue; idx = index(line, mp); if (idx > 0) { finding = substr(line, 1, idx-1); meta = substr(line, idx + length(mp)); fa = ""; n = split(meta, ff, " "); for (i = 1; i <= n; i++) if (ff[i] ~ /^first_added=/) fa = substr(ff[i], 13); km[key(finding)] = fa } else km[key(line)] = "" } close(kmf) } { k = key($$0); fa = (k in km) ? km[k] : ""; if (fa == "") fa = now; printf "%s\t# %s:first_added=%s last_seen=%s\n", $$0, lname, fa, now }'"'"' "$$findings_output" >> "$$new_baseline"; \
 		mv "$$new_baseline" "$(GOLANGCI_LINT_BASELINE)"; \
@@ -420,7 +412,20 @@ lint-gocyclo:
 		cat "$$err" >&2; rm -f "$$err"; exit 1; \
 	fi; \
 	rm -f "$$err"; \
-	"$$(go env GOPATH)/bin/gocyclo" -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS)
+	output=$$("$$(go env GOPATH)/bin/gocyclo" -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS) 2>&1) || status=$$?; \
+	if [ -n "$$output" ]; then \
+		count=$$(printf "%s\n" "$$output" | grep -c . || true); \
+		echo "NEW gocyclo findings:"; \
+		printf "%s\n" "$$output"; \
+		echo ""; \
+		echo "gocyclo: FAILED ($$count findings over complexity limit $(GOCYCLO_OVER))"; \
+		exit 1; \
+	fi; \
+	if [ "$${status:-0}" -ne 0 ]; then \
+		echo "gocyclo: FAILED (exit status $$status)"; \
+		exit "$$status"; \
+	fi; \
+	echo "gocyclo: OK (0 findings over complexity limit $(GOCYCLO_OVER))"
 
 fmt: lint-tools
 	$(GOLANGCI_LINT) fmt $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS)
