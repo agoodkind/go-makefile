@@ -43,20 +43,21 @@ endif
 # it's safe to use at the top level.
 define _go_mk_fetch_commands
 	mkdir -p "$$(dirname "$(2)")"; \
-	tmp="$(2).tmp"; \
+	tmp=$$(mktemp "$(2).tmp.XXXXXX") || { printf '%s\n' "error: $(1) temporary file creation failed"; exit 1; }; \
 	if [ -n "$(3)" ] && [ -f "$(3)/$(1)" ]; then \
-		cp "$(3)/$(1)" "$(2)"; \
+		cp "$(3)/$(1)" "$$tmp" || { rm -f "$$tmp"; exit 1; }; \
 	else \
 		if command -v gh >/dev/null 2>&1 && gh api "repos/agoodkind/go-makefile/contents/$(1)?ref=$(GO_MK_API_REF)" -H "Accept: application/vnd.github.raw" > "$$tmp" 2>/dev/null \
 			|| curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)?v=$$(date +%s)" -o "$$tmp" 2>/dev/null \
 			|| curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)" -o "$$tmp" 2>/dev/null; then \
-			[ -s "$$tmp" ] && mv "$$tmp" "$(2)" || { rm -f "$$tmp"; printf '%s\n' "error: $(1) fetched empty body"; exit 1; }; \
+			:; \
 		else \
 			rm -f "$$tmp"; \
 			printf '%s\n' "error: $(1) fetch failed; no cache fallback (moratorium). Run: gh auth login"; \
 			exit 1; \
 		fi; \
-	fi
+	fi; \
+	[ -s "$$tmp" ] && mv "$$tmp" "$(2)" || { rm -f "$$tmp"; printf '%s\n' "error: $(1) fetched empty body"; exit 1; }
 endef
 
 go-mk-fetch-one = $(shell { $(call _go_mk_fetch_commands,$(1),.make/$(1),$(GO_MK_DEV_DIR)); } 1>&2)
@@ -77,10 +78,13 @@ $(call go-mk-fetch-one,golangci.yml)
 
 GOLANGCI_LINT          ?= golangci-lint
 GOLANGCI_LINT_TARGETS  ?= ./...
-# LINT_CONCURRENCY caps the number of CPU workers golangci-lint spawns.
-# Default is half the available cores so a `make build` does not pin the
-# machine. Override with `make build LINT_CONCURRENCY=8` (or 0 for no cap).
-LINT_CONCURRENCY       ?= $(shell n=$$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4); echo $$((n/2 > 0 ? n/2 : 1)))
+# LINT_CONCURRENCY caps Go-backed lint/check commands. Override with
+# `make build LINT_CONCURRENCY=8` (or 0 for no cap).
+LINT_CONCURRENCY       ?= $(shell n=$$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4); [ "$$n" -lt 1 ] && n=1; [ "$$n" -lt 4 ] && echo "$$n" || echo 4)
+GO_MK_COMMA            := ,
+GO_MK_LINT_GOFLAGS     = $(strip $(filter-out -p=%,$(GOFLAGS)) -p=$(LINT_CONCURRENCY))
+GO_MK_LINT_CPU_ENV     = $(if $(filter-out 0,$(strip $(LINT_CONCURRENCY))),GOMAXPROCS=$(LINT_CONCURRENCY) GOFLAGS="$(GO_MK_LINT_GOFLAGS)")
+go_mk_lint_cpu = $(GO_MK_LINT_CPU_ENV) $(1)
 # GOLANGCI_LINT_FLAGS holds flags accepted by BOTH `golangci-lint run` and
 # `golangci-lint fmt`. The `--concurrency` flag is `run`-only, so it lives
 # in GOLANGCI_LINT_RUN_FLAGS which only the run sites reference.
@@ -196,7 +200,10 @@ lint: lint-tools
 		rm -f .make/lint.failed; \
 		status=0; \
 		lint_output=".make/lint.output"; \
-		$(GO_MK_RECURSIVE_MAKE) --no-print-directory -k $(LINT_GATES) > "$$lint_output" 2>&1 || status=$$?; \
+		: > "$$lint_output"; \
+		for gate in $(LINT_GATES); do \
+			$(GO_MK_RECURSIVE_MAKE) --no-print-directory "$$gate" >> "$$lint_output" 2>&1 || status=$$?; \
+		done; \
 		awk '"'"'!/^make(\[[0-9]+\])?: \*\*\* \[[^]]+\] Error [0-9]+$$/'"'"' "$$lint_output"; \
 		[ "$$status" -eq 0 ] && exit 0; \
 		if [ -s .make/lint.failed ]; then \
@@ -230,9 +237,9 @@ lint: lint-tools
 # real install errors still surface.
 lint-tools:
 	@err=$$(mktemp -t go-mk-lint-tools.XXXXXX); \
-	if ! { go install $(GOLANGCI_LINT_INSTALL) && \
-	       go install $(GOFUMPT_INSTALL) && \
-	       go install $(GOIMPORTS_INSTALL); } 2>"$$err"; then \
+	if ! { $(call go_mk_lint_cpu,go install $(GOLANGCI_LINT_INSTALL)) && \
+	       $(call go_mk_lint_cpu,go install $(GOFUMPT_INSTALL)) && \
+	       $(call go_mk_lint_cpu,go install $(GOIMPORTS_INSTALL)); } 2>"$$err"; then \
 		cat "$$err" >&2; rm -f "$$err"; exit 1; \
 	fi; \
 	rm -f "$$err"
@@ -251,7 +258,7 @@ lint-golangci: lint-tools
 			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
 			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
 		}; \
-		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$raw_output" 2>&1 || run_status=$$?; \
+		$(call go_mk_lint_cpu,$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_FLAGS) $(GOLANGCI_LINT_TARGETS)) > "$$raw_output" 2>&1 || run_status=$$?; \
 		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$raw_output" \
 			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
 			| filter \
@@ -378,8 +385,8 @@ lint-files: lint-tools staticcheck-extra-bin
 			return 1; \
 		}; \
 		status=0; \
-		run_gate golangci-lint "$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_FLAGS) $$pkgs" "$(GOLANGCI_LINT_BASELINE)" || status=1; \
-		run_gate staticcheck-extra ".make/staticcheck-extra $(STATICCHECK_EXTRA_FLAGS) $$pkgs" "$(STATICCHECK_EXTRA_BASELINE)" || status=1; \
+		run_gate golangci-lint "$(call go_mk_lint_cpu,$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_FLAGS) $$pkgs)" "$(GOLANGCI_LINT_BASELINE)" || status=1; \
+		run_gate staticcheck-extra "$(call go_mk_lint_cpu,.make/staticcheck-extra $(STATICCHECK_EXTRA_FLAGS) $$pkgs)" "$(STATICCHECK_EXTRA_BASELINE)" || status=1; \
 		if [ "$$status" -ne 0 ] && [ "$$gate_disabled" != "1" ]; then \
 			echo ""; \
 			echo "Run with BASELINE=\"\" to see all findings (skip baseline gate)."; \
@@ -405,7 +412,7 @@ lint-golangci-baseline: lint-tools
 			run_raw_output=".make/golangci-lint-baseline.$$run_index.raw.out"; \
 			run_findings_output=".make/golangci-lint-baseline.$$run_index.out"; \
 			run_status=0; \
-			$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_FLAGS) $(GOLANGCI_LINT_TARGETS) > "$$run_raw_output" 2>&1 || run_status=$$?; \
+			$(call go_mk_lint_cpu,$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_FLAGS) $(GOLANGCI_LINT_TARGETS)) > "$$run_raw_output" 2>&1 || run_status=$$?; \
 			cat "$$run_raw_output" >> "$$raw_output"; \
 			grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$run_raw_output" \
 				| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
@@ -428,7 +435,7 @@ lint-golangci-baseline: lint-tools
 		if [ "$$status" -ne 0 ] && [ "$$n" -eq 0 ]; then cat "$$raw_output"; exit "$$status"; fi'
 
 lint-format:
-	@diff_output=$$($(GOLANGCI_LINT) fmt --diff $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS)); \
+	@diff_output=$$($(call go_mk_lint_cpu,$(GOLANGCI_LINT) fmt --diff $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS))); \
 	if [ -n "$$diff_output" ]; then \
 		echo "golangci-lint formatters need to update:"; \
 		printf '%s\n' "$$diff_output"; \
@@ -440,12 +447,12 @@ lint-format:
 
 lint-gocyclo:
 	@err=$$(mktemp -t go-mk-gocyclo.XXXXXX); \
-	if ! go install $(GOCYCLO_INSTALL) 2>"$$err"; then \
+	if ! $(call go_mk_lint_cpu,go install $(GOCYCLO_INSTALL)) 2>"$$err"; then \
 		cat "$$err" >&2; rm -f "$$err"; exit 1; \
 	fi; \
 	rm -f "$$err"; \
 	mkdir -p .make; \
-	output=$$("$$(go env GOPATH)/bin/gocyclo" -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS) 2>&1) || status=$$?; \
+	output=$$($(call go_mk_lint_cpu,"$$(go env GOPATH)/bin/gocyclo" -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS)) 2>&1) || status=$$?; \
 	printf "%s\n" "$$output" > .make/gocyclo.out; \
 	if [ -n "$$output" ]; then \
 		count=$$(printf "%s\n" "$$output" | grep -c . || true); \
@@ -467,21 +474,21 @@ lint-gocyclo:
 	echo "  Functions over complexity limit $(GOCYCLO_OVER): 0"
 
 fmt: lint-tools
-	$(GOLANGCI_LINT) fmt $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS)
+	$(call go_mk_lint_cpu,$(GOLANGCI_LINT) fmt $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS))
 
 vet:
-	go vet $(GO_VET_TARGETS)
+	$(call go_mk_lint_cpu,go vet $(GO_VET_TARGETS))
 
 test:
-	go test $(GO_TEST_TARGETS)
+	$(call go_mk_lint_cpu,go test $(GO_TEST_TARGETS))
 
 govulncheck:
 	@err=$$(mktemp -t go-mk-vuln.XXXXXX); \
-	if ! go install golang.org/x/vuln/cmd/govulncheck@latest 2>"$$err"; then \
+	if ! $(call go_mk_lint_cpu,go install golang.org/x/vuln/cmd/govulncheck@latest) 2>"$$err"; then \
 		cat "$$err" >&2; rm -f "$$err"; exit 1; \
 	fi; \
 	rm -f "$$err"; \
-	"$$(go env GOPATH)/bin/govulncheck" $(GOVULNCHECK_TARGETS)
+	$(call go_mk_lint_cpu,"$$(go env GOPATH)/bin/govulncheck" $(GOVULNCHECK_TARGETS))
 
 # lint-deadcode runs golang.org/x/tools/cmd/deadcode and gates new findings
 # against a baseline file. Same pattern as staticcheck-extra: existing dead
@@ -497,7 +504,7 @@ DEADCODE_EXCLUDE_PATHS    ?=
 lint-deadcode:
 	@bash -eu -o pipefail -c '\
 		err=$$(mktemp -t go-mk-deadcode-install.XXXXXX); \
-		if ! go install $(DEADCODE_INSTALL) 2>"$$err"; then \
+		if ! $(call go_mk_lint_cpu,go install $(DEADCODE_INSTALL)) 2>"$$err"; then \
 			cat "$$err" >&2; rm -f "$$err"; exit 1; \
 		fi; \
 		rm -f "$$err"; \
@@ -511,7 +518,7 @@ lint-deadcode:
 			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
 			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
 		}; \
-		"$$(go env GOPATH)/bin/deadcode" $(DEADCODE_TARGETS) > "$$raw" 2>&1 || true; \
+		$(call go_mk_lint_cpu,"$$(go env GOPATH)/bin/deadcode" $(DEADCODE_TARGETS)) > "$$raw" 2>&1 || true; \
 		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+:" "$$raw" \
 			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
 			| filter \
@@ -566,7 +573,7 @@ lint-deadcode:
 lint-deadcode-baseline:
 	@bash -eu -o pipefail -c '\
 		err=$$(mktemp -t go-mk-deadcode-install.XXXXXX); \
-		if ! go install $(DEADCODE_INSTALL) 2>"$$err"; then \
+		if ! $(call go_mk_lint_cpu,go install $(DEADCODE_INSTALL)) 2>"$$err"; then \
 			cat "$$err" >&2; rm -f "$$err"; exit 1; \
 		fi; \
 		rm -f "$$err"; \
@@ -579,7 +586,7 @@ lint-deadcode-baseline:
 			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
 			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
 		}; \
-		"$$(go env GOPATH)/bin/deadcode" $(DEADCODE_TARGETS) > "$$raw" 2>&1 || true; \
+		$(call go_mk_lint_cpu,"$$(go env GOPATH)/bin/deadcode" $(DEADCODE_TARGETS)) > "$$raw" 2>&1 || true; \
 		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+:" "$$raw" \
 			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
 			| filter \
@@ -727,7 +734,7 @@ staticcheck-extra-bin:
 		flags="$(STATICCHECK_EXTRA_FLAGS)"; \
 		missing_flags() { \
 			candidate="$$1"; \
-			available=$$("$$candidate" -flags 2>/dev/null || true); \
+			available=$$($(call go_mk_lint_cpu,"$$candidate" -flags) 2>/dev/null || true); \
 			for flag in $$flags; do \
 				name="$${flag#-}"; \
 				printf "%s\n" "$$available" | grep -q "\"Name\": \"$$name\"" || return 0; \
@@ -737,14 +744,14 @@ staticcheck-extra-bin:
 		build_from_repo() { \
 			mkdir -p .make; \
 			out="$(CURDIR)/.make/staticcheck-extra"; \
-			cd "$$repo" && go build -o "$$out" "$$pkg"; \
+			cd "$$repo" && $(call go_mk_lint_cpu,go build -o "$$out" "$$pkg"); \
 		}; \
 		install_binary() { \
 			base=$$(basename "$${install%%@*}"); \
 			gobin=$$(go env GOPATH)/bin; \
 			installed="$$gobin/$$base"; \
 			err_log=$$(mktemp -t staticcheck-extra-install.XXXXXX); \
-			if ! GOPROXY=direct GONOSUMDB=github.com/agoodkind/go-makefile,github.com/agoodkind/go-makefile/staticcheck GOBIN="$$gobin" go install "$$install" 2>"$$err_log"; then \
+			if ! $(call go_mk_lint_cpu,GOPROXY=direct GONOSUMDB=github.com/agoodkind/go-makefile$(GO_MK_COMMA)github.com/agoodkind/go-makefile/staticcheck GOBIN="$$gobin" go install "$$install") 2>"$$err_log"; then \
 				cat "$$err_log" >&2; \
 				rm -f "$$err_log"; \
 				return 1; \
@@ -802,7 +809,7 @@ staticcheck-extra: staticcheck-extra-bin
 			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
 			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
 		}; \
-		"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS) 2>&1 \
+		$(call go_mk_lint_cpu,"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS)) 2>&1 \
 			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort > .make/staticcheck-extra.out || true; \
 		if [ ! -f "$(STATICCHECK_EXTRA_BASELINE)" ]; then \
 			touch "$(STATICCHECK_EXTRA_BASELINE)"; \
@@ -866,7 +873,7 @@ staticcheck-extra-baseline: staticcheck-extra-bin
 			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
 			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
 		}; \
-		"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS) 2>&1 \
+		$(call go_mk_lint_cpu,"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS)) 2>&1 \
 			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort > .make/staticcheck-extra.out || true; \
 		if [ ! -f "$(STATICCHECK_EXTRA_BASELINE)" ]; then \
 			touch "$(STATICCHECK_EXTRA_BASELINE)"; \
