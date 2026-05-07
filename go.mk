@@ -188,9 +188,19 @@ LINT_GATES := lint-golangci lint-format lint-gocyclo lint-deadcode staticcheck-e
 
 lint: lint-tools
 	@bash -eu -o pipefail -c '\
+		mkdir -p .make; \
+		rm -f .make/lint.failed; \
 		status=0; \
 		$(GO_MK_RECURSIVE_MAKE) --no-print-directory -k $(LINT_GATES) || status=$$?; \
 		[ "$$status" -eq 0 ] && exit 0; \
+		if [ -s .make/lint.failed ]; then \
+			failed_gates=$$(awk '"'"'NF && !seen[$$0]++ { if (out != "") out = out ", "; out = out $$0 } END { print out }'"'"' .make/lint.failed); \
+			printf "\nlint: FAILED\n"; \
+			printf "  Failed gates: %s\n" "$$failed_gates"; \
+		else \
+			printf "\nlint: FAILED\n"; \
+			printf "  Failed gates: see failed target output above\n"; \
+		fi; \
 		bypass=$$(printf "%s" "$(BYPASS_LINT)" | $(_bypass_slugify)); \
 		if [ -n "$$bypass" ]; then \
 			expected=$$($(BYPASS_TOKEN_CMD) 2>/dev/null | $(_bypass_slugify) || true); \
@@ -266,25 +276,39 @@ lint-golangci: lint-tools
 		new=$$(map_keys_to_originals "$$new_keys_file" "$$findings_output"); \
 		if [ -n "$$new" ]; then \
 			new_count=$$(printf "%s\n" "$$new" | wc -l | tr -d " "); \
-			echo "NEW golangci-lint findings:"; \
-			echo "$$new"; \
+			echo "golangci-lint: FAILED"; \
+			echo "  New findings: $$new_count"; \
 			echo ""; \
-			echo "Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks."; \
+			echo "Findings:"; \
+			printf "%s\n" "$$new"; \
+			echo ""; \
+			echo "  Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks."; \
 			gate_status=1; \
 		fi; \
 		gone=$$(map_keys_to_originals "$$gone_keys_file" "$$baseline_output"); \
 		gone_count=0; \
 		if [ -n "$$gone" ]; then gone_count=$$(printf "%s\n" "$$gone" | wc -l | tr -d " "); fi; \
 		if [ "$$gate_status" -ne 0 ]; then \
-			echo "golangci-lint: FAILED ($$new_count new findings)"; \
+			mkdir -p .make; \
+			echo "golangci-lint" >> .make/lint.failed; \
 			exit "$$gate_status"; \
 		fi; \
+		echo "golangci-lint: OK"; \
+		echo "  New findings: 0"; \
 		if [ "$$gone_count" -gt 0 ]; then \
-			echo "golangci-lint: OK (no new findings; $$gone_count old saved findings are fixed now; run make lint-golangci-baseline to update the saved list)"; \
-		else \
-			echo "golangci-lint: OK (no new findings)"; \
+			echo "  Saved findings now fixed: $$gone_count"; \
+			echo "  Next: run make lint-golangci-baseline to remove fixed entries from the saved list"; \
 		fi; \
-		if [ "$$run_status" -ne 0 ] && [ ! -s "$$findings_output" ]; then cat "$$raw_output"; exit "$$run_status"; fi'
+		if [ "$$run_status" -ne 0 ] && [ ! -s "$$findings_output" ]; then \
+			echo "golangci-lint: FAILED"; \
+			echo "  Exit status: $$run_status"; \
+			echo ""; \
+			echo "Output:"; \
+			cat "$$raw_output"; \
+			mkdir -p .make; \
+			echo "golangci-lint" >> .make/lint.failed; \
+			exit "$$run_status"; \
+		fi'
 
 # lint-files runs golangci-lint scoped to LINT_FILES with the central config
 # but WITHOUT the baseline gate. Use it while iterating on a change set,
@@ -403,6 +427,8 @@ lint-format:
 		echo "golangci-lint formatters need to update:"; \
 		printf '%s\n' "$$diff_output"; \
 		echo "run make fmt"; \
+		mkdir -p .make; \
+		echo "lint-format" >> .make/lint.failed; \
 		exit 1; \
 	fi
 
@@ -412,20 +438,27 @@ lint-gocyclo:
 		cat "$$err" >&2; rm -f "$$err"; exit 1; \
 	fi; \
 	rm -f "$$err"; \
+	mkdir -p .make; \
 	output=$$("$$(go env GOPATH)/bin/gocyclo" -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS) 2>&1) || status=$$?; \
+	printf "%s\n" "$$output" > .make/gocyclo.out; \
 	if [ -n "$$output" ]; then \
 		count=$$(printf "%s\n" "$$output" | grep -c . || true); \
-		echo "NEW gocyclo findings:"; \
-		printf "%s\n" "$$output"; \
+		echo "gocyclo: FAILED"; \
+		echo "  Functions over complexity limit $(GOCYCLO_OVER): $$count"; \
 		echo ""; \
-		echo "gocyclo: FAILED ($$count findings over complexity limit $(GOCYCLO_OVER))"; \
+		echo "Findings:"; \
+		printf "%s\n" "$$output"; \
+		echo "gocyclo" >> .make/lint.failed; \
 		exit 1; \
 	fi; \
 	if [ "$${status:-0}" -ne 0 ]; then \
-		echo "gocyclo: FAILED (exit status $$status)"; \
+		echo "gocyclo: FAILED"; \
+		echo "  Exit status: $$status"; \
+		echo "gocyclo" >> .make/lint.failed; \
 		exit "$$status"; \
 	fi; \
-	echo "gocyclo: OK (0 findings over complexity limit $(GOCYCLO_OVER))"
+	echo "gocyclo: OK"; \
+	echo "  Functions over complexity limit $(GOCYCLO_OVER): 0"
 
 fmt: lint-tools
 	$(GOLANGCI_LINT) fmt $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS)
@@ -500,23 +533,28 @@ lint-deadcode:
 		new=$$(map_keys "$$new_keys" "$$findings"); \
 		if [ -n "$$new" ]; then \
 			new_count=$$(printf "%s\n" "$$new" | wc -l | tr -d " "); \
-			echo "NEW deadcode findings:"; \
-			echo "$$new"; \
+			echo "deadcode: FAILED"; \
+			echo "  New findings: $$new_count"; \
 			echo ""; \
-			echo "Remove the dead code or document why it stays. Do not silence the check."; \
+			echo "Findings:"; \
+			printf "%s\n" "$$new"; \
+			echo ""; \
+			echo "  Remove the dead code or document why it stays. Do not silence the check."; \
 			gate_status=1; \
 		fi; \
 		gone=$$(map_keys "$$gone_keys" "$$baseline"); \
 		gone_count=0; \
 		if [ -n "$$gone" ]; then gone_count=$$(printf "%s\n" "$$gone" | wc -l | tr -d " "); fi; \
 		if [ "$$gate_status" -ne 0 ]; then \
-			echo "deadcode: FAILED ($$new_count new findings)"; \
+			mkdir -p .make; \
+			echo "deadcode" >> .make/lint.failed; \
 			exit "$$gate_status"; \
 		fi; \
+		echo "deadcode: OK"; \
+		echo "  New findings: 0"; \
 		if [ "$$gone_count" -gt 0 ]; then \
-			echo "deadcode: OK (no new findings; $$gone_count old saved findings are fixed now; run make lint-deadcode-baseline to update the saved list)"; \
-		else \
-			echo "deadcode: OK (no new findings)"; \
+			echo "  Saved findings now fixed: $$gone_count"; \
+			echo "  Next: run make lint-deadcode-baseline to remove fixed entries from the saved list"; \
 		fi'
 
 lint-deadcode-baseline:
@@ -784,23 +822,28 @@ staticcheck-extra: staticcheck-extra-bin
 		new=$$(map_keys .make/staticcheck-extra.keys.new .make/staticcheck-extra.out); \
 		if [ -n "$$new" ]; then \
 			new_count=$$(printf "%s\n" "$$new" | wc -l | tr -d " "); \
-			echo "NEW staticcheck-extra findings:"; \
-			echo "$$new"; \
+			echo "staticcheck-extra: FAILED"; \
+			echo "  New findings: $$new_count"; \
 			echo ""; \
-			echo "Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks."; \
+			echo "Findings:"; \
+			printf "%s\n" "$$new"; \
+			echo ""; \
+			echo "  Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks."; \
 			gate_status=1; \
 		fi; \
 		gone=$$(map_keys .make/staticcheck-extra.keys.gone .make/staticcheck-extra.baseline.out); \
 		gone_count=0; \
 		if [ -n "$$gone" ]; then gone_count=$$(printf "%s\n" "$$gone" | wc -l | tr -d " "); fi; \
 		if [ "$$gate_status" -ne 0 ]; then \
-			echo "staticcheck-extra: FAILED ($$new_count new findings)"; \
+			mkdir -p .make; \
+			echo "staticcheck-extra" >> .make/lint.failed; \
 			exit "$$gate_status"; \
 		fi; \
+		echo "staticcheck-extra: OK"; \
+		echo "  New findings: 0"; \
 		if [ "$$gone_count" -gt 0 ]; then \
-			echo "staticcheck-extra: OK (no new findings; $$gone_count old saved findings are fixed now; run make staticcheck-extra-baseline to update the saved list)"; \
-		else \
-			echo "staticcheck-extra: OK (no new findings)"; \
+			echo "  Saved findings now fixed: $$gone_count"; \
+			echo "  Next: run make staticcheck-extra-baseline to remove fixed entries from the saved list"; \
 		fi'
 
 staticcheck-extra-baseline: staticcheck-extra-bin
