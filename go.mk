@@ -186,12 +186,18 @@ endef
 
 LINT_GATES := lint-golangci lint-format lint-gocyclo lint-deadcode staticcheck-extra
 
+define go_mk_print_findings
+awk '"'"'{ line=$$0; if (match(line, /:[0-9]+:[0-9]+:/)) { loc=substr(line, 1, RSTART+RLENGTH-2); msg=substr(line, RSTART+RLENGTH); sub(/^[ \t]+/, "", msg); printf "  %s\n    %s\n", loc, msg } else { printf "  %s\n", line } }'"'"'
+endef
+
 lint: lint-tools
 	@bash -eu -o pipefail -c '\
 		mkdir -p .make; \
 		rm -f .make/lint.failed; \
 		status=0; \
-		$(GO_MK_RECURSIVE_MAKE) --no-print-directory -k $(LINT_GATES) || status=$$?; \
+		lint_output=".make/lint.output"; \
+		$(GO_MK_RECURSIVE_MAKE) --no-print-directory -k $(LINT_GATES) > "$$lint_output" 2>&1 || status=$$?; \
+		awk '"'"'!/^make(\[[0-9]+\])?: \*\*\* \[[^]]+\] Error [0-9]+$$/'"'"' "$$lint_output"; \
 		[ "$$status" -eq 0 ] && exit 0; \
 		if [ -s .make/lint.failed ]; then \
 			failed_gates=$$(awk '"'"'NF && !seen[$$0]++ { if (out != "") out = out ", "; out = out $$0 } END { print out }'"'"' .make/lint.failed); \
@@ -280,7 +286,7 @@ lint-golangci: lint-tools
 			echo "  New findings: $$new_count"; \
 			echo ""; \
 			echo "Findings:"; \
-			printf "%s\n" "$$new"; \
+			printf "%s\n" "$$new" | $(go_mk_print_findings); \
 			echo ""; \
 			echo "  Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks."; \
 			gate_status=1; \
@@ -447,7 +453,7 @@ lint-gocyclo:
 		echo "  Functions over complexity limit $(GOCYCLO_OVER): $$count"; \
 		echo ""; \
 		echo "Findings:"; \
-		printf "%s\n" "$$output"; \
+		printf "%s\n" "$$output" | $(go_mk_print_findings); \
 		echo "gocyclo" >> .make/lint.failed; \
 		exit 1; \
 	fi; \
@@ -537,7 +543,7 @@ lint-deadcode:
 			echo "  New findings: $$new_count"; \
 			echo ""; \
 			echo "Findings:"; \
-			printf "%s\n" "$$new"; \
+			printf "%s\n" "$$new" | $(go_mk_print_findings); \
 			echo ""; \
 			echo "  Remove the dead code or document why it stays. Do not silence the check."; \
 			gate_status=1; \
@@ -826,7 +832,7 @@ staticcheck-extra: staticcheck-extra-bin
 			echo "  New findings: $$new_count"; \
 			echo ""; \
 			echo "Findings:"; \
-			printf "%s\n" "$$new"; \
+			printf "%s\n" "$$new" | $(go_mk_print_findings); \
 			echo ""; \
 			echo "  Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks."; \
 			gate_status=1; \
