@@ -78,9 +78,21 @@ $(call go-mk-fetch-one,golangci.yml)
 
 GOLANGCI_LINT          ?= golangci-lint
 GOLANGCI_LINT_TARGETS  ?= ./...
-# LINT_CONCURRENCY caps Go-backed lint/check commands. Override with
-# `make build LINT_CONCURRENCY=8` (or 0 for no cap).
-LINT_CONCURRENCY       ?= $(shell n=$$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4); [ "$$n" -lt 1 ] && n=1; [ "$$n" -lt 4 ] && echo "$$n" || echo 4)
+# LINT_CONCURRENCY caps Go-backed lint/check commands. The default scales
+# with current load: it grants ncpu - load1 - 1 cores (one reserved as
+# breathing room), floored at 2 (or 1 on a single-core box) and capped at
+# ncpu, so an idle machine spins up more workers and a busy machine backs
+# off. Override with `make build LINT_CONCURRENCY=8` (or 0 for no cap).
+LINT_CONCURRENCY       ?= $(shell \
+	n=$$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4); \
+	[ "$$n" -lt 1 ] && n=1; \
+	if [ "$$(uname)" = "Darwin" ]; then \
+		load=$$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $$2+0}'); \
+	else \
+		load=$$(awk '{print $$1+0; exit}' /proc/loadavg 2>/dev/null); \
+	fi; \
+	[ -z "$$load" ] && load=0; \
+	awk -v n="$$n" -v l="$$load" 'BEGIN { v=int(n - l - 1); min=(n<2?1:2); if (v<min) v=min; if (v>n) v=n; print v }')
 GO_MK_COMMA            := ,
 GO_MK_LINT_GOFLAGS     = $(strip $(filter-out -p=%,$(GOFLAGS)) -p=$(LINT_CONCURRENCY))
 GO_MK_LINT_CPU_ENV     = $(if $(filter-out 0,$(strip $(LINT_CONCURRENCY))),GOMAXPROCS=$(LINT_CONCURRENCY) GOFLAGS="$(GO_MK_LINT_GOFLAGS)")
