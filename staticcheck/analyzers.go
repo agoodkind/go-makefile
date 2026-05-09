@@ -35,6 +35,7 @@ func Analyzers() []*analysis.Analyzer {
 		ThinWrapperAnalyzer,
 		RTAThrowawayRegistrationAnalyzer,
 		RTASyntheticMarkerCallAnalyzer,
+		RTASlogFieldBypassAnalyzer,
 		LifecycleNoopCloserAnalyzer,
 		LifecycleSilentCloseErrAnalyzer,
 	}

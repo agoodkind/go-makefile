@@ -728,6 +728,7 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-thin_wrapper_to_launderable_call \
 	-rta_throwaway_registration \
 	-rta_synthetic_marker_call \
+	-rta_slog_field_bypass \
 	-lifecycle_noop_closer \
 	-lifecycle_silent_close_err
 STATICCHECK_EXTRA_FLAGS         ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
