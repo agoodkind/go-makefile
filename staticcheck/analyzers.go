@@ -33,5 +33,10 @@ func Analyzers() []*analysis.Analyzer {
 		NolintBanAnalyzer,
 		StringSwitchShouldBeEnumAnalyzer,
 		ThinWrapperAnalyzer,
+		RTAThrowawayRegistrationAnalyzer,
+		RTASyntheticMarkerCallAnalyzer,
+		RTASlogMarkerBoxAnalyzer,
+		LifecycleNoopCloserAnalyzer,
+		LifecycleSilentCloseErrAnalyzer,
 	}
 }
