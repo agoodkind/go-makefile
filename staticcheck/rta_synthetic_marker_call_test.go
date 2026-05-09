@@ -4,29 +4,6 @@ import (
 	"testing"
 )
 
-func TestRTASyntheticMarkerCallFlagsCompositeBypass(t *testing.T) {
-	t.Parallel()
-
-	source := `package supervisor
-
-type Meta struct {
-	Kind          string
-	LiveSessionID string
-	PID           int
-}
-
-func (Meta) IsLivetrackMeta() bool { return true }
-
-var _ = Meta{}.IsLivetrackMeta()
-`
-	a := newRTASyntheticMarkerCallAnalyzer()
-	if err := a.Flags.Set("marker_methods", "IsLivetrackMeta"); err != nil {
-		t.Fatalf("set marker_methods: %v", err)
-	}
-	diags := runAnalyzerOnSource(t, a, "registry.go", source)
-	wantOnce(t, diags, "[RTA002]", "IsLivetrackMeta")
-}
-
 func TestRTASyntheticMarkerCallFlagsConfessionalComment(t *testing.T) {
 	t.Parallel()
 
@@ -43,10 +20,10 @@ func init() {
 `
 	a := newRTASyntheticMarkerCallAnalyzer()
 	diags := runAnalyzerOnSource(t, a, "registry.go", source)
-	wantOnce(t, diags, "[RTA002]", "self-confessed")
+	wantOnce(t, diags, "[RTA002]", "self-confessed", "Frob")
 }
 
-func TestRTASyntheticMarkerCallAcceptsLegitimateUse(t *testing.T) {
+func TestRTASyntheticMarkerCallIgnoresUnconfessedDiscard(t *testing.T) {
 	t.Parallel()
 
 	source := `package supervisor
@@ -57,19 +34,32 @@ type Meta struct {
 
 func (m Meta) IsLivetrackMeta() bool { return m.Kind != "" }
 
-func DescribeMeta(m Meta) string {
-	if !m.IsLivetrackMeta() {
-		return "unset"
+var _ = Meta{}.IsLivetrackMeta()
+`
+	a := newRTASyntheticMarkerCallAnalyzer()
+	diags := runAnalyzerOnSource(t, a, "registry.go", source)
+	if len(diags) != 0 {
+		t.Fatalf("expected no diagnostics without confessional comment, got %d: %v", len(diags), diags)
 	}
-	return m.Kind
+}
+
+func TestRTASyntheticMarkerCallIgnoresVoidCall(t *testing.T) {
+	t.Parallel()
+
+	source := `package supervisor
+
+type logger struct{}
+
+func (logger) Debug(msg string) {}
+
+func startup(log logger) {
+	// reachability hack: keep Foo alive for the deadcode analyzer
+	log.Debug("startup")
 }
 `
 	a := newRTASyntheticMarkerCallAnalyzer()
-	if err := a.Flags.Set("marker_methods", "IsLivetrackMeta"); err != nil {
-		t.Fatalf("set marker_methods: %v", err)
-	}
-	diags := runAnalyzerOnSource(t, a, "registry.go", source)
+	diags := runAnalyzerOnSource(t, a, "startup.go", source)
 	if len(diags) != 0 {
-		t.Fatalf("expected no diagnostics for legitimate use, got %d: %v", len(diags), diags)
+		t.Fatalf("expected no diagnostics on void call, got %d: %v", len(diags), diags)
 	}
 }

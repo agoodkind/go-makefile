@@ -261,9 +261,14 @@ func callIsCloserMethod(pass *analysis.Pass, call *ast.CallExpr) bool {
 		return false
 	}
 	if isOneOfNamed(recv, []namedRef{
-		{"net", "Conn"}, {"os", "File"}, {"os", "Process"},
-		{"crypto/tls", "Conn"}, {"net/http", "Server"},
-		{"io", "ReadCloser"}, {"io", "WriteCloser"}, {"io", "Closer"},
+		{"net", "Conn"},
+		{"os", "File"},
+		{"os", "Process"},
+		{"crypto/tls", "Conn"},
+		{"net/http", "Server"},
+		{"io", "ReadCloser"},
+		{"io", "WriteCloser"},
+		{"io", "Closer"},
 	}) {
 		return true
 	}
@@ -273,6 +278,18 @@ func callIsCloserMethod(pass *analysis.Pass, call *ast.CallExpr) bool {
 type namedRef struct {
 	pkgPath string
 	name    string
+}
+
+func underlyingNamed(t types.Type) (*types.Named, bool) {
+	switch v := t.(type) {
+	case *types.Named:
+		return v, true
+	case *types.Pointer:
+		if named, ok := v.Elem().(*types.Named); ok {
+			return named, true
+		}
+	}
+	return nil, false
 }
 
 func isOneOfNamed(t types.Type, refs []namedRef) bool {

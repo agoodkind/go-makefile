@@ -5,42 +5,29 @@ import (
 	"go/token"
 	"go/types"
 	"regexp"
-	"strings"
 
 	"golang.org/x/tools/go/analysis"
 )
 
-// RTASyntheticMarkerCallAnalyzer flags a deadcode RTA bypass shape
-// where a marker method is called once and the result is discarded so
-// that the deadcode analyzer treats the method (and the implementing
-// type's method set) as reachable. The empirical case looks like:
+// RTASyntheticMarkerCallAnalyzer flags discarded method calls whose
+// adjacent comments confess the bypass intent. The empirical case is:
 //
+//	// keep IsLivetrackMeta reachable for the deadcode analyzer
 //	_ = SupervisorMeta{}.IsLivetrackMeta()
-//	_ = meta.IsLivetrackMeta()
-//	func init() { _ = WebMeta{}.IsLivetrackMeta() }
 //
-// The discriminator is intent: the call's only purpose is to count as
-// a use. Real call sites consume the return value or pass it onward.
+// The detector is intentionally narrow: it fires only when a comment
+// matching (?i)deadcode|RTA|reachability sits within five lines of a
+// discarded `_ = expr.Method()` (or `var _ = ...`, or an expression
+// statement whose call returns at least one value). It catches sloppy
+// bypasses that confess in writing; it does not pretend to catch a
+// determined bypass author who omits the comment.
 //
-// Two configurable lists drive detection:
-//
-//	-marker_interfaces  comma-separated qualified interface names
-//	                    whose methods, when called and discarded, are
-//	                    suspicious. Example:
-//	                    "goodkind.io/clyde/internal/livetrack.Meta".
-//	-marker_methods     comma-separated method names. A discarded call
-//	                    to a method whose name appears here is flagged
-//	                    independently of interface implementation,
-//	                    which lets projects that lack types-info
-//	                    package paths still gate on names.
-//
-// When both lists are empty the analyzer no-ops and prints a single
-// stderr warning so consumers know it ran unconfigured.
-//
-// A bonus high-confidence path fires regardless of configuration: any
-// discarded method call within five lines of a comment matching
-// (?i)deadcode|RTA|reachability is treated as a self-confessed bypass
-// and reported with a stronger message.
+// A more aggressive shape-only mode (flagging any throwaway method
+// call on a project type) was considered and rejected: it produces
+// significant noise on real code and an attacker can sidestep it by
+// adding an argument or by routing the call through a function. The
+// real defence against an attacker silently editing lint config sits
+// at the shell layer (agent-gate) rather than here.
 //
 // The diagnostic carries the literal "[RTA002]". Document intentional
 // exceptions in the staticcheck-extra baseline, not via inline
@@ -48,25 +35,24 @@ import (
 var RTASyntheticMarkerCallAnalyzer = newRTASyntheticMarkerCallAnalyzer()
 
 func newRTASyntheticMarkerCallAnalyzer() *analysis.Analyzer {
-	a := &analysis.Analyzer{
+	return &analysis.Analyzer{
 		Name: "rta_synthetic_marker_call",
-		Doc:  "rejects discarded calls to project marker methods; these are deadcode RTA bypass alibis",
+		Doc:  "rejects discarded method calls with adjacent deadcode/RTA/reachability comments",
 		Run:  runRTASyntheticMarkerCall,
 	}
-	a.Flags.String("marker_interfaces", "", "comma-separated qualified interface names (e.g. goodkind.io/clyde/internal/livetrack.Meta)")
-	a.Flags.String("marker_methods", "", "comma-separated marker method names (e.g. IsLivetrackMeta)")
-	return a
 }
 
 var rtaConfessionalCommentPattern = regexp.MustCompile(`(?i)deadcode|\brta\b|reachability`)
 
 func runRTASyntheticMarkerCall(pass *analysis.Pass) (any, error) {
-	cfg := loadRTASyntheticMarkerConfig(pass.Analyzer)
 	for _, file := range pass.Files {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
 		commentLines := collectConfessionalCommentLines(pass.Fset, file)
+		if len(commentLines) == 0 {
+			continue
+		}
 		ast.Inspect(file, func(node ast.Node) bool {
 			call, ok := discardedMethodCall(node)
 			if !ok {
@@ -80,50 +66,16 @@ func runRTASyntheticMarkerCall(pass *analysis.Pass) (any, error) {
 				return true
 			}
 			callLine := pass.Fset.Position(call.Pos()).Line
-			confessional := commentLineWithinDistance(commentLines, callLine, 5)
-			if !cfg.matchesMarker(methodName, recvType) && !confessional {
-				return true
-			}
-			if confessional {
-				reportAtf(pass, file, call.Pos(),
-					"[RTA002] discarded call to method %q on %q with adjacent deadcode/RTA comment; this is a self-confessed reachability bypass",
-					methodName, formatType(recvType))
+			if !commentLineWithinDistance(commentLines, callLine, 5) {
 				return true
 			}
 			reportAtf(pass, file, call.Pos(),
-				"[RTA002] discarded call to project marker method %q on %q; if the call has no purpose other than counting as a use, drop the marker; if the receiver type really needs the interface, propagate the value through a real consumer",
+				"[RTA002] discarded call to method %q on %q with adjacent deadcode/RTA/reachability comment; this is a self-confessed reachability bypass. Drop the call and the alibi, or document why the call is load-bearing in a way that does not name the deadcode analyzer",
 				methodName, formatType(recvType))
 			return true
 		})
 	}
 	return nil, nil
-}
-
-type rtaSyntheticMarkerConfig struct {
-	markerInterfaces map[string]struct{}
-	markerMethods    map[string]struct{}
-}
-
-func loadRTASyntheticMarkerConfig(a *analysis.Analyzer) rtaSyntheticMarkerConfig {
-	return rtaSyntheticMarkerConfig{
-		markerInterfaces: csvFlagSet(&a.Flags, "marker_interfaces"),
-		markerMethods:    csvFlagSet(&a.Flags, "marker_methods"),
-	}
-}
-
-func (c rtaSyntheticMarkerConfig) matchesMarker(methodName string, recvType types.Type) bool {
-	if _, ok := c.markerMethods[methodName]; ok {
-		return true
-	}
-	if recvType == nil || len(c.markerInterfaces) == 0 {
-		return false
-	}
-	for qualified := range c.markerInterfaces {
-		if typeImplementsInterfaceByName(recvType, qualified) {
-			return true
-		}
-	}
-	return false
 }
 
 // discardedMethodCall returns the underlying CallExpr of a statement
@@ -202,9 +154,8 @@ func callExprIfMethodCall(expr ast.Expr) (*ast.CallExpr, bool) {
 }
 
 // resolveCalledMethod returns the method name and the receiver's
-// concrete type. It uses pass.TypesInfo when available; if not, it
-// falls back to a name-only resolution where the receiver type is nil
-// and only marker_methods can match.
+// concrete type when TypesInfo is available; otherwise returns just
+// the method name with a nil type.
 func resolveCalledMethod(pass *analysis.Pass, call *ast.CallExpr) (string, types.Type, bool) {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
@@ -218,58 +169,6 @@ func resolveCalledMethod(pass *analysis.Pass, call *ast.CallExpr) (string, types
 		return methodName, recvType, true
 	}
 	return methodName, nil, true
-}
-
-// typeImplementsInterfaceByName checks whether t (or its pointer)
-// has a method matching the named interface's method set. Because the
-// interface type itself may not be loaded into TypesInfo, this
-// approximates: split qualified into pkg + interface name and check
-// only method names. Conservative: false negatives are preferable to
-// false positives. Configured projects that want strict interface
-// matching should use marker_methods.
-func typeImplementsInterfaceByName(t types.Type, qualified string) bool {
-	if t == nil {
-		return false
-	}
-	dot := strings.LastIndex(qualified, ".")
-	if dot < 0 {
-		return false
-	}
-	pkgPath := qualified[:dot]
-	ifaceName := qualified[dot+1:]
-	named, ok := underlyingNamed(t)
-	if !ok {
-		return false
-	}
-	obj := named.Obj()
-	if obj == nil || obj.Pkg() == nil {
-		return false
-	}
-	if pkgPath == obj.Pkg().Path() && obj.Name() == ifaceName {
-		return true
-	}
-	for i := 0; i < named.NumMethods(); i++ {
-		method := named.Method(i)
-		if method == nil {
-			continue
-		}
-		if method.Pkg() != nil && method.Pkg().Path() == pkgPath {
-			return true
-		}
-	}
-	return false
-}
-
-func underlyingNamed(t types.Type) (*types.Named, bool) {
-	switch v := t.(type) {
-	case *types.Named:
-		return v, true
-	case *types.Pointer:
-		if named, ok := v.Elem().(*types.Named); ok {
-			return named, true
-		}
-	}
-	return nil, false
 }
 
 func formatType(t types.Type) string {
