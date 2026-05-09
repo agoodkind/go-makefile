@@ -725,7 +725,11 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-grpc_handler_missing_peer_enrichment \
 	-nolint_ban \
 	-string_switch_should_be_enum \
-	-thin_wrapper_to_launderable_call
+	-thin_wrapper_to_launderable_call \
+	-rta_throwaway_registration \
+	-rta_synthetic_marker_call \
+	-lifecycle_noop_closer \
+	-lifecycle_silent_close_err
 STATICCHECK_EXTRA_FLAGS         ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
