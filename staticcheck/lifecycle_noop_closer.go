@@ -22,11 +22,11 @@ import (
 // strict). A body is considered real-work when it contains any of:
 //
 //   - a call whose function expression has a type of
-//     context.CancelFunc, or a call named "cancel" / "stop"
-//   - a Close() call on a value whose type is one of net.Conn,
-//     *os.File, *os.Process, *tls.Conn, *http.Server, or implements
-//     io.Closer (not the closer itself, to avoid trivial recursion)
-//   - a Signal() call on a value of type *os.Process
+//     [context.CancelFunc], or a call named "cancel" / "stop"
+//   - a Close() call on a value whose type is one of [net.Conn],
+//     [*os.File], [*os.Process], [*tls.Conn], [*http.Server], or implements
+//     [io.Closer] (not the closer itself, to avoid trivial recursion)
+//   - a Signal() call on a value of type [*os.Process]
 //   - a send on a channel
 //   - a recv from a channel
 //
@@ -150,29 +150,29 @@ func displayReceiverName(fn *ast.FuncDecl, qualified string) string {
 // shutdowns. The empty body and the single-return-nil body are the
 // targets.
 func bodyDoesRealShutdown(pass *analysis.Pass, body *ast.BlockStmt) bool {
-	real := false
+	hasRealShutdown := false
 	ast.Inspect(body, func(node ast.Node) bool {
-		if real {
+		if hasRealShutdown {
 			return false
 		}
 		switch n := node.(type) {
 		case *ast.SendStmt:
-			real = true
+			hasRealShutdown = true
 			return false
 		case *ast.UnaryExpr:
 			if n.Op.String() == "<-" {
-				real = true
+				hasRealShutdown = true
 				return false
 			}
 		case *ast.CallExpr:
 			if callIsRealShutdown(pass, n) {
-				real = true
+				hasRealShutdown = true
 				return false
 			}
 		}
 		return true
 	})
-	return real
+	return hasRealShutdown
 }
 
 func callIsRealShutdown(pass *analysis.Pass, call *ast.CallExpr) bool {
@@ -311,8 +311,8 @@ func isOneOfNamed(t types.Type, refs []namedRef) bool {
 
 func implementsIOCloser(t types.Type) bool {
 	mset := types.NewMethodSet(types.NewPointer(t))
-	for i := 0; i < mset.Len(); i++ {
-		method := mset.At(i).Obj()
+	for selection := range mset.Methods() {
+		method := selection.Obj()
 		if method == nil {
 			continue
 		}

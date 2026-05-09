@@ -83,10 +83,10 @@ func runRTASyntheticMarkerCall(pass *analysis.Pass) (any, error) {
 //
 //	_ = expr.Method()
 //	var _ = expr.Method()
-//	expr.Method()  (only when the method has a non-void return)
+//	bare expression statement with a non-void method return
 //
 // The call must resolve to a method call (a SelectorExpr fun), not a
-// free-function call. A void-returning call inside an *ast.ExprStmt
+// free-function call. A void-returning call inside an [ast.ExprStmt]
 // is not a discard: nothing was discarded.
 func discardedMethodCall(node ast.Node) (*ast.CallExpr, bool) {
 	switch n := node.(type) {

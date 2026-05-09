@@ -168,14 +168,18 @@ help:
 	@printf '  %-32s %s\n' 'lint-deadcode' 'unreachable functions + .deadcode-baseline.txt + DEADCODE_EXCLUDE_PATHS'
 	@printf '  %-32s %s\n' 'staticcheck-extra' 'strict custom analyzers + .staticcheck-extra-baseline.txt'
 	@printf '\n%s\n' 'Refresh baselines after fixing in code first (do NOT use to silence findings):'
-	@printf '  %-32s %s\n' 'baseline BASELINE_CONFIRM=1' 'rebuild all three baseline files (gated; ask user)'
-	@printf '  %-32s %s\n' 'lint-golangci-baseline' 'rebuild .golangci-lint-baseline.txt'
-	@printf '  %-32s %s\n' 'lint-deadcode-baseline' 'rebuild .deadcode-baseline.txt'
-	@printf '  %-32s %s\n' 'staticcheck-extra-baseline' 'rebuild .staticcheck-extra-baseline.txt'
+	@printf '  %-32s %s\n' 'baseline BASELINE_CONFIRM=1 BASELINE_TOKEN=...' 'rebuild all three baseline files (gated)'
+	@printf '  %-32s %s\n' 'lint-golangci-baseline' 'rebuild .golangci-lint-baseline.txt (gated)'
+	@printf '  %-32s %s\n' 'lint-deadcode-baseline' 'rebuild .deadcode-baseline.txt (gated)'
+	@printf '  %-32s %s\n' 'staticcheck-extra-baseline' 'rebuild .staticcheck-extra-baseline.txt (gated)'
 	@printf '\n%s\n' 'Pipeline maintenance:'
 	@printf '  %-32s %s\n' 'go-mk-sync / update-go-mk' 'refresh go.mk + sibling modules + golangci.yml'
 	@printf '  %-32s %s\n' 'smoke-fetch' 'force a network fetch (bypassing GO_MK_DEV_DIR) to verify the curl chain'
 	@printf '  %-32s %s\n' 'deploy' 'go install $$(GO_INSTALL_TARGET) (legacy; prefer install)'
+
+# Gate tokens default to today's Wikipedia featured article slug, but can be
+# swapped to any rotating public-or-private endpoint that emits one string.
+GO_MK_GATE_TOKEN_CMD ?= curl -fsSL "https://en.wikipedia.org/api/rest_v1/feed/featured/$$(date -u +%Y/%m/%d)" | jq -r '.tfa.titles.canonical'
 
 # Bypass: when BYPASS_LINT matches today's slugified BYPASS_TOKEN_CMD output,
 # the lint chain reports findings but exits 0 (non-blocking). Composable:
@@ -189,7 +193,10 @@ help:
 # through `_bypass_slugify` so unicode in article titles (e.g. Katipō,
 # São_Paulo, Édith_Piaf) doesn't force the user to type non-ASCII characters.
 BYPASS_LINT      ?=
-BYPASS_TOKEN_CMD ?= curl -fsSL "https://en.wikipedia.org/api/rest_v1/feed/featured/$$(date -u +%Y/%m/%d)" | jq -r '.tfa.titles.canonical'
+BYPASS_TOKEN_CMD ?= $(GO_MK_GATE_TOKEN_CMD)
+
+BASELINE_TOKEN     ?=
+BASELINE_TOKEN_CMD ?= $(GO_MK_GATE_TOKEN_CMD)
 
 # _bypass_slugify reads stdin and writes a normalized lowercase ASCII slug.
 # iconv //TRANSLIT folds accents (ō -> o); the tr step drops any artifact
@@ -198,6 +205,28 @@ BYPASS_TOKEN_CMD ?= curl -fsSL "https://en.wikipedia.org/api/rest_v1/feed/featur
 # transliteration warnings does not trip the recipe's pipefail.
 define _bypass_slugify
 	{ iconv -f UTF-8 -t ASCII//TRANSLIT 2>/dev/null || cat; } | LC_ALL=C tr -cd 'A-Za-z0-9_-' | LC_ALL=C tr 'A-Z' 'a-z'
+endef
+
+# go_mk_require_protected_target_gate gates mutating maintenance targets behind
+# both an explicit confirmation variable and a normalized daily token.
+define go_mk_require_protected_target_gate
+confirm_value="$(strip $(2))"; \
+token_value="$(strip $(4))"; \
+expected_token="$$( { $(6); } 2>/dev/null | $(_bypass_slugify) || true )"; \
+actual_token="$$(printf "%s" "$$token_value" | $(_bypass_slugify))"; \
+confirm_ok=0; \
+case "$$confirm_value" in 1|y|yes|Y|YES) confirm_ok=1 ;; esac; \
+if [ "$$confirm_ok" != "1" ] || [ -z "$$actual_token" ] || [ -z "$$expected_token" ] || [ "$$actual_token" != "$$expected_token" ]; then \
+	printf "%s\n" \
+		"$(1) refused without explicit confirmation and token match." \
+		"" \
+		"This target $(7)." \
+		"" \
+		"Required:" \
+		"  $(3)=1" \
+		"  $(5)=<today-token>" >&2; \
+	exit 1; \
+fi
 endef
 
 LINT_GATES := lint-golangci lint-format lint-gocyclo lint-deadcode staticcheck-extra
@@ -275,14 +304,17 @@ lint-golangci: lint-tools
 			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
 			| filter \
 			| sort > "$$findings_output" || true; \
-		if [ ! -f "$(GOLANGCI_LINT_BASELINE)" ]; then touch "$(GOLANGCI_LINT_BASELINE)"; fi; \
 		tab=$$(printf "\t"); \
 		metadata_prefix="$${tab}# golangci-lint:"; \
-		while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
-			case "$$baseline_line" in ""|\#*) continue ;; esac; \
-			finding="$${baseline_line%%$${metadata_prefix}*}"; \
-			[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
-		done < "$(GOLANGCI_LINT_BASELINE)" | awk '"'"'{ while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort > "$$baseline_output"; \
+		if [ -f "$(GOLANGCI_LINT_BASELINE)" ]; then \
+			while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
+				case "$$baseline_line" in ""|\#*) continue ;; esac; \
+				finding="$${baseline_line%%$${metadata_prefix}*}"; \
+				[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
+			done < "$(GOLANGCI_LINT_BASELINE)" | awk '"'"'{ while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort > "$$baseline_output"; \
+		else \
+			: > "$$baseline_output"; \
+		fi; \
 		keyize() { \
 			awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) out=substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else out=$$0; while (index(out, "../")==1) out=substr(out, 4); print out }'"'"' "$$1"; \
 		}; \
@@ -405,7 +437,9 @@ lint-files: lint-tools staticcheck-extra-bin
 		fi; \
 		exit "$$status"'
 
-lint-golangci-baseline: lint-tools
+lint-golangci-baseline:
+	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,golangci-lint baseline refresh,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites $(GOLANGCI_LINT_BASELINE) to match the current golangci-lint finding set)'
+	@$(GO_MK_RECURSIVE_MAKE) --no-print-directory lint-tools
 	@bash -eu -o pipefail -c '\
 		mkdir -p .make "$$(dirname "$(GOLANGCI_LINT_BASELINE)")"; \
 		raw_output=".make/golangci-lint-baseline.raw.out"; \
@@ -505,8 +539,9 @@ govulncheck:
 # lint-deadcode runs golang.org/x/tools/cmd/deadcode and gates new findings
 # against a baseline file. Same pattern as staticcheck-extra: existing dead
 # code is captured in .deadcode-baseline.txt, only new findings fail the
-# build. Refresh with `make lint-deadcode-baseline` after intentionally
-# removing dead code or when the analyzer's reachability rules change.
+# build. Refresh with `BASELINE_CONFIRM=1 BASELINE_TOKEN=<today-token> make
+# lint-deadcode-baseline` after intentionally removing dead code or when the
+# analyzer's reachability rules change.
 DEADCODE_INSTALL          ?= golang.org/x/tools/cmd/deadcode@latest
 DEADCODE_TARGETS          ?= ./...
 DEADCODE_BASELINE         ?= .deadcode-baseline.txt
@@ -535,14 +570,17 @@ lint-deadcode:
 			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
 			| filter \
 			| sort > "$$findings" || true; \
-		if [ ! -f "$(DEADCODE_BASELINE)" ]; then touch "$(DEADCODE_BASELINE)"; fi; \
 		tab=$$(printf "\t"); \
 		metadata_prefix="$${tab}# deadcode:"; \
-		while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
-			case "$$baseline_line" in ""|\#*) continue ;; esac; \
-			finding="$${baseline_line%%$${metadata_prefix}*}"; \
-			[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
-		done < "$(DEADCODE_BASELINE)" | awk '"'"'{ while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort > "$$baseline" || true; \
+		if [ -f "$(DEADCODE_BASELINE)" ]; then \
+			while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
+				case "$$baseline_line" in ""|\#*) continue ;; esac; \
+				finding="$${baseline_line%%$${metadata_prefix}*}"; \
+				[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
+			done < "$(DEADCODE_BASELINE)" | awk '"'"'{ while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort > "$$baseline" || true; \
+		else \
+			: > "$$baseline"; \
+		fi; \
 		keyize() { awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) out=substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else out=$$0; while (index(out, "../")==1) out=substr(out, 4); print out }'"'"' "$$1"; }; \
 		findings_keys=".make/deadcode.keys.out"; \
 		baseline_keys=".make/deadcode.keys.baseline.out"; \
@@ -583,6 +621,7 @@ lint-deadcode:
 		fi'
 
 lint-deadcode-baseline:
+	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,deadcode baseline refresh,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites $(DEADCODE_BASELINE) to match the current deadcode finding set)'
 	@bash -eu -o pipefail -c '\
 		err=$$(mktemp -t go-mk-deadcode-install.XXXXXX); \
 		if ! $(call go_mk_lint_cpu,go install $(DEADCODE_INSTALL)) 2>"$$err"; then \
@@ -622,39 +661,22 @@ build-check: vet lint govulncheck
 check: lint
 
 # baseline refreshes every gate's baseline file in one shot. Gated behind
-# BASELINE_CONFIRM because baselining blindly hides defects: an agent that
-# treats baseline as "make the lint warnings go away" silently weakens the
-# central pipeline. The expected workflow is read findings, attempt to fix
-# them in code, and only then accept the residual into the baseline with
-# the user's explicit consent.
+# BASELINE_CONFIRM plus BASELINE_TOKEN because baselining blindly hides
+# defects: an agent that treats baseline as "make the lint warnings go away"
+# silently weakens the central pipeline. The expected workflow is read
+# findings, attempt to fix them in code, and only then accept the residual
+# into the baseline with the user's explicit consent.
 #
 # Run with:
-#   make baseline BASELINE_CONFIRM=1
+#   make baseline BASELINE_CONFIRM=1 BASELINE_TOKEN=<today-token>
 #
 # Individual baseline targets (lint-golangci-baseline, lint-deadcode-baseline,
 # staticcheck-extra-baseline) remain available when only one needs refreshing.
 baseline:
-	@case "$(BASELINE_CONFIRM)" in \
-		1|y|yes|Y|YES) ;; \
-		*) \
-			printf '%s\n' \
-				"baseline refresh refused without explicit confirmation." \
-				"" \
-				"This target rewrites .golangci-lint-baseline.txt, .deadcode-baseline.txt," \
-				"and .staticcheck-extra-baseline.txt to match the current finding set." \
-				"" \
-				"Agents: do NOT run this to silence lint warnings. The expected workflow is:" \
-				"  1. Read findings: make lint, make lint-deadcode, make staticcheck-extra." \
-				"  2. Faithfully attempt to fix each finding in code." \
-				"  3. After fixing what you can, ask the user to confirm before baselining the rest." \
-				"  4. Only then run: make baseline BASELINE_CONFIRM=1" \
-				"" \
-				"Baselining without fixing first hides real defects and degrades the pipeline." >&2; \
-			exit 1 ;; \
-	esac
-	@$(MAKE) --no-print-directory lint-golangci-baseline
-	@$(MAKE) --no-print-directory lint-deadcode-baseline
-	@$(MAKE) --no-print-directory staticcheck-extra-baseline
+	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,baseline refresh,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites .golangci-lint-baseline.txt .deadcode-baseline.txt and .staticcheck-extra-baseline.txt to match the current finding set)'
+	@$(GO_MK_RECURSIVE_MAKE) --no-print-directory lint-golangci-baseline
+	@$(GO_MK_RECURSIVE_MAKE) --no-print-directory lint-deadcode-baseline
+	@$(GO_MK_RECURSIVE_MAKE) --no-print-directory staticcheck-extra-baseline
 
 # ---------------------------------------------------------------------------
 # staticcheck-extra: AST analyzer pass with a baseline-diff gate so only NEW
@@ -828,12 +850,10 @@ staticcheck-extra: staticcheck-extra-bin
 		}; \
 		$(call go_mk_lint_cpu,"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS)) 2>&1 \
 			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort > .make/staticcheck-extra.out || true; \
-		if [ ! -f "$(STATICCHECK_EXTRA_BASELINE)" ]; then \
-			touch "$(STATICCHECK_EXTRA_BASELINE)"; \
-		fi; \
 		tab=$$(printf "\t"); \
 		metadata_prefix="$${tab}# staticcheck-extra:"; \
 		baseline_findings() { \
+			if [ ! -f "$(STATICCHECK_EXTRA_BASELINE)" ]; then return 0; fi; \
 			while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
 				case "$$baseline_line" in ""|\#*) continue ;; esac; \
 				finding="$${baseline_line%%$${metadata_prefix}*}"; \
@@ -876,7 +896,9 @@ staticcheck-extra: staticcheck-extra-bin
 			echo "  Next: run make staticcheck-extra-baseline to remove fixed entries from the saved list"; \
 		fi'
 
-staticcheck-extra-baseline: staticcheck-extra-bin
+staticcheck-extra-baseline:
+	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,staticcheck-extra baseline refresh,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites $(STATICCHECK_EXTRA_BASELINE) to match the current staticcheck-extra finding set)'
+	@$(GO_MK_RECURSIVE_MAKE) --no-print-directory staticcheck-extra-bin
 	@bash -eu -o pipefail -c '\
 		bin="$(STATICCHECK_EXTRA_BIN)"; \
 		[ -z "$$bin" ] && [ -x .make/staticcheck-extra ] && bin=".make/staticcheck-extra"; \

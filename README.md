@@ -47,7 +47,7 @@ The shared lint flow is:
 
 - `make lint-tools` installs `golangci-lint`, `gofumpt`, and `goimports`
 - `make lint-golangci` runs `golangci-lint run ./...`, diffs findings against `.golangci-lint-baseline.txt`, and fails only on new findings
-- `make lint-golangci-baseline` refreshes `.golangci-lint-baseline.txt` with current findings and `first_added` / `last_seen` timestamps
+- `make lint-golangci-baseline` refreshes `.golangci-lint-baseline.txt` with current findings and `first_added` / `last_seen` timestamps; this requires `BASELINE_CONFIRM=1` and `BASELINE_TOKEN=<today-token>`
 - `make lint` runs baseline-gated `golangci-lint`, the configured GolangCI formatters in diff mode, `go tool gocyclo -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS)`, and `staticcheck-extra`
 - `make fmt` applies the configured GolangCI formatters
 - `make build-check` runs the full non-test quality gate: `vet`, `lint`, and `govulncheck`
@@ -115,9 +115,9 @@ Targets:
 | Target | Behaviour |
 | ------ | --------- |
 | `lint-golangci` | Runs `golangci-lint`, diffs normalized findings against `.golangci-lint-baseline.txt`, and fails on new findings. |
-| `lint-golangci-baseline` | Refreshes `.golangci-lint-baseline.txt` with current findings sampled across `$(GOLANGCI_LINT_BASELINE_RUNS)` runs and writes `first_added` and `last_seen` UTC timestamps for each finding. |
+| `lint-golangci-baseline` | Refreshes `.golangci-lint-baseline.txt` with current findings sampled across `$(GOLANGCI_LINT_BASELINE_RUNS)` runs and writes `first_added` and `last_seen` UTC timestamps for each finding. Requires `BASELINE_CONFIRM=1` and `BASELINE_TOKEN=<today-token>`. |
 
-Commit the baseline only when the remaining findings are intentional. Refresh it after fixing old findings so the baseline continues to describe the current tree.
+Commit the baseline only when the remaining findings are intentional. Refresh it after fixing old findings so the baseline continues to describe the current tree. `BASELINE_TOKEN_CMD` defaults to the shared daily gate token source and can be overridden for tests or private deployments.
 
 ### `.goreleaser.yaml`
 
@@ -182,7 +182,7 @@ Targets:
 | Target | Behaviour |
 | ------ | --------- |
 | `staticcheck-extra` | Runs the custom analyzer set, diffs vs baseline, and fails on new findings. Resolved findings print without failing. |
-| `staticcheck-extra-baseline` | Refreshes `.staticcheck-extra-baseline.txt` with current findings and writes `first_added` and `last_seen` UTC timestamps for each finding. Commit the baseline only when remaining findings are intentional. |
+| `staticcheck-extra-baseline` | Refreshes `.staticcheck-extra-baseline.txt` with current findings and writes `first_added` and `last_seen` UTC timestamps for each finding. Requires `BASELINE_CONFIRM=1` and `BASELINE_TOKEN=<today-token>`. Commit the baseline only when remaining findings are intentional. |
 | `staticcheck-extra-bin` | Internal. Resolves or builds the analyzer binary. |
 
 `make lint` and `make check` both include `staticcheck-extra` automatically.

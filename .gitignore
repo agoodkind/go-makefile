@@ -4,3 +4,5 @@ staticcheck/.make/staticcheck-extra.out
 .make/staticcheck-extra
 go-makefile
 .make
+*.baseline.txt
+*baseline*.txt

@@ -299,7 +299,7 @@ func csvFlagSet(fs *flag.FlagSet, name string) map[string]struct{} {
 	if val == "" {
 		return out
 	}
-	for _, item := range strings.Split(val, ",") {
+	for item := range strings.SplitSeq(val, ",") {
 		trimmed := strings.TrimSpace(item)
 		if trimmed != "" {
 			out[trimmed] = struct{}{}
