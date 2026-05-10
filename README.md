@@ -29,7 +29,7 @@ This creates:
 - `.goreleaser.yaml`, filled in with the inferred binary name
 - `.gitignore` entry for `.make/`
 
-Generated `Makefile` files stay intentionally small. They set `BINARY` and `CMD` for binary repos, include the shared `go.mk`, and otherwise inherit the canonical build, deploy, clean, lint, baseline, and check targets.
+Generated `Makefile` files stay intentionally small. They set `BINARY` and `CMD` for binary repos, include the shared `go.mk`, and otherwise inherit the canonical build, deploy, clean, lint, and check targets.
 
 Skips any file that already exists. Fails clearly if `go.mod` is missing.
 
@@ -47,8 +47,7 @@ The shared lint flow is:
 
 - `make lint-tools` installs `golangci-lint`, `gofumpt`, and `goimports`
 - `make lint-golangci` runs `golangci-lint run ./...`, diffs findings against `.golangci-lint-baseline.txt`, and fails only on new findings
-- `make lint-golangci-baseline` refreshes `.golangci-lint-baseline.txt` with current findings and `first_added` / `last_seen` timestamps; this requires `BASELINE_CONFIRM=1` and `BASELINE_TOKEN=<today-token>`
-- `make lint` runs baseline-gated `golangci-lint`, the configured GolangCI formatters in diff mode, `go tool gocyclo -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS)`, and `staticcheck-extra`
+- `make lint` runs baseline-aware `golangci-lint`, the configured GolangCI formatters in diff mode, `go tool gocyclo -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS)`, and `staticcheck-extra`
 - `make fmt` applies the configured GolangCI formatters
 - `make build-check` runs the full non-test quality gate: `vet`, `lint`, and `govulncheck`
 - `make build` runs `build-check`, then `$(GO_BUILD_ENV) $(GO) build $(GO_BUILD_OUTPUT_FLAGS) $(GO_BUILD_FLAGS) $(GO_BUILD_LDFLAGS_FLAGS) $(GO_BUILD_TARGETS)`
@@ -115,9 +114,6 @@ Targets:
 | Target | Behaviour |
 | ------ | --------- |
 | `lint-golangci` | Runs `golangci-lint`, diffs normalized findings against `.golangci-lint-baseline.txt`, and fails on new findings. |
-| `lint-golangci-baseline` | Refreshes `.golangci-lint-baseline.txt` with current findings sampled across `$(GOLANGCI_LINT_BASELINE_RUNS)` runs and writes `first_added` and `last_seen` UTC timestamps for each finding. Requires `BASELINE_CONFIRM=1` and `BASELINE_TOKEN=<today-token>`. |
-
-Commit the baseline only when the remaining findings are intentional. Refresh it after fixing old findings so the baseline continues to describe the current tree. `BASELINE_TOKEN_CMD` defaults to the shared daily gate token source and can be overridden for tests or private deployments.
 
 ### `.goreleaser.yaml`
 
@@ -182,7 +178,6 @@ Targets:
 | Target | Behaviour |
 | ------ | --------- |
 | `staticcheck-extra` | Runs the custom analyzer set, diffs vs baseline, and fails on new findings. Resolved findings print without failing. |
-| `staticcheck-extra-baseline` | Refreshes `.staticcheck-extra-baseline.txt` with current findings and writes `first_added` and `last_seen` UTC timestamps for each finding. Requires `BASELINE_CONFIRM=1` and `BASELINE_TOKEN=<today-token>`. Commit the baseline only when remaining findings are intentional. |
 | `staticcheck-extra-bin` | Internal. Resolves or builds the analyzer binary. |
 
 `make lint` and `make check` both include `staticcheck-extra` automatically.
@@ -194,9 +189,9 @@ The baseline starts with a generated-at header, and each baseline entry keeps th
 path/to/file.go:10:2: message<TAB># staticcheck-extra:first_added=2026-05-03T18:30:00Z last_seen=2026-05-03T18:30:00Z
 ```
 
-The `staticcheck-extra` gate compares only the analyzer output portion, so refreshing `last_seen` does not create a new finding.
+The `staticcheck-extra` gate compares only the analyzer output portion, so metadata timestamp changes do not create a new finding.
 
-Document each baseline entry in a `STATICCHECK-NOTES.md` so the next person does not try to “fix” an intentional exception. When findings are resolved, refresh the baseline with `make staticcheck-extra-baseline` and commit the updated file.
+Document each baseline entry in a `STATICCHECK-NOTES.md` so the next person does not try to “fix” an intentional exception.
 
 ---
 

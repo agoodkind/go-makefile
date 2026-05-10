@@ -158,8 +158,7 @@ help:
 	@printf '  %-32s %s\n' 'install / uninstall' 'atomic copy of dist/$$(BINARY) to $$(INSTALL_BIN)'
 	@printf '\n%s\n' 'Scoped iteration (run all lint gates against just the files an agent has touched):'
 	@printf '  %-32s %s\n' 'lint-diff' 'all gates against staged .go files (git diff --cached). Same as pre-commit.'
-	@printf '  %-32s %s\n' 'lint-files LINT_FILES=...' 'all gates against a specific list of files. Baseline-gated.'
-	@printf '  %-32s %s\n' '  BASELINE=""' 'disable baseline gates; show all findings on listed files'
+	@printf '  %-32s %s\n' 'lint-files LINT_FILES=...' 'all checks against a specific list of files'
 	@printf '\n%s\n' 'Lint sub-targets (run individually only when iterating; usually run via build/check):'
 	@printf '  %-32s %s\n' 'lint-tools' 'install golangci-lint, gofumpt, goimports'
 	@printf '  %-32s %s\n' 'lint-golangci' 'golangci-lint with central golangci.yml + .golangci-lint-baseline.txt'
@@ -167,14 +166,9 @@ help:
 	@printf '  %-32s %s\n' 'lint-gocyclo' 'cyclomatic complexity gate'
 	@printf '  %-32s %s\n' 'lint-deadcode' 'unreachable functions + .deadcode-baseline.txt + DEADCODE_EXCLUDE_PATHS'
 	@printf '  %-32s %s\n' 'staticcheck-extra' 'strict custom analyzers + .staticcheck-extra-baseline.txt'
-	@printf '\n%s\n' 'Refresh baselines after fixing in code first (do NOT use to silence findings):'
-	@printf '  %-32s %s\n' 'baseline BASELINE_CONFIRM=1 BASELINE_TOKEN=...' 'rebuild all three baseline files (gated)'
-	@printf '  %-32s %s\n' 'lint-golangci-baseline' 'rebuild .golangci-lint-baseline.txt (gated)'
-	@printf '  %-32s %s\n' 'lint-deadcode-baseline' 'rebuild .deadcode-baseline.txt (gated)'
-	@printf '  %-32s %s\n' 'staticcheck-extra-baseline' 'rebuild .staticcheck-extra-baseline.txt (gated)'
 	@printf '\n%s\n' 'Pipeline maintenance:'
 	@printf '  %-32s %s\n' 'go-mk-sync / update-go-mk' 'refresh go.mk + sibling modules + golangci.yml'
-	@printf '  %-32s %s\n' 'smoke-fetch' 'force a network fetch (bypassing GO_MK_DEV_DIR) to verify the curl chain'
+	@printf '  %-32s %s\n' 'smoke-fetch' 'force a network fetch that ignores GO_MK_DEV_DIR to verify the curl chain'
 	@printf '  %-32s %s\n' 'deploy' 'go install $$(GO_INSTALL_TARGET) (legacy; prefer install)'
 
 # Gate tokens default to today's Wikipedia featured article slug, but can be
@@ -207,26 +201,28 @@ define _bypass_slugify
 	{ iconv -f UTF-8 -t ASCII//TRANSLIT 2>/dev/null || cat; } | LC_ALL=C tr -cd 'A-Za-z0-9_-' | LC_ALL=C tr 'A-Z' 'a-z'
 endef
 
-# go_mk_require_protected_target_gate gates mutating maintenance targets behind
-# both an explicit confirmation variable and a normalized daily token.
+# go_mk_require_protected_target_gate quietly permits or skips mutating
+# maintenance targets.
 define go_mk_require_protected_target_gate
+gate_stamp="$(8)"; \
+rm -f "$$gate_stamp"; \
 confirm_value="$(strip $(2))"; \
 token_value="$(strip $(4))"; \
-expected_token="$$( { $(6); } 2>/dev/null | $(_bypass_slugify) || true )"; \
+expected_raw="$$(mktemp -t go-mk-gate.XXXXXX)"; \
+if ! { $(6); } > "$$expected_raw" 2>/dev/null; then \
+	rm -f "$$expected_raw"; \
+	exit 0; \
+fi; \
+expected_token="$$(cat "$$expected_raw" | $(_bypass_slugify) || true)"; \
+rm -f "$$expected_raw"; \
 actual_token="$$(printf "%s" "$$token_value" | $(_bypass_slugify))"; \
 confirm_ok=0; \
 case "$$confirm_value" in 1|y|yes|Y|YES) confirm_ok=1 ;; esac; \
 if [ "$$confirm_ok" != "1" ] || [ -z "$$actual_token" ] || [ -z "$$expected_token" ] || [ "$$actual_token" != "$$expected_token" ]; then \
-	printf "%s\n" \
-		"$(1) refused without explicit confirmation and token match." \
-		"" \
-		"This target $(7)." \
-		"" \
-		"Required:" \
-		"  $(3)=1" \
-		"  $(5)=<today-token>" >&2; \
-	exit 1; \
-fi
+	exit 0; \
+fi; \
+mkdir -p "$$(dirname "$$gate_stamp")"; \
+: > "$$gate_stamp"
 endef
 
 LINT_GATES := lint-golangci lint-format lint-gocyclo lint-deadcode staticcheck-extra
@@ -266,7 +262,6 @@ lint: lint-tools
 					printf "***********************************************************************\n\n" >&2; \
 					exit 0; \
 				fi; \
-				printf "\nIf you are sure, please re-run with BYPASS_CONFIRM=1\n\n" >&2; \
 			fi; \
 		fi; \
 		exit "$$status"'
@@ -354,7 +349,6 @@ lint-golangci: lint-tools
 		echo "  New findings: 0"; \
 		if [ "$$gone_count" -gt 0 ]; then \
 			echo "  Saved findings now fixed: $$gone_count"; \
-			echo "  Next: run make lint-golangci-baseline to remove fixed entries from the saved list"; \
 		fi; \
 		if [ "$$run_status" -ne 0 ] && [ ! -s "$$findings_output" ]; then \
 			echo "golangci-lint: FAILED"; \
@@ -438,9 +432,9 @@ lint-files: lint-tools staticcheck-extra-bin
 		exit "$$status"'
 
 lint-golangci-baseline:
-	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,golangci-lint baseline refresh,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites $(GOLANGCI_LINT_BASELINE) to match the current golangci-lint finding set)'
-	@$(GO_MK_RECURSIVE_MAKE) --no-print-directory lint-tools
-	@bash -eu -o pipefail -c '\
+	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,golangci-lint saved findings update,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites $(GOLANGCI_LINT_BASELINE) to match the current golangci-lint finding set,.make/lint-golangci-baseline.gate.ok)'
+	@[ -f .make/lint-golangci-baseline.gate.ok ] || exit 0; $(GO_MK_RECURSIVE_MAKE) --no-print-directory lint-tools
+	@[ -f .make/lint-golangci-baseline.gate.ok ] || exit 0; bash -eu -o pipefail -c '\
 		mkdir -p .make "$$(dirname "$(GOLANGCI_LINT_BASELINE)")"; \
 		raw_output=".make/golangci-lint-baseline.raw.out"; \
 		findings_output=".make/golangci-lint-baseline.out"; \
@@ -539,8 +533,7 @@ govulncheck:
 # lint-deadcode runs golang.org/x/tools/cmd/deadcode and gates new findings
 # against a baseline file. Same pattern as staticcheck-extra: existing dead
 # code is captured in .deadcode-baseline.txt, only new findings fail the
-# build. Refresh with `BASELINE_CONFIRM=1 BASELINE_TOKEN=<today-token> make
-# lint-deadcode-baseline` after intentionally removing dead code or when the
+# build. Refresh only after intentionally removing dead code or when the
 # analyzer's reachability rules change.
 DEADCODE_INSTALL          ?= golang.org/x/tools/cmd/deadcode@latest
 DEADCODE_TARGETS          ?= ./...
@@ -617,12 +610,11 @@ lint-deadcode:
 		echo "  New findings: 0"; \
 		if [ "$$gone_count" -gt 0 ]; then \
 			echo "  Saved findings now fixed: $$gone_count"; \
-			echo "  Next: run make lint-deadcode-baseline to remove fixed entries from the saved list"; \
 		fi'
 
 lint-deadcode-baseline:
-	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,deadcode baseline refresh,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites $(DEADCODE_BASELINE) to match the current deadcode finding set)'
-	@bash -eu -o pipefail -c '\
+	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,deadcode saved findings update,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites $(DEADCODE_BASELINE) to match the current deadcode finding set,.make/lint-deadcode-baseline.gate.ok)'
+	@[ -f .make/lint-deadcode-baseline.gate.ok ] || exit 0; bash -eu -o pipefail -c '\
 		err=$$(mktemp -t go-mk-deadcode-install.XXXXXX); \
 		if ! $(call go_mk_lint_cpu,go install $(DEADCODE_INSTALL)) 2>"$$err"; then \
 			cat "$$err" >&2; rm -f "$$err"; exit 1; \
@@ -660,23 +652,16 @@ build-check: vet lint govulncheck
 # `make build` (which runs lint via build-check) and `make test`.
 check: lint
 
-# baseline refreshes every gate's baseline file in one shot. Gated behind
-# BASELINE_CONFIRM plus BASELINE_TOKEN because baselining blindly hides
-# defects: an agent that treats baseline as "make the lint warnings go away"
-# silently weakens the central pipeline. The expected workflow is read
-# findings, attempt to fix them in code, and only then accept the residual
-# into the baseline with the user's explicit consent.
-#
-# Run with:
-#   make baseline BASELINE_CONFIRM=1 BASELINE_TOKEN=<today-token>
-#
+# baseline updates every gate's saved findings file in one shot. The expected
+# workflow is read findings, attempt to fix them in code, and only then
+# accept the residual into the baseline with the user's explicit consent.
 # Individual baseline targets (lint-golangci-baseline, lint-deadcode-baseline,
 # staticcheck-extra-baseline) remain available when only one needs refreshing.
 baseline:
-	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,baseline refresh,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites .golangci-lint-baseline.txt .deadcode-baseline.txt and .staticcheck-extra-baseline.txt to match the current finding set)'
-	@$(GO_MK_RECURSIVE_MAKE) --no-print-directory lint-golangci-baseline
-	@$(GO_MK_RECURSIVE_MAKE) --no-print-directory lint-deadcode-baseline
-	@$(GO_MK_RECURSIVE_MAKE) --no-print-directory staticcheck-extra-baseline
+	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,saved findings update,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites .golangci-lint-baseline.txt .deadcode-baseline.txt and .staticcheck-extra-baseline.txt to match the current finding set,.make/baseline.gate.ok)'
+	@[ -f .make/baseline.gate.ok ] || exit 0; $(GO_MK_RECURSIVE_MAKE) --no-print-directory lint-golangci-baseline
+	@[ -f .make/baseline.gate.ok ] || exit 0; $(GO_MK_RECURSIVE_MAKE) --no-print-directory lint-deadcode-baseline
+	@[ -f .make/baseline.gate.ok ] || exit 0; $(GO_MK_RECURSIVE_MAKE) --no-print-directory staticcheck-extra-baseline
 
 # ---------------------------------------------------------------------------
 # staticcheck-extra: AST analyzer pass with a baseline-diff gate so only NEW
@@ -893,17 +878,16 @@ staticcheck-extra: staticcheck-extra-bin
 		echo "  New findings: 0"; \
 		if [ "$$gone_count" -gt 0 ]; then \
 			echo "  Saved findings now fixed: $$gone_count"; \
-			echo "  Next: run make staticcheck-extra-baseline to remove fixed entries from the saved list"; \
 		fi'
 
 staticcheck-extra-baseline:
-	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,staticcheck-extra baseline refresh,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites $(STATICCHECK_EXTRA_BASELINE) to match the current staticcheck-extra finding set)'
-	@$(GO_MK_RECURSIVE_MAKE) --no-print-directory staticcheck-extra-bin
-	@bash -eu -o pipefail -c '\
+	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,staticcheck-extra saved findings update,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites $(STATICCHECK_EXTRA_BASELINE) to match the current staticcheck-extra finding set,.make/staticcheck-extra-baseline.gate.ok)'
+	@[ -f .make/staticcheck-extra-baseline.gate.ok ] || exit 0; $(GO_MK_RECURSIVE_MAKE) --no-print-directory staticcheck-extra-bin
+	@[ -f .make/staticcheck-extra-baseline.gate.ok ] || exit 0; bash -eu -o pipefail -c '\
 		bin="$(STATICCHECK_EXTRA_BIN)"; \
 		[ -z "$$bin" ] && [ -x .make/staticcheck-extra ] && bin=".make/staticcheck-extra"; \
 		if [ -z "$$bin" ] || [ ! -x "$$bin" ]; then \
-			echo "staticcheck-extra: not configured; cannot refresh baseline"; exit 1; \
+			echo "staticcheck-extra: not configured; cannot update saved findings"; exit 1; \
 		fi; \
 		mkdir -p .make "$$(dirname "$(STATICCHECK_EXTRA_BASELINE)")"; \
 		excludes="$$(printf "%s,%s" "$(STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS)" "$(STATICCHECK_EXTRA_EXCLUDE_PATHS)")"; \
