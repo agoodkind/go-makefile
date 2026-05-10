@@ -231,6 +231,37 @@ define go_mk_print_findings
 awk '"'"'{ line=$$0; if (match(line, /:[0-9]+:[0-9]+:/)) { loc=substr(line, 1, RSTART+RLENGTH-2); msg=substr(line, RSTART+RLENGTH); sub(/^[ \t]+/, "", msg); printf "  %s\n    %s\n", loc, msg } else { printf "  %s\n", line } }'"'"'
 endef
 
+define go_mk_emit_baseline_refresh_counts
+baseline_counts_prefix="$(5)"; \
+baseline_counts_old="$${baseline_counts_prefix}.old"; \
+baseline_counts_current="$${baseline_counts_prefix}.current"; \
+baseline_counts_old_keys="$${baseline_counts_prefix}.old.keys"; \
+baseline_counts_current_keys="$${baseline_counts_prefix}.current.keys"; \
+baseline_counts_new_keys="$${baseline_counts_prefix}.new.keys"; \
+baseline_counts_gone_keys="$${baseline_counts_prefix}.gone.keys"; \
+tab=$$(printf "\t"); \
+metadata_prefix="$${tab}# $(4):"; \
+if [ -f "$(2)" ]; then \
+	while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
+		case "$$baseline_line" in ""|\#*) continue ;; esac; \
+		finding="$${baseline_line%%$${metadata_prefix}*}"; \
+		[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
+	done < "$(2)" | awk '"'"'{ while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort -u > "$$baseline_counts_old"; \
+else \
+	: > "$$baseline_counts_old"; \
+fi; \
+cat "$(3)" | filter | sort -u > "$$baseline_counts_current"; \
+keyize() { awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) out=substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else out=$$0; while (index(out, "../")==1) out=substr(out, 4); print out }'"'"' "$$1"; }; \
+keyize "$$baseline_counts_old" | sort -u > "$$baseline_counts_old_keys"; \
+keyize "$$baseline_counts_current" | sort -u > "$$baseline_counts_current_keys"; \
+comm -23 "$$baseline_counts_current_keys" "$$baseline_counts_old_keys" > "$$baseline_counts_new_keys" || true; \
+comm -13 "$$baseline_counts_current_keys" "$$baseline_counts_old_keys" > "$$baseline_counts_gone_keys" || true; \
+new_count=$$(wc -l < "$$baseline_counts_new_keys" | tr -d " "); \
+gone_count=$$(wc -l < "$$baseline_counts_gone_keys" | tr -d " "); \
+echo "  New findings saved: $$new_count"; \
+echo "  Saved findings now fixed: $$gone_count"
+endef
+
 lint: lint-tools
 	@bash -eu -o pipefail -c '\
 		mkdir -p .make; \
@@ -467,6 +498,7 @@ lint-golangci-baseline:
 		now=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
 		tab=$$(printf "\t"); \
 		metadata_prefix="$${tab}# golangci-lint:"; \
+		$(call go_mk_emit_baseline_refresh_counts,golangci-lint,$(GOLANGCI_LINT_BASELINE),$$findings_output,golangci-lint,.make/golangci-lint-baseline.counts); \
 		printf "# golangci-lint: generated_at=%s\n" "$$now" > "$$new_baseline"; \
 		awk -v now="$$now" -v mp="$${metadata_prefix}" -v lname=golangci-lint -v kmf="$(GOLANGCI_LINT_BASELINE)" '"'"'function key(s,    out) { if (match(s, /:[0-9]+:[0-9]+:/)) out = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else out = s; while (index(out, "../")==1) out = substr(out, 4); return out } BEGIN { while ((getline line < kmf) > 0) { if (line ~ /^#/) continue; if (line ~ /^[ \t]*$$/) continue; idx = index(line, mp); if (idx > 0) { finding = substr(line, 1, idx-1); meta = substr(line, idx + length(mp)); fa = ""; n = split(meta, ff, " "); for (i = 1; i <= n; i++) if (ff[i] ~ /^first_added=/) fa = substr(ff[i], 13); km[key(finding)] = fa } else km[key(line)] = "" } close(kmf) } { k = key($$0); fa = (k in km) ? km[k] : ""; if (fa == "") fa = now; printf "%s\t# %s:first_added=%s last_seen=%s\n", $$0, lname, fa, now }'"'"' "$$findings_output" >> "$$new_baseline"; \
 		mv "$$new_baseline" "$(GOLANGCI_LINT_BASELINE)"; \
@@ -639,6 +671,7 @@ lint-deadcode-baseline:
 		tab=$$(printf "\t"); \
 		metadata_prefix="$${tab}# deadcode:"; \
 		new_baseline=".make/deadcode-baseline.new"; \
+		$(call go_mk_emit_baseline_refresh_counts,deadcode,$(DEADCODE_BASELINE),$$findings,deadcode,.make/deadcode-baseline.counts); \
 		printf "# deadcode: generated_at=%s\n" "$$now" > "$$new_baseline"; \
 		awk -v now="$$now" -v mp="$${metadata_prefix}" -v lname=deadcode -v kmf="$(DEADCODE_BASELINE)" '"'"'function key(s,    out) { if (match(s, /:[0-9]+:[0-9]+:/)) out = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else out = s; while (index(out, "../")==1) out = substr(out, 4); return out } BEGIN { while ((getline line < kmf) > 0) { if (line ~ /^#/) continue; if (line ~ /^[ \t]*$$/) continue; idx = index(line, mp); if (idx > 0) { finding = substr(line, 1, idx-1); meta = substr(line, idx + length(mp)); fa = ""; n = split(meta, ff, " "); for (i = 1; i <= n; i++) if (ff[i] ~ /^first_added=/) fa = substr(ff[i], 13); km[key(finding)] = fa } else km[key(line)] = "" } close(kmf) } { k = key($$0); fa = (k in km) ? km[k] : ""; if (fa == "") fa = now; printf "%s\t# %s:first_added=%s last_seen=%s\n", $$0, lname, fa, now }'"'"' "$$findings" >> "$$new_baseline"; \
 		mv "$$new_baseline" "$(DEADCODE_BASELINE)"; \
@@ -905,6 +938,7 @@ staticcheck-extra-baseline:
 		tab=$$(printf "\t"); \
 		metadata_prefix="$${tab}# staticcheck-extra:"; \
 		tmp=".make/staticcheck-extra-baseline.tmp"; \
+		$(call go_mk_emit_baseline_refresh_counts,staticcheck-extra,$(STATICCHECK_EXTRA_BASELINE),.make/staticcheck-extra.out,staticcheck-extra,.make/staticcheck-extra-baseline.counts); \
 		printf "# staticcheck-extra: generated_at=%s\n" "$$now" > "$$tmp"; \
 		awk -v now="$$now" -v mp="$${metadata_prefix}" -v lname=staticcheck-extra -v kmf="$(STATICCHECK_EXTRA_BASELINE)" '"'"'function key(s,    out) { if (match(s, /:[0-9]+:[0-9]+:/)) out = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else out = s; while (index(out, "../")==1) out = substr(out, 4); return out } BEGIN { while ((getline line < kmf) > 0) { if (line ~ /^#/) continue; if (line ~ /^[ \t]*$$/) continue; idx = index(line, mp); if (idx > 0) { finding = substr(line, 1, idx-1); meta = substr(line, idx + length(mp)); fa = ""; n = split(meta, ff, " "); for (i = 1; i <= n; i++) if (ff[i] ~ /^first_added=/) fa = substr(ff[i], 13); km[key(finding)] = fa } else km[key(line)] = "" } close(kmf) } { k = key($$0); fa = (k in km) ? km[k] : ""; if (fa == "") fa = now; printf "%s\t# %s:first_added=%s last_seen=%s\n", $$0, lname, fa, now }'"'"' .make/staticcheck-extra.out >> "$$tmp"; \
 		mv "$$tmp" "$(STATICCHECK_EXTRA_BASELINE)"; \
