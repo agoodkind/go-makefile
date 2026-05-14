@@ -29,8 +29,11 @@ STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
 
 .PHONY: build check lint fmt vet test govulncheck build-check \
         lint-tools lint-golangci lint-files lint-diff lint-format lint-gocyclo lint-deadcode staticcheck-extra \
-        lint-golangci-baseline lint-deadcode-baseline staticcheck-extra-baseline \
-        baseline go-mk-sync update-go-mk smoke-fetch help
+        lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
+        lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
+        staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new \
+        baseline baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
+        go-mk-sync update-go-mk smoke-fetch help
 
 # Each gate target runs the central go.mk recipe twice, once per Go module.
 # The static analyzer module runs with BUILD_CHECKS=false on build because
@@ -61,6 +64,16 @@ lint-golangci-baseline:
 	$(ROOT_GO_MK) lint-golangci-baseline
 	$(STATIC_GO_MK) lint-golangci-baseline
 
+lint-golangci-baseline-prune-fixed:
+	$(ROOT_GO_MK) lint-golangci-baseline-prune-fixed
+	$(STATIC_GO_MK) lint-golangci-baseline-prune-fixed
+
+lint-golangci-baseline-remove-fixed: lint-golangci-baseline-prune-fixed
+
+lint-golangci-baseline-accept-new:
+	$(ROOT_GO_MK) lint-golangci-baseline-accept-new
+	$(STATIC_GO_MK) lint-golangci-baseline-accept-new
+
 # lint-files runs golangci-lint scoped to LINT_FILES against the root module
 # only (file-scoped lints in the staticcheck submodule require a different
 # working directory). When iterating on the analyzer, pass LINT_FILES with
@@ -86,6 +99,16 @@ lint-deadcode-baseline:
 	$(ROOT_GO_MK) lint-deadcode-baseline
 	$(STATIC_GO_MK) lint-deadcode-baseline
 
+lint-deadcode-baseline-prune-fixed:
+	$(ROOT_GO_MK) lint-deadcode-baseline-prune-fixed
+	$(STATIC_GO_MK) lint-deadcode-baseline-prune-fixed
+
+lint-deadcode-baseline-remove-fixed: lint-deadcode-baseline-prune-fixed
+
+lint-deadcode-baseline-accept-new:
+	$(ROOT_GO_MK) lint-deadcode-baseline-accept-new
+	$(STATIC_GO_MK) lint-deadcode-baseline-accept-new
+
 staticcheck-extra:
 	$(ROOT_GO_MK) staticcheck-extra
 	$(STATIC_GO_MK) staticcheck-extra
@@ -93,6 +116,16 @@ staticcheck-extra:
 staticcheck-extra-baseline:
 	$(ROOT_GO_MK) staticcheck-extra-baseline
 	$(STATIC_GO_MK) staticcheck-extra-baseline
+
+staticcheck-extra-baseline-prune-fixed:
+	$(ROOT_GO_MK) staticcheck-extra-baseline-prune-fixed
+	$(STATIC_GO_MK) staticcheck-extra-baseline-prune-fixed
+
+staticcheck-extra-baseline-remove-fixed: staticcheck-extra-baseline-prune-fixed
+
+staticcheck-extra-baseline-accept-new:
+	$(ROOT_GO_MK) staticcheck-extra-baseline-accept-new
+	$(STATIC_GO_MK) staticcheck-extra-baseline-accept-new
 
 fmt:
 	$(ROOT_GO_MK) fmt
@@ -113,6 +146,18 @@ govulncheck:
 baseline:
 	$(ROOT_GO_MK) baseline
 	$(STATIC_GO_MK) baseline
+
+baseline-prune-fixed:
+	$(ROOT_GO_MK) baseline-prune-fixed
+	$(STATIC_GO_MK) baseline-prune-fixed
+
+baseline-remove-fixed: baseline-prune-fixed
+
+baseline-accept-new:
+	$(ROOT_GO_MK) baseline-accept-new
+	$(STATIC_GO_MK) baseline-accept-new
+
+baseline-add-new: baseline-accept-new
 
 go-mk-sync update-go-mk:
 	$(ROOT_GO_MK) update-go-mk

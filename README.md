@@ -7,6 +7,7 @@ Shared Go build targets and reusable GitHub Actions workflows for all `agoodkind
 | File | Purpose |
 | ---- | ------- |
 | `go.mk` | Shared Makefile targets (see file for full list) |
+| `scripts/go-mk-*.sh` and `scripts/go-mk-*.awk` | Runtime helper scripts used by `go.mk` |
 | `golangci.yml` | Canonical golangci-lint v2 config |
 | `templates/goreleaser.yaml.tmpl` | Canonical goreleaser template (bootstrap fills in binary name) |
 | `bootstrap.sh` | One-time project setup script |
@@ -39,7 +40,7 @@ Skips any file that already exists. Fails clearly if `go.mod` is missing.
 
 ### `go.mk`
 
-Fetched into `.make/go.mk` before every Makefile parse, never committed. Every `make` invocation attempts to pull the latest remote `go.mk` with curl, updates `~/.cache/go-makefile/go.mk` on success, and falls back to the cached copy only when the remote is unavailable. Run `make update-go-mk` or `make go-mk-sync` to force the same refresh explicitly.
+Fetched into `.make/go.mk` before every Makefile parse, never committed. `go.mk` then fetches its helper scripts, sibling modules, and `golangci.yml` into `.make/`. Run `make update-go-mk` or `make go-mk-sync` to force the same refresh explicitly.
 
 Run `make help` or read `go.mk` directly for the current target list. Default goal is `check` (full battery).
 
@@ -54,7 +55,7 @@ The shared lint flow is:
 - `make deploy` runs `$(GO_DEPLOY_COMMAND)` when set, otherwise `$(GO_INSTALL_ENV) $(GO) install $(GO_INSTALL_FLAGS) $(GO_INSTALL_LDFLAGS_FLAGS) $(GO_INSTALL_TARGET)` and requires `GO_INSTALL_TARGET` or `CMD`
 - `make install-binary` runs `build`, then installs `$(GO_INSTALL_BIN_SOURCE)` into `$(DESTDIR)$(GO_INSTALL_BIN_DIR)/$(GO_INSTALL_BIN_NAME)`
 - `make clean` removes `$(BINARY)` when `BINARY` is set
-- `make check` runs `build`, then `test`
+- `make check` runs the lint gate. Run `make build` and `make test` when you need build and test signals.
 
 The shared build flow is configured through variables instead of project-local target overrides:
 
@@ -114,6 +115,11 @@ Targets:
 | Target | Behaviour |
 | ------ | --------- |
 | `lint-golangci` | Runs `golangci-lint`, diffs normalized findings against `.golangci-lint-baseline.txt`, and fails on new findings. |
+| `lint-golangci-baseline` | Syncs the baseline to the current finding set. |
+| `lint-golangci-baseline-prune-fixed` | Removes fixed findings from the baseline without accepting new findings. |
+| `lint-golangci-baseline-accept-new` | Accepts new findings into the baseline while keeping fixed findings saved. |
+
+Baseline mutation targets are protected by the generic token gate. Set `BASELINE_CONFIRM=1` and `BASELINE_TOKEN` to the slugified output of `BASELINE_TOKEN_CMD` to permit a mutation. `baseline`, `baseline-prune-fixed`, and `baseline-accept-new` apply the same modes to every baseline. The `*-baseline-remove-fixed` and `baseline-remove-fixed` targets are aliases for `*-baseline-prune-fixed` and `baseline-prune-fixed`; `baseline-add-new` is an alias for `baseline-accept-new`.
 
 ### `.goreleaser.yaml`
 
@@ -179,6 +185,9 @@ Targets:
 | ------ | --------- |
 | `staticcheck-extra` | Runs the custom analyzer set, diffs vs baseline, and fails on new findings. Resolved findings print without failing. |
 | `staticcheck-extra-bin` | Internal. Resolves or builds the analyzer binary. |
+| `staticcheck-extra-baseline` | Syncs the baseline to the current finding set. |
+| `staticcheck-extra-baseline-prune-fixed` | Removes fixed findings from the baseline without accepting new findings. |
+| `staticcheck-extra-baseline-accept-new` | Accepts new findings into the baseline while keeping fixed findings saved. |
 
 `make lint` and `make check` both include `staticcheck-extra` automatically.
 

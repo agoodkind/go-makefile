@@ -1,107 +1,109 @@
 .PHONY: build deploy clean help \
-	lint lint-tools lint-golangci lint-golangci-baseline lint-files lint-diff lint-format lint-gocyclo fmt vet test govulncheck build-check check \
-	lint-deadcode lint-deadcode-baseline staticcheck-extra staticcheck-extra-baseline staticcheck-extra-bin \
-	baseline \
+	lint lint-tools lint-golangci lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
+	lint-files lint-diff lint-format lint-gocyclo fmt vet test govulncheck build-check check \
+	lint-deadcode lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
+	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new staticcheck-extra-bin \
+	baseline baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
 	go-mk-sync update-go-mk smoke-fetch
 
 GO_MK_URL       := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
 GO_MK_CACHE     := $(HOME)/.cache/go-makefile/go.mk
 GO_MK_BASE_URL  ?= https://raw.githubusercontent.com/agoodkind/go-makefile/main
-GO_MK_API_BASE  ?= https://api.github.com/repos/agoodkind/go-makefile/contents
+GO_MK_API_REPO  ?= agoodkind/go-makefile
 GO_MK_API_REF   ?= main
 GO_MK_CACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile
+
 GO_MK_ENTRY_MAKEFILE := $(firstword $(MAKEFILE_LIST))
 GO_MK_ENTRY_BASENAME := $(notdir $(GO_MK_ENTRY_MAKEFILE))
 GO_MK_RECURSIVE_MAKE := $(MAKE)
+GO_MK_RECURSIVE_MAKE_ARGS :=
 ifeq ($(filter Makefile makefile GNUmakefile,$(GO_MK_ENTRY_BASENAME)),)
-GO_MK_RECURSIVE_MAKE := $(MAKE) -f "$(GO_MK_ENTRY_MAKEFILE)"
+GO_MK_RECURSIVE_MAKE_ARGS := -f $(GO_MK_ENTRY_MAKEFILE)
 endif
 
-# go-mk-fetch-one: fetch one asset from go-makefile (relative path, e.g.
-# go-build.mk or golangci.yml) into .make/<path>. This exists inside go.mk
-# because go.mk owns transitive module/config fetches after bootstrap.mk has
-# fetched and included go.mk itself. Fetch order:
-#   1. GO_MK_DEV_DIR override (local-checkout copy, for iteration)
-#   2. gh api (authenticated, no rate limit; requires `gh auth login`)
-#   3. raw URL with cache-bust (anonymous CDN, may serve stale bytes for
-#      several minutes after a push)
-#   4. raw URL plain
-#
-# TODO(fetch-order): keep this chain aligned with bootstrap.mk:_go_mk_fetch,
-# which is duplicated intentionally because bootstrap.mk must fetch go.mk
-# before any go.mk functions are available.
-#
-# TODO(moratorium): the legacy ~/.cache/go-makefile fallback was removed
-# because a stale cache silently masked an upstream breakage and froze every
-# consumer on a broken go.mk for a full session. Restore the cache only after
-# the primary fetch path has been demonstrably reliable for a sustained
-# period (e.g., gh-api-first hits succeed across all dev machines without
-# falling through to anonymous raw). Until then, fail loud rather than
-# serve stale.
-#
-# All output goes to stderr; $(call ...) evaluates to the empty string so
-# it's safe to use at the top level.
-define _go_mk_fetch_commands
+GO_MK_SELF      := $(lastword $(MAKEFILE_LIST))
+GO_MK_SELF_DIR  := $(patsubst %/,%,$(dir $(abspath $(GO_MK_SELF))))
+GO_MK_LOCAL_SCRIPT_DIR := $(if $(strip $(GO_MK_DEV_DIR)),$(GO_MK_DEV_DIR)/scripts,$(GO_MK_SELF_DIR)/scripts)
+GO_MK_FETCHED_SCRIPT_DIR := $(CURDIR)/.make/scripts
+GO_MK_HELPER_DIR := $(if $(wildcard $(GO_MK_LOCAL_SCRIPT_DIR)/go-mk-lint.sh),$(GO_MK_LOCAL_SCRIPT_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
+GO_MK_FETCH_SCRIPT := $(GO_MK_HELPER_DIR)/go-mk-fetch-one.sh
+
+# go.mk still contains this small bootstrap fetcher because old consumers only
+# fetch go.mk first. Once helper scripts are present, every larger shell and
+# awk body lives under scripts/.
+define _go_mk_fetch_bootstrap_commands
 	mkdir -p "$$(dirname "$(2)")"; \
-	tmp=$$(mktemp "$(2).tmp.XXXXXX") || { printf '%s\n' "error: $(1) temporary file creation failed"; exit 1; }; \
+	tmp=$$(mktemp "$(2).tmp.XXXXXX") || exit 1; \
+	err=$$(mktemp "$(2).err.XXXXXX") || { rm -f "$$tmp"; exit 1; }; \
 	if [ -n "$(3)" ] && [ -f "$(3)/$(1)" ]; then \
-		cp "$(3)/$(1)" "$$tmp" || { rm -f "$$tmp"; exit 1; }; \
+		cp "$(3)/$(1)" "$$tmp" || { rm -f "$$tmp" "$$err"; exit 1; }; \
 	else \
-		if command -v gh >/dev/null 2>&1 && gh api "repos/agoodkind/go-makefile/contents/$(1)?ref=$(GO_MK_API_REF)" -H "Accept: application/vnd.github.raw" > "$$tmp" 2>/dev/null \
-			|| curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)?v=$$(date +%s)" -o "$$tmp" 2>/dev/null \
-			|| curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)" -o "$$tmp" 2>/dev/null; then \
+		gh_path=$$(command -v gh || true); \
+		if [ -n "$$gh_path" ] && gh api "repos/$(GO_MK_API_REPO)/contents/$(1)?ref=$(GO_MK_API_REF)" -H "Accept: application/vnd.github.raw" > "$$tmp" 2>"$$err"; then \
+			:; \
+		elif curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)?v=$$(date +%s)" -o "$$tmp" 2>"$$err"; then \
+			:; \
+		elif curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)" -o "$$tmp" 2>"$$err"; then \
 			:; \
 		else \
-			rm -f "$$tmp"; \
-			printf '%s\n' "error: $(1) fetch failed; no cache fallback (moratorium). Run: gh auth login"; \
+			rm -f "$$tmp" "$$err"; \
 			exit 1; \
 		fi; \
 	fi; \
-	[ -s "$$tmp" ] && mv "$$tmp" "$(2)" || { rm -f "$$tmp"; printf '%s\n' "error: $(1) fetched empty body"; exit 1; }
+	if [ -s "$$tmp" ]; then \
+		mv "$$tmp" "$(2)"; \
+		case "$(2)" in *.sh) chmod +x "$(2)" ;; esac; \
+		rm -f "$$err"; \
+	else \
+		rm -f "$$tmp" "$$err"; \
+		exit 1; \
+	fi
 endef
 
-go-mk-fetch-one = $(shell { $(call _go_mk_fetch_commands,$(1),.make/$(1),$(GO_MK_DEV_DIR)); } 1>&2)
+define go_mk_fetch_bootstrap
+$(shell mkdir -p .make && $(call _go_mk_fetch_bootstrap_commands,$(1),$(2),$(GO_MK_DEV_DIR)) > .make/go-mk-bootstrap-fetch.log)
+$(if $(wildcard $(2)),,$(error go-makefile failed to fetch $(1) into $(2)))
+endef
+
+ifeq ($(GO_MK_HELPER_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
+GO_MK_FETCHED_BOOTSTRAP := $(call go_mk_fetch_bootstrap,scripts/go-mk-fetch-one.sh,.make/scripts/go-mk-fetch-one.sh)
+endif
+
+define go-mk-fetch-one
+$(shell mkdir -p .make && bash "$(GO_MK_FETCH_SCRIPT)" "$(1)" ".make/$(1)" "$(GO_MK_DEV_DIR)" > .make/go-mk-fetch.log)
+$(if $(wildcard .make/$(1)),,$(error go-makefile failed to fetch $(1)))
+endef
+
+GO_MK_SCRIPT_FILES := \
+	scripts/go-mk-fetch-one.sh \
+	scripts/go-mk-common.sh \
+	scripts/go-mk-gate.sh \
+	scripts/go-mk-findings.awk \
+	scripts/go-mk-baseline.awk \
+	scripts/go-mk-lint.sh \
+	scripts/go-mk-baseline.sh \
+	scripts/go-mk-staticcheck-extra.sh \
+	scripts/go-mk-sync.sh
+
+ifeq ($(GO_MK_HELPER_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
+GO_MK_FETCHED_SCRIPTS := $(foreach s,$(GO_MK_SCRIPT_FILES),$(call go-mk-fetch-one,$(s)))
+endif
 
 # GO_MK_MODULES: project sets a list of sibling .mk files to fetch and include.
 # Example: GO_MK_MODULES := go-build.mk go-release.mk go-service.mk
-# Set BEFORE `-include $(GO_MK)` in the project Makefile.
-# Modules are fetched here at parse time but `-include`d at the END of go.mk
-# so they see all of go.mk's definitions (default-build-deps etc.).
 GO_MK_MODULES ?=
-$(foreach m,$(GO_MK_MODULES),$(call go-mk-fetch-one,$(m)))
+GO_MK_FETCHED_MODULES := $(foreach m,$(GO_MK_MODULES),$(call go-mk-fetch-one,$(m)))
 
-# Centralized golangci-lint config. The canonical config lives at
-# go-makefile/golangci.yml. Consumers do not maintain their own .golangci.yml.
-# Projects override by setting GOLANGCI_LINT_FLAGS before -include $(GO_MK).
+# Centralized golangci-lint config. Consumers do not maintain their own copy.
 GO_MK_GOLANGCI_CONFIG ?= .make/golangci.yml
-$(call go-mk-fetch-one,golangci.yml)
+GO_MK_FETCHED_GOLANGCI := $(call go-mk-fetch-one,golangci.yml)
 
 GOLANGCI_LINT          ?= golangci-lint
 GOLANGCI_LINT_TARGETS  ?= ./...
-# LINT_CONCURRENCY caps Go-backed lint/check commands. The default scales
-# with current load: it grants ncpu - load1 - 1 cores (one reserved as
-# breathing room), floored at 2 (or 1 on a single-core box) and capped at
-# ncpu, so an idle machine spins up more workers and a busy machine backs
-# off. Override with `make build LINT_CONCURRENCY=8` (or 0 for no cap).
-LINT_CONCURRENCY       ?= $(shell \
-	n=$$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4); \
-	[ "$$n" -lt 1 ] && n=1; \
-	if [ "$$(uname)" = "Darwin" ]; then \
-		load=$$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $$2+0}'); \
-	else \
-		load=$$(awk '{print $$1+0; exit}' /proc/loadavg 2>/dev/null); \
-	fi; \
-	[ -z "$$load" ] && load=0; \
-	awk -v n="$$n" -v l="$$load" 'BEGIN { v=int(n - l - 1); min=(n<2?1:2); if (v<min) v=min; if (v>n) v=n; print v }')
+LINT_CONCURRENCY       ?= auto
 GO_MK_COMMA            := ,
-GO_MK_LINT_GOFLAGS     = $(strip $(filter-out -p=%,$(GOFLAGS)) -p=$(LINT_CONCURRENCY))
-GO_MK_LINT_CPU_ENV     = $(if $(filter-out 0,$(strip $(LINT_CONCURRENCY))),GOMAXPROCS=$(LINT_CONCURRENCY) GOFLAGS="$(GO_MK_LINT_GOFLAGS)")
-go_mk_lint_cpu = $(GO_MK_LINT_CPU_ENV) $(1)
-# GOLANGCI_LINT_FLAGS holds flags accepted by BOTH `golangci-lint run` and
-# `golangci-lint fmt`. The `--concurrency` flag is `run`-only, so it lives
-# in GOLANGCI_LINT_RUN_FLAGS which only the run sites reference.
 GOLANGCI_LINT_FLAGS    ?= -c $(GO_MK_GOLANGCI_CONFIG)
-GOLANGCI_LINT_RUN_FLAGS ?= $(GOLANGCI_LINT_FLAGS) $(if $(filter-out 0,$(LINT_CONCURRENCY)),--concurrency=$(LINT_CONCURRENCY))
+GOLANGCI_LINT_RUN_FLAGS ?= $(GOLANGCI_LINT_FLAGS) $(if $(filter-out 0 auto,$(strip $(LINT_CONCURRENCY))),--concurrency=$(LINT_CONCURRENCY))
 GOLANGCI_LINT_BASELINE ?= .golangci-lint-baseline.txt
 GOLANGCI_LINT_BASELINE_RUNS ?= 3
 GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
@@ -125,625 +127,31 @@ GO_INSTALL_FLAGS       ?= $(filter-out -o %,$(GO_BUILD_FLAGS))
 GO_INSTALL_TARGET      ?= $(CMD)
 BUILD_CHECKS           ?= true
 
-ifeq ($(BUILD_CHECKS),true)
-default-build-deps := build-check
-else
-default-build-deps :=
-endif
-
-# Legacy build/deploy/clean targets. When go-build.mk is opted in via
-# GO_MK_MODULES, it owns these and we skip the legacy definitions to avoid
-# Make's "overriding commands" warning.
-ifeq ($(filter go-build.mk,$(GO_MK_MODULES)),)
-build: $(default-build-deps)
-	go build $(GO_BUILD_OUTPUT_FLAGS) $(GO_BUILD_FLAGS) $(GO_BUILD_TARGETS)
-
-deploy:
-	@if [ -z "$(strip $(GO_INSTALL_TARGET))" ]; then echo "deploy: GO_INSTALL_TARGET is not set" >&2; exit 1; fi
-	go install $(GO_INSTALL_FLAGS) $(GO_INSTALL_TARGET)
-
-clean:
-	@if [ -z "$(strip $(BINARY))" ]; then echo "clean: BINARY is not set (skipped)"; exit 0; fi
-	rm -f $(BINARY)
-endif
-
-help:
-	@printf '%s\n' 'Canonical entry points (run these):'
-	@printf '  %-32s %s\n' 'build' 'vet + full lint + govulncheck, then go build'
-	@printf '  %-32s %s\n' 'check' 'alias for lint (run every gate)'
-	@printf '  %-32s %s\n' 'lint' 'just the full lint chain (no build, no test)'
-	@printf '  %-32s %s\n' 'build-check' 'vet + lint + govulncheck (no build)'
-	@printf '  %-32s %s\n' 'fmt' 'apply gofumpt + goimports'
-	@printf '  %-32s %s\n' 'test' 'go test ./...'
-	@printf '  %-32s %s\n' 'install / uninstall' 'atomic copy of dist/$$(BINARY) to $$(INSTALL_BIN)'
-	@printf '\n%s\n' 'Scoped iteration (run all lint gates against just the files an agent has touched):'
-	@printf '  %-32s %s\n' 'lint-diff' 'all gates against staged .go files (git diff --cached). Same as pre-commit.'
-	@printf '  %-32s %s\n' 'lint-files LINT_FILES=...' 'all checks against a specific list of files'
-	@printf '\n%s\n' 'Lint sub-targets (run individually only when iterating; usually run via build/check):'
-	@printf '  %-32s %s\n' 'lint-tools' 'install golangci-lint, gofumpt, goimports'
-	@printf '  %-32s %s\n' 'lint-golangci' 'golangci-lint with central golangci.yml + .golangci-lint-baseline.txt'
-	@printf '  %-32s %s\n' 'lint-format' 'gofumpt + goimports diff (no edits, gate only)'
-	@printf '  %-32s %s\n' 'lint-gocyclo' 'cyclomatic complexity gate'
-	@printf '  %-32s %s\n' 'lint-deadcode' 'unreachable functions + .deadcode-baseline.txt + DEADCODE_EXCLUDE_PATHS'
-	@printf '  %-32s %s\n' 'staticcheck-extra' 'strict custom analyzers + .staticcheck-extra-baseline.txt'
-	@printf '\n%s\n' 'Pipeline maintenance:'
-	@printf '  %-32s %s\n' 'go-mk-sync / update-go-mk' 'refresh go.mk + sibling modules + golangci.yml'
-	@printf '  %-32s %s\n' 'smoke-fetch' 'force a network fetch that ignores GO_MK_DEV_DIR to verify the curl chain'
-	@printf '  %-32s %s\n' 'deploy' 'go install $$(GO_INSTALL_TARGET) (legacy; prefer install)'
-
 # Gate tokens default to today's Wikipedia featured article slug, but can be
-# swapped to any rotating public-or-private endpoint that emits one string.
+# swapped to any rotating public or private endpoint that emits one string.
 GO_MK_GATE_TOKEN_CMD ?= curl -fsSL "https://en.wikipedia.org/api/rest_v1/feed/featured/$$(date -u +%Y/%m/%d)" | jq -r '.tfa.titles.canonical'
-
-# Bypass: when BYPASS_LINT matches today's slugified BYPASS_TOKEN_CMD output,
-# the lint chain reports findings but exits 0 (non-blocking). Composable:
-# BYPASS_TOKEN_CMD defaults to today's Wikipedia featured article slug, but
-# can be swapped to any rotating public-or-private endpoint that emits a
-# string per day. This is a trapdoor for unblocking builds when lint itself
-# is broken; it is not a routine path. Mismatched/stale tokens fall through
-# silently, exposing no signal that the mechanism exists.
-#
-# Both sides (BYPASS_TOKEN_CMD output and user's BYPASS_LINT) are normalized
-# through `_bypass_slugify` so unicode in article titles (e.g. Katipō,
-# São_Paulo, Édith_Piaf) doesn't force the user to type non-ASCII characters.
 BYPASS_LINT      ?=
+BYPASS_CONFIRM   ?=
 BYPASS_TOKEN_CMD ?= $(GO_MK_GATE_TOKEN_CMD)
 
+BASELINE_CONFIRM   ?=
 BASELINE_TOKEN     ?=
 BASELINE_TOKEN_CMD ?= $(GO_MK_GATE_TOKEN_CMD)
-
-# _bypass_slugify reads stdin and writes a normalized lowercase ASCII slug.
-# iconv //TRANSLIT folds accents (ō -> o); the tr step drops any artifact
-# characters iconv leaves behind so the result is purely [a-z0-9_-].
-# Wrapped in `{ ... ; true; }` so that macOS iconv's exit code 1 on
-# transliteration warnings does not trip the recipe's pipefail.
-define _bypass_slugify
-	{ iconv -f UTF-8 -t ASCII//TRANSLIT 2>/dev/null || cat; } | LC_ALL=C tr -cd 'A-Za-z0-9_-' | LC_ALL=C tr 'A-Z' 'a-z'
-endef
-
-# go_mk_require_protected_target_gate quietly permits or skips mutating
-# maintenance targets.
-define go_mk_require_protected_target_gate
-gate_stamp="$(8)"; \
-rm -f "$$gate_stamp"; \
-confirm_value="$(strip $(2))"; \
-token_value="$(strip $(4))"; \
-expected_raw="$$(mktemp -t go-mk-gate.XXXXXX)"; \
-if ! { $(6); } > "$$expected_raw" 2>/dev/null; then \
-	rm -f "$$expected_raw"; \
-	exit 0; \
-fi; \
-expected_token="$$(cat "$$expected_raw" | $(_bypass_slugify) || true)"; \
-rm -f "$$expected_raw"; \
-actual_token="$$(printf "%s" "$$token_value" | $(_bypass_slugify))"; \
-confirm_ok=0; \
-case "$$confirm_value" in 1|y|yes|Y|YES) confirm_ok=1 ;; esac; \
-if [ "$$confirm_ok" != "1" ] || [ -z "$$actual_token" ] || [ -z "$$expected_token" ] || [ "$$actual_token" != "$$expected_token" ]; then \
-	exit 0; \
-fi; \
-mkdir -p "$$(dirname "$$gate_stamp")"; \
-: > "$$gate_stamp"
-endef
+BASELINE_UPDATE_MODE ?= sync
 
 LINT_GATES := lint-golangci lint-format lint-gocyclo lint-deadcode staticcheck-extra
 
-define go_mk_print_findings
-awk '"'"'{ line=$$0; if (match(line, /:[0-9]+:[0-9]+:/)) { loc=substr(line, 1, RSTART+RLENGTH-2); msg=substr(line, RSTART+RLENGTH); sub(/^[ \t]+/, "", msg); printf "  %s\n    %s\n", loc, msg } else { printf "  %s\n", line } }'"'"'
-endef
-
-define go_mk_emit_baseline_refresh_counts
-baseline_counts_prefix="$(5)"; \
-baseline_counts_old="$${baseline_counts_prefix}.old"; \
-baseline_counts_current="$${baseline_counts_prefix}.current"; \
-baseline_counts_old_keys="$${baseline_counts_prefix}.old.keys"; \
-baseline_counts_current_keys="$${baseline_counts_prefix}.current.keys"; \
-baseline_counts_new_keys="$${baseline_counts_prefix}.new.keys"; \
-baseline_counts_gone_keys="$${baseline_counts_prefix}.gone.keys"; \
-tab=$$(printf "\t"); \
-metadata_prefix="$${tab}# $(4):"; \
-if [ -f "$(2)" ]; then \
-	while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
-		case "$$baseline_line" in ""|\#*) continue ;; esac; \
-		finding="$${baseline_line%%$${metadata_prefix}*}"; \
-		[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
-	done < "$(2)" | awk '"'"'{ while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort -u > "$$baseline_counts_old"; \
-else \
-	: > "$$baseline_counts_old"; \
-fi; \
-cat "$(3)" | filter | sort -u > "$$baseline_counts_current"; \
-keyize() { awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) out=substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else out=$$0; while (index(out, "../")==1) out=substr(out, 4); print out }'"'"' "$$1"; }; \
-keyize "$$baseline_counts_old" | sort -u > "$$baseline_counts_old_keys"; \
-keyize "$$baseline_counts_current" | sort -u > "$$baseline_counts_current_keys"; \
-comm -23 "$$baseline_counts_current_keys" "$$baseline_counts_old_keys" > "$$baseline_counts_new_keys" || true; \
-comm -13 "$$baseline_counts_current_keys" "$$baseline_counts_old_keys" > "$$baseline_counts_gone_keys" || true; \
-new_count=$$(wc -l < "$$baseline_counts_new_keys" | tr -d " "); \
-gone_count=$$(wc -l < "$$baseline_counts_gone_keys" | tr -d " "); \
-echo "  New findings saved: $$new_count"; \
-echo "  Saved findings now fixed: $$gone_count"
-endef
-
-lint: lint-tools
-	@bash -eu -o pipefail -c '\
-		mkdir -p .make; \
-		rm -f .make/lint.failed; \
-		status=0; \
-		lint_output=".make/lint.output"; \
-		: > "$$lint_output"; \
-		for gate in $(LINT_GATES); do \
-			$(GO_MK_RECURSIVE_MAKE) --no-print-directory "$$gate" >> "$$lint_output" 2>&1 || status=$$?; \
-		done; \
-		awk '"'"'!/^make(\[[0-9]+\])?: \*\*\* \[[^]]+\] Error [0-9]+$$/'"'"' "$$lint_output"; \
-		[ "$$status" -eq 0 ] && exit 0; \
-		if [ -s .make/lint.failed ]; then \
-			failed_gates=$$(awk '"'"'NF && !seen[$$0]++ { if (out != "") out = out ", "; out = out $$0 } END { print out }'"'"' .make/lint.failed); \
-			printf "\nlint: FAILED\n"; \
-			printf "  Failed gates: %s\n" "$$failed_gates"; \
-		else \
-			printf "\nlint: FAILED\n"; \
-			printf "  Failed gates: see failed target output above\n"; \
-		fi; \
-		bypass=$$(printf "%s" "$(BYPASS_LINT)" | $(_bypass_slugify)); \
-		if [ -n "$$bypass" ]; then \
-			expected=$$($(BYPASS_TOKEN_CMD) 2>/dev/null | $(_bypass_slugify) || true); \
-			if [ -n "$$expected" ] && [ "$$bypass" = "$$expected" ]; then \
-				if [ "$(BYPASS_CONFIRM)" = "1" ]; then \
-					printf "\n***********************************************************************\n" >&2; \
-					printf "*** LINT FINDINGS NON-BLOCKING via BYPASS_LINT=%s\n" "$$expected" >&2; \
-					printf "*** Findings reported above but build proceeds. Do not merge without fixing.\n" >&2; \
-					printf "***********************************************************************\n\n" >&2; \
-					exit 0; \
-				fi; \
-			fi; \
-		fi; \
-		exit "$$status"'
-
-# go install at @latest issues HEAD requests to the GitHub Contents API to
-# resolve module versions. When unauthenticated, GitHub rate-limits and the
-# 403 stderr leaks even on retry-and-succeed. We capture stderr to a temp
-# file and replay it only on failure so transient noise stays quiet while
-# real install errors still surface.
-lint-tools:
-	@err=$$(mktemp -t go-mk-lint-tools.XXXXXX); \
-	if ! { $(call go_mk_lint_cpu,go install $(GOLANGCI_LINT_INSTALL)) && \
-	       $(call go_mk_lint_cpu,go install $(GOFUMPT_INSTALL)) && \
-	       $(call go_mk_lint_cpu,go install $(GOIMPORTS_INSTALL)); } 2>"$$err"; then \
-		cat "$$err" >&2; rm -f "$$err"; exit 1; \
-	fi; \
-	rm -f "$$err"
-
-lint-golangci: lint-tools
-	@bash -eu -o pipefail -c '\
-		mkdir -p .make; \
-		raw_output=".make/golangci-lint.raw.out"; \
-		findings_output=".make/golangci-lint.out"; \
-		baseline_output=".make/golangci-lint.baseline.out"; \
-		excludes="$$(printf "%s,%s" "$(GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS)" "$(GOLANGCI_LINT_EXCLUDE_PATHS)")"; \
-		run_status=0; \
-		gate_status=0; \
-		filter() { \
-			if [ -z "$$excludes" ]; then cat; return; fi; \
-			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
-			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
-		}; \
-		$(call go_mk_lint_cpu,$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_FLAGS) $(GOLANGCI_LINT_TARGETS)) > "$$raw_output" 2>&1 || run_status=$$?; \
-		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$raw_output" \
-			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
-			| filter \
-			| sort > "$$findings_output" || true; \
-		tab=$$(printf "\t"); \
-		metadata_prefix="$${tab}# golangci-lint:"; \
-		if [ -f "$(GOLANGCI_LINT_BASELINE)" ]; then \
-			while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
-				case "$$baseline_line" in ""|\#*) continue ;; esac; \
-				finding="$${baseline_line%%$${metadata_prefix}*}"; \
-				[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
-			done < "$(GOLANGCI_LINT_BASELINE)" | awk '"'"'{ while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort > "$$baseline_output"; \
-		else \
-			: > "$$baseline_output"; \
-		fi; \
-		keyize() { \
-			awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) out=substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else out=$$0; while (index(out, "../")==1) out=substr(out, 4); print out }'"'"' "$$1"; \
-		}; \
-		findings_keys=".make/golangci-lint.keys.out"; \
-		baseline_keys=".make/golangci-lint.keys.baseline.out"; \
-		keyize "$$findings_output" | sort -u > "$$findings_keys"; \
-		keyize "$$baseline_output" | sort -u > "$$baseline_keys"; \
-		new_keys_file=".make/golangci-lint.keys.new"; \
-		gone_keys_file=".make/golangci-lint.keys.gone"; \
-		comm -23 "$$findings_keys" "$$baseline_keys" > "$$new_keys_file" || true; \
-		comm -13 "$$findings_keys" "$$baseline_keys" > "$$gone_keys_file" || true; \
-		map_keys_to_originals() { \
-			awk '"'"'NR==FNR{keyset[$$0]=1; next} { if (match($$0, /:[0-9]+:[0-9]+:/)) k = substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else k = $$0; while (index(k, "../")==1) k = substr(k, 4); if (k in keyset) print }'"'"' "$$1" "$$2"; \
-		}; \
-		new_count=0; \
-		new=$$(map_keys_to_originals "$$new_keys_file" "$$findings_output"); \
-		if [ -n "$$new" ]; then \
-			new_count=$$(printf "%s\n" "$$new" | wc -l | tr -d " "); \
-			echo "golangci-lint: FAILED"; \
-			echo "  New findings: $$new_count"; \
-			echo ""; \
-			echo "Findings:"; \
-			printf "%s\n" "$$new" | $(go_mk_print_findings); \
-			echo ""; \
-			echo "  Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks."; \
-			gate_status=1; \
-		fi; \
-		gone=$$(map_keys_to_originals "$$gone_keys_file" "$$baseline_output"); \
-		gone_count=0; \
-		if [ -n "$$gone" ]; then gone_count=$$(printf "%s\n" "$$gone" | wc -l | tr -d " "); fi; \
-		if [ "$$gate_status" -ne 0 ]; then \
-			mkdir -p .make; \
-			echo "golangci-lint" >> .make/lint.failed; \
-			exit "$$gate_status"; \
-		fi; \
-		echo "golangci-lint: OK"; \
-		echo "  New findings: 0"; \
-		if [ "$$gone_count" -gt 0 ]; then \
-			echo "  Saved findings now fixed: $$gone_count"; \
-		fi; \
-		if [ "$$run_status" -ne 0 ] && [ ! -s "$$findings_output" ]; then \
-			echo "golangci-lint: FAILED"; \
-			echo "  Exit status: $$run_status"; \
-			echo ""; \
-			echo "Output:"; \
-			cat "$$raw_output"; \
-			mkdir -p .make; \
-			echo "golangci-lint" >> .make/lint.failed; \
-			exit "$$run_status"; \
-		fi'
-
-# lint-files runs golangci-lint scoped to LINT_FILES with the central config
-# but WITHOUT the baseline gate. Use it while iterating on a change set,
-# especially when parallel agents touch different parts of the tree and want
-# to lint only their files. Switch to `make lint` (or check) for the full
-# baseline-gated pipeline before commit.
-#
-# Examples:
-#   make lint-files LINT_FILES="cmd/foo/main.go cmd/foo/router.go"
-#   make lint-files LINT_FILES=./internal/auth/...
-#
-# Other linters accept the same scope via their own *_TARGETS env vars,
-# e.g. make staticcheck-extra STATICCHECK_EXTRA_TARGETS=./internal/auth/...
-LINT_FILES ?= ./...
-
-# BASELINE: which file to gate findings against. Default = the canonical
-# golangci baseline file. Set BASELINE="" to disable the gate (all
-# findings on listed files surface). Set BASELINE=other.txt to use any
-# alternate baseline file.
-BASELINE ?= $(GOLANGCI_LINT_BASELINE)
-
-define go_mk_scoped_lint_shell
-@bash -eu -o pipefail -c
-endef
-
-# lint-diff: lint exactly the .go files in the current `git diff --cached`
-# (staged changes). Same logic the pre-commit hook uses, exposed as a
-# target so agents can run it directly. Pure alias around lint-files.
-# TODO: smarter mode that filters findings to only changed lines (via
-# golangci-lint --new-from-rev=HEAD); deferred until line-level filtering
-# is needed widely.
-lint-diff:
-	$(go_mk_scoped_lint_shell) '\
-		files=$$(git diff --cached --name-only --relative --diff-filter=ACM 2>/dev/null | grep "\.go$$" | tr "\n" " " || true); \
-		[ -z "$$files" ] && { echo "lint-diff: no staged .go files"; exit 0; }; \
-		$(MAKE) --no-print-directory lint-files LINT_FILES="$$files" BASELINE="$(BASELINE)"'
-
-lint-files: lint-tools staticcheck-extra-bin
-	$(go_mk_scoped_lint_shell) '\
-		[ -z "$(LINT_FILES)" ] && { echo "lint-files: LINT_FILES is empty"; exit 0; }; \
-		pkgs=$$(printf "%s\n" $(LINT_FILES) | xargs -n1 dirname | sort -u | awk "{print \"./\" \$$0}" | tr "\n" " "); \
-		files="$(LINT_FILES)"; \
-		gate_disabled="$$([ -z "$(BASELINE)" ] && echo 1 || echo 0)"; \
-		run_gate() { \
-			local name="$$1" cmd="$$2" baseline="$$3"; \
-			local raw filtered findings new bkeys st; \
-			raw=$$(mktemp); \
-			eval "$$cmd" > "$$raw" 2>&1 || true; \
-			findings=$$(awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' "$$raw" | grep -E "^[^:]+\.go:[0-9]+:[0-9]+: " || true); \
-			rm -f "$$raw"; \
-			filtered=$$(echo "$$findings" | awk -v files="$$files" '"'"'BEGIN { n=split(files, ff, /[ \t]+/); for (i=1; i<=n; i++) if (ff[i] != "") keep[ff[i]]=1 } { for (f in keep) if (index($$0, f ":") == 1) { print; next } }'"'"'); \
-			[ -z "$$filtered" ] && { echo "$$name: OK (0 findings on listed files)"; return 0; }; \
-			if [ "$$gate_disabled" = "1" ]; then echo "$$name findings on listed files:"; echo "$$filtered"; return 1; fi; \
-			bkeys=$$(mktemp); \
-			[ -f "$$baseline" ] && awk '"'"'function k(s,    o) { if (match(s, /:[0-9]+:[0-9]+:/)) o = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else o = s; while (index(o, "../")==1) o = substr(o, 4); return o } /^[ \t]*$$/||/^#/{next} { i=index($$0, "\t"); f=(i>0)?substr($$0, 1, i-1):$$0; print k(f) }'"'"' "$$baseline" > "$$bkeys"; \
-			new=$$(echo "$$filtered" | awk -v bkeys="$$bkeys" '"'"'function k(s,    o) { if (match(s, /:[0-9]+:[0-9]+:/)) o = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else o = s; while (index(o, "../")==1) o = substr(o, 4); return o } BEGIN { while ((getline x < bkeys) > 0) bk[x]=1 } { if (!(k($$0) in bk)) print }'"'"'); \
-			rm -f "$$bkeys"; \
-			[ -z "$$new" ] && { echo "$$name: OK (0 new findings vs $$baseline)"; return 0; }; \
-			echo "$$name NEW findings on listed files (vs $$baseline):"; \
-			echo "$$new"; \
-			return 1; \
-		}; \
-		status=0; \
-		run_gate golangci-lint "$(call go_mk_lint_cpu,$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_FLAGS) $$pkgs)" "$(GOLANGCI_LINT_BASELINE)" || status=1; \
-		run_gate staticcheck-extra "$(call go_mk_lint_cpu,.make/staticcheck-extra $(STATICCHECK_EXTRA_FLAGS) $$pkgs)" "$(STATICCHECK_EXTRA_BASELINE)" || status=1; \
-		if [ "$$status" -ne 0 ] && [ "$$gate_disabled" != "1" ]; then \
-			echo ""; \
-			echo "Run with BASELINE=\"\" to see all findings (skip baseline gate)."; \
-		fi; \
-		exit "$$status"'
-
-lint-golangci-baseline:
-	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,golangci-lint saved findings update,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites $(GOLANGCI_LINT_BASELINE) to match the current golangci-lint finding set,.make/lint-golangci-baseline.gate.ok)'
-	@[ -f .make/lint-golangci-baseline.gate.ok ] || exit 0; $(GO_MK_RECURSIVE_MAKE) --no-print-directory lint-tools
-	@[ -f .make/lint-golangci-baseline.gate.ok ] || exit 0; bash -eu -o pipefail -c '\
-		mkdir -p .make "$$(dirname "$(GOLANGCI_LINT_BASELINE)")"; \
-		raw_output=".make/golangci-lint-baseline.raw.out"; \
-		findings_output=".make/golangci-lint-baseline.out"; \
-		new_baseline=".make/golangci-lint-baseline.new"; \
-		excludes="$$(printf "%s,%s" "$(GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS)" "$(GOLANGCI_LINT_EXCLUDE_PATHS)")"; \
-		status=0; \
-		filter() { \
-			if [ -z "$$excludes" ]; then cat; return; fi; \
-			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
-			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
-		}; \
-		: > "$$raw_output"; \
-		: > "$$findings_output"; \
-		for run_index in $$(seq 1 $(GOLANGCI_LINT_BASELINE_RUNS)); do \
-			run_raw_output=".make/golangci-lint-baseline.$$run_index.raw.out"; \
-			run_findings_output=".make/golangci-lint-baseline.$$run_index.out"; \
-			run_status=0; \
-			$(call go_mk_lint_cpu,$(GOLANGCI_LINT) run $(GOLANGCI_LINT_RUN_FLAGS) $(GOLANGCI_LINT_TARGETS)) > "$$run_raw_output" 2>&1 || run_status=$$?; \
-			cat "$$run_raw_output" >> "$$raw_output"; \
-			grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+: |^[^[:space:]].*\\([[:alnum:]_-]+\\)$$" "$$run_raw_output" \
-				| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
-				| filter \
-				| sort > "$$run_findings_output" || true; \
-			cat "$$run_findings_output" >> "$$findings_output"; \
-			if [ "$$run_status" -ne 0 ]; then status="$$run_status"; fi; \
-		done; \
-		sort -u "$$findings_output" > "$$findings_output.merged"; \
-		mv "$$findings_output.merged" "$$findings_output"; \
-		if [ ! -f "$(GOLANGCI_LINT_BASELINE)" ]; then touch "$(GOLANGCI_LINT_BASELINE)"; fi; \
-		now=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
-		tab=$$(printf "\t"); \
-		metadata_prefix="$${tab}# golangci-lint:"; \
-		$(call go_mk_emit_baseline_refresh_counts,golangci-lint,$(GOLANGCI_LINT_BASELINE),$$findings_output,golangci-lint,.make/golangci-lint-baseline.counts); \
-		printf "# golangci-lint: generated_at=%s\n" "$$now" > "$$new_baseline"; \
-		awk -v now="$$now" -v mp="$${metadata_prefix}" -v lname=golangci-lint -v kmf="$(GOLANGCI_LINT_BASELINE)" '"'"'function key(s,    out) { if (match(s, /:[0-9]+:[0-9]+:/)) out = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else out = s; while (index(out, "../")==1) out = substr(out, 4); return out } BEGIN { while ((getline line < kmf) > 0) { if (line ~ /^#/) continue; if (line ~ /^[ \t]*$$/) continue; idx = index(line, mp); if (idx > 0) { finding = substr(line, 1, idx-1); meta = substr(line, idx + length(mp)); fa = ""; n = split(meta, ff, " "); for (i = 1; i <= n; i++) if (ff[i] ~ /^first_added=/) fa = substr(ff[i], 13); km[key(finding)] = fa } else km[key(line)] = "" } close(kmf) } { k = key($$0); fa = (k in km) ? km[k] : ""; if (fa == "") fa = now; printf "%s\t# %s:first_added=%s last_seen=%s\n", $$0, lname, fa, now }'"'"' "$$findings_output" >> "$$new_baseline"; \
-		mv "$$new_baseline" "$(GOLANGCI_LINT_BASELINE)"; \
-		n=$$(wc -l < "$$findings_output"); \
-		echo "golangci-lint: baseline $(GOLANGCI_LINT_BASELINE) refreshed ($$n findings)"; \
-		if [ "$$status" -ne 0 ] && [ "$$n" -eq 0 ]; then cat "$$raw_output"; exit "$$status"; fi'
-
-lint-format:
-	@diff_output=$$($(call go_mk_lint_cpu,$(GOLANGCI_LINT) fmt --diff $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS))); \
-	if [ -n "$$diff_output" ]; then \
-		echo "golangci-lint formatters need to update:"; \
-		printf '%s\n' "$$diff_output"; \
-		echo "run make fmt"; \
-		mkdir -p .make; \
-		echo "lint-format" >> .make/lint.failed; \
-		exit 1; \
-	fi
-
-lint-gocyclo:
-	@err=$$(mktemp -t go-mk-gocyclo.XXXXXX); \
-	if ! $(call go_mk_lint_cpu,go install $(GOCYCLO_INSTALL)) 2>"$$err"; then \
-		cat "$$err" >&2; rm -f "$$err"; exit 1; \
-	fi; \
-	rm -f "$$err"; \
-	mkdir -p .make; \
-	output=$$($(call go_mk_lint_cpu,"$$(go env GOPATH)/bin/gocyclo" -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS)) 2>&1) || status=$$?; \
-	printf "%s\n" "$$output" > .make/gocyclo.out; \
-	if [ -n "$$output" ]; then \
-		count=$$(printf "%s\n" "$$output" | grep -c . || true); \
-		echo "gocyclo: FAILED"; \
-		echo "  Functions over complexity limit $(GOCYCLO_OVER): $$count"; \
-		echo ""; \
-		echo "Findings:"; \
-		printf "%s\n" "$$output" | $(go_mk_print_findings); \
-		echo "gocyclo" >> .make/lint.failed; \
-		exit 1; \
-	fi; \
-	if [ "$${status:-0}" -ne 0 ]; then \
-		echo "gocyclo: FAILED"; \
-		echo "  Exit status: $$status"; \
-		echo "gocyclo" >> .make/lint.failed; \
-		exit "$$status"; \
-	fi; \
-	echo "gocyclo: OK"; \
-	echo "  Functions over complexity limit $(GOCYCLO_OVER): 0"
-
-fmt: lint-tools
-	$(call go_mk_lint_cpu,$(GOLANGCI_LINT) fmt $(GOLANGCI_LINT_FLAGS) $(GOLANGCI_LINT_TARGETS))
-
-vet:
-	$(call go_mk_lint_cpu,go vet $(GO_VET_TARGETS))
-
-test:
-	$(call go_mk_lint_cpu,go test $(GO_TEST_TARGETS))
-
-govulncheck:
-	@err=$$(mktemp -t go-mk-vuln.XXXXXX); \
-	if ! $(call go_mk_lint_cpu,go install golang.org/x/vuln/cmd/govulncheck@latest) 2>"$$err"; then \
-		cat "$$err" >&2; rm -f "$$err"; exit 1; \
-	fi; \
-	rm -f "$$err"; \
-	$(call go_mk_lint_cpu,"$$(go env GOPATH)/bin/govulncheck" $(GOVULNCHECK_TARGETS))
-
 # lint-deadcode runs golang.org/x/tools/cmd/deadcode and gates new findings
-# against a baseline file. Same pattern as staticcheck-extra: existing dead
-# code is captured in .deadcode-baseline.txt, only new findings fail the
-# build. Refresh only after intentionally removing dead code or when the
-# analyzer's reachability rules change.
+# against a baseline file.
 DEADCODE_INSTALL          ?= golang.org/x/tools/cmd/deadcode@latest
 DEADCODE_TARGETS          ?= ./...
 DEADCODE_BASELINE         ?= .deadcode-baseline.txt
 DEADCODE_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
 DEADCODE_EXCLUDE_PATHS    ?=
 
-lint-deadcode:
-	@bash -eu -o pipefail -c '\
-		err=$$(mktemp -t go-mk-deadcode-install.XXXXXX); \
-		if ! $(call go_mk_lint_cpu,go install $(DEADCODE_INSTALL)) 2>"$$err"; then \
-			cat "$$err" >&2; rm -f "$$err"; exit 1; \
-		fi; \
-		rm -f "$$err"; \
-		mkdir -p .make; \
-		raw=".make/deadcode.raw.out"; \
-		findings=".make/deadcode.out"; \
-		baseline=".make/deadcode.baseline.out"; \
-		excludes="$$(printf "%s,%s" "$(DEADCODE_DEFAULT_EXCLUDE_PATHS)" "$(DEADCODE_EXCLUDE_PATHS)")"; \
-		filter() { \
-			if [ -z "$$excludes" ]; then cat; return; fi; \
-			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
-			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
-		}; \
-		$(call go_mk_lint_cpu,"$$(go env GOPATH)/bin/deadcode" $(DEADCODE_TARGETS)) > "$$raw" 2>&1 || true; \
-		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+:" "$$raw" \
-			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
-			| filter \
-			| sort > "$$findings" || true; \
-		tab=$$(printf "\t"); \
-		metadata_prefix="$${tab}# deadcode:"; \
-		if [ -f "$(DEADCODE_BASELINE)" ]; then \
-			while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
-				case "$$baseline_line" in ""|\#*) continue ;; esac; \
-				finding="$${baseline_line%%$${metadata_prefix}*}"; \
-				[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
-			done < "$(DEADCODE_BASELINE)" | awk '"'"'{ while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort > "$$baseline" || true; \
-		else \
-			: > "$$baseline"; \
-		fi; \
-		keyize() { awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) out=substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else out=$$0; while (index(out, "../")==1) out=substr(out, 4); print out }'"'"' "$$1"; }; \
-		findings_keys=".make/deadcode.keys.out"; \
-		baseline_keys=".make/deadcode.keys.baseline.out"; \
-		new_keys=".make/deadcode.keys.new"; \
-		gone_keys=".make/deadcode.keys.gone"; \
-		keyize "$$findings" | sort -u > "$$findings_keys"; \
-		keyize "$$baseline" | sort -u > "$$baseline_keys"; \
-		comm -23 "$$findings_keys" "$$baseline_keys" > "$$new_keys" || true; \
-		comm -13 "$$findings_keys" "$$baseline_keys" > "$$gone_keys" || true; \
-		map_keys() { awk '"'"'NR==FNR{keyset[$$0]=1; next} { if (match($$0, /:[0-9]+:[0-9]+:/)) k = substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else k = $$0; while (index(k, "../")==1) k = substr(k, 4); if (k in keyset) print }'"'"' "$$1" "$$2"; }; \
-		gate_status=0; \
-		new_count=0; \
-		new=$$(map_keys "$$new_keys" "$$findings"); \
-		if [ -n "$$new" ]; then \
-			new_count=$$(printf "%s\n" "$$new" | wc -l | tr -d " "); \
-			echo "deadcode: FAILED"; \
-			echo "  New findings: $$new_count"; \
-			echo ""; \
-			echo "Findings:"; \
-			printf "%s\n" "$$new" | $(go_mk_print_findings); \
-			echo ""; \
-			echo "  Remove the dead code or document why it stays. Do not silence the check."; \
-			gate_status=1; \
-		fi; \
-		gone=$$(map_keys "$$gone_keys" "$$baseline"); \
-		gone_count=0; \
-		if [ -n "$$gone" ]; then gone_count=$$(printf "%s\n" "$$gone" | wc -l | tr -d " "); fi; \
-		if [ "$$gate_status" -ne 0 ]; then \
-			mkdir -p .make; \
-			echo "deadcode" >> .make/lint.failed; \
-			exit "$$gate_status"; \
-		fi; \
-		echo "deadcode: OK"; \
-		echo "  New findings: 0"; \
-		if [ "$$gone_count" -gt 0 ]; then \
-			echo "  Saved findings now fixed: $$gone_count"; \
-		fi'
-
-lint-deadcode-baseline:
-	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,deadcode saved findings update,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites $(DEADCODE_BASELINE) to match the current deadcode finding set,.make/lint-deadcode-baseline.gate.ok)'
-	@[ -f .make/lint-deadcode-baseline.gate.ok ] || exit 0; bash -eu -o pipefail -c '\
-		err=$$(mktemp -t go-mk-deadcode-install.XXXXXX); \
-		if ! $(call go_mk_lint_cpu,go install $(DEADCODE_INSTALL)) 2>"$$err"; then \
-			cat "$$err" >&2; rm -f "$$err"; exit 1; \
-		fi; \
-		rm -f "$$err"; \
-		mkdir -p .make "$$(dirname "$(DEADCODE_BASELINE)")"; \
-		raw=".make/deadcode-baseline.raw.out"; \
-		findings=".make/deadcode-baseline.out"; \
-		excludes="$$(printf "%s,%s" "$(DEADCODE_DEFAULT_EXCLUDE_PATHS)" "$(DEADCODE_EXCLUDE_PATHS)")"; \
-		filter() { \
-			if [ -z "$$excludes" ]; then cat; return; fi; \
-			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
-			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
-		}; \
-		$(call go_mk_lint_cpu,"$$(go env GOPATH)/bin/deadcode" $(DEADCODE_TARGETS)) > "$$raw" 2>&1 || true; \
-		grep -E "^[^[:space:]][^:]+:[0-9]+:[0-9]+:" "$$raw" \
-			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' \
-			| filter \
-			| sort -u > "$$findings" || true; \
-		if [ ! -f "$(DEADCODE_BASELINE)" ]; then touch "$(DEADCODE_BASELINE)"; fi; \
-		now=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
-		tab=$$(printf "\t"); \
-		metadata_prefix="$${tab}# deadcode:"; \
-		new_baseline=".make/deadcode-baseline.new"; \
-		$(call go_mk_emit_baseline_refresh_counts,deadcode,$(DEADCODE_BASELINE),$$findings,deadcode,.make/deadcode-baseline.counts); \
-		printf "# deadcode: generated_at=%s\n" "$$now" > "$$new_baseline"; \
-		awk -v now="$$now" -v mp="$${metadata_prefix}" -v lname=deadcode -v kmf="$(DEADCODE_BASELINE)" '"'"'function key(s,    out) { if (match(s, /:[0-9]+:[0-9]+:/)) out = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else out = s; while (index(out, "../")==1) out = substr(out, 4); return out } BEGIN { while ((getline line < kmf) > 0) { if (line ~ /^#/) continue; if (line ~ /^[ \t]*$$/) continue; idx = index(line, mp); if (idx > 0) { finding = substr(line, 1, idx-1); meta = substr(line, idx + length(mp)); fa = ""; n = split(meta, ff, " "); for (i = 1; i <= n; i++) if (ff[i] ~ /^first_added=/) fa = substr(ff[i], 13); km[key(finding)] = fa } else km[key(line)] = "" } close(kmf) } { k = key($$0); fa = (k in km) ? km[k] : ""; if (fa == "") fa = now; printf "%s\t# %s:first_added=%s last_seen=%s\n", $$0, lname, fa, now }'"'"' "$$findings" >> "$$new_baseline"; \
-		mv "$$new_baseline" "$(DEADCODE_BASELINE)"; \
-		n=$$(wc -l < "$$findings"); \
-		echo "deadcode: baseline $(DEADCODE_BASELINE) refreshed ($$n findings)"'
-
-build-check: vet lint govulncheck
-
-# `check` is an alias for `lint`. Both run every lint gate (golangci-lint,
-# format, gocyclo, deadcode, staticcheck-extra). To build + test, use
-# `make build` (which runs lint via build-check) and `make test`.
-check: lint
-
-# baseline updates every gate's saved findings file in one shot. The expected
-# workflow is read findings, attempt to fix them in code, and only then
-# accept the residual into the baseline with the user's explicit consent.
-# Individual baseline targets (lint-golangci-baseline, lint-deadcode-baseline,
-# staticcheck-extra-baseline) remain available when only one needs refreshing.
-baseline:
-	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,saved findings update,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites .golangci-lint-baseline.txt .deadcode-baseline.txt and .staticcheck-extra-baseline.txt to match the current finding set,.make/baseline.gate.ok)'
-	@[ -f .make/baseline.gate.ok ] || exit 0; $(GO_MK_RECURSIVE_MAKE) --no-print-directory lint-golangci-baseline
-	@[ -f .make/baseline.gate.ok ] || exit 0; $(GO_MK_RECURSIVE_MAKE) --no-print-directory lint-deadcode-baseline
-	@[ -f .make/baseline.gate.ok ] || exit 0; $(GO_MK_RECURSIVE_MAKE) --no-print-directory staticcheck-extra-baseline
-
-# ---------------------------------------------------------------------------
-# staticcheck-extra: AST analyzer pass with a baseline-diff gate so only NEW
-# findings fail the build. The default source is the analyzer set bundled
-# with go-makefile itself (github.com/agoodkind/go-makefile/staticcheck).
-#
-# Resolution order for the analyzer binary:
-#   1. STATICCHECK_EXTRA_BIN              (explicit path to a prebuilt binary)
-#   2. STATICCHECK_EXTRA_BUILD_REPO + _PKG (build from a local checkout)
-#   3. STATICCHECK_EXTRA_INSTALL          (go install <module>@<version>)
-#
-# The default is option 3 with a pinned go-makefile module path, so any
-# project that pulls in go.mk gets the analyzer set with zero extra config:
-#
-#   STATICCHECK_EXTRA_INSTALL = github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest
-#
-# Optional knobs:
-#   STATICCHECK_EXTRA_FLAGS         args passed to the analyzer (default
-#                                   enables every bundled check)
-#   STATICCHECK_EXTRA_TARGETS       packages to analyze         (default ./...)
-#   STATICCHECK_EXTRA_BASELINE      baseline file               (default .staticcheck-extra-baseline.txt)
-#   STATICCHECK_EXTRA_EXCLUDE_PATHS comma-separated grep -E patterns matched
-#                                   against finding lines (file:line:col:msg).
-#                                   Any line that matches is dropped before
-#                                   the baseline diff. Use for generated code
-#                                   (e.g. "\.pb\.go:") or vendored paths.
-#
-# Behaviour:
-#   - If no source is configured (all three resolution paths empty), target
-#     is a no-op (announces "skipped").
-#   - The bundled analyzer set is the default, installed via `go install`
-#     into $(go env GOPATH)/bin on first run, then cached. If the cached
-#     binary does not support the requested analyzer flags, it is rebuilt or
-#     reinstalled before analysis starts.
-#   - Excluded lines are dropped before baseline comparison.
-#   - Findings are diffed against the baseline. NEW findings exit non-zero.
-#     RESOLVED findings print without failing.
-#   - `make staticcheck-extra-baseline` re-captures the current findings and
-#     records generated_at for the file plus first_added and last_seen UTC
-#     timestamps for each entry.
-# ---------------------------------------------------------------------------
+# staticcheck-extra: AST analyzer pass with a baseline-diff gate so only new
+# findings fail the build.
 STATICCHECK_EXTRA_BIN           ?=
-# When GO_MK_DEV_DIR is set and the dev checkout contains the analyzer
-# source, build the binary from that checkout rather than from
-# `go install ...@latest`. Without this, dev `go.mk` could declare new
-# analyzer flags (e.g. -thin_wrapper_to_launderable_call) that the
-# remote-installed binary does not yet support, because the local
-# checkout has unpushed commits. Building from the same source as the
-# flags eliminates that drift class entirely.
 STATICCHECK_EXTRA_BUILD_REPO    ?= $(if $(and $(GO_MK_DEV_DIR),$(wildcard $(GO_MK_DEV_DIR)/staticcheck/cmd/staticcheck-extra)),$(GO_MK_DEV_DIR)/staticcheck)
 STATICCHECK_EXTRA_BUILD_PKG     ?= $(if $(STATICCHECK_EXTRA_BUILD_REPO),./cmd/staticcheck-extra)
 STATICCHECK_EXTRA_INSTALL       ?= github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest
@@ -777,208 +185,202 @@ STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
 STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
 STATICCHECK_EXTRA_EXCLUDE_PATHS ?=
 
-# Variable resolution and build are deferred to recipe time so the project
-# Makefile can set STATICCHECK_EXTRA_* either before or after `-include`.
-# Use $(MAKE) recursion for the build path so $(shell ...) sees the final
-# variable values.
+export GO_MK_ROOT := $(CURDIR)
+export GO_MK_HELPER_DIR
+export GO_MK_RECURSIVE_MAKE
+export GO_MK_RECURSIVE_MAKE_ARGS
+export GO_MK_SCRIPT_FILES
+export GO_MK_BASE_URL
+export GO_MK_API_REPO
+export GO_MK_API_REF
+export GOLANGCI_LINT
+export GOLANGCI_LINT_TARGETS
+export GOLANGCI_LINT_FLAGS
+export GOLANGCI_LINT_RUN_FLAGS
+export GOLANGCI_LINT_BASELINE
+export GOLANGCI_LINT_BASELINE_RUNS
+export GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS
+export GOLANGCI_LINT_EXCLUDE_PATHS
+export GOLANGCI_LINT_INSTALL
+export GOFUMPT_INSTALL
+export GOIMPORTS_INSTALL
+export LINT_CONCURRENCY
+export LINT_GATES
+export LINT_FILES
+export BASELINE
+export BASELINE_CONFIRM
+export BASELINE_TOKEN
+export BASELINE_TOKEN_CMD
+export BASELINE_UPDATE_MODE
+export BYPASS_LINT
+export BYPASS_CONFIRM
+export BYPASS_TOKEN_CMD
+export GO_MK_GATE_TOKEN_CMD
+export GOCYCLO_OVER
+export GOCYCLO_TARGETS
+export GOCYCLO_INSTALL
+export GO_TEST_TARGETS
+export GO_VET_TARGETS
+export GOVULNCHECK_TARGETS
+export DEADCODE_INSTALL
+export DEADCODE_TARGETS
+export DEADCODE_BASELINE
+export DEADCODE_DEFAULT_EXCLUDE_PATHS
+export DEADCODE_EXCLUDE_PATHS
+export STATICCHECK_EXTRA_BIN
+export STATICCHECK_EXTRA_BUILD_REPO
+export STATICCHECK_EXTRA_BUILD_PKG
+export STATICCHECK_EXTRA_INSTALL
+export STATICCHECK_EXTRA_FLAGS
+export STATICCHECK_EXTRA_TARGETS
+export STATICCHECK_EXTRA_BASELINE
+export STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS
+export STATICCHECK_EXTRA_EXCLUDE_PATHS
+
+ifeq ($(BUILD_CHECKS),true)
+default-build-deps := build-check
+else
+default-build-deps :=
+endif
+
+ifeq ($(filter go-build.mk,$(GO_MK_MODULES)),)
+build: $(default-build-deps)
+	go build $(GO_BUILD_OUTPUT_FLAGS) $(GO_BUILD_FLAGS) $(GO_BUILD_TARGETS)
+
+deploy:
+	@if [ -z "$(strip $(GO_INSTALL_TARGET))" ]; then echo "deploy: GO_INSTALL_TARGET is not set"; exit 1; fi
+	go install $(GO_INSTALL_FLAGS) $(GO_INSTALL_TARGET)
+
+clean:
+	@if [ -z "$(strip $(BINARY))" ]; then echo "clean: BINARY is not set (skipped)"; exit 0; fi
+	rm -f $(BINARY)
+endif
+
+help:
+	@printf '%s\n' 'Canonical entry points:'
+	@printf '  %-40s %s\n' 'build' 'vet + lint + govulncheck, then go build'
+	@printf '  %-40s %s\n' 'check' 'alias for lint'
+	@printf '  %-40s %s\n' 'lint' 'run every lint gate'
+	@printf '  %-40s %s\n' 'build-check' 'vet + lint + govulncheck'
+	@printf '  %-40s %s\n' 'fmt' 'apply configured Go formatters'
+	@printf '  %-40s %s\n' 'test' 'go test ./...'
+	@printf '\n%s\n' 'Scoped iteration:'
+	@printf '  %-40s %s\n' 'lint-diff' 'run scoped lint against staged Go files'
+	@printf '  %-40s %s\n' 'lint-files LINT_FILES=...' 'run scoped lint against listed files'
+	@printf '\n%s\n' 'Lint sub-targets:'
+	@printf '  %-40s %s\n' 'lint-tools' 'install golangci-lint, gofumpt, and goimports'
+	@printf '  %-40s %s\n' 'lint-golangci' 'golangci-lint with baseline gate'
+	@printf '  %-40s %s\n' 'lint-format' 'formatter diff gate'
+	@printf '  %-40s %s\n' 'lint-gocyclo' 'cyclomatic complexity gate'
+	@printf '  %-40s %s\n' 'lint-deadcode' 'deadcode with baseline gate'
+	@printf '  %-40s %s\n' 'staticcheck-extra' 'custom analyzers with baseline gate'
+	@printf '\n%s\n' 'Baseline maintenance, guarded by BASELINE_CONFIRM and BASELINE_TOKEN:'
+	@printf '  %-40s %s\n' 'baseline' 'sync all baselines to current findings'
+	@printf '  %-40s %s\n' 'baseline-prune-fixed' 'remove fixed findings without saving new findings'
+	@printf '  %-40s %s\n' 'baseline-accept-new' 'save new findings without removing fixed findings'
+	@printf '  %-40s %s\n' '*-baseline-prune-fixed' 'component form for one baseline'
+	@printf '  %-40s %s\n' '*-baseline-accept-new' 'component form for one baseline'
+	@printf '\n%s\n' 'Pipeline maintenance:'
+	@printf '  %-40s %s\n' 'go-mk-sync / update-go-mk' 'refresh go.mk, helper scripts, modules, and golangci.yml'
+	@printf '  %-40s %s\n' 'smoke-fetch' 'force a fetch-path smoke run'
+
+lint: lint-tools
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint
+
+lint-tools:
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-tools
+
+lint-golangci: lint-tools
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-golangci
+
+lint-format:
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-format
+
+lint-gocyclo:
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-gocyclo
+
+lint-files: lint-tools staticcheck-extra-bin
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-files
+
+lint-diff:
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-diff
+
+fmt: lint-tools
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" fmt
+
+vet:
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" vet
+
+test:
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" test
+
+govulncheck:
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" govulncheck
+
+lint-deadcode:
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-deadcode
 
 staticcheck-extra-bin:
-	@bash -eu -c '\
-		bin="$(STATICCHECK_EXTRA_BIN)"; \
-		repo="$(STATICCHECK_EXTRA_BUILD_REPO)"; \
-		pkg="$(STATICCHECK_EXTRA_BUILD_PKG)"; \
-		install="$(STATICCHECK_EXTRA_INSTALL)"; \
-		flags="$(STATICCHECK_EXTRA_FLAGS)"; \
-		missing_flags() { \
-			candidate="$$1"; \
-			available=$$($(call go_mk_lint_cpu,"$$candidate" -flags) 2>/dev/null || true); \
-			for flag in $$flags; do \
-				name="$${flag#-}"; \
-				printf "%s\n" "$$available" | grep -q "\"Name\": \"$$name\"" || return 0; \
-			done; \
-			return 1; \
-		}; \
-		build_from_repo() { \
-			mkdir -p .make; \
-			out="$(CURDIR)/.make/staticcheck-extra"; \
-			cd "$$repo" && $(call go_mk_lint_cpu,go build -o "$$out" "$$pkg"); \
-		}; \
-		install_binary() { \
-			base=$$(basename "$${install%%@*}"); \
-			gobin=$$(go env GOPATH)/bin; \
-			installed="$$gobin/$$base"; \
-			err_log=$$(mktemp -t staticcheck-extra-install.XXXXXX); \
-			if ! $(call go_mk_lint_cpu,GOPROXY=direct GONOSUMDB=github.com/agoodkind/go-makefile$(GO_MK_COMMA)github.com/agoodkind/go-makefile/staticcheck GOBIN="$$gobin" go install "$$install") 2>"$$err_log"; then \
-				cat "$$err_log" >&2; \
-				rm -f "$$err_log"; \
-				return 1; \
-			fi; \
-			rm -f "$$err_log"; \
-			ln -sf "$$installed" "$(CURDIR)/.make/staticcheck-extra"; \
-		}; \
-		if [ -n "$$bin" ]; then \
-			[ -x "$$bin" ] || { echo "staticcheck-extra: $$bin not executable"; exit 1; }; \
-			missing_flags "$$bin" && { echo "staticcheck-extra: $$bin does not support requested flags"; exit 1; }; \
-			exit 0; \
-		fi; \
-		if [ -n "$$repo" ]; then \
-			if [ ! -d "$$repo" ]; then \
-				echo "staticcheck-extra: build repo $$repo not present; skipping"; exit 0; \
-			fi; \
-			if [ -z "$$pkg" ]; then \
-				echo "staticcheck-extra: STATICCHECK_EXTRA_BUILD_PKG not set"; exit 1; \
-			fi; \
-			mkdir -p .make; \
-			out="$(CURDIR)/.make/staticcheck-extra"; \
-			newest_src=$$(find "$$repo" -name "*.go" -newer "$$out" 2>/dev/null | head -1 || true); \
-			if [ ! -x "$$out" ] || [ -n "$$newest_src" ] || missing_flags "$$out"; then \
-				build_from_repo; \
-			fi; \
-			exit 0; \
-		fi; \
-		if [ -z "$$install" ]; then exit 0; fi; \
-		mkdir -p .make; \
-		out="$(CURDIR)/.make/staticcheck-extra"; \
-		base=$$(basename "$${install%%@*}"); \
-		gobin=$$(go env GOPATH)/bin; \
-		installed="$$gobin/$$base"; \
-		case "$$install" in *@latest) at_latest=1 ;; *) at_latest=0 ;; esac; \
-		if [ ! -x "$$installed" ] || [ "$$at_latest" = "1" ] || missing_flags "$$installed"; then \
-			install_binary; \
-		else \
-			ln -sf "$$installed" "$$out"; \
-		fi'
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-staticcheck-extra.sh" bin
 
 staticcheck-extra: staticcheck-extra-bin
-	@bash -eu -o pipefail -c '\
-		bin="$(STATICCHECK_EXTRA_BIN)"; \
-		[ -z "$$bin" ] && [ -x .make/staticcheck-extra ] && bin=".make/staticcheck-extra"; \
-		if [ -z "$$bin" ]; then \
-			echo "staticcheck-extra: not configured (skipped)"; exit 0; \
-		fi; \
-		if [ ! -x "$$bin" ]; then \
-			echo "staticcheck-extra: binary $$bin not executable; skipping"; exit 0; \
-		fi; \
-		mkdir -p .make; \
-		excludes="$$(printf "%s,%s" "$(STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS)" "$(STATICCHECK_EXTRA_EXCLUDE_PATHS)")"; \
-		filter() { \
-			if [ -z "$$excludes" ]; then cat; return; fi; \
-			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
-			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
-		}; \
-		$(call go_mk_lint_cpu,"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS)) 2>&1 \
-			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort > .make/staticcheck-extra.out || true; \
-		tab=$$(printf "\t"); \
-		metadata_prefix="$${tab}# staticcheck-extra:"; \
-		baseline_findings() { \
-			if [ ! -f "$(STATICCHECK_EXTRA_BASELINE)" ]; then return 0; fi; \
-			while IFS= read -r baseline_line || [ -n "$$baseline_line" ]; do \
-				case "$$baseline_line" in ""|\#*) continue ;; esac; \
-				finding="$${baseline_line%%$${metadata_prefix}*}"; \
-				[ -n "$$finding" ] && printf "%s\n" "$$finding"; \
-			done < "$(STATICCHECK_EXTRA_BASELINE)" | awk '"'"'{ while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort; \
-		}; \
-		baseline_findings > .make/staticcheck-extra.baseline.out; \
-		keyize() { awk '"'"'{ if (match($$0, /:[0-9]+:[0-9]+:/)) out=substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else out=$$0; while (index(out, "../")==1) out=substr(out, 4); print out }'"'"' "$$1"; }; \
-		keyize .make/staticcheck-extra.out | sort -u > .make/staticcheck-extra.keys.out; \
-		keyize .make/staticcheck-extra.baseline.out | sort -u > .make/staticcheck-extra.keys.baseline.out; \
-		comm -23 .make/staticcheck-extra.keys.out .make/staticcheck-extra.keys.baseline.out > .make/staticcheck-extra.keys.new || true; \
-		comm -13 .make/staticcheck-extra.keys.out .make/staticcheck-extra.keys.baseline.out > .make/staticcheck-extra.keys.gone || true; \
-		map_keys() { awk '"'"'NR==FNR{keyset[$$0]=1; next} { if (match($$0, /:[0-9]+:[0-9]+:/)) k = substr($$0, 1, RSTART-1) ":::" substr($$0, RSTART+RLENGTH); else k = $$0; while (index(k, "../")==1) k = substr(k, 4); if (k in keyset) print }'"'"' "$$1" "$$2"; }; \
-		gate_status=0; \
-		new_count=0; \
-		new=$$(map_keys .make/staticcheck-extra.keys.new .make/staticcheck-extra.out); \
-		if [ -n "$$new" ]; then \
-			new_count=$$(printf "%s\n" "$$new" | wc -l | tr -d " "); \
-			echo "staticcheck-extra: FAILED"; \
-			echo "  New findings: $$new_count"; \
-			echo ""; \
-			echo "Findings:"; \
-			printf "%s\n" "$$new" | $(go_mk_print_findings); \
-			echo ""; \
-			echo "  Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks."; \
-			gate_status=1; \
-		fi; \
-		gone=$$(map_keys .make/staticcheck-extra.keys.gone .make/staticcheck-extra.baseline.out); \
-		gone_count=0; \
-		if [ -n "$$gone" ]; then gone_count=$$(printf "%s\n" "$$gone" | wc -l | tr -d " "); fi; \
-		if [ "$$gate_status" -ne 0 ]; then \
-			mkdir -p .make; \
-			echo "staticcheck-extra" >> .make/lint.failed; \
-			exit "$$gate_status"; \
-		fi; \
-		echo "staticcheck-extra: OK"; \
-		echo "  New findings: 0"; \
-		if [ "$$gone_count" -gt 0 ]; then \
-			echo "  Saved findings now fixed: $$gone_count"; \
-		fi'
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-staticcheck-extra.sh" run
+
+lint-golangci-baseline:
+	@BASELINE_UPDATE_MODE=sync bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" golangci
+
+lint-golangci-baseline-prune-fixed:
+	@BASELINE_UPDATE_MODE=prune-fixed bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" golangci
+
+lint-golangci-baseline-remove-fixed: lint-golangci-baseline-prune-fixed
+
+lint-golangci-baseline-accept-new:
+	@BASELINE_UPDATE_MODE=accept-new bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" golangci
+
+lint-deadcode-baseline:
+	@BASELINE_UPDATE_MODE=sync bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" deadcode
+
+lint-deadcode-baseline-prune-fixed:
+	@BASELINE_UPDATE_MODE=prune-fixed bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" deadcode
+
+lint-deadcode-baseline-remove-fixed: lint-deadcode-baseline-prune-fixed
+
+lint-deadcode-baseline-accept-new:
+	@BASELINE_UPDATE_MODE=accept-new bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" deadcode
 
 staticcheck-extra-baseline:
-	@bash -eu -o pipefail -c '$(call go_mk_require_protected_target_gate,staticcheck-extra saved findings update,$(BASELINE_CONFIRM),BASELINE_CONFIRM,$(BASELINE_TOKEN),BASELINE_TOKEN,$(BASELINE_TOKEN_CMD),rewrites $(STATICCHECK_EXTRA_BASELINE) to match the current staticcheck-extra finding set,.make/staticcheck-extra-baseline.gate.ok)'
-	@[ -f .make/staticcheck-extra-baseline.gate.ok ] || exit 0; $(GO_MK_RECURSIVE_MAKE) --no-print-directory staticcheck-extra-bin
-	@[ -f .make/staticcheck-extra-baseline.gate.ok ] || exit 0; bash -eu -o pipefail -c '\
-		bin="$(STATICCHECK_EXTRA_BIN)"; \
-		[ -z "$$bin" ] && [ -x .make/staticcheck-extra ] && bin=".make/staticcheck-extra"; \
-		if [ -z "$$bin" ] || [ ! -x "$$bin" ]; then \
-			echo "staticcheck-extra: not configured; cannot update saved findings"; exit 1; \
-		fi; \
-		mkdir -p .make "$$(dirname "$(STATICCHECK_EXTRA_BASELINE)")"; \
-		excludes="$$(printf "%s,%s" "$(STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS)" "$(STATICCHECK_EXTRA_EXCLUDE_PATHS)")"; \
-		filter() { \
-			if [ -z "$$excludes" ]; then cat; return; fi; \
-			pat=$$(printf "%s" "$$excludes" | tr "," "\n" | grep -v "^$$" | paste -sd "|" -); \
-			if [ -z "$$pat" ]; then cat; else grep -Ev "$$pat" || true; fi; \
-		}; \
-		$(call go_mk_lint_cpu,"$$bin" $(STATICCHECK_EXTRA_FLAGS) $(STATICCHECK_EXTRA_TARGETS)) 2>&1 \
-			| awk -v pwd="$$PWD/" -v cwd="$(CURDIR)/" '"'"'{ if (index($$0, pwd)==1) $$0=substr($$0, length(pwd)+1); if (index($$0, cwd)==1) $$0=substr($$0, length(cwd)+1); while (index($$0, "../")==1) $$0=substr($$0, 4); print }'"'"' | filter | sort > .make/staticcheck-extra.out || true; \
-		if [ ! -f "$(STATICCHECK_EXTRA_BASELINE)" ]; then \
-			touch "$(STATICCHECK_EXTRA_BASELINE)"; \
-		fi; \
-		now=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
-		tab=$$(printf "\t"); \
-		metadata_prefix="$${tab}# staticcheck-extra:"; \
-		tmp=".make/staticcheck-extra-baseline.tmp"; \
-		$(call go_mk_emit_baseline_refresh_counts,staticcheck-extra,$(STATICCHECK_EXTRA_BASELINE),.make/staticcheck-extra.out,staticcheck-extra,.make/staticcheck-extra-baseline.counts); \
-		printf "# staticcheck-extra: generated_at=%s\n" "$$now" > "$$tmp"; \
-		awk -v now="$$now" -v mp="$${metadata_prefix}" -v lname=staticcheck-extra -v kmf="$(STATICCHECK_EXTRA_BASELINE)" '"'"'function key(s,    out) { if (match(s, /:[0-9]+:[0-9]+:/)) out = substr(s, 1, RSTART-1) ":::" substr(s, RSTART+RLENGTH); else out = s; while (index(out, "../")==1) out = substr(out, 4); return out } BEGIN { while ((getline line < kmf) > 0) { if (line ~ /^#/) continue; if (line ~ /^[ \t]*$$/) continue; idx = index(line, mp); if (idx > 0) { finding = substr(line, 1, idx-1); meta = substr(line, idx + length(mp)); fa = ""; n = split(meta, ff, " "); for (i = 1; i <= n; i++) if (ff[i] ~ /^first_added=/) fa = substr(ff[i], 13); km[key(finding)] = fa } else km[key(line)] = "" } close(kmf) } { k = key($$0); fa = (k in km) ? km[k] : ""; if (fa == "") fa = now; printf "%s\t# %s:first_added=%s last_seen=%s\n", $$0, lname, fa, now }'"'"' .make/staticcheck-extra.out >> "$$tmp"; \
-		mv "$$tmp" "$(STATICCHECK_EXTRA_BASELINE)"; \
-		n=$$(wc -l < .make/staticcheck-extra.out); \
-		echo "staticcheck-extra: baseline $(STATICCHECK_EXTRA_BASELINE) refreshed ($$n findings)"'
+	@BASELINE_UPDATE_MODE=sync bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" staticcheck-extra
 
-# release/release-snapshot/release-local live in go-release.mk.
-# Project Makefiles opt in via:  GO_MK_MODULES += go-release.mk
+staticcheck-extra-baseline-prune-fixed:
+	@BASELINE_UPDATE_MODE=prune-fixed bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" staticcheck-extra
 
-# smoke-fetch exercises the network fetch path end-to-end, even when the
-# local-development override (GO_MK_DEV_DIR) is set in the shell. It clears
-# the per-repo .make cache and confirms that go.mk plus every sibling module
-# plus the central golangci.yml all download cleanly through the same fetch
-# helper used by go-mk-fetch-one and update-go-mk.
-#
-# Useful before pushing a go-makefile change so a developer can verify the
-# version on main is still working through the curl path that consumers
-# actually take when GO_MK_DEV_DIR is unset.
-smoke-fetch:
-	@rm -rf .make
-	@mkdir -p .make
-	@for f in go.mk golangci.yml $(GO_MK_MODULES); do \
-		dest=".make/$$f"; \
-		$(call _go_mk_fetch_commands,$$f,$$dest,); \
-	done
-	@echo "smoke-fetch: OK ($$(ls .make 2>/dev/null | wc -l | tr -d ' ') assets fetched into .make/)"
+staticcheck-extra-baseline-remove-fixed: staticcheck-extra-baseline-prune-fixed
 
-# Refresh go.mk plus every opt-in sibling module and the central golangci.yml.
-# Renamed from 'sync' to avoid conflicts with project-level Makefile sync targets.
-# Uses the same 3-tier (API, cache-busted raw, raw) chain as go-mk-fetch-one
-# so a freshly pushed update lands without waiting for raw-CDN invalidation,
-# and curl stderr stays silent on retry-and-succeed cases.
+staticcheck-extra-baseline-accept-new:
+	@BASELINE_UPDATE_MODE=accept-new bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" staticcheck-extra
+
+build-check: vet lint govulncheck
+
+check: lint
+
+baseline:
+	@BASELINE_UPDATE_MODE=sync bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" all
+
+baseline-prune-fixed:
+	@BASELINE_UPDATE_MODE=prune-fixed bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" all
+
+baseline-remove-fixed: baseline-prune-fixed
+
+baseline-accept-new:
+	@BASELINE_UPDATE_MODE=accept-new bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" all
+
+baseline-add-new: baseline-accept-new
+
 update-go-mk go-mk-sync:
-	@mkdir -p "$(dir $(GO_MK_CACHE))"
-	@for f in go.mk golangci.yml $(GO_MK_MODULES); do \
-		if [ "$$f" = "go.mk" ]; then dest="$(GO_MK)"; else dest=".make/$$f"; fi; \
-		$(call _go_mk_fetch_commands,$$f,$$dest,); \
-		echo "updated: $$f"; \
-	done
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-sync.sh" update
 
-# Include opt-in modules at end so they see all go.mk definitions
-# (e.g., default-build-deps).
+smoke-fetch:
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-sync.sh" smoke-fetch
+
+# Include opt-in modules at end so they see all go.mk definitions.
 $(foreach m,$(GO_MK_MODULES),$(eval -include .make/$(m)))
