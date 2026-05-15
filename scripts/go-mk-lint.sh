@@ -260,6 +260,18 @@ filter_scoped_findings() {
     '
 }
 
+filter_line_scoped_findings() {
+    local ranges_file
+    local awk_file
+
+    ranges_file="$1"
+    if [[ ! -s "${ranges_file}" ]]; then
+        return
+    fi
+    awk_file=$(go_mk_findings_awk)
+    awk -v action=linefilter -f "${awk_file}" "${ranges_file}" -
+}
+
 run_scoped_gate() {
     local gate_name
     local raw_output
@@ -268,6 +280,8 @@ run_scoped_gate() {
     local files_text
     local baseline_file
     local exclude_pattern
+    local ranges_file
+    local scope_label
 
     gate_name="$1"
     raw_output="$2"
@@ -275,18 +289,25 @@ run_scoped_gate() {
     files_text="$4"
     baseline_file="$5"
     exclude_pattern="$6"
+    ranges_file="${7:-}"
     filtered_output="${findings_output}.scoped"
+    scope_label="listed files"
 
     go_mk_extract_findings "${raw_output}" "${findings_output}" "${GO_MK_GO_LOCATION_PATTERN}" "${exclude_pattern}"
-    filter_scoped_findings "${files_text}" < "${findings_output}" > "${filtered_output}"
+    if [[ -n "${ranges_file}" ]]; then
+        scope_label="staged lines"
+        filter_line_scoped_findings "${ranges_file}" < "${findings_output}" > "${filtered_output}"
+    else
+        filter_scoped_findings "${files_text}" < "${findings_output}" > "${filtered_output}"
+    fi
 
     if [[ ! -s "${filtered_output}" ]]; then
-        printf "%s: OK (0 findings on listed files)\n" "${gate_name}"
+        printf "%s: OK (0 findings on %s)\n" "${gate_name}" "${scope_label}"
         return 0
     fi
 
     if [[ -z "${BASELINE:-}" ]]; then
-        printf "%s findings on listed files:\n" "${gate_name}"
+        printf "%s findings on %s:\n" "${gate_name}" "${scope_label}"
         cat "${filtered_output}"
         return 1
     fi
@@ -312,6 +333,7 @@ run_lint_files() {
     local staticcheck_flags
     local staticcheck_flag_args
     local staticcheck_bin
+    local line_ranges_file
 
     files_text="${LINT_FILES:-./...}"
     if [[ -z "${files_text}" ]]; then
@@ -326,6 +348,7 @@ run_lint_files() {
     package_args=("${GO_MK_WORDS[@]}")
     golangci_raw=".make/lint-files.golangci.raw.out"
     staticcheck_raw=".make/lint-files.staticcheck.raw.out"
+    line_ranges_file="${LINT_LINE_RANGES:-}"
 
     golangci_flags="${GOLANGCI_LINT_RUN_FLAGS:-${GOLANGCI_LINT_FLAGS:-}}"
     go_mk_split_words "${golangci_flags}"
@@ -337,7 +360,8 @@ run_lint_files() {
         ".make/lint-files.golangci.out" \
         "${files_text}" \
         "${GOLANGCI_LINT_BASELINE:-.golangci-lint-baseline.txt}" \
-        "$(go_mk_exclude_pattern "${GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS:-_test\\.go:}" "${GOLANGCI_LINT_EXCLUDE_PATHS:-}")" || status=1
+        "$(go_mk_exclude_pattern "${GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS:-_test\\.go:}" "${GOLANGCI_LINT_EXCLUDE_PATHS:-}")" \
+        "${line_ranges_file}" || status=1
 
     staticcheck_bin="${STATICCHECK_EXTRA_BIN:-}"
     if [[ -z "${staticcheck_bin}" && -x .make/staticcheck-extra ]]; then
@@ -354,7 +378,8 @@ run_lint_files() {
             ".make/lint-files.staticcheck.out" \
             "${files_text}" \
             "${STATICCHECK_EXTRA_BASELINE:-.staticcheck-extra-baseline.txt}" \
-            "$(go_mk_exclude_pattern "${STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS:-_test\\.go:}" "${STATICCHECK_EXTRA_EXCLUDE_PATHS:-}")" || status=1
+            "$(go_mk_exclude_pattern "${STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS:-_test\\.go:}" "${STATICCHECK_EXTRA_EXCLUDE_PATHS:-}")" \
+            "${line_ranges_file}" || status=1
     else
         printf "staticcheck-extra: not configured (skipped)\n"
     fi
@@ -369,16 +394,26 @@ run_lint_diff() {
     local files_text
     local diff_output
     local error_file
+    local patch_file
+    local ranges_file
 
     go_mk_setup_temp_dir
     error_file="${GO_MK_TEMP_DIR}/git-diff.err"
+    patch_file="${GO_MK_TEMP_DIR}/git-diff.patch"
+    ranges_file=".make/lint-diff.ranges"
     diff_output=$(git diff --cached --name-only --relative --diff-filter=ACM 2>"${error_file}" | grep "\.go$" | tr "\n" " " || true)
     files_text="${diff_output}"
     if [[ -z "${files_text}" ]]; then
         printf "lint-diff: no staged .go files\n"
         return 0
     fi
-    LINT_FILES="${files_text}" run_lint_files
+    git diff --cached --unified=0 --relative --diff-filter=ACM -- "*.go" > "${patch_file}" 2>"${error_file}"
+    awk -v action=ranges -f "$(go_mk_findings_awk)" "${patch_file}" > "${ranges_file}"
+    if [[ ! -s "${ranges_file}" ]]; then
+        printf "lint-diff: no staged Go line changes\n"
+        return 0
+    fi
+    BASELINE="${BASELINE:-1}" LINT_FILES="${files_text}" LINT_LINE_RANGES="${ranges_file}" run_lint_files
 }
 
 run_lint_chain() {

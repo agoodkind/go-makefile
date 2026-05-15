@@ -44,10 +44,82 @@ function print_finding(input_line,    location, message) {
     }
 }
 
+function finding_file(input_line,    parts) {
+    split(input_line, parts, ":")
+    return parts[1]
+}
+
+function finding_line(input_line,    parts) {
+    split(input_line, parts, ":")
+    return parts[2] + 0
+}
+
+function remember_range(input_line,    parts, file_path, range_index) {
+    split(input_line, parts, "\t")
+    file_path = parts[1]
+    if (file_path == "") {
+        return
+    }
+    range_index = ++range_count[file_path]
+    range_start[file_path, range_index] = parts[2] + 0
+    range_end[file_path, range_index] = parts[3] + 0
+}
+
+function finding_in_range(input_line,    file_path, line_number, range_index) {
+    file_path = finding_file(input_line)
+    line_number = finding_line(input_line)
+    if (file_path == "" || line_number == 0) {
+        return 0
+    }
+    for (range_index = 1; range_index <= range_count[file_path]; range_index++) {
+        if (line_number >= range_start[file_path, range_index] && line_number <= range_end[file_path, range_index]) {
+            return 1
+        }
+    }
+    return 0
+}
+
 BEGIN {
     if (action == "") {
         action = "normalize"
     }
+}
+
+action == "ranges" && /^\+\+\+ / {
+    current_file = $2
+    sub(/^b\//, "", current_file)
+    if (current_file == "/dev/null") {
+        current_file = ""
+    }
+    next
+}
+
+action == "ranges" && $1 == "@@" && current_file != "" {
+    range_text = $3
+    sub(/^\+/, "", range_text)
+    split(range_text, range_parts, ",")
+    range_start_line = range_parts[1] + 0
+    range_line_count = range_parts[2] == "" ? 1 : range_parts[2] + 0
+    if (range_line_count > 0) {
+        print current_file "\t" range_start_line "\t" range_start_line + range_line_count - 1
+    }
+    next
+}
+
+action == "ranges" {
+    next
+}
+
+action == "linefilter" && NR == FNR {
+    remember_range($0)
+    next
+}
+
+action == "linefilter" {
+    if (finding_in_range($0)) {
+        print
+    }
+    next
 }
 
 action == "map" && NR == FNR {

@@ -305,7 +305,6 @@ lint-gocyclo:
 lint-files: lint-tools staticcheck-extra-bin
 	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-files
 
-lint-diff: BASELINE ?= 1
 lint-diff: lint-tools staticcheck-extra-bin
 	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-diff
 
