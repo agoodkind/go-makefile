@@ -1,6 +1,6 @@
 .PHONY: build deploy clean help \
 	lint lint-tools lint-golangci lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
-	lint-files lint-diff lint-format lint-gocyclo fmt vet test govulncheck build-check check \
+	lint-files lint-diff lint-format lint-gocyclo fmt vet test govulncheck build-check build-check-start check \
 	lint-deadcode lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new staticcheck-extra-bin \
 	baseline baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
@@ -61,7 +61,6 @@ define _go_mk_fetch_bootstrap_commands
 endef
 
 define go_mk_fetch_bootstrap
-$(if $(GO_MK_BOOTSTRAP_FETCHED),,$(info go-makefile: fetching $(1)))
 $(shell mkdir -p .make && $(call _go_mk_fetch_bootstrap_commands,$(1),$(2),$(GO_MK_DEV_DIR)) > .make/go-mk-bootstrap-fetch.log)
 $(if $(wildcard $(2)),,$(error go-makefile failed to fetch $(1) into $(2)))
 endef
@@ -71,9 +70,12 @@ GO_MK_FETCHED_BOOTSTRAP := $(call go_mk_fetch_bootstrap,scripts/go-mk-fetch-one.
 endif
 
 define go-mk-fetch-one
-$(if $(GO_MK_BOOTSTRAP_FETCHED),,$(info go-makefile: fetching $(1)))
 $(shell mkdir -p .make && bash "$(GO_MK_FETCH_SCRIPT)" "$(1)" ".make/$(1)" "$(GO_MK_DEV_DIR)" > .make/go-mk-fetch.log)
 $(if $(wildcard .make/$(1)),,$(error go-makefile failed to fetch $(1)))
+endef
+
+define go-mk-require-one
+$(if $(wildcard $(1)),,$(error go-makefile expected $(1); rerun without GO_MK_SKIP_FETCH))
 endef
 
 GO_MK_SCRIPT_FILES := \
@@ -88,17 +90,29 @@ GO_MK_SCRIPT_FILES := \
 	scripts/go-mk-sync.sh
 
 ifeq ($(GO_MK_HELPER_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
+ifeq ($(strip $(GO_MK_SKIP_FETCH)),1)
+GO_MK_FETCHED_SCRIPTS := $(foreach s,$(GO_MK_SCRIPT_FILES),$(call go-mk-require-one,.make/$(s)))
+else
 GO_MK_FETCHED_SCRIPTS := $(foreach s,$(GO_MK_SCRIPT_FILES),$(call go-mk-fetch-one,$(s)))
+endif
 endif
 
 # GO_MK_MODULES: project sets a list of sibling .mk files to fetch and include.
 # Example: GO_MK_MODULES := go-build.mk go-release.mk go-service.mk
 GO_MK_MODULES ?=
+ifneq ($(strip $(GO_MK_BOOTSTRAP_FETCHED)$(GO_MK_SKIP_FETCH)),)
+GO_MK_FETCHED_MODULES := $(foreach m,$(GO_MK_MODULES),$(call go-mk-require-one,.make/$(m)))
+else
 GO_MK_FETCHED_MODULES := $(foreach m,$(GO_MK_MODULES),$(call go-mk-fetch-one,$(m)))
+endif
 
 # Centralized golangci-lint config. Consumers do not maintain their own copy.
 GO_MK_GOLANGCI_CONFIG ?= .make/golangci.yml
+ifneq ($(strip $(GO_MK_BOOTSTRAP_FETCHED)$(GO_MK_SKIP_FETCH)),)
+GO_MK_FETCHED_GOLANGCI := $(call go-mk-require-one,$(GO_MK_GOLANGCI_CONFIG))
+else
 GO_MK_FETCHED_GOLANGCI := $(call go-mk-fetch-one,golangci.yml)
+endif
 
 GOLANGCI_LINT          ?= golangci-lint
 GOLANGCI_LINT_TARGETS  ?= ./...
@@ -362,7 +376,10 @@ staticcheck-extra-baseline-remove-fixed: staticcheck-extra-baseline-prune-fixed
 staticcheck-extra-baseline-accept-new:
 	@BASELINE_UPDATE_MODE=accept-new bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" staticcheck-extra
 
-build-check: vet lint govulncheck
+build-check: build-check-start vet lint govulncheck
+
+build-check-start:
+	@printf 'build-check: running vet, lint, and govulncheck\n'
 
 check: lint
 

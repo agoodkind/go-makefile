@@ -21,7 +21,7 @@
 # Makefile if needed.
 STATICCHECK_EXTRA_FLAGS ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
 
-.PHONY: build deploy install uninstall version-info clean-dist
+.PHONY: build deploy install install-start uninstall version-info clean-dist
 
 # Auto-detect mode. LIBRARY mode skips build/install (lint/test/vet still apply
 # from go.mk). The default is binary mode, requiring BINARY+CMD+VPKG.
@@ -33,8 +33,10 @@ ifeq ($(strip $(LIBRARY)),1)
 build: $(default-build-deps)
 	@echo "library mode: no binary to build"
 
-deploy install:
-	@echo "library mode: $@ is a no-op"
+deploy: install
+
+install:
+	@echo "library mode: install is a no-op"
 
 uninstall:
 	@echo "library mode: uninstall is a no-op"
@@ -141,8 +143,10 @@ build: $(default-build-deps)
 
 # Atomic install to $(INSTALL_BIN) via mktemp + rename. Avoids a torn binary
 # if the cp is interrupted mid-write.
-deploy install: build
-	@printf '%s: installing %s to %s\n' '$@' '$(BINARY)' '$(INSTALL_BIN)'
+deploy: install
+
+install: install-start build
+	@printf 'install: installing %s to %s\n' '$(BINARY)' '$(INSTALL_BIN)'
 	@mkdir -p $(INSTALL_DIR)
 	@out="$$(mktemp $(INSTALL_BIN).new.XXXXXX)"; \
 	trap 'rm -f "$$out"' EXIT; \
@@ -151,6 +155,9 @@ deploy install: build
 	test -s "$$out"; \
 	mv -f "$$out" "$(INSTALL_BIN)"
 	@echo "installed: $(INSTALL_BIN)"
+
+install-start:
+	@printf 'install: building %s before install to %s\n' '$(BINARY)' '$(INSTALL_BIN)'
 
 uninstall:
 	@rm -f $(INSTALL_BIN)

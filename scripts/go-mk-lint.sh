@@ -443,7 +443,8 @@ run_lint_chain() {
         gate_output=".make/${gate_name}.aggregate.out"
         gate_error=".make/${gate_name}.aggregate.err"
         gate_status=0
-        "${GO_MK_RECURSIVE_MAKE:-${MAKE:-make}}" "${make_args[@]}" --no-print-directory "${gate_name}" > "${gate_output}" 2>"${gate_error}" || gate_status=$?
+        printf "lint: running %s\n" "${gate_name}"
+        GO_MK_SKIP_FETCH=1 "${GO_MK_RECURSIVE_MAKE:-${MAKE:-make}}" "${make_args[@]}" --no-print-directory "${gate_name}" > "${gate_output}" 2>"${gate_error}" || gate_status=$?
         cat "${gate_output}" >> "${lint_output}"
         cat "${gate_error}" >> "${lint_output}"
         if [[ "${gate_status}" -ne 0 ]]; then

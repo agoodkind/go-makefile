@@ -34,14 +34,23 @@ define _go_mk_fetch
 	fi
 endef
 
-$(info go-makefile: fetching go.mk)
-$(info go-makefile: fetching golangci.yml)
-$(foreach m,$(GO_MK_MODULES),$(info go-makefile: fetching $(m)))
 GO_MK_BOOTSTRAP_FETCHED := 1
+
+define _go_mk_require_fetched
+$(if $(wildcard $(1)),,$(error go-makefile expected $(1); rerun without GO_MK_SKIP_FETCH))
+endef
+
+ifeq ($(strip $(GO_MK_SKIP_FETCH)),1)
+GO_MK_FETCH_CHECK := $(call _go_mk_require_fetched,$(GO_MK))
+GO_MK_FETCH_CHECK += $(call _go_mk_require_fetched,.make/golangci.yml)
+GO_MK_FETCH_CHECK += $(foreach m,$(GO_MK_MODULES),$(call _go_mk_require_fetched,.make/$(m)))
+else
 
 $(shell mkdir -p .make && { $(call _go_mk_fetch,go.mk,$(GO_MK)); } 1>&2)
 $(shell { $(call _go_mk_fetch,golangci.yml,.make/golangci.yml); } 1>&2)
 $(foreach m,$(GO_MK_MODULES),$(shell { $(call _go_mk_fetch,$(m),.make/$(m)); } 1>&2))
+
+endif
 
 # go.mk handles -including the modules at its tail (after all its variables
 # are defined), so the modules see default-build-deps etc. Don't duplicate
