@@ -61,6 +61,7 @@ define _go_mk_fetch_bootstrap_commands
 endef
 
 define go_mk_fetch_bootstrap
+$(if $(GO_MK_BOOTSTRAP_FETCHED),,$(info go-makefile: fetching $(1)))
 $(shell mkdir -p .make && $(call _go_mk_fetch_bootstrap_commands,$(1),$(2),$(GO_MK_DEV_DIR)) > .make/go-mk-bootstrap-fetch.log)
 $(if $(wildcard $(2)),,$(error go-makefile failed to fetch $(1) into $(2)))
 endef
@@ -70,6 +71,7 @@ GO_MK_FETCHED_BOOTSTRAP := $(call go_mk_fetch_bootstrap,scripts/go-mk-fetch-one.
 endif
 
 define go-mk-fetch-one
+$(if $(GO_MK_BOOTSTRAP_FETCHED),,$(info go-makefile: fetching $(1)))
 $(shell mkdir -p .make && bash "$(GO_MK_FETCH_SCRIPT)" "$(1)" ".make/$(1)" "$(GO_MK_DEV_DIR)" > .make/go-mk-fetch.log)
 $(if $(wildcard .make/$(1)),,$(error go-makefile failed to fetch $(1)))
 endef
@@ -249,6 +251,7 @@ build: $(default-build-deps)
 
 deploy:
 	@if [ -z "$(strip $(GO_INSTALL_TARGET))" ]; then echo "deploy: GO_INSTALL_TARGET is not set"; exit 1; fi
+	@printf 'deploy: installing %s\n' '$(GO_INSTALL_TARGET)'
 	go install $(GO_INSTALL_FLAGS) $(GO_INSTALL_TARGET)
 
 clean:

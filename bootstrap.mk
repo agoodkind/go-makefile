@@ -34,6 +34,11 @@ define _go_mk_fetch
 	fi
 endef
 
+$(info go-makefile: fetching go.mk)
+$(info go-makefile: fetching golangci.yml)
+$(foreach m,$(GO_MK_MODULES),$(info go-makefile: fetching $(m)))
+GO_MK_BOOTSTRAP_FETCHED := 1
+
 $(shell mkdir -p .make && { $(call _go_mk_fetch,go.mk,$(GO_MK)); } 1>&2)
 $(shell { $(call _go_mk_fetch,golangci.yml,.make/golangci.yml); } 1>&2)
 $(foreach m,$(GO_MK_MODULES),$(shell { $(call _go_mk_fetch,$(m),.make/$(m)); } 1>&2))

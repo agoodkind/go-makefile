@@ -13,7 +13,7 @@
 #   GO_BUILD_TAGS := tag1,tag2                  # comma-separated build tags
 #   CGO_ENABLED                                 # exported by project if needed
 #
-# Targets exposed: build, install, uninstall, version-info, clean-dist.
+# Targets exposed: build, deploy, install, uninstall, version-info, clean-dist.
 # Override go.mk's `build`/`deploy`/`clean` defaults with the standardized flow.
 #
 # Strict staticcheck-extra is the default for every consumer that opts into
@@ -21,7 +21,7 @@
 # Makefile if needed.
 STATICCHECK_EXTRA_FLAGS ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
 
-.PHONY: build install uninstall version-info clean-dist
+.PHONY: build deploy install uninstall version-info clean-dist
 
 # Auto-detect mode. LIBRARY mode skips build/install (lint/test/vet still apply
 # from go.mk). The default is binary mode, requiring BINARY+CMD+VPKG.
@@ -33,8 +33,8 @@ ifeq ($(strip $(LIBRARY)),1)
 build: $(default-build-deps)
 	@echo "library mode: no binary to build"
 
-install:
-	@echo "library mode: install is a no-op"
+deploy install:
+	@echo "library mode: $@ is a no-op"
 
 uninstall:
 	@echo "library mode: uninstall is a no-op"
@@ -141,7 +141,8 @@ build: $(default-build-deps)
 
 # Atomic install to $(INSTALL_BIN) via mktemp + rename. Avoids a torn binary
 # if the cp is interrupted mid-write.
-install: build
+deploy install: build
+	@printf '%s: installing %s to %s\n' '$@' '$(BINARY)' '$(INSTALL_BIN)'
 	@mkdir -p $(INSTALL_DIR)
 	@out="$$(mktemp $(INSTALL_BIN).new.XXXXXX)"; \
 	trap 'rm -f "$$out"' EXIT; \
