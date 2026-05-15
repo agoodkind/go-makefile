@@ -221,7 +221,7 @@ run_lint_deadcode() {
         "${findings_output}" \
         "${DEADCODE_BASELINE:-.deadcode-baseline.txt}" \
         "deadcode" \
-        "Remove the dead code or document why it stays. Do not silence the check." \
+        "The deadcode lint gate found unreachable code. Remove the reported code." \
         "${exclude_pattern}"
 }
 
