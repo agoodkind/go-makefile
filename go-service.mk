@@ -57,31 +57,55 @@ service-check:
 		command -v systemctl >/dev/null 2>&1 || { echo "service-install: systemctl not found" >&2; exit 1; }; \
 	fi
 
+# service-install is idempotent: it renders the unit template to a temp
+# file and diffs against the installed copy. When the rendered output is
+# byte-identical AND the service is already loaded/active, the install
+# skips the bootout/bootstrap (or daemon-reload/restart) handshake so a
+# fresh deploy does not hard-kill a running daemon. Consumers that
+# implement a separate cooperative binary-handoff (e.g. a `daemon reload`
+# RPC) keep ownership of in-flight stream drains; this rule no longer
+# preempts them with an unconditional launchctl/systemctl restart.
 service-install: service-check
 	@if [ "$$(uname)" = "Darwin" ]; then \
 		mkdir -p "$(HOME)/Library/LaunchAgents" "$(HOME)/Library/Logs"; \
 		touch "$(LOG_PATH)"; \
+		tmp_plist=$$(mktemp -t $(LAUNCHD_LABEL).plist.XXXXXX); \
+		trap 'rm -f "$$tmp_plist"' EXIT; \
 		sed -e 's|@@BIN_PATH@@|$(INSTALL_BIN)|g' \
 		    -e 's|@@HOME@@|$(HOME)|g' \
 		    -e 's|@@LABEL@@|$(LAUNCHD_LABEL)|g' \
 		    -e 's|@@LOG_PATH@@|$(LOG_PATH)|g' \
-		    "$(LAUNCHD_TEMPLATE)" > "$(LAUNCHD_PLIST)"; \
-		launchctl bootout $(LAUNCHD_DOMAIN) "$(LAUNCHD_PLIST)" 2>/dev/null; true; \
-		launchctl bootstrap $(LAUNCHD_DOMAIN) "$(LAUNCHD_PLIST)"; \
-		echo "installed: $(LAUNCHD_PLIST)"; \
-		echo "  logs: $(LOG_PATH)"; \
+		    "$(LAUNCHD_TEMPLATE)" > "$$tmp_plist"; \
+		if [ -f "$(LAUNCHD_PLIST)" ] && cmp -s "$$tmp_plist" "$(LAUNCHD_PLIST)" && launchctl print "$(LAUNCHD_DOMAIN)/$(LAUNCHD_LABEL)" >/dev/null 2>&1; then \
+			echo "service-install: $(LAUNCHD_PLIST) unchanged and loaded; skipping bootout/bootstrap"; \
+			echo "  logs: $(LOG_PATH)"; \
+		else \
+			mv "$$tmp_plist" "$(LAUNCHD_PLIST)"; \
+			launchctl bootout $(LAUNCHD_DOMAIN) "$(LAUNCHD_PLIST)" 2>/dev/null; true; \
+			launchctl bootstrap $(LAUNCHD_DOMAIN) "$(LAUNCHD_PLIST)"; \
+			echo "installed: $(LAUNCHD_PLIST)"; \
+			echo "  logs: $(LOG_PATH)"; \
+		fi; \
 	else \
 		mkdir -p "$(SYSTEMD_USER_DIR)"; \
+		tmp_unit=$$(mktemp -t $(SYSTEMD_UNIT).XXXXXX); \
+		trap 'rm -f "$$tmp_unit"' EXIT; \
 		sed -e 's|@@BIN_PATH@@|$(INSTALL_BIN)|g' \
 		    -e 's|@@HOME@@|$(HOME)|g' \
 		    -e 's|@@LABEL@@|$(basename $(SYSTEMD_UNIT))|g' \
 		    -e 's|@@LOG_PATH@@|$(LOG_PATH)|g' \
-		    "$(SYSTEMD_TEMPLATE)" > "$(SYSTEMD_USER_UNIT)"; \
-		systemctl --user daemon-reload; \
-		systemctl --user enable "$(SYSTEMD_UNIT)"; \
-		systemctl --user restart "$(SYSTEMD_UNIT)"; \
-		echo "installed: $(SYSTEMD_USER_UNIT)"; \
-		echo "  logs: journalctl --user -u $(SYSTEMD_UNIT) -f"; \
+		    "$(SYSTEMD_TEMPLATE)" > "$$tmp_unit"; \
+		if [ -f "$(SYSTEMD_USER_UNIT)" ] && cmp -s "$$tmp_unit" "$(SYSTEMD_USER_UNIT)" && systemctl --user is-active "$(SYSTEMD_UNIT)" >/dev/null 2>&1; then \
+			echo "service-install: $(SYSTEMD_USER_UNIT) unchanged and active; skipping daemon-reload/restart"; \
+			echo "  logs: journalctl --user -u $(SYSTEMD_UNIT) -f"; \
+		else \
+			mv "$$tmp_unit" "$(SYSTEMD_USER_UNIT)"; \
+			systemctl --user daemon-reload; \
+			systemctl --user enable "$(SYSTEMD_UNIT)"; \
+			systemctl --user restart "$(SYSTEMD_UNIT)"; \
+			echo "installed: $(SYSTEMD_USER_UNIT)"; \
+			echo "  logs: journalctl --user -u $(SYSTEMD_UNIT) -f"; \
+		fi; \
 	fi
 
 service-uninstall:
