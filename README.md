@@ -48,7 +48,7 @@ The shared lint flow is:
 
 - `make lint-tools` installs `golangci-lint`, `gofumpt`, and `goimports`
 - `make lint-golangci` runs `golangci-lint run ./...`, diffs findings against `.golangci-lint-baseline.txt`, and fails only on new findings
-- `make lint` runs baseline-aware `golangci-lint`, the configured GolangCI formatters in diff mode, `go tool gocyclo -over $(GOCYCLO_OVER) $(GOCYCLO_TARGETS)`, and `staticcheck-extra`
+- `make lint` runs baseline-aware `golangci-lint`, the configured GolangCI formatters in diff mode, baseline-aware `gocyclo`, deadcode, and `staticcheck-extra`
 - `make fmt` applies the configured GolangCI formatters
 - `make build-check` runs the full non-test quality gate: `vet`, `lint`, and `govulncheck`
 - `make build` runs `build-check`, then `$(GO_BUILD_ENV) $(GO) build $(GO_BUILD_OUTPUT_FLAGS) $(GO_BUILD_FLAGS) $(GO_BUILD_LDFLAGS_FLAGS) $(GO_BUILD_TARGETS)`
@@ -120,6 +120,29 @@ Targets:
 | `lint-golangci-baseline-accept-new` | Accepts new findings into the baseline while keeping fixed findings saved. |
 
 Baseline mutation targets are protected by the generic token gate. Set `BASELINE_CONFIRM=1` and `BASELINE_TOKEN` to the slugified output of `BASELINE_TOKEN_CMD` to permit a mutation. `baseline`, `baseline-prune-fixed`, and `baseline-accept-new` apply the same modes to every baseline. The `*-baseline-remove-fixed` and `baseline-remove-fixed` targets are aliases for `*-baseline-prune-fixed` and `baseline-prune-fixed`; `baseline-add-new` is an alias for `baseline-accept-new`.
+
+### `gocyclo` baseline
+
+The shared `lint-gocyclo` target runs `gocyclo`, normalizes each cyclomatic-complexity finding into the shared `file:line:column: message` format, diffs findings against `.gocyclo-baseline.txt`, and fails only on new findings.
+
+Per-project overrides:
+
+```makefile
+GOCYCLO_OVER := 30                                  # default
+GOCYCLO_TARGETS := ./cmd/app/main.go                # optional target list
+GOCYCLO_BASELINE := .gocyclo-baseline.txt           # default
+GOCYCLO_DEFAULT_EXCLUDE_PATHS := _test\.go:         # built-in
+GOCYCLO_EXCLUDE_PATHS := gen/:,third_party/:        # optional extra grep -E patterns
+```
+
+Targets:
+
+| Target | Behaviour |
+| ------ | --------- |
+| `lint-gocyclo` | Runs `gocyclo`, diffs normalized findings against `.gocyclo-baseline.txt`, and fails on new findings. |
+| `lint-gocyclo-baseline` | Syncs the baseline to the current finding set. |
+| `lint-gocyclo-baseline-prune-fixed` | Removes fixed findings from the baseline without accepting new findings. |
+| `lint-gocyclo-baseline-accept-new` | Accepts new findings into the baseline while keeping fixed findings saved. |
 
 ### `.goreleaser.yaml`
 

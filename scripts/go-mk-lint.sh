@@ -146,18 +146,22 @@ run_lint_format() {
     fi
 }
 
-run_lint_gocyclo() {
-    local output_file
-    local install_spec
+capture_gocyclo_findings() {
+    local raw_output
+    local findings_output
+    local exclude_pattern
+    local transformed_output
+    local normalized_output
+    local filtered_output
     local targets_text
     local target_args
     local gocyclo_path
-    local output_count
+    local threshold
 
-    mkdir -p .make
-    output_file=".make/gocyclo.out"
-    install_spec="${GOCYCLO_INSTALL:-github.com/fzipp/gocyclo/cmd/gocyclo@latest}"
-    go_mk_install_go_tool "${install_spec}"
+    raw_output="$1"
+    findings_output="$2"
+    threshold="${GOCYCLO_OVER:-30}"
+    exclude_pattern=$(go_mk_exclude_pattern "${GOCYCLO_DEFAULT_EXCLUDE_PATHS:-_test\\.go:}" "${GOCYCLO_EXCLUDE_PATHS:-}")
     targets_text="${GOCYCLO_TARGETS:-}"
     if [[ -z "${targets_text}" ]]; then
         targets_text='$(find . -name "*.go" -not -name "*_test.go" -not -path "./vendor/*" -not -path "./gen/*" -not -path "./third_party/*")'
@@ -165,27 +169,63 @@ run_lint_gocyclo() {
     go_mk_split_words "${targets_text}"
     target_args=("${GO_MK_WORDS[@]}")
     gocyclo_path="$(go env GOPATH)/bin/gocyclo"
-    go_mk_run_lint_capture "${output_file}" "${gocyclo_path}" -over "${GOCYCLO_OVER:-30}" "${target_args[@]}"
+    go_mk_run_lint_capture "${raw_output}" "${gocyclo_path}" -over "${threshold}" "${target_args[@]}"
 
-    if [[ -s "${output_file}" ]]; then
-        output_count=$(go_mk_count_file_lines "${output_file}")
-        printf "gocyclo: FAILED\n"
-        printf "  Functions over complexity limit %s: %s\n\n" "${GOCYCLO_OVER:-30}" "${output_count}"
-        printf "Findings:\n"
-        go_mk_print_findings < "${output_file}"
-        go_mk_record_failed_gate "gocyclo"
+    go_mk_setup_temp_dir
+    transformed_output="${GO_MK_TEMP_DIR}/gocyclo.transformed.out"
+    normalized_output="${GO_MK_TEMP_DIR}/gocyclo.normalized.out"
+    filtered_output="${GO_MK_TEMP_DIR}/gocyclo.filtered.out"
+    awk -v threshold="${threshold}" '
+        NF >= 4 {
+            complexity = $1
+            location = $NF
+            symbol = ""
+            for (field_index = 2; field_index < NF; field_index++) {
+                if (symbol != "") {
+                    symbol = symbol " "
+                }
+                symbol = symbol $field_index
+            }
+            printf "%s: gocyclo: complexity %s over %s in %s\n", location, complexity, threshold, symbol
+        }
+    ' "${raw_output}" > "${transformed_output}"
+    go_mk_normalize_file "${transformed_output}" "${normalized_output}"
+    go_mk_filter_file "${normalized_output}" "${filtered_output}" "${exclude_pattern}"
+    sort -u "${filtered_output}" > "${findings_output}"
+}
+
+run_lint_gocyclo() {
+    local raw_output
+    local findings_output
+    local exclude_pattern
+    local run_status
+
+    mkdir -p .make
+    raw_output=".make/gocyclo.raw.out"
+    findings_output=".make/gocyclo.out"
+    exclude_pattern=$(go_mk_exclude_pattern "${GOCYCLO_DEFAULT_EXCLUDE_PATHS:-_test\\.go:}" "${GOCYCLO_EXCLUDE_PATHS:-}")
+    go_mk_install_go_tool "${GOCYCLO_INSTALL:-github.com/fzipp/gocyclo/cmd/gocyclo@latest}"
+    capture_gocyclo_findings "${raw_output}" "${findings_output}"
+    run_status="${GO_MK_COMMAND_STATUS}"
+
+    if ! go_mk_run_baseline_diff_gate \
+        "gocyclo" \
+        "${findings_output}" \
+        "${GOCYCLO_BASELINE:-.gocyclo-baseline.txt}" \
+        "gocyclo" \
+        "Reduce the reported cyclomatic complexity or accept the finding into the guarded baseline." \
+        "${exclude_pattern}"; then
         return 1
     fi
 
-    if [[ "${GO_MK_COMMAND_STATUS}" -ne 0 ]]; then
+    if [[ "${run_status}" -ne 0 && ! -s "${findings_output}" ]]; then
         printf "gocyclo: FAILED\n"
-        printf "  Exit status: %s\n" "${GO_MK_COMMAND_STATUS}"
+        printf "  Exit status: %s\n\n" "${run_status}"
+        printf "Output:\n"
+        cat "${raw_output}"
         go_mk_record_failed_gate "gocyclo"
-        return "${GO_MK_COMMAND_STATUS}"
+        return "${run_status}"
     fi
-
-    printf "gocyclo: OK\n"
-    printf "  Functions over complexity limit %s: 0\n" "${GOCYCLO_OVER:-30}"
 }
 
 capture_deadcode_findings() {
@@ -531,6 +571,11 @@ case "${command_name}" in
         ;;
     lint-gocyclo)
         run_lint_gocyclo
+        ;;
+    capture-gocyclo)
+        mkdir -p .make
+        go_mk_install_go_tool "${GOCYCLO_INSTALL:-github.com/fzipp/gocyclo/cmd/gocyclo@latest}"
+        capture_gocyclo_findings "${2:-.make/gocyclo.raw.out}" "${3:-.make/gocyclo.out}"
         ;;
     lint-deadcode)
         run_lint_deadcode

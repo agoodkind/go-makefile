@@ -93,6 +93,30 @@ update_golangci_baseline() {
         "${exclude_pattern}"
 }
 
+update_gocyclo_baseline() {
+    local mode
+    local raw_output
+    local findings_output
+    local exclude_pattern
+
+    mode="$1"
+    if ! run_gate "gocyclo"; then
+        return 0
+    fi
+    mkdir -p .make
+    raw_output=".make/gocyclo-baseline.raw.out"
+    findings_output=".make/gocyclo-baseline.out"
+    exclude_pattern=$(go_mk_exclude_pattern "${GOCYCLO_DEFAULT_EXCLUDE_PATHS:-_test\\.go:}" "${GOCYCLO_EXCLUDE_PATHS:-}")
+    bash "${SCRIPT_DIR}/go-mk-lint.sh" capture-gocyclo "${raw_output}" "${findings_output}"
+    write_component_baseline \
+        "gocyclo" \
+        "${GOCYCLO_BASELINE:-.gocyclo-baseline.txt}" \
+        "${findings_output}" \
+        "gocyclo" \
+        "${mode}" \
+        "${exclude_pattern}"
+}
+
 update_deadcode_baseline() {
     local mode
     local raw_output
@@ -163,11 +187,15 @@ component="${1:-all}"
 case "${component}" in
     all)
         update_golangci_baseline "${mode}"
+        update_gocyclo_baseline "${mode}"
         update_deadcode_baseline "${mode}"
         update_staticcheck_baseline "${mode}"
         ;;
     golangci)
         update_golangci_baseline "${mode}"
+        ;;
+    gocyclo)
+        update_gocyclo_baseline "${mode}"
         ;;
     deadcode)
         update_deadcode_baseline "${mode}"

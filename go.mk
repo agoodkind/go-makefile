@@ -1,6 +1,6 @@
 .PHONY: build deploy clean help \
 	lint lint-tools lint-golangci lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
-	lint-files lint-diff lint-format lint-gocyclo fmt vet test govulncheck build-check build-check-start check \
+	lint-files lint-diff lint-format lint-gocyclo lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new fmt vet test govulncheck build-check build-check-start check \
 	lint-deadcode lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new staticcheck-extra-bin \
 	baseline baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
@@ -129,6 +129,9 @@ GOIMPORTS              ?= goimports
 GOCYCLO_OVER           ?= 30
 GOCYCLO_TARGETS        ?= $$(find . -name '*.go' -not -name '*_test.go' -not -path './vendor/*' -not -path './gen/*' -not -path './third_party/*')
 GOCYCLO_INSTALL        ?= github.com/fzipp/gocyclo/cmd/gocyclo@latest
+GOCYCLO_BASELINE       ?= .gocyclo-baseline.txt
+GOCYCLO_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
+GOCYCLO_EXCLUDE_PATHS  ?=
 GOLANGCI_LINT_INSTALL  ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
 GOFUMPT_INSTALL        ?= mvdan.cc/gofumpt@v0.9.2
 GOIMPORTS_INSTALL      ?= golang.org/x/tools/cmd/goimports@v0.44.0
@@ -235,6 +238,9 @@ export GO_MK_GATE_TOKEN_CMD
 export GOCYCLO_OVER
 export GOCYCLO_TARGETS
 export GOCYCLO_INSTALL
+export GOCYCLO_BASELINE
+export GOCYCLO_DEFAULT_EXCLUDE_PATHS
+export GOCYCLO_EXCLUDE_PATHS
 export GO_TEST_TARGETS
 export GO_VET_TARGETS
 export GOVULNCHECK_TARGETS
@@ -288,7 +294,7 @@ help:
 	@printf '  %-40s %s\n' 'lint-tools' 'install golangci-lint, gofumpt, and goimports'
 	@printf '  %-40s %s\n' 'lint-golangci' 'golangci-lint with baseline gate'
 	@printf '  %-40s %s\n' 'lint-format' 'formatter diff gate'
-	@printf '  %-40s %s\n' 'lint-gocyclo' 'cyclomatic complexity gate'
+	@printf '  %-40s %s\n' 'lint-gocyclo' 'gocyclo with baseline gate'
 	@printf '  %-40s %s\n' 'lint-deadcode' 'deadcode with baseline gate'
 	@printf '  %-40s %s\n' 'staticcheck-extra' 'custom analyzers with baseline gate'
 	@printf '\n%s\n' 'Baseline maintenance, guarded by BASELINE_CONFIRM and BASELINE_TOKEN:'
@@ -315,6 +321,17 @@ lint-format:
 
 lint-gocyclo:
 	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-gocyclo
+
+lint-gocyclo-baseline:
+	@BASELINE_UPDATE_MODE=sync bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" gocyclo
+
+lint-gocyclo-baseline-prune-fixed:
+	@BASELINE_UPDATE_MODE=prune-fixed bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" gocyclo
+
+lint-gocyclo-baseline-remove-fixed: lint-gocyclo-baseline-prune-fixed
+
+lint-gocyclo-baseline-accept-new:
+	@BASELINE_UPDATE_MODE=accept-new bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" gocyclo
 
 lint-files: lint-tools staticcheck-extra-bin
 	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-files

@@ -30,6 +30,7 @@ STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
 .PHONY: build check lint fmt vet test govulncheck build-check \
         lint-tools lint-golangci lint-files lint-diff lint-format lint-gocyclo lint-deadcode staticcheck-extra \
         lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
+        lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new \
         lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
         staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new \
         baseline baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
@@ -90,6 +91,21 @@ lint-format:
 
 lint-gocyclo:
 	$(ROOT_GO_MK) lint-gocyclo
+	$(STATIC_GO_MK) lint-gocyclo
+
+lint-gocyclo-baseline:
+	$(ROOT_GO_MK) lint-gocyclo-baseline
+	$(STATIC_GO_MK) lint-gocyclo-baseline
+
+lint-gocyclo-baseline-prune-fixed:
+	$(ROOT_GO_MK) lint-gocyclo-baseline-prune-fixed
+	$(STATIC_GO_MK) lint-gocyclo-baseline-prune-fixed
+
+lint-gocyclo-baseline-remove-fixed: lint-gocyclo-baseline-prune-fixed
+
+lint-gocyclo-baseline-accept-new:
+	$(ROOT_GO_MK) lint-gocyclo-baseline-accept-new
+	$(STATIC_GO_MK) lint-gocyclo-baseline-accept-new
 
 lint-deadcode:
 	$(ROOT_GO_MK) lint-deadcode
