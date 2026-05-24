@@ -209,11 +209,15 @@ staticcheck_run_gate() {
     local raw_output
     local findings_output
     local exclude_pattern
+    local scope_pattern
+    local suppress_fixed_count
 
     mkdir -p .make
     raw_output=".make/staticcheck-extra.raw.out"
     findings_output=".make/staticcheck-extra.out"
     exclude_pattern=$(go_mk_exclude_pattern "${STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS:-_test\\.go:}" "${STATICCHECK_EXTRA_EXCLUDE_PATHS:-}")
+    scope_pattern=$(go_mk_staticcheck_baseline_scope_pattern)
+    suppress_fixed_count=$(go_mk_staticcheck_suppress_fixed_count)
     staticcheck_capture_findings "${raw_output}" "${findings_output}"
     go_mk_run_baseline_diff_gate \
         "staticcheck-extra" \
@@ -221,7 +225,9 @@ staticcheck_run_gate() {
         "${STATICCHECK_EXTRA_BASELINE:-.staticcheck-extra-baseline.txt}" \
         "staticcheck-extra" \
         "Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks." \
-        "${exclude_pattern}"
+        "${exclude_pattern}" \
+        "${scope_pattern}" \
+        "${suppress_fixed_count}"
 }
 
 command_name="${1:-}"

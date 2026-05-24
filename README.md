@@ -143,7 +143,7 @@ A small AST analyzer set ships in this repo at `staticcheck/`. It enforces bound
 | `-context_todo_in_production` | `context.TODO()` in non-test, non-generated code |
 | `-time_sleep_in_production` | `time.Sleep` in non-test, non-generated code |
 | `-panic_in_production` | `panic` in non-test, non-generated code |
-| `-time_now_outside_clock` | `time.Now()` outside accepted clock boundaries |
+| `-time_now_outside_clock` | Wall-clock reads like `time.Now()`, `time.Since()`, and `time.Until()` outside tests, main packages, or canonical `internal/clock` packages |
 | `-goroutine_without_recover` | Goroutines launched without a recovery wrapper |
 | `-silent_defer_close` | Deferred `Close()` calls that discard errors silently |
 | `-slog_missing_trace_id` | Structured logs missing trace identifiers |
@@ -151,7 +151,7 @@ A small AST analyzer set ships in this repo at `staticcheck/`. It enforces bound
 | `-sensitive_field_in_log` | Structured logs that include fields likely to carry secrets |
 | `-nolint_ban` | Any `//nolint` comment in production code |
 
-Default behaviour: pulled via `go install github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest`, with all bundled analyzers enabled by default. Zero project Makefile setup is required.
+Default behaviour: pulled via `go install github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest`, with all bundled analyzers enabled by default. Zero project Makefile setup is required. For time-sensitive library code, keep the real wall-clock source in one repo-local `internal/clock` package and pass that clock into packages that need deterministic tests.
 
 Per-project overrides:
 
@@ -177,6 +177,7 @@ STATICCHECK_EXTRA_TARGETS  := ./...                           # default
 STATICCHECK_EXTRA_BASELINE := .staticcheck-extra-baseline.txt # default
 STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS := _test\.go:         # built-in
 STATICCHECK_EXTRA_EXCLUDE_PATHS := \.pb\.go:,/api/            # optional extra grep -E patterns
+STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN := time_now_outside_clock # optional scoped baseline regex
 ```
 
 Targets:
@@ -199,6 +200,8 @@ path/to/file.go:10:2: message<TAB># staticcheck-extra:first_added=2026-05-03T18:
 ```
 
 The `staticcheck-extra` gate compares only the analyzer output portion, so metadata timestamp changes do not create a new finding.
+
+Focused analyzer runs can set `STATICCHECK_EXTRA_FLAGS`, for example `STATICCHECK_EXTRA_FLAGS=-time_now_outside_clock`. When the selected analyzer has a known baseline scope, fixed-count reporting and baseline mutation targets compare only saved findings in that scope, so unrelated saved findings are not reported as fixed. If a focused run uses an analyzer with no known scope, fixed-count reporting is suppressed, and destructive baseline modes refuse to run unless `STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN` is set to a grep-compatible regex for the intended findings.
 
 Document each baseline entry in a `STATICCHECK-NOTES.md` so the next person does not try to “fix” an intentional exception.
 

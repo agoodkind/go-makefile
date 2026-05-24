@@ -62,6 +62,22 @@ function print_current(current_key,    first_added) {
     printf "%s\t# %s:first_added=%s last_seen=%s\n", current_finding[current_key], label, first_added, now
 }
 
+function finding_in_scope(finding) {
+    return scope_pattern == "" || finding ~ scope_pattern
+}
+
+function print_old_outside_scope(    old_index, old_key) {
+    if (scope_pattern == "") {
+        return
+    }
+    for (old_index = 1; old_index <= old_count; old_index++) {
+        old_key = old_order[old_index]
+        if (!(old_key in current_finding) && !finding_in_scope(old_finding[old_key])) {
+            print old_line[old_key]
+        }
+    }
+}
+
 BEGIN {
     metadata_prefix = "\t# " label ":"
     while ((getline current_line < current_file) > 0) {
@@ -79,12 +95,14 @@ END {
         for (current_index = 1; current_index <= current_count; current_index++) {
             print_current(current_order[current_index])
         }
+        print_old_outside_scope()
     } else if (mode == "prune-fixed" || mode == "remove-fixed") {
         for (current_index = 1; current_index <= current_count; current_index++) {
             if (current_order[current_index] in old_finding) {
                 print_current(current_order[current_index])
             }
         }
+        print_old_outside_scope()
     } else if (mode == "accept-new") {
         for (current_index = 1; current_index <= current_count; current_index++) {
             print_current(current_order[current_index])

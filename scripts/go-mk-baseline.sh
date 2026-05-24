@@ -40,8 +40,9 @@ write_component_baseline() {
     local label
     local mode
     local exclude_pattern
+    local scope_pattern
+    local suppress_fixed_count
     local temporary_file
-    local finding_count
 
     title="$1"
     baseline_file="$2"
@@ -49,16 +50,22 @@ write_component_baseline() {
     label="$4"
     mode="$5"
     exclude_pattern="${6:-}"
+    scope_pattern="${7:-}"
+    suppress_fixed_count="${8:-}"
     mkdir -p "$(dirname "${baseline_file}")"
     if [[ ! -f "${baseline_file}" ]]; then
         : > "${baseline_file}"
     fi
     temporary_file="${baseline_file}.tmp"
-    go_mk_print_baseline_update_counts "${label}" "${baseline_file}" "${findings_file}" "${label}" "${mode}" "${exclude_pattern}"
-    go_mk_write_baseline_file "${title}" "${baseline_file}" "${findings_file}" "${label}" "${temporary_file}" "${mode}"
+    printf "%s baseline update\n" "${label}"
+    printf "  File: %s\n" "${baseline_file}"
+    printf "  Mode: %s\n" "${mode}"
+    printf "  Scope: %s\n\n" "${scope_pattern:-all}"
+    go_mk_print_baseline_update_counts "${label}" "${baseline_file}" "${findings_file}" "${label}" "${mode}" "${exclude_pattern}" "${scope_pattern}" "${suppress_fixed_count}"
+    go_mk_write_baseline_file "${title}" "${baseline_file}" "${findings_file}" "${label}" "${temporary_file}" "${mode}" "${scope_pattern}"
     mv "${temporary_file}" "${baseline_file}"
-    finding_count=$(go_mk_count_file_lines "${findings_file}")
-    printf "%s: baseline %s refreshed (%s findings)\n" "${label}" "${baseline_file}" "${finding_count}"
+    go_mk_print_baseline_overall_counts "${label}" "${baseline_file}" "${findings_file}" "${label}" "${exclude_pattern}" "${scope_pattern}"
+    printf "\n%s: baseline %s refreshed\n" "${label}" "${baseline_file}"
 }
 
 update_golangci_baseline() {
@@ -115,6 +122,8 @@ update_staticcheck_baseline() {
     local raw_output
     local findings_output
     local exclude_pattern
+    local scope_pattern
+    local suppress_fixed_count
 
     mode="$1"
     if ! run_gate "staticcheck-extra"; then
@@ -124,6 +133,17 @@ update_staticcheck_baseline() {
     raw_output=".make/staticcheck-extra.raw.out"
     findings_output=".make/staticcheck-extra.out"
     exclude_pattern=$(go_mk_exclude_pattern "${STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS:-_test\\.go:}" "${STATICCHECK_EXTRA_EXCLUDE_PATHS:-}")
+    scope_pattern=$(go_mk_staticcheck_baseline_scope_pattern)
+    suppress_fixed_count=$(go_mk_staticcheck_suppress_fixed_count)
+    if [[ -n "${STATICCHECK_EXTRA_FLAGS:-}" && -z "${scope_pattern}" ]]; then
+        case "${mode}" in
+            sync | prune-fixed | remove-fixed)
+                printf "staticcheck-extra: refusing %s baseline update with STATICCHECK_EXTRA_FLAGS but no baseline scope pattern\n" "${mode}"
+                printf "Set STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN to the intended finding regex, or unset STATICCHECK_EXTRA_FLAGS for a full baseline update.\n"
+                return 1
+                ;;
+        esac
+    fi
     bash "${SCRIPT_DIR}/go-mk-staticcheck-extra.sh" bin
     bash "${SCRIPT_DIR}/go-mk-staticcheck-extra.sh" capture "${raw_output}" "${findings_output}"
     write_component_baseline \
@@ -132,7 +152,9 @@ update_staticcheck_baseline() {
         "${findings_output}" \
         "staticcheck-extra" \
         "${mode}" \
-        "${exclude_pattern}"
+        "${exclude_pattern}" \
+        "${scope_pattern}" \
+        "${suppress_fixed_count}"
 }
 
 mode=$(normalize_mode "${BASELINE_UPDATE_MODE:-sync}")

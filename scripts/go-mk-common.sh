@@ -96,6 +96,21 @@ go_mk_filter_file() {
     grep -Ev "${exclude_pattern}" "${input_file}" > "${output_file}" || true
 }
 
+go_mk_scope_file() {
+    local input_file
+    local output_file
+    local scope_pattern
+
+    input_file="$1"
+    output_file="$2"
+    scope_pattern="${3:-}"
+    if [[ -z "${scope_pattern}" ]]; then
+        cat "${input_file}" > "${output_file}"
+        return
+    fi
+    grep -E "${scope_pattern}" "${input_file}" > "${output_file}" || true
+}
+
 go_mk_normalize_file() {
     local input_file
     local output_file
@@ -149,15 +164,21 @@ go_mk_baseline_findings() {
     local label
     local output_file
     local exclude_pattern
+    local scope_pattern
     local extracted_file
+    local excluded_file
+    local scoped_file
     local awk_file
 
     baseline_file="$1"
     label="$2"
     output_file="$3"
     exclude_pattern="${4:-}"
+    scope_pattern="${5:-}"
     go_mk_setup_temp_dir
     extracted_file="${GO_MK_TEMP_DIR}/baseline-findings.out"
+    excluded_file="${GO_MK_TEMP_DIR}/baseline-findings.excluded.out"
+    scoped_file="${GO_MK_TEMP_DIR}/baseline-findings.scoped.out"
     awk_file=$(go_mk_findings_awk)
 
     if [[ ! -f "${baseline_file}" ]]; then
@@ -166,9 +187,9 @@ go_mk_baseline_findings() {
     fi
 
     awk -v action=baseline -v label="${label}" -f "${awk_file}" "${baseline_file}" > "${extracted_file}"
-    go_mk_filter_file "${extracted_file}" "${output_file}.filtered" "${exclude_pattern}"
-    sort -u "${output_file}.filtered" > "${output_file}"
-    rm -f "${output_file}.filtered"
+    go_mk_filter_file "${extracted_file}" "${excluded_file}" "${exclude_pattern}"
+    go_mk_scope_file "${excluded_file}" "${scoped_file}" "${scope_pattern}"
+    sort -u "${scoped_file}" > "${output_file}"
 }
 
 go_mk_map_keys_to_findings() {
@@ -180,6 +201,101 @@ go_mk_map_keys_to_findings() {
     findings_file="$2"
     awk_file=$(go_mk_findings_awk)
     awk -v action=map -f "${awk_file}" "${keys_file}" "${findings_file}"
+}
+
+go_mk_staticcheck_scope_pattern_for_flag() {
+    local flag_name
+
+    flag_name="$1"
+    case "${flag_name}" in
+        time_now_outside_clock)
+            printf "time_now_outside_clock\n"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+go_mk_staticcheck_baseline_scope_pattern() {
+    local flags_text
+    local flag_word
+    local flag_name
+    local flag_value
+    local pattern
+    local scope_pattern
+    local selected_count
+
+    if [[ -n "${STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN:-}" ]]; then
+        printf "%s\n" "${STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN}"
+        return
+    fi
+
+    flags_text="${STATICCHECK_EXTRA_FLAGS:-}"
+    if [[ -z "${flags_text}" ]]; then
+        printf "\n"
+        return
+    fi
+
+    go_mk_split_words "${flags_text}"
+    scope_pattern=""
+    selected_count=0
+    for flag_word in "${GO_MK_WORDS[@]}"; do
+        case "${flag_word}" in
+            --*=*)
+                flag_name="${flag_word#--}"
+                flag_name="${flag_name%%=*}"
+                flag_value="${flag_word#*=}"
+                ;;
+            -*=*)
+                flag_name="${flag_word#-}"
+                flag_name="${flag_name%%=*}"
+                flag_value="${flag_word#*=}"
+                ;;
+            --*)
+                flag_name="${flag_word#--}"
+                flag_value="true"
+                ;;
+            -*)
+                flag_name="${flag_word#-}"
+                flag_value="true"
+                ;;
+            *)
+                continue
+                ;;
+        esac
+
+        case "${flag_value}" in
+            false | 0)
+                continue
+                ;;
+        esac
+
+        if ! pattern=$(go_mk_staticcheck_scope_pattern_for_flag "${flag_name}"); then
+            printf "\n"
+            return
+        fi
+        selected_count=$((selected_count + 1))
+        if [[ -z "${scope_pattern}" ]]; then
+            scope_pattern="${pattern}"
+        else
+            scope_pattern="${scope_pattern}|${pattern}"
+        fi
+    done
+
+    if [[ "${selected_count}" -eq 0 ]]; then
+        printf "\n"
+        return
+    fi
+    printf "%s\n" "${scope_pattern}"
+}
+
+go_mk_staticcheck_suppress_fixed_count() {
+    if [[ -n "${STATICCHECK_EXTRA_FLAGS:-}" && -z "$(go_mk_staticcheck_baseline_scope_pattern)" ]]; then
+        printf "1\n"
+        return
+    fi
+    printf "0\n"
 }
 
 go_mk_print_findings() {
@@ -334,6 +450,8 @@ go_mk_run_baseline_diff_gate() {
     local label
     local remediation_text
     local exclude_pattern
+    local scope_pattern
+    local suppress_fixed_count
     local baseline_output
     local findings_keys
     local baseline_keys
@@ -350,6 +468,8 @@ go_mk_run_baseline_diff_gate() {
     label="$4"
     remediation_text="$5"
     exclude_pattern="${6:-}"
+    scope_pattern="${7:-}"
+    suppress_fixed_count="${8:-}"
     go_mk_setup_temp_dir
     baseline_output=".make/${gate_name}.baseline.out"
     findings_keys=".make/${gate_name}.keys.out"
@@ -359,7 +479,7 @@ go_mk_run_baseline_diff_gate() {
     new_findings="${GO_MK_TEMP_DIR}/${gate_name}.new.out"
     gone_findings="${GO_MK_TEMP_DIR}/${gate_name}.gone.out"
 
-    go_mk_baseline_findings "${baseline_file}" "${label}" "${baseline_output}" "${exclude_pattern}"
+    go_mk_baseline_findings "${baseline_file}" "${label}" "${baseline_output}" "${exclude_pattern}" "${scope_pattern}"
     go_mk_keyize_file "${findings_file}" "${findings_keys}"
     go_mk_keyize_file "${baseline_output}" "${baseline_keys}"
     comm -23 "${findings_keys}" "${baseline_keys}" > "${new_keys}" || true
@@ -379,7 +499,7 @@ go_mk_run_baseline_diff_gate() {
     fi
 
     gone_count=0
-    if [[ -s "${gone_findings}" ]]; then
+    if [[ "${suppress_fixed_count}" != "1" && -s "${gone_findings}" ]]; then
         gone_count=$(go_mk_count_file_lines "${gone_findings}")
     fi
 
@@ -397,13 +517,18 @@ go_mk_print_baseline_update_counts() {
     local label
     local mode
     local exclude_pattern
+    local scope_pattern
+    local suppress_fixed_count
     local baseline_output
     local findings_keys
     local baseline_keys
     local new_keys
     local gone_keys
+    local refreshed_keys
+    local current_finding_count
     local new_count
     local gone_count
+    local refreshed_count
 
     gate_name="$1"
     baseline_file="$2"
@@ -411,35 +536,116 @@ go_mk_print_baseline_update_counts() {
     label="$4"
     mode="$5"
     exclude_pattern="${6:-}"
+    scope_pattern="${7:-}"
+    suppress_fixed_count="${8:-}"
     go_mk_setup_temp_dir
     baseline_output="${GO_MK_TEMP_DIR}/${gate_name}.baseline.counts.out"
     findings_keys="${GO_MK_TEMP_DIR}/${gate_name}.current.keys"
     baseline_keys="${GO_MK_TEMP_DIR}/${gate_name}.baseline.keys"
     new_keys="${GO_MK_TEMP_DIR}/${gate_name}.new.keys"
     gone_keys="${GO_MK_TEMP_DIR}/${gate_name}.gone.keys"
+    refreshed_keys="${GO_MK_TEMP_DIR}/${gate_name}.refreshed.keys"
 
-    go_mk_baseline_findings "${baseline_file}" "${label}" "${baseline_output}" "${exclude_pattern}"
+    go_mk_baseline_findings "${baseline_file}" "${label}" "${baseline_output}" "${exclude_pattern}" "${scope_pattern}"
     go_mk_keyize_file "${findings_file}" "${findings_keys}"
     go_mk_keyize_file "${baseline_output}" "${baseline_keys}"
     comm -23 "${findings_keys}" "${baseline_keys}" > "${new_keys}" || true
     comm -13 "${findings_keys}" "${baseline_keys}" > "${gone_keys}" || true
+    comm -12 "${findings_keys}" "${baseline_keys}" > "${refreshed_keys}" || true
+    current_finding_count=$(go_mk_count_file_lines "${findings_file}")
     new_count=$(go_mk_count_file_lines "${new_keys}")
-    gone_count=$(go_mk_count_file_lines "${gone_keys}")
+    refreshed_count=$(go_mk_count_file_lines "${refreshed_keys}")
+    if [[ "${suppress_fixed_count}" == "1" ]]; then
+        gone_count=0
+    else
+        gone_count=$(go_mk_count_file_lines "${gone_keys}")
+    fi
+
+    printf "This update:\n"
+    printf "  Findings captured: %s\n" "${current_finding_count}"
 
     case "${mode}" in
         prune-fixed | remove-fixed)
-            printf "  New findings left unsaved: %s\n" "${new_count}"
-            printf "  Saved findings removed: %s\n" "${gone_count}"
+            printf "  Keys added: 0\n"
+            printf "  Keys refreshed: %s\n" "${refreshed_count}"
+            if [[ "${suppress_fixed_count}" != "1" ]]; then
+                printf "  Keys removed: %s\n" "${gone_count}"
+            else
+                printf "  Keys removed: 0\n"
+            fi
+            if [[ "${new_count}" -gt 0 ]]; then
+                printf "  Keys left unsaved: %s\n" "${new_count}"
+            fi
             ;;
         accept-new)
-            printf "  New findings saved: %s\n" "${new_count}"
-            printf "  Fixed findings kept saved: %s\n" "${gone_count}"
+            printf "  Keys added: %s\n" "${new_count}"
+            printf "  Keys refreshed: %s\n" "${refreshed_count}"
+            printf "  Keys removed: 0\n"
+            if [[ "${suppress_fixed_count}" != "1" ]]; then
+                printf "  Keys kept unchanged: %s\n" "${gone_count}"
+            fi
             ;;
         *)
-            printf "  New findings saved: %s\n" "${new_count}"
-            printf "  Saved findings now fixed: %s\n" "${gone_count}"
+            printf "  Keys added: %s\n" "${new_count}"
+            printf "  Keys refreshed: %s\n" "${refreshed_count}"
+            if [[ "${suppress_fixed_count}" != "1" ]]; then
+                printf "  Keys removed: %s\n" "${gone_count}"
+            else
+                printf "  Keys removed: 0\n"
+            fi
             ;;
     esac
+}
+
+go_mk_print_baseline_overall_counts() {
+    local gate_name
+    local baseline_file
+    local findings_file
+    local label
+    local exclude_pattern
+    local scope_pattern
+    local baseline_scope_output
+    local baseline_all_output
+    local findings_keys
+    local baseline_scope_keys
+    local baseline_all_keys
+    local covered_keys
+    local covered_findings
+    local covered_count
+    local scope_count
+    local total_count
+
+    gate_name="$1"
+    baseline_file="$2"
+    findings_file="$3"
+    label="$4"
+    exclude_pattern="${5:-}"
+    scope_pattern="${6:-}"
+    go_mk_setup_temp_dir
+    baseline_scope_output="${GO_MK_TEMP_DIR}/${gate_name}.baseline.scope.overall.out"
+    baseline_all_output="${GO_MK_TEMP_DIR}/${gate_name}.baseline.all.overall.out"
+    findings_keys="${GO_MK_TEMP_DIR}/${gate_name}.current.overall.keys"
+    baseline_scope_keys="${GO_MK_TEMP_DIR}/${gate_name}.baseline.scope.overall.keys"
+    baseline_all_keys="${GO_MK_TEMP_DIR}/${gate_name}.baseline.all.overall.keys"
+    covered_keys="${GO_MK_TEMP_DIR}/${gate_name}.covered.overall.keys"
+    covered_findings="${GO_MK_TEMP_DIR}/${gate_name}.covered.overall.out"
+
+    go_mk_baseline_findings "${baseline_file}" "${label}" "${baseline_scope_output}" "${exclude_pattern}" "${scope_pattern}"
+    go_mk_baseline_findings "${baseline_file}" "${label}" "${baseline_all_output}" "${exclude_pattern}" ""
+    go_mk_keyize_file "${findings_file}" "${findings_keys}"
+    go_mk_keyize_file "${baseline_scope_output}" "${baseline_scope_keys}"
+    go_mk_keyize_file "${baseline_all_output}" "${baseline_all_keys}"
+    comm -12 "${findings_keys}" "${baseline_scope_keys}" > "${covered_keys}" || true
+    go_mk_map_keys_to_findings "${covered_keys}" "${findings_file}" > "${covered_findings}"
+
+    covered_count=$(go_mk_count_file_lines "${covered_findings}")
+    scope_count=$(go_mk_count_file_lines "${baseline_scope_keys}")
+    total_count=$(go_mk_count_file_lines "${baseline_all_keys}")
+
+    printf "\nOverall baseline:\n"
+    printf "  Current findings covered: %s\n" "${covered_count}"
+    printf "  Keys in this scope: %s\n" "${scope_count}"
+    printf "  Total keys: %s\n" "${total_count}"
 }
 
 go_mk_write_baseline_file() {
@@ -449,6 +655,7 @@ go_mk_write_baseline_file() {
     local label
     local output_file
     local mode
+    local scope_pattern
     local now
     local awk_file
 
@@ -458,9 +665,10 @@ go_mk_write_baseline_file() {
     label="$4"
     output_file="$5"
     mode="$6"
+    scope_pattern="${7:-}"
     now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     awk_file=$(go_mk_baseline_awk)
 
     printf "# %s: generated_at=%s\n" "${title}" "${now}" > "${output_file}"
-    awk -v mode="${mode}" -v now="${now}" -v label="${label}" -v current_file="${findings_file}" -f "${awk_file}" "${old_baseline_file}" >> "${output_file}"
+    awk -v mode="${mode}" -v now="${now}" -v label="${label}" -v current_file="${findings_file}" -v scope_pattern="${scope_pattern}" -f "${awk_file}" "${old_baseline_file}" >> "${output_file}"
 }

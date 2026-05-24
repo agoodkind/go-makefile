@@ -185,19 +185,21 @@ func runPanicInProduction(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-// TimeNowOutsideClockAnalyzer flags [time.Now] calls in production code.
-// Real-time wall clock makes code untestable for time-sensitive logic.
-// There is no per-file allowlist for clock helpers; the project's chosen
-// clock helper is itself flagged and must be baselined explicitly so its
-// existence is visible in source control rather than implicit in a path
-// match. Acceptable escapes:
+// TimeNowOutsideClockAnalyzer flags wall-clock reads in production code.
+// Real-time wall clock makes code untestable for time-sensitive logic,
+// including helpers like [time.Since] and [time.Until] that call
+// [time.Now] internally.
+// Projects should keep their real wall-clock source in one canonical
+// internal/clock package and inject that clock into time-sensitive code.
+// Acceptable escapes:
 //
 //   - inside _test.go
 //   - inside main packages (CLI startup logging)
+//   - inside internal/clock packages (canonical clock source)
 //   - //nolint:time_now_outside_clock on the call line
 var TimeNowOutsideClockAnalyzer = &analysis.Analyzer{
 	Name: "time_now_outside_clock",
-	Doc:  "rejects time.Now() outside main packages and tests; pass clock.Clock for testability",
+	Doc:  "rejects wall-clock reads outside internal/clock, main packages, and tests",
 	Run:  runTimeNowOutsideClock,
 }
 
@@ -209,6 +211,9 @@ func runTimeNowOutsideClock(pass *analysis.Pass) (any, error) {
 		if pass.Pkg != nil && pass.Pkg.Name() == "main" {
 			continue
 		}
+		if isCanonicalClockPackage(pass) {
+			continue
+		}
 		ast.Inspect(file, func(node ast.Node) bool {
 			call, ok := node.(*ast.CallExpr)
 			if !ok {
@@ -218,13 +223,22 @@ func runTimeNowOutsideClock(pass *analysis.Pass) (any, error) {
 			if !ok {
 				return true
 			}
-			if recv == "time" && name == "Now" && !hasNolintComment(file, pass.Fset, call.Pos(), "time_now_outside_clock") {
-				reportAtf(pass, file, call.Pos(), "time.Now() outside clock helper; inject a clock.Clock for testability or //nolint:time_now_outside_clock")
+			if recv == "time" && isWallClockRead(name) && !hasNolintComment(file, pass.Fset, call.Pos(), "time_now_outside_clock") {
+				reportAtf(pass, file, call.Pos(), "time.%s() outside internal/clock; inject a clock.Clock for testability or //nolint:time_now_outside_clock", name)
 			}
 			return true
 		})
 	}
 	return nil, nil
+}
+
+func isWallClockRead(name string) bool {
+	return name == "Now" || name == "Since" || name == "Until"
+}
+
+func isCanonicalClockPackage(pass *analysis.Pass) bool {
+	path := packagePath(pass)
+	return path == "internal/clock" || strings.HasSuffix(path, "/internal/clock")
 }
 
 // isStdlibMustShape reports whether fn matches the stdlib Must*
