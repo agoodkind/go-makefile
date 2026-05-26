@@ -298,6 +298,40 @@ go_mk_staticcheck_suppress_fixed_count() {
     printf "0\n"
 }
 
+# Resolve the grep -E scope regex for a scoped golangci-lint baseline or run.
+# Priority: an explicit GOLANGCI_LINT_BASELINE_SCOPE_PATTERN wins; otherwise a
+# RULE name is the narrowest scope and matches a meta-linter sub-rule via its
+# "name:" message prefix (revive prepends the rule name, e.g.
+# "file-length-limit:"), bound to the linter tag when LINTER is also set;
+# otherwise a LINTER name matches the whole linter via its trailing "(name)"
+# tag. RULE wins over LINTER so a directive can name LINTER only for
+# --enable-only speed while still scoping to the single rule. The regex is built
+# from the supplied name, so this never needs the set of known linters.
+go_mk_golangci_baseline_scope_pattern() {
+    local linter_name
+    local rule_name
+
+    if [[ -n "${GOLANGCI_LINT_BASELINE_SCOPE_PATTERN:-}" ]]; then
+        printf "%s\n" "${GOLANGCI_LINT_BASELINE_SCOPE_PATTERN}"
+        return
+    fi
+    rule_name="${RULE:-}"
+    linter_name="${LINTER:-}"
+    if [[ -n "${rule_name}" ]]; then
+        if [[ -n "${linter_name}" ]]; then
+            printf '%s:.*\\(%s\\)$\n' "${rule_name}" "${linter_name}"
+        else
+            printf '%s:\n' "${rule_name}"
+        fi
+        return
+    fi
+    if [[ -n "${linter_name}" ]]; then
+        printf '\\(%s\\)$\n' "${linter_name}"
+        return
+    fi
+    printf "\n"
+}
+
 go_mk_print_findings() {
     local awk_file
 

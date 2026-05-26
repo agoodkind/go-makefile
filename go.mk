@@ -1,10 +1,11 @@
 .PHONY: build deploy clean help \
 	lint lint-tools lint-golangci lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
+	lint-golangci-scope lint-golangci-baseline-scope lint-golangci-baseline-scope-accept-new \
 	lint-files lint-diff lint-format lint-gocyclo lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new fmt vet test govulncheck build-check build-check-start check \
 	lint-deadcode lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new staticcheck-extra-bin \
 	baseline baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
-	go-mk-sync update-go-mk smoke-fetch
+	go-mk-sync update-go-mk smoke-fetch go-mk-notice
 
 GO_MK_URL       := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
 GO_MK_CACHE     := $(HOME)/.cache/go-makefile/go.mk
@@ -27,6 +28,8 @@ GO_MK_LOCAL_SCRIPT_DIR := $(if $(strip $(GO_MK_DEV_DIR)),$(GO_MK_DEV_DIR)/script
 GO_MK_FETCHED_SCRIPT_DIR := $(CURDIR)/.make/scripts
 GO_MK_HELPER_DIR := $(if $(wildcard $(GO_MK_LOCAL_SCRIPT_DIR)/go-mk-lint.sh),$(GO_MK_LOCAL_SCRIPT_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
 GO_MK_FETCH_SCRIPT := $(GO_MK_HELPER_DIR)/go-mk-fetch-one.sh
+GO_MK_LOCAL_NOTICES := $(if $(strip $(GO_MK_DEV_DIR)),$(GO_MK_DEV_DIR)/notices.txt,$(GO_MK_SELF_DIR)/notices.txt)
+GO_MK_NOTICES_FILE := $(if $(wildcard $(GO_MK_LOCAL_NOTICES)),$(GO_MK_LOCAL_NOTICES),$(CURDIR)/.make/notices.txt)
 
 # go.mk still contains this small bootstrap fetcher because old consumers only
 # fetch go.mk first. Once helper scripts are present, every larger shell and
@@ -86,8 +89,10 @@ GO_MK_SCRIPT_FILES := \
 	scripts/go-mk-baseline.awk \
 	scripts/go-mk-lint.sh \
 	scripts/go-mk-baseline.sh \
+	scripts/go-mk-notice.sh \
 	scripts/go-mk-staticcheck-extra.sh \
-	scripts/go-mk-sync.sh
+	scripts/go-mk-sync.sh \
+	notices.txt
 
 ifeq ($(GO_MK_HELPER_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
 ifeq ($(strip $(GO_MK_SKIP_FETCH)),1)
@@ -124,6 +129,9 @@ GOLANGCI_LINT_BASELINE ?= .golangci-lint-baseline.txt
 GOLANGCI_LINT_BASELINE_RUNS ?= 3
 GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
 GOLANGCI_LINT_EXCLUDE_PATHS ?=
+GOLANGCI_LINT_BASELINE_SCOPE_PATTERN ?=
+LINTER                 ?=
+RULE                   ?=
 GOFUMPT                ?= gofumpt
 GOIMPORTS              ?= goimports
 GOCYCLO_OVER           ?= 30
@@ -132,9 +140,9 @@ GOCYCLO_INSTALL        ?= github.com/fzipp/gocyclo/cmd/gocyclo@latest
 GOCYCLO_BASELINE       ?= .gocyclo-baseline.txt
 GOCYCLO_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
 GOCYCLO_EXCLUDE_PATHS  ?=
-GOLANGCI_LINT_INSTALL  ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
-GOFUMPT_INSTALL        ?= mvdan.cc/gofumpt@v0.9.2
-GOIMPORTS_INSTALL      ?= golang.org/x/tools/cmd/goimports@v0.44.0
+GOLANGCI_LINT_INSTALL  ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+GOFUMPT_INSTALL        ?= mvdan.cc/gofumpt@v0.10.0
+GOIMPORTS_INSTALL      ?= golang.org/x/tools/cmd/goimports@v0.45.0
 GO_BUILD_OUTPUT        ?= $(if $(strip $(CMD)),$(BINARY),)
 GO_BUILD_FLAGS         ?=
 GO_BUILD_OUTPUT_FLAGS  ?= $(if $(strip $(GO_BUILD_OUTPUT)),-o $(GO_BUILD_OUTPUT),)
@@ -206,6 +214,7 @@ STATICCHECK_EXTRA_EXCLUDE_PATHS ?=
 
 export GO_MK_ROOT := $(CURDIR)
 export GO_MK_HELPER_DIR
+export GO_MK_NOTICES_FILE
 export GO_MK_RECURSIVE_MAKE
 export GO_MK_RECURSIVE_MAKE_ARGS
 export GO_MK_SCRIPT_FILES
@@ -220,6 +229,9 @@ export GOLANGCI_LINT_BASELINE
 export GOLANGCI_LINT_BASELINE_RUNS
 export GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS
 export GOLANGCI_LINT_EXCLUDE_PATHS
+export GOLANGCI_LINT_BASELINE_SCOPE_PATTERN
+export LINTER
+export RULE
 export GOLANGCI_LINT_INSTALL
 export GOFUMPT_INSTALL
 export GOIMPORTS_INSTALL
@@ -266,7 +278,7 @@ default-build-deps :=
 endif
 
 ifeq ($(filter go-build.mk,$(GO_MK_MODULES)),)
-build: $(default-build-deps)
+build: $(default-build-deps) | go-mk-notice
 	go build $(GO_BUILD_OUTPUT_FLAGS) $(GO_BUILD_FLAGS) $(GO_BUILD_TARGETS)
 
 deploy:
@@ -290,6 +302,7 @@ help:
 	@printf '\n%s\n' 'Scoped iteration:'
 	@printf '  %-40s %s\n' 'lint-diff' 'run scoped lint against staged Go files'
 	@printf '  %-40s %s\n' 'lint-files LINT_FILES=...' 'run scoped lint against listed files'
+	@printf '  %-40s %s\n' 'lint-golangci-scope LINTER=.. RULE=..' 'run one golangci linter or rule against its baseline slice'
 	@printf '\n%s\n' 'Lint sub-targets:'
 	@printf '  %-40s %s\n' 'lint-tools' 'install golangci-lint, gofumpt, and goimports'
 	@printf '  %-40s %s\n' 'lint-golangci' 'golangci-lint with baseline gate'
@@ -303,12 +316,16 @@ help:
 	@printf '  %-40s %s\n' 'baseline-accept-new' 'save new findings without removing fixed findings'
 	@printf '  %-40s %s\n' '*-baseline-prune-fixed' 'component form for one baseline'
 	@printf '  %-40s %s\n' '*-baseline-accept-new' 'component form for one baseline'
+	@printf '  %-40s %s\n' 'lint-golangci-baseline-scope LINTER=.. RULE=..' 'baseline only one golangci linter or rule slice'
 	@printf '\n%s\n' 'Pipeline maintenance:'
 	@printf '  %-40s %s\n' 'go-mk-sync / update-go-mk' 'refresh go.mk, helper scripts, modules, and golangci.yml'
 	@printf '  %-40s %s\n' 'smoke-fetch' 'force a fetch-path smoke run'
 
-lint: lint-tools
+lint: lint-tools | go-mk-notice
 	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint
+
+go-mk-notice:
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-notice.sh" || true
 
 lint-tools:
 	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-tools
@@ -370,6 +387,15 @@ lint-golangci-baseline-remove-fixed: lint-golangci-baseline-prune-fixed
 
 lint-golangci-baseline-accept-new:
 	@BASELINE_UPDATE_MODE=accept-new bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" golangci
+
+lint-golangci-scope: lint-tools
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-golangci-scope
+
+lint-golangci-baseline-scope:
+	@BASELINE_UPDATE_MODE=sync bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" golangci-scope
+
+lint-golangci-baseline-scope-accept-new:
+	@BASELINE_UPDATE_MODE=accept-new bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" golangci-scope
 
 lint-deadcode-baseline:
 	@BASELINE_UPDATE_MODE=sync bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" deadcode

@@ -80,6 +80,9 @@ linters:
         - name: indent-error-flow
         - name: var-naming
         - name: comment-spacings
+        - name: file-length-limit     # cap per-file lines; idiomatic Go file-length gate
+          arguments:
+            - max: 1000               # total lines counted; calibrated against real projects
         # unused-parameter / unused-receiver: dropped. Interface stubs and
         # callbacks legitimately keep params for the contract; method
         # receivers stay even when unused for symmetry across a type.

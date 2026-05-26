@@ -82,10 +82,40 @@ capture_golangci_baseline_findings() {
     GO_MK_COMMAND_STATUS="${last_status}"
 }
 
+# Capture only the findings for one linter or rule. LINTER=<name> runs golangci
+# with --enable-only for speed; the resolved scope pattern then filters the
+# captured findings, which also narrows a RULE=<name> sub-rule (e.g. a revive
+# rule) out of its meta-linter's output.
+capture_golangci_scope_findings() {
+    local raw_output
+    local findings_output
+    local exclude_pattern
+    local scope_pattern
+    local scoped_input
+    local linter_name
+
+    raw_output="$1"
+    findings_output="$2"
+    exclude_pattern=$(go_mk_exclude_pattern "${GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS:-_test\\.go:}" "${GOLANGCI_LINT_EXCLUDE_PATHS:-}")
+    scope_pattern=$(go_mk_golangci_baseline_scope_pattern)
+    linter_name="${LINTER:-}"
+
+    golangci_command run
+    if [[ -n "${linter_name}" ]]; then
+        GO_MK_WORDS=("${GO_MK_WORDS[@]:0:2}" "--enable-only=${linter_name}" "${GO_MK_WORDS[@]:2}")
+    fi
+    go_mk_run_lint_capture "${raw_output}" "${GO_MK_WORDS[@]}"
+
+    go_mk_setup_temp_dir
+    scoped_input="${GO_MK_TEMP_DIR}/golangci-scope.findings.out"
+    go_mk_extract_findings "${raw_output}" "${scoped_input}" "${GO_MK_GO_FINDING_PATTERN}" "${exclude_pattern}"
+    go_mk_scope_file "${scoped_input}" "${findings_output}" "${scope_pattern}"
+}
+
 run_lint_tools() {
-    go_mk_install_go_tool "${GOLANGCI_LINT_INSTALL:-github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4}"
-    go_mk_install_go_tool "${GOFUMPT_INSTALL:-mvdan.cc/gofumpt@v0.9.2}"
-    go_mk_install_go_tool "${GOIMPORTS_INSTALL:-golang.org/x/tools/cmd/goimports@v0.44.0}"
+    go_mk_install_go_tool "${GOLANGCI_LINT_INSTALL:-github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2}"
+    go_mk_install_go_tool "${GOFUMPT_INSTALL:-mvdan.cc/gofumpt@v0.10.0}"
+    go_mk_install_go_tool "${GOIMPORTS_INSTALL:-golang.org/x/tools/cmd/goimports@v0.45.0}"
 }
 
 run_lint_golangci() {
@@ -118,6 +148,38 @@ run_lint_golangci() {
         cat "${raw_output}"
         go_mk_record_failed_gate "golangci-lint"
         return "${run_status}"
+    fi
+}
+
+# Run and gate a single linter or rule against only its slice of the golangci
+# baseline, so one linter can be enforced in isolation. Requires a scope from
+# LINTER, RULE, or GOLANGCI_LINT_BASELINE_SCOPE_PATTERN.
+run_lint_golangci_scope() {
+    local raw_output
+    local findings_output
+    local exclude_pattern
+    local scope_pattern
+
+    scope_pattern=$(go_mk_golangci_baseline_scope_pattern)
+    if [[ -z "${scope_pattern}" ]]; then
+        printf "lint-golangci-scope: set LINTER=<name>, RULE=<name>, or GOLANGCI_LINT_BASELINE_SCOPE_PATTERN\n"
+        return 2
+    fi
+    mkdir -p .make
+    raw_output=".make/golangci-lint-scope.raw.out"
+    findings_output=".make/golangci-lint-scope.out"
+    exclude_pattern=$(go_mk_exclude_pattern "${GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS:-_test\\.go:}" "${GOLANGCI_LINT_EXCLUDE_PATHS:-}")
+    capture_golangci_scope_findings "${raw_output}" "${findings_output}"
+
+    if ! go_mk_run_baseline_diff_gate \
+        "golangci-lint" \
+        "${findings_output}" \
+        "${GOLANGCI_LINT_BASELINE:-.golangci-lint-baseline.txt}" \
+        "golangci-lint" \
+        "Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks." \
+        "${exclude_pattern}" \
+        "${scope_pattern}"; then
+        return 1
     fi
 }
 
@@ -565,6 +627,13 @@ case "${command_name}" in
     capture-golangci-baseline)
         mkdir -p .make
         capture_golangci_baseline_findings "${2:-.make/golangci-lint-baseline.raw.out}" "${3:-.make/golangci-lint-baseline.out}"
+        ;;
+    capture-golangci-scope)
+        mkdir -p .make
+        capture_golangci_scope_findings "${2:-.make/golangci-lint-scope.raw.out}" "${3:-.make/golangci-lint-scope.out}"
+        ;;
+    lint-golangci-scope)
+        run_lint_golangci_scope
         ;;
     lint-format)
         run_lint_format

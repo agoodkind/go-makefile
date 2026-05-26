@@ -93,6 +93,67 @@ update_golangci_baseline() {
         "${exclude_pattern}"
 }
 
+# Capture and write only the scoped slice of the golangci baseline. Shared by
+# the token-gated manual scoped update and the automatic new-gate rollout. The
+# scope_pattern is passed to write_component_baseline, so the scoped awk write
+# preserves every out-of-scope baseline row byte-for-byte.
+write_golangci_scope_baseline() {
+    local mode
+    local scope_pattern
+    local raw_output
+    local findings_output
+    local exclude_pattern
+
+    mode="$1"
+    scope_pattern="$2"
+    mkdir -p .make
+    raw_output=".make/golangci-lint-scope-baseline.raw.out"
+    findings_output=".make/golangci-lint-scope-baseline.out"
+    exclude_pattern=$(go_mk_exclude_pattern "${GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS:-_test\\.go:}" "${GOLANGCI_LINT_EXCLUDE_PATHS:-}")
+    bash "${SCRIPT_DIR}/go-mk-lint.sh" lint-tools
+    bash "${SCRIPT_DIR}/go-mk-lint.sh" capture-golangci-scope "${raw_output}" "${findings_output}"
+    write_component_baseline \
+        "golangci-lint" \
+        "${GOLANGCI_LINT_BASELINE:-.golangci-lint-baseline.txt}" \
+        "${findings_output}" \
+        "golangci-lint" \
+        "${mode}" \
+        "${exclude_pattern}" \
+        "${scope_pattern}"
+}
+
+# Token-gated manual scoped baseline for one linter or rule. Refuses to run
+# unscoped, so a scoped target cannot silently full-sync the whole baseline.
+update_golangci_baseline_scope() {
+    local mode
+    local scope_pattern
+
+    mode="$1"
+    scope_pattern=$(go_mk_golangci_baseline_scope_pattern)
+    if [[ -z "${scope_pattern}" ]]; then
+        printf "golangci-lint scope baseline: set LINTER=<name>, RULE=<name>, or GOLANGCI_LINT_BASELINE_SCOPE_PATTERN\n"
+        return 1
+    fi
+    if ! run_gate "golangci-lint"; then
+        return 0
+    fi
+    write_golangci_scope_baseline "${mode}" "${scope_pattern}"
+}
+
+# Automatic, token-free, strictly scope-limited golangci baseline used by the
+# new-gate notice rollout. Safe without the token because the scoped write only
+# adds the declared slice and leaves every other linter's rows untouched.
+auto_baseline_golangci_scope() {
+    local scope_pattern
+
+    scope_pattern=$(go_mk_golangci_baseline_scope_pattern)
+    if [[ -z "${scope_pattern}" ]]; then
+        printf "auto-baseline: missing scope; set LINTER, RULE, or GOLANGCI_LINT_BASELINE_SCOPE_PATTERN\n"
+        return 1
+    fi
+    write_golangci_scope_baseline "sync" "${scope_pattern}"
+}
+
 update_gocyclo_baseline() {
     local mode
     local raw_output
@@ -193,6 +254,12 @@ case "${component}" in
         ;;
     golangci)
         update_golangci_baseline "${mode}"
+        ;;
+    golangci-scope)
+        update_golangci_baseline_scope "${mode}"
+        ;;
+    auto-baseline-scope)
+        auto_baseline_golangci_scope
         ;;
     gocyclo)
         update_gocyclo_baseline "${mode}"

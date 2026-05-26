@@ -118,8 +118,21 @@ Targets:
 | `lint-golangci-baseline` | Syncs the baseline to the current finding set. |
 | `lint-golangci-baseline-prune-fixed` | Removes fixed findings from the baseline without accepting new findings. |
 | `lint-golangci-baseline-accept-new` | Accepts new findings into the baseline while keeping fixed findings saved. |
+| `lint-golangci-scope LINTER=.. RULE=..` | Runs and gates one linter or rule against only its slice of the baseline. |
+| `lint-golangci-baseline-scope LINTER=.. RULE=..` | Baselines only that slice; every other linter's saved rows stay byte-for-byte unchanged. |
+| `lint-golangci-baseline-scope-accept-new LINTER=.. RULE=..` | Accepts new findings for that slice only. |
+
+Each golangci linter is independently runnable and baselinable through the scope knobs. `LINTER=<name>` selects a whole linter by its trailing `(name)` tag and runs it with `--enable-only` for speed. `RULE=<name>` selects a meta-linter sub-rule by its `name:` message prefix, for example a revive rule, and binds to the linter tag when `LINTER` is also set. `GOLANGCI_LINT_BASELINE_SCOPE_PATTERN` overrides both with a literal grep-compatible regex. A scoped baseline target refuses to run when no scope is set, so it cannot silently sync the whole baseline. Example: `BASELINE_CONFIRM=1 BASELINE_TOKEN="$(...)" make lint-golangci-baseline-scope RULE=file-length-limit`.
+
+The revive `file-length-limit` rule (max 1000 lines per file) ships enabled in the shared `golangci.yml`. Its findings carry no column and the reported line number is the file's length, so a baselined oversized file stays matched only while its length is unchanged. Adding or removing lines re-triggers the gate, which is an intentional "do not grow already-oversized files" policy and differs from the line-independent matching used by `gocyclo`.
 
 Baseline mutation targets are protected by the generic token gate. Set `BASELINE_CONFIRM=1` and `BASELINE_TOKEN` to the slugified output of `BASELINE_TOKEN_CMD` to permit a mutation. `baseline`, `baseline-prune-fixed`, and `baseline-accept-new` apply the same modes to every baseline. The `*-baseline-remove-fixed` and `baseline-remove-fixed` targets are aliases for `*-baseline-prune-fixed` and `baseline-prune-fixed`; `baseline-add-new` is an alias for `baseline-accept-new`.
+
+### Update notices and auto-baseline
+
+When go-makefile introduces a new gate or rule, `notices.txt` carries a record describing it, and `scripts/go-mk-notice.sh` runs as a prerequisite of `lint`, `check`, and `build`. On the first build that sees an unapplied notice with an auto-baseline directive, the notice grandfathers only that new rule's existing findings into the golangci baseline through the scoped path, then asks you to review the diff and commit it. The build does not fail on the new rule's pre-existing findings, and genuine new violations of other gates still fail normally, because the auto-baseline only ever writes the declared slice.
+
+Applied notices are recorded in the committed `.go-mk-applied-notices` file, one id per line. Commit it alongside the baseline it produced. The committed record is what stops a fresh checkout or CI run from re-grandfathering violations that were added after the first rollout. The gitignored `.make/.go-mk-notice-seen` only dedupes the printed summary and is safe to discard.
 
 ### `gocyclo` baseline
 
