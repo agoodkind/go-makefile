@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,8 +12,6 @@ import (
 	"path/filepath"
 	"text/template"
 )
-
-const expectedArgCount = 2
 
 type context struct {
 	Binary  string `json:"Binary"`
@@ -26,7 +25,8 @@ func main() {
 	component := slog.String("component", "render")
 	slog.Info("render template", component)
 
-	if len(os.Args) != expectedArgCount {
+	flag.Parse()
+	if flag.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: render <template-path>")
 		os.Exit(1)
 	}
@@ -44,7 +44,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	templatePath := filepath.Clean(os.Args[1])
+	templatePath := filepath.Clean(flag.Arg(0))
 	b, err := os.ReadFile(templatePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "render: read template: %v\n", err)
