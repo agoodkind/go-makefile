@@ -38,5 +38,6 @@ func Analyzers() []*analysis.Analyzer {
 		RTASlogFieldBypassAnalyzer,
 		LifecycleNoopCloserAnalyzer,
 		LifecycleSilentCloseErrAnalyzer,
+		GrpcMethodNameLiteralAnalyzer,
 	}
 }
