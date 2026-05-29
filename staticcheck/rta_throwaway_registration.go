@@ -40,9 +40,6 @@ import (
 //	-registration_funcs   comma-separated list of registration call names.
 //	                      Empty means: any call whose name matches
 //	                      ^Register.*Server$.
-//
-// Document intentional exceptions in the staticcheck-extra baseline,
-// not via inline directives.
 var RTAThrowawayRegistrationAnalyzer = newRTAThrowawayRegistrationAnalyzer()
 
 func newRTAThrowawayRegistrationAnalyzer() *analysis.Analyzer {

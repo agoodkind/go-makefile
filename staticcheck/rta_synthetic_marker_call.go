@@ -29,9 +29,7 @@ import (
 // real defence against an attacker silently editing lint config sits
 // at the shell layer (agent-gate) rather than here.
 //
-// The diagnostic carries the literal "[RTA002]". Document intentional
-// exceptions in the staticcheck-extra baseline, not via inline
-// directives.
+// The diagnostic carries the literal "[RTA002]".
 var RTASyntheticMarkerCallAnalyzer = newRTASyntheticMarkerCallAnalyzer()
 
 func newRTASyntheticMarkerCallAnalyzer() *analysis.Analyzer {

@@ -26,9 +26,7 @@ import (
 //	                 (reason string) error signature triggers the
 //	                 detector. Default is "Close".
 //
-// The diagnostic carries "[LIFECYCLE002]". Document intentional
-// exceptions in the staticcheck-extra baseline, not via inline
-// directives.
+// The diagnostic carries "[LIFECYCLE002]".
 var LifecycleSilentCloseErrAnalyzer = newLifecycleSilentCloseErrAnalyzer()
 
 func newLifecycleSilentCloseErrAnalyzer() *analysis.Analyzer {

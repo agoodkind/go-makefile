@@ -35,8 +35,7 @@ import (
 // (qualified names: `goodkind.io/clyde/internal/mitm.mitmHTTPCloser`).
 //
 // The diagnostic carries "[LIFECYCLE001]". Document intentional
-// exceptions in the staticcheck-extra baseline or via the -allowlist
-// flag, not via inline directives.
+// exceptions via the -allowlist flag.
 var LifecycleNoopCloserAnalyzer = newLifecycleNoopCloserAnalyzer()
 
 func newLifecycleNoopCloserAnalyzer() *analysis.Analyzer {

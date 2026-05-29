@@ -60,9 +60,7 @@ import (
 //     (no statements). A marker method with even a stray return
 //     statement is treated as "real" and the type is not flagged.
 //
-// The diagnostic carries the literal "[RTA004]". Document
-// intentional exceptions in the staticcheck-extra baseline rather
-// than via inline directives.
+// The diagnostic carries the literal "[RTA004]".
 var RTASlogFieldBypassAnalyzer = newRTASlogFieldBypassAnalyzer()
 
 func newRTASlogFieldBypassAnalyzer() *analysis.Analyzer {

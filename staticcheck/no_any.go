@@ -24,8 +24,7 @@ import (
 // into smaller helpers inside an allowlisted file, drive cyclomatic
 // complexity numbers down, and silently spread `any` through the new
 // helpers. With no allowlist, every helper that takes or returns `any`
-// must justify itself in code review (or be baselined), which is
-// visible.
+// must justify itself in code review, which is visible.
 var NoAnyOrEmptyInterfaceAnalyzer = &analysis.Analyzer{
 	Name: "no_any_or_empty_interface",
 	Doc:  "rejects any, interface{}, and aliases or named types that expand to them",

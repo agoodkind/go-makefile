@@ -16,7 +16,6 @@ import (
 //   - inside func main()
 //   - inside func init()
 //   - inside _test.go files (TestMain, etc.)
-//   - //nolint:os_exit_outside_main on the call line
 var OsExitOutsideMainAnalyzer = &analysis.Analyzer{
 	Name: "os_exit_outside_main",
 	Doc:  "rejects os.Exit calls outside main()/init() so failure modes return up the stack",
@@ -52,7 +51,7 @@ func runOsExitOutsideMain(pass *analysis.Pass) (any, error) {
 				if !ok {
 					return true
 				}
-				if recv == "os" && name == "Exit" && !hasNolintComment(file, pass.Fset, call.Pos(), "os_exit_outside_main") {
+				if recv == "os" && name == "Exit" {
 					reportAtf(pass, file, call.Pos(), "os.Exit called outside main()/init(); return error to caller instead")
 				}
 				return true
@@ -85,7 +84,7 @@ func runContextTODO(pass *analysis.Pass) (any, error) {
 			if !ok {
 				return true
 			}
-			if recv == "context" && name == "TODO" && !hasNolintComment(file, pass.Fset, call.Pos(), "context_todo_in_production") {
+			if recv == "context" && name == "TODO" {
 				reportAtf(pass, file, call.Pos(), "context.TODO() in production code; use context.Background() or thread context from caller")
 			}
 			return true
@@ -98,8 +97,7 @@ func runContextTODO(pass *analysis.Pass) (any, error) {
 // Use [time.NewTimer] with select{} for cancellation, or
 // [time.AfterFunc].
 //
-// Allowed in main packages (CLI ergonomics), in _test.go files, and
-// behind //nolint:time_sleep_in_production.
+// Allowed in main packages (CLI ergonomics) and in _test.go files.
 var TimeSleepInProductionAnalyzer = &analysis.Analyzer{
 	Name: "time_sleep_in_production",
 	Doc:  "rejects time.Sleep in production library code; use time.NewTimer + select for cancellation",
@@ -123,7 +121,7 @@ func runTimeSleepInProduction(pass *analysis.Pass) (any, error) {
 			if !ok {
 				return true
 			}
-			if recv == "time" && name == "Sleep" && !hasNolintComment(file, pass.Fset, call.Pos(), "time_sleep_in_production") {
+			if recv == "time" && name == "Sleep" {
 				reportAtf(pass, file, call.Pos(), "time.Sleep in production library code; use time.NewTimer + select for cancellation")
 			}
 			return true
@@ -143,7 +141,6 @@ func runTimeSleepInProduction(pass *analysis.Pass) (any, error) {
 //     functions document via their name that they panic on error.
 //     They are typically called from startup contexts where panic is
 //     the right behaviour because there is no recovery path.
-//   - //nolint:panic_in_production on the call line
 var PanicInProductionAnalyzer = &analysis.Analyzer{
 	Name: "panic_in_production",
 	Doc:  "rejects panic() in production code outside init(); return error up the stack",
@@ -175,7 +172,7 @@ func runPanicInProduction(pass *analysis.Pass) (any, error) {
 				if !ok {
 					return true
 				}
-				if ident.Name == "panic" && !hasNolintComment(file, pass.Fset, call.Pos(), "panic_in_production") {
+				if ident.Name == "panic" {
 					reportAtf(pass, file, call.Pos(), "panic() called in production code; return error up the stack")
 				}
 				return true
@@ -196,7 +193,6 @@ func runPanicInProduction(pass *analysis.Pass) (any, error) {
 //   - inside _test.go
 //   - inside main packages (CLI startup logging)
 //   - inside internal/clock packages (canonical clock source)
-//   - //nolint:time_now_outside_clock on the call line
 var TimeNowOutsideClockAnalyzer = &analysis.Analyzer{
 	Name: "time_now_outside_clock",
 	Doc:  "rejects wall-clock reads outside internal/clock, main packages, and tests",
@@ -223,8 +219,8 @@ func runTimeNowOutsideClock(pass *analysis.Pass) (any, error) {
 			if !ok {
 				return true
 			}
-			if recv == "time" && isWallClockRead(name) && !hasNolintComment(file, pass.Fset, call.Pos(), "time_now_outside_clock") {
-				reportAtf(pass, file, call.Pos(), "time.%s() outside internal/clock; inject a clock.Clock for testability or //nolint:time_now_outside_clock", name)
+			if recv == "time" && isWallClockRead(name) {
+				reportAtf(pass, file, call.Pos(), "time.%s() outside internal/clock; inject a clock.Clock for testability", name)
 			}
 			return true
 		})

@@ -42,9 +42,6 @@ func runGrpcHandlerWithoutPeerEnrichment(pass *analysis.Pass) (any, error) {
 			if !isLikelyGrpcServerMethod(fn) {
 				continue
 			}
-			if hasNolintComment(file, pass.Fset, fn.Pos(), "grpc_handler_missing_peer_enrichment") {
-				continue
-			}
 			if funcReferencesPeerHelper(fn.Body) {
 				continue
 			}
@@ -152,9 +149,7 @@ func funcContainsAnySlogCall(body *ast.BlockStmt) bool {
 
 // SensitiveFieldInLogAnalyzer warns when slog keyvals include keys
 // that look like they carry sensitive material (passwords, tokens,
-// keys, secrets). Project teams can extend the deny-list via
-// //nolint:sensitive_field_in_log on the call line for known-safe
-// uses (e.g. logging the LENGTH of a token, not the token).
+// keys, secrets).
 //
 // Heuristic only. False positives expected. The intent is to make
 // secret-leakage paths visible in code review.
@@ -167,9 +162,9 @@ var SensitiveFieldInLogAnalyzer = &analysis.Analyzer{
 // sensitiveKeyPrefixes is intentionally broad. The heuristic looks at
 // keyval names in slog calls and warns on anything that looks like
 // secret-bearing material. The list is biased toward false-positive
-// over false-negative because the cost of a fake match is a
-// //nolint annotation, while the cost of a missed match is leaking
-// secrets in production logs.
+// over false-negative because the cost of a fake match is redacting a
+// safe log line, while the cost of a missed match is leaking secrets
+// in production logs.
 //
 // The tokens are matched as substrings AND as prefixes against the
 // lowercased keyval name. An LLM trying to launder by renaming
@@ -203,9 +198,6 @@ func runSensitiveFieldInLog(pass *analysis.Pass) (any, error) {
 			if !ok || !isAnyLevelSlogCall(call) {
 				return true
 			}
-			if hasNolintComment(file, pass.Fset, call.Pos(), "sensitive_field_in_log") {
-				return true
-			}
 			for _, arg := range call.Args {
 				lit, ok := stringLiteral(arg)
 				if !ok {
@@ -214,7 +206,7 @@ func runSensitiveFieldInLog(pass *analysis.Pass) (any, error) {
 				lower := strings.ToLower(lit)
 				for _, prefix := range sensitiveKeyPrefixes {
 					if strings.Contains(lower, prefix) {
-						reportAtf(pass, file, arg.Pos(), "slog key %q looks sensitive; redact, log a summary, or //nolint:sensitive_field_in_log", lit)
+						reportAtf(pass, file, arg.Pos(), "slog key %q looks sensitive; redact or log a summary", lit)
 						break
 					}
 				}

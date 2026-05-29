@@ -14,9 +14,6 @@ import (
 //
 // Allowed escapes:
 //   - test files
-//   - //nolint:goroutine_without_recover on the `go` keyword line
-//   - functions tiny enough that panic is structurally impossible
-//     (we do NOT try to detect that; rely on nolint)
 var GoroutineWithoutRecoverAnalyzer = &analysis.Analyzer{
 	Name: "goroutine_without_recover",
 	Doc:  "rejects launched goroutines that lack a deferred recover()",
@@ -33,19 +30,16 @@ func runGoroutineWithoutRecover(pass *analysis.Pass) (any, error) {
 			if !ok {
 				return true
 			}
-			if hasNolintComment(file, pass.Fset, gostmt.Pos(), "goroutine_without_recover") {
-				return true
-			}
 			lit := goroutineFuncLit(gostmt.Call)
 			if lit == nil {
 				// Goroutine launches a named func. Caller's func body is not
 				// visible here without a callgraph. Force the launch site to
-				// wrap in a FuncLit with recover, or use an explicit nolint.
-				reportAtf(pass, file, gostmt.Pos(), "goroutine launched against a named func; wrap in a func literal that defers recover() or use //nolint:goroutine_without_recover")
+				// wrap in a FuncLit with recover.
+				reportAtf(pass, file, gostmt.Pos(), "goroutine launched against a named func; wrap in a func literal that defers recover()")
 				return true
 			}
 			if !funcLitHasDeferredRecover(lit) {
-				reportAtf(pass, file, gostmt.Pos(), "goroutine launched without a deferred recover(); add `defer func() { if r := recover(); r != nil { slog.Error(...) } }()` or //nolint:goroutine_without_recover")
+				reportAtf(pass, file, gostmt.Pos(), "goroutine launched without a deferred recover(); add `defer func() { if r := recover(); r != nil { slog.Error(...) } }()`")
 			}
 			return true
 		})
@@ -324,9 +318,6 @@ func runSilentDeferClose(pass *analysis.Pass) (any, error) {
 			if !ok {
 				return true
 			}
-			if hasNolintComment(file, pass.Fset, def.Pos(), "silent_defer_close") {
-				return true
-			}
 			_, name, ok := selectorName(def.Call.Fun)
 			if !ok {
 				return true
@@ -355,9 +346,8 @@ func isCloseMethodName(name string) bool {
 // surface log lines that are missing trace correlation.
 //
 // This is a heuristic and produces false positives. It is here to
-// PROMPT the author, not to gate. Use //nolint:slog_missing_trace_id
-// to dismiss, or switch to InfoContext / WarnContext / ErrorContext
-// which threads the context-attached attrs automatically.
+// PROMPT the author, not to gate. Switch to InfoContext / WarnContext
+// / ErrorContext which threads the context-attached attrs automatically.
 var SlogMissingTraceIDAnalyzer = &analysis.Analyzer{
 	Name: "slog_missing_trace_id",
 	Doc:  "warns when slog calls inside context-receiving funcs do not propagate context",
@@ -405,9 +395,6 @@ func reportSlogCallsWithoutTraceID(pass *analysis.Pass, file *ast.File, fn *ast.
 
 func slogCallHasTraceContext(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, ctxName string) bool {
 	if !isAnyLevelSlogCall(call) {
-		return true
-	}
-	if hasNolintComment(file, pass.Fset, call.Pos(), "slog_missing_trace_id") {
 		return true
 	}
 	_, name, _ := selectorName(call.Fun)

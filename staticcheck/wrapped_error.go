@@ -2,7 +2,6 @@ package staticcheck
 
 import (
 	"go/ast"
-	"go/token"
 	"go/types"
 	"strings"
 
@@ -35,10 +34,6 @@ import (
 //     or exact Read/Write/ReadAt/WriteAt/WriteTo/ReadFrom/ReadByte/
 //     WriteByte/ReadRune/WriteRune). Such functions are silently
 //     exempted because their callers are responsible for logging.
-//
-// Nolint comments are NOT a fix path. The nolint_ban analyzer
-// rejects them in production code; baseline the finding instead if
-// the call is intentionally silent and a rename does not apply.
 var WrappedErrorWithoutSlogAnalyzer = &analysis.Analyzer{
 	Name: "wrapped_error_without_slog",
 	Doc:  "rejects functions that return a wrapped error without an accompanying slog call",
@@ -157,26 +152,6 @@ func isErrorOrWarnSlogCall(call *ast.CallExpr) bool {
 	}
 	if receiver == "slog" && name == "Log" && len(call.Args) >= 2 {
 		return exprContains(call.Args[1], "LevelError") || exprContains(call.Args[1], "LevelWarn")
-	}
-	return false
-}
-
-func hasNolintComment(file *ast.File, fset *token.FileSet, pos token.Pos, name string) bool {
-	if file == nil {
-		return false
-	}
-	target := fset.Position(pos).Line
-	needle := "nolint:" + name
-	for _, group := range file.Comments {
-		for _, c := range group.List {
-			if !strings.Contains(c.Text, needle) {
-				continue
-			}
-			line := fset.Position(c.Pos()).Line
-			if line == target || line == target-1 {
-				return true
-			}
-		}
 	}
 	return false
 }
