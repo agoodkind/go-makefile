@@ -4,6 +4,66 @@ set -eo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "${SCRIPT_DIR}/go-mk-common.sh"
 
+# Components captured this run, collected as JSON manifest records and written by
+# the go-mk-baseline binary in one batch so a single neutral roll-up prints.
+GO_MK_BASELINE_MANIFEST=""
+
+# json_escape escapes a value for embedding in a JSON string.
+json_escape() {
+    local value
+    value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//	/\\t}"
+    printf "%s" "${value}"
+}
+
+# emit_manifest_record appends one component record to the batch manifest. Called
+# only after a component's gate passes and its findings are captured, so a
+# skipped component contributes no record, preserving the token-gating flow.
+emit_manifest_record() {
+    local title baseline_file findings_file label mode exclude_pattern scope_pattern record
+
+    title="$1"
+    baseline_file="$2"
+    findings_file="$3"
+    label="$4"
+    mode="$5"
+    exclude_pattern="${6:-}"
+    scope_pattern="${7:-}"
+
+    record=$(printf '{"title":"%s","label":"%s","baselineFile":"%s","findingsFile":"%s","mode":"%s","excludePattern":"%s","scopePattern":"%s"}' \
+        "$(json_escape "${title}")" \
+        "$(json_escape "${label}")" \
+        "$(json_escape "${baseline_file}")" \
+        "$(json_escape "${findings_file}")" \
+        "$(json_escape "${mode}")" \
+        "$(json_escape "${exclude_pattern}")" \
+        "$(json_escape "${scope_pattern}")")
+    if [[ -z "${GO_MK_BASELINE_MANIFEST}" ]]; then
+        GO_MK_BASELINE_MANIFEST="${record}"
+    else
+        GO_MK_BASELINE_MANIFEST="${GO_MK_BASELINE_MANIFEST},${record}"
+    fi
+}
+
+# flush_manifest writes every collected component in one binary invocation. The
+# binary owns the atomic write, the neutral counts, and the single roll-up.
+flush_manifest() {
+    local resolved_bin
+
+    if [[ -z "${GO_MK_BASELINE_MANIFEST}" ]]; then
+        return 0
+    fi
+    bash "${SCRIPT_DIR}/go-mk-baseline-bin.sh" bin
+    resolved_bin=$(bash "${SCRIPT_DIR}/go-mk-baseline-bin.sh" selected-bin)
+    if [[ -z "${resolved_bin}" || ! -x "${resolved_bin}" ]]; then
+        printf "go-mk-baseline: could not resolve the baseline binary\n" >&2
+        return 1
+    fi
+    printf '{"components":[%s]}' "${GO_MK_BASELINE_MANIFEST}" | "${resolved_bin}" write-batch --manifest -
+}
+
 run_gate() {
     local component_name
     local stamp_path
@@ -33,6 +93,9 @@ normalize_mode() {
     esac
 }
 
+# Queue one component for the batch write. The eighth positional argument
+# (suppress_fixed_count) is accepted for call-site compatibility but no longer
+# alters output: the neutral counts the binary prints never expose it.
 write_component_baseline() {
     local title
     local baseline_file
@@ -41,8 +104,6 @@ write_component_baseline() {
     local mode
     local exclude_pattern
     local scope_pattern
-    local suppress_fixed_count
-    local temporary_file
 
     title="$1"
     baseline_file="$2"
@@ -51,21 +112,7 @@ write_component_baseline() {
     mode="$5"
     exclude_pattern="${6:-}"
     scope_pattern="${7:-}"
-    suppress_fixed_count="${8:-}"
-    mkdir -p "$(dirname "${baseline_file}")"
-    if [[ ! -f "${baseline_file}" ]]; then
-        : > "${baseline_file}"
-    fi
-    temporary_file="${baseline_file}.tmp"
-    printf "%s baseline update\n" "${label}"
-    printf "  File: %s\n" "${baseline_file}"
-    printf "  Mode: %s\n" "${mode}"
-    printf "  Scope: %s\n\n" "${scope_pattern:-all}"
-    go_mk_print_baseline_update_counts "${label}" "${baseline_file}" "${findings_file}" "${label}" "${mode}" "${exclude_pattern}" "${scope_pattern}" "${suppress_fixed_count}"
-    go_mk_write_baseline_file "${title}" "${baseline_file}" "${findings_file}" "${label}" "${temporary_file}" "${mode}" "${scope_pattern}"
-    mv "${temporary_file}" "${baseline_file}"
-    go_mk_print_baseline_overall_counts "${label}" "${baseline_file}" "${findings_file}" "${label}" "${exclude_pattern}" "${scope_pattern}"
-    printf "\n%s: baseline %s refreshed\n" "${label}" "${baseline_file}"
+    emit_manifest_record "${title}" "${baseline_file}" "${findings_file}" "${label}" "${mode}" "${exclude_pattern}" "${scope_pattern}"
 }
 
 update_golangci_baseline() {
@@ -245,33 +292,42 @@ update_staticcheck_baseline() {
 mode=$(normalize_mode "${BASELINE_UPDATE_MODE:-sync}")
 component="${1:-all}"
 
+# Component updaters may refuse (e.g. a scope-guarded staticcheck full sync) or
+# fail their gate. A single refusal must not abort the batch: every component
+# that did pass still needs its queued record flushed and rolled up. So each
+# updater runs tolerantly here and the worst status is carried to the exit.
+update_status=0
+
 case "${component}" in
     all)
-        update_golangci_baseline "${mode}"
-        update_gocyclo_baseline "${mode}"
-        update_deadcode_baseline "${mode}"
-        update_staticcheck_baseline "${mode}"
+        update_golangci_baseline "${mode}" || update_status=$?
+        update_gocyclo_baseline "${mode}" || update_status=$?
+        update_deadcode_baseline "${mode}" || update_status=$?
+        update_staticcheck_baseline "${mode}" || update_status=$?
         ;;
     golangci)
-        update_golangci_baseline "${mode}"
+        update_golangci_baseline "${mode}" || update_status=$?
         ;;
     golangci-scope)
-        update_golangci_baseline_scope "${mode}"
+        update_golangci_baseline_scope "${mode}" || update_status=$?
         ;;
     auto-baseline-scope)
-        auto_baseline_golangci_scope
+        auto_baseline_golangci_scope || update_status=$?
         ;;
     gocyclo)
-        update_gocyclo_baseline "${mode}"
+        update_gocyclo_baseline "${mode}" || update_status=$?
         ;;
     deadcode)
-        update_deadcode_baseline "${mode}"
+        update_deadcode_baseline "${mode}" || update_status=$?
         ;;
     staticcheck-extra)
-        update_staticcheck_baseline "${mode}"
+        update_staticcheck_baseline "${mode}" || update_status=$?
         ;;
     *)
         printf "go-mk-baseline: unknown component %s\n" "${component}"
         exit 2
         ;;
 esac
+
+flush_manifest || update_status=$?
+exit "${update_status}"

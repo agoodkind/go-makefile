@@ -4,7 +4,7 @@
 	lint-files lint-diff lint-format lint-gocyclo lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new fmt vet test govulncheck build-check build-check-start check \
 	lint-deadcode lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new staticcheck-extra-bin \
-	baseline baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
+	baseline baseline-bin baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
 	go-mk-sync update-go-mk smoke-fetch go-mk-notice
 
 GO_MK_URL       := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
@@ -89,6 +89,7 @@ GO_MK_SCRIPT_FILES := \
 	scripts/go-mk-baseline.awk \
 	scripts/go-mk-lint.sh \
 	scripts/go-mk-baseline.sh \
+	scripts/go-mk-baseline-bin.sh \
 	scripts/go-mk-notice.sh \
 	scripts/go-mk-staticcheck-extra.sh \
 	scripts/go-mk-sync.sh \
@@ -212,6 +213,14 @@ STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
 STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
 STATICCHECK_EXTRA_EXCLUDE_PATHS ?=
 
+# go-mk-baseline engine binary, built on demand from this (root) module. The
+# default install spec tracks the main branch tip (@main) so every consumer
+# resolves the current engine with no version pin.
+GO_MK_BASELINE_BIN          ?=
+GO_MK_BASELINE_BUILD_REPO   ?= $(if $(and $(GO_MK_DEV_DIR),$(wildcard $(GO_MK_DEV_DIR)/cmd/go-mk-baseline)),$(GO_MK_DEV_DIR))
+GO_MK_BASELINE_BUILD_PKG    ?= $(if $(GO_MK_BASELINE_BUILD_REPO),./cmd/go-mk-baseline)
+GO_MK_BASELINE_INSTALL      ?= github.com/agoodkind/go-makefile/cmd/go-mk-baseline@main
+
 export GO_MK_ROOT := $(CURDIR)
 export GO_MK_HELPER_DIR
 export GO_MK_NOTICES_FILE
@@ -270,6 +279,10 @@ export STATICCHECK_EXTRA_TARGETS
 export STATICCHECK_EXTRA_BASELINE
 export STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS
 export STATICCHECK_EXTRA_EXCLUDE_PATHS
+export GO_MK_BASELINE_BIN
+export GO_MK_BASELINE_BUILD_REPO
+export GO_MK_BASELINE_BUILD_PKG
+export GO_MK_BASELINE_INSTALL
 
 ifeq ($(BUILD_CHECKS),true)
 default-build-deps := build-check
@@ -310,12 +323,8 @@ help:
 	@printf '  %-40s %s\n' 'lint-gocyclo' 'gocyclo with baseline gate'
 	@printf '  %-40s %s\n' 'lint-deadcode' 'deadcode with baseline gate'
 	@printf '  %-40s %s\n' 'staticcheck-extra' 'custom analyzers with baseline gate'
-	@printf '\n%s\n' 'Baseline maintenance, guarded by BASELINE_CONFIRM and BASELINE_TOKEN:'
-	@printf '  %-40s %s\n' 'baseline' 'sync all baselines to current findings'
-	@printf '  %-40s %s\n' 'baseline-prune-fixed' 'remove fixed findings without saving new findings'
-	@printf '  %-40s %s\n' 'baseline-accept-new' 'save new findings without removing fixed findings'
-	@printf '  %-40s %s\n' '*-baseline-prune-fixed' 'component form for one baseline'
-	@printf '  %-40s %s\n' '*-baseline-accept-new' 'component form for one baseline'
+	@printf '\n%s\n' 'Baseline maintenance (maintainer use, guarded by BASELINE_CONFIRM and BASELINE_TOKEN):'
+	@printf '  %-40s %s\n' 'baseline' 'refresh the recorded baselines'
 	@printf '  %-40s %s\n' 'lint-golangci-baseline-scope LINTER=.. RULE=..' 'baseline only one golangci linter or rule slice'
 	@printf '\n%s\n' 'Pipeline maintenance:'
 	@printf '  %-40s %s\n' 'go-mk-sync / update-go-mk' 'refresh go.mk, helper scripts, modules, and golangci.yml'
@@ -370,6 +379,9 @@ govulncheck:
 
 lint-deadcode:
 	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-deadcode
+
+baseline-bin:
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-baseline-bin.sh" bin
 
 staticcheck-extra-bin:
 	@bash "$(GO_MK_HELPER_DIR)/go-mk-staticcheck-extra.sh" bin
