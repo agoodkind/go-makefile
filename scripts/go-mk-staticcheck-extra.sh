@@ -224,7 +224,7 @@ staticcheck_run_gate() {
         "${findings_output}" \
         "${STATICCHECK_EXTRA_BASELINE:-.staticcheck-extra-baseline.txt}" \
         "staticcheck-extra" \
-        "Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks." \
+        "Fix the new findings before this gate will pass." \
         "${exclude_pattern}" \
         "${scope_pattern}" \
         "${suppress_fixed_count}"

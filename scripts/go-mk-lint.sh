@@ -136,7 +136,7 @@ run_lint_golangci() {
         "${findings_output}" \
         "${GOLANGCI_LINT_BASELINE:-.golangci-lint-baseline.txt}" \
         "golangci-lint" \
-        "Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks." \
+        "Fix the new findings before this gate will pass." \
         "${exclude_pattern}"; then
         return 1
     fi
@@ -176,7 +176,7 @@ run_lint_golangci_scope() {
         "${findings_output}" \
         "${GOLANGCI_LINT_BASELINE:-.golangci-lint-baseline.txt}" \
         "golangci-lint" \
-        "Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks." \
+        "Fix the new findings before this gate will pass." \
         "${exclude_pattern}" \
         "${scope_pattern}"; then
         return 1
@@ -275,7 +275,7 @@ run_lint_gocyclo() {
         "${findings_output}" \
         "${GOCYCLO_BASELINE:-.gocyclo-baseline.txt}" \
         "gocyclo" \
-        "Reduce the reported cyclomatic complexity or accept the finding into the guarded baseline." \
+        "Reduce the reported cyclomatic complexity before this gate will pass." \
         "${exclude_pattern}"; then
         return 1
     fi
@@ -419,7 +419,7 @@ run_scoped_gate() {
         "${filtered_output}" \
         "${baseline_file}" \
         "${gate_name}" \
-        "Fix these findings in code. Do not disable, silence, weaken, or otherwise circumvent the checks." \
+        "Fix the new findings before this gate will pass." \
         "${exclude_pattern}"
 }
 
