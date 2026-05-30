@@ -7,7 +7,7 @@ package main
 import (
 	"golang.org/x/tools/go/analysis/multichecker"
 
-	"github.com/agoodkind/go-makefile/staticcheck"
+	"goodkind.io/go-makefile/staticcheck"
 )
 
 func main() {

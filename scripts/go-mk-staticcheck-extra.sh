@@ -54,7 +54,7 @@ staticcheck_install_binary() {
     local output_path
     local error_file
 
-    install_spec="${STATICCHECK_EXTRA_INSTALL:-github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest}"
+    install_spec="${STATICCHECK_EXTRA_INSTALL:-goodkind.io/go-makefile/staticcheck/cmd/staticcheck-extra@latest}"
     binary_name=$(basename "${install_spec%%@*}")
     go_bin=$(go env GOPATH)/bin
     installed_path="${go_bin}/${binary_name}"
@@ -64,7 +64,7 @@ staticcheck_install_binary() {
 
     if ! go_mk_run_lint_cpu env \
         GOPROXY=direct \
-        GONOSUMDB=github.com/agoodkind/go-makefile,github.com/agoodkind/go-makefile/staticcheck \
+        GONOSUMDB=goodkind.io/go-makefile,goodkind.io/go-makefile/staticcheck \
         GOBIN="${go_bin}" \
         go install "${install_spec}" 2>"${error_file}"; then
         cat "${error_file}"
@@ -89,7 +89,7 @@ staticcheck_resolve_bin() {
     configured_bin="${STATICCHECK_EXTRA_BIN:-}"
     repo_path="${STATICCHECK_EXTRA_BUILD_REPO:-}"
     package_path="${STATICCHECK_EXTRA_BUILD_PKG:-}"
-    install_spec="${STATICCHECK_EXTRA_INSTALL:-github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest}"
+    install_spec="${STATICCHECK_EXTRA_INSTALL:-goodkind.io/go-makefile/staticcheck/cmd/staticcheck-extra@latest}"
     output_path=$(staticcheck_output_path)
 
     if [[ -n "${configured_bin}" ]]; then

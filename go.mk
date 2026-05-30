@@ -182,7 +182,7 @@ DEADCODE_EXCLUDE_PATHS    ?=
 STATICCHECK_EXTRA_BIN           ?=
 STATICCHECK_EXTRA_BUILD_REPO    ?= $(if $(and $(GO_MK_DEV_DIR),$(wildcard $(GO_MK_DEV_DIR)/staticcheck/cmd/staticcheck-extra)),$(GO_MK_DEV_DIR)/staticcheck)
 STATICCHECK_EXTRA_BUILD_PKG     ?= $(if $(STATICCHECK_EXTRA_BUILD_REPO),./cmd/staticcheck-extra)
-STATICCHECK_EXTRA_INSTALL       ?= github.com/agoodkind/go-makefile/staticcheck/cmd/staticcheck-extra@latest
+STATICCHECK_EXTRA_INSTALL       ?= goodkind.io/go-makefile/staticcheck/cmd/staticcheck-extra@latest
 STATICCHECK_EXTRA_CORE_FLAGS    ?= \
 	-slog_error_without_err \
 	-banned_direct_output \
@@ -219,7 +219,7 @@ STATICCHECK_EXTRA_EXCLUDE_PATHS ?=
 GO_MK_BASELINE_BIN          ?=
 GO_MK_BASELINE_BUILD_REPO   ?= $(if $(and $(GO_MK_DEV_DIR),$(wildcard $(GO_MK_DEV_DIR)/cmd/go-mk-baseline)),$(GO_MK_DEV_DIR))
 GO_MK_BASELINE_BUILD_PKG    ?= $(if $(GO_MK_BASELINE_BUILD_REPO),./cmd/go-mk-baseline)
-GO_MK_BASELINE_INSTALL      ?= github.com/agoodkind/go-makefile/cmd/go-mk-baseline@main
+GO_MK_BASELINE_INSTALL      ?= goodkind.io/go-makefile/cmd/go-mk-baseline@main
 
 export GO_MK_ROOT := $(CURDIR)
 export GO_MK_HELPER_DIR

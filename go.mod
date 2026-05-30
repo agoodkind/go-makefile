@@ -1,4 +1,4 @@
-module github.com/agoodkind/go-makefile
+module goodkind.io/go-makefile
 
 go 1.26.3
 

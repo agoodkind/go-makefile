@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/agoodkind/go-makefile/internal/baseline"
+	"goodkind.io/go-makefile/internal/baseline"
 )
 
 const usage = `usage: go-mk-baseline <command> [options]

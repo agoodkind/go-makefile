@@ -1,4 +1,4 @@
-module github.com/agoodkind/go-makefile/staticcheck
+module goodkind.io/go-makefile/staticcheck
 
 go 1.26.2
 

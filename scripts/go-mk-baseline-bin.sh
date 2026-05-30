@@ -53,7 +53,7 @@ baseline_install_binary() {
     local output_path
     local error_file
 
-    install_spec="${GO_MK_BASELINE_INSTALL:-github.com/agoodkind/go-makefile/cmd/go-mk-baseline@main}"
+    install_spec="${GO_MK_BASELINE_INSTALL:-goodkind.io/go-makefile/cmd/go-mk-baseline@main}"
     binary_name=$(basename "${install_spec%%@*}")
     go_bin=$(go env GOPATH)/bin
     installed_path="${go_bin}/${binary_name}"
@@ -63,7 +63,7 @@ baseline_install_binary() {
 
     if ! go_mk_run_lint_cpu env \
         GOPROXY=direct \
-        GOPRIVATE=github.com/agoodkind/go-makefile \
+        GOPRIVATE=goodkind.io/go-makefile \
         GOBIN="${go_bin}" \
         go install "${install_spec}" 2>"${error_file}"; then
         cat "${error_file}"
@@ -85,7 +85,7 @@ baseline_resolve_bin() {
     configured_bin="${GO_MK_BASELINE_BIN:-}"
     repo_path="${GO_MK_BASELINE_BUILD_REPO:-}"
     package_path="${GO_MK_BASELINE_BUILD_PKG:-}"
-    install_spec="${GO_MK_BASELINE_INSTALL:-github.com/agoodkind/go-makefile/cmd/go-mk-baseline@main}"
+    install_spec="${GO_MK_BASELINE_INSTALL:-goodkind.io/go-makefile/cmd/go-mk-baseline@main}"
     output_path=$(baseline_output_path)
 
     if [[ -n "${configured_bin}" ]]; then
