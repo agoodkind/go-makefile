@@ -115,6 +115,7 @@ func main() {
 		writeStdout("Name: staticcheck-extra\n")
 		writeStdout("Name: staticcheck-extra-bin\n")
 		writeStdout("Name: staticcheck-extra-capture\n")
+		writeStdout("Name: baseline-gate\n")
 		return
 	}
 	if command == "write-batch" {
@@ -148,6 +149,9 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	}
+	if command == "baseline-gate" {
+		os.Exit(runGateConfirm(os.Args[2:]))
 	}
 	if code, handled := runLint(command, os.Args[2:]); handled {
 		os.Exit(code)

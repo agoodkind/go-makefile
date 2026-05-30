@@ -84,7 +84,6 @@ endef
 GO_MK_SCRIPT_FILES := \
 	scripts/go-mk-fetch-one.sh \
 	scripts/go-mk-common.sh \
-	scripts/go-mk-gate.sh \
 	scripts/go-mk-findings.awk \
 	scripts/go-mk-baseline.awk \
 	scripts/go-mk-baseline.sh \

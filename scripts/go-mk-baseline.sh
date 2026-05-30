@@ -67,10 +67,17 @@ flush_manifest() {
 run_gate() {
     local component_name
     local stamp_path
+    local resolved_bin
 
     component_name="$1"
     stamp_path=".make/${component_name}-baseline.gate.ok"
-    bash "${SCRIPT_DIR}/go-mk-gate.sh" \
+    bash "${SCRIPT_DIR}/go-mk-bin.sh" bin
+    resolved_bin=$(bash "${SCRIPT_DIR}/go-mk-bin.sh" selected-bin)
+    if [[ -z "${resolved_bin}" || ! -x "${resolved_bin}" ]]; then
+        printf "go-mk: could not resolve the go-mk binary\n" >&2
+        return 1
+    fi
+    "${resolved_bin}" baseline-gate \
         --stamp "${stamp_path}" \
         --confirm-value "${BASELINE_CONFIRM:-}" \
         --token-value "${BASELINE_TOKEN:-}" \
