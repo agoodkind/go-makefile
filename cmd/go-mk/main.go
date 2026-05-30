@@ -13,12 +13,15 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"goodkind.io/go-makefile/internal/baseline"
+	"goodkind.io/go-makefile/internal/capture"
 	"goodkind.io/go-makefile/internal/findings"
+	"goodkind.io/go-makefile/internal/lintgate"
 )
 
 const usage = `usage: go-mk <command> [options]
@@ -26,7 +29,24 @@ const usage = `usage: go-mk <command> [options]
 commands:
   write-batch [--json] [--manifest <path|->]   rewrite every baseline in the manifest
   findings --action <action> [options]         transform finding lines read from stdin
+  lint-concurrency [options]                   resolve lint concurrency and GOFLAGS from the host
+  gate [options]                               diff current findings against a baseline
   -flags                                       print supported capabilities
+
+lint-concurrency options:
+  --goflags <s>                                existing GOFLAGS to rewrite (defaults to $GOFLAGS)
+  --cpu <n>                                    override the host CPU count
+  --load <f>                                   override the host 1-minute load average
+  --probe <name> [--probe-arg <a>]...          run a command via capture and report its status
+  --probe-out <path>                           output path for --probe combined output
+
+gate options:
+  --name <s>                                   gate name printed in the report
+  --findings <path>                            current findings file
+  --baseline <path>                            saved baseline findings file
+  --remediation <s>                            remediation string printed on failure
+  --exclude <regexp>                           drop lines matching this pattern
+  --scope <regexp>                             keep only lines matching this pattern
 
 findings actions (mirroring scripts/go-mk-findings.awk):
   normalize [--pwd <p>] [--cwd <c>]            strip pwd, cwd, and leading ../ from each line
@@ -59,6 +79,8 @@ func main() {
 		// a capability, mirroring the staticcheck-extra -flags probe.
 		writeStdout("Name: write-batch\n")
 		writeStdout("Name: findings\n")
+		writeStdout("Name: lint-concurrency\n")
+		writeStdout("Name: gate\n")
 		return
 	}
 	if command == "write-batch" {
@@ -71,6 +93,24 @@ func main() {
 	if command == "findings" {
 		if err := runFindings(os.Args[2:]); err != nil {
 			writeStderr("go-mk: " + err.Error() + "\n")
+			os.Exit(1)
+		}
+		return
+	}
+	if command == "lint-concurrency" {
+		if err := runLintConcurrency(os.Args[2:]); err != nil {
+			writeStderr("go-mk: " + err.Error() + "\n")
+			os.Exit(1)
+		}
+		return
+	}
+	if command == "gate" {
+		passed, err := runGate(os.Args[2:])
+		if err != nil {
+			writeStderr("go-mk: " + err.Error() + "\n")
+			os.Exit(1)
+		}
+		if !passed {
 			os.Exit(1)
 		}
 		return
@@ -417,6 +457,244 @@ func writeFileAtomic(path, contents string) error {
 	return os.Rename(temporary, path)
 }
 
+// lintConcurrencyOptions holds the parsed flags for the lint-concurrency
+// subcommand. The command layer fills it from argv and the capture package
+// consumes the values, so the pure resolver never reads argv or the process
+// environment. When cpu or load is left at its sentinel, the host probes in
+// internal/capture supply the value.
+type lintConcurrencyOptions struct {
+	goflags     string
+	cpu         int
+	load        float64
+	cpuSet      bool
+	loadSet     bool
+	probeName   string
+	probeArgs   []string
+	probeOutput string
+}
+
+// runLintConcurrency resolves the effective lint concurrency from the host (or
+// the --cpu/--load overrides) and prints the resolved concurrency and the
+// rewritten GOFLAGS to stdout, mirroring go_mk_resolve_lint_concurrency followed
+// by go_mk_lint_goflags. When --probe is supplied it also runs that command
+// through capture.Run, capturing combined output to --probe-out, and prints the
+// captured exit status, so capture.Run is exercised from the command layer.
+// This command layer owns stdout; the capture package stays diagnostic-only.
+func runLintConcurrency(args []string) error {
+	options, err := parseLintConcurrencyOptions(args)
+	if err != nil {
+		return err
+	}
+
+	var concurrency int
+	if options.cpuSet || options.loadSet {
+		cpu := options.cpu
+		if !options.cpuSet {
+			cpu = 1
+		}
+		concurrency = capture.ResolveConcurrency(cpu, options.load)
+	} else {
+		concurrency = capture.HostConcurrency()
+	}
+
+	goflags := options.goflags
+	if goflags == "" {
+		goflags = os.Getenv("GOFLAGS")
+	}
+	rewritten := capture.LintGOFLAGS(goflags, concurrency)
+
+	writeStdout("concurrency: " + strconv.Itoa(concurrency) + "\n")
+	writeStdout("GOFLAGS: " + rewritten + "\n")
+
+	if options.probeName == "" {
+		return nil
+	}
+	outputPath := options.probeOutput
+	if outputPath == "" {
+		return errMissingProbeOutput
+	}
+	result, runErr := capture.Run(options.probeName, options.probeArgs, os.Environ(), outputPath)
+	if runErr != nil {
+		return runErr
+	}
+	writeStdout("probe-status: " + strconv.Itoa(result.Status) + "\n")
+	writeStdout("probe-output: " + result.OutputPath + "\n")
+	return nil
+}
+
+// parseLintConcurrencyOptions parses the lint-concurrency flags from argv. The
+// --cpu and --load flags record that they were set so the resolver knows to use
+// the overrides instead of probing the host, and repeated --probe-arg flags
+// accumulate into the probe argv.
+func parseLintConcurrencyOptions(args []string) (lintConcurrencyOptions, error) {
+	options := lintConcurrencyOptions{}
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		if index+1 >= len(args) {
+			return lintConcurrencyOptions{}, &missingValueError{option: argument}
+		}
+		index++
+		value := args[index]
+		if assignErr := assignLintConcurrencyFlag(&options, argument, value); assignErr != nil {
+			return lintConcurrencyOptions{}, assignErr
+		}
+	}
+	return options, nil
+}
+
+// assignLintConcurrencyFlag stores one parsed flag value into options, parsing
+// the numeric --cpu and --load values and accumulating repeated --probe-arg
+// flags. It returns an error for an unknown flag or an unparseable numeric
+// value, keeping the parse loop a flat dispatch rather than a bare-string switch.
+func assignLintConcurrencyFlag(options *lintConcurrencyOptions, argument, value string) error {
+	if argument == "--goflags" {
+		options.goflags = value
+		return nil
+	}
+	if argument == "--cpu" {
+		parsed, convErr := strconv.Atoi(value)
+		if convErr != nil {
+			return &invalidValueError{option: argument, value: value}
+		}
+		options.cpu = parsed
+		options.cpuSet = true
+		return nil
+	}
+	if argument == "--load" {
+		parsed, convErr := strconv.ParseFloat(value, 64)
+		if convErr != nil {
+			return &invalidValueError{option: argument, value: value}
+		}
+		options.load = parsed
+		options.loadSet = true
+		return nil
+	}
+	if argument == "--probe" {
+		options.probeName = value
+		return nil
+	}
+	if argument == "--probe-arg" {
+		options.probeArgs = append(options.probeArgs, value)
+		return nil
+	}
+	if argument == "--probe-out" {
+		options.probeOutput = value
+		return nil
+	}
+	return &unknownOptionError{option: argument}
+}
+
+// gateOptions holds the parsed flags for the gate subcommand. The command layer
+// fills it from argv, reads the two findings files, and compiles the optional
+// exclude and scope patterns to *regexp.Regexp, so the pure lintgate package
+// never touches argv, the filesystem, or regexp compilation.
+type gateOptions struct {
+	name         string
+	findingsPath string
+	baselinePath string
+	remediation  string
+	exclude      *regexp.Regexp
+	scope        *regexp.Regexp
+}
+
+// runGate reads the current findings file and the baseline file, applies the
+// optional exclude and scope regexps, calls lintgate.Evaluate, prints the
+// lintgate.Render block to stdout, and reports whether the gate passed. It
+// returns false (not an error) when new findings appear so main exits non-zero
+// without printing a go-mk error line, mirroring go_mk_run_baseline_diff_gate.
+// This command layer owns stdout and the file reads; the lintgate package stays
+// pure.
+func runGate(args []string) (bool, error) {
+	options, err := parseGateOptions(args)
+	if err != nil {
+		return false, err
+	}
+
+	currentFindings, err := readFindingsFile(options.findingsPath)
+	if err != nil {
+		return false, err
+	}
+	baselineFindings, err := readFindingsFile(options.baselinePath)
+	if err != nil {
+		return false, err
+	}
+
+	result := lintgate.Evaluate(
+		options.name,
+		currentFindings,
+		baselineFindings,
+		options.exclude,
+		options.scope,
+		options.remediation,
+	)
+
+	for _, line := range lintgate.Render(result) {
+		writeStdout(line + "\n")
+	}
+	return result.Passed, nil
+}
+
+// parseGateOptions parses the gate flags from argv, compiling the --exclude and
+// --scope patterns to regexps and leaving them nil when absent so lintgate
+// treats them as the shell empty-pattern pass-through.
+func parseGateOptions(args []string) (gateOptions, error) {
+	options := gateOptions{}
+	var excludePattern, scopePattern string
+	stringTargets := map[string]*string{
+		"--name":        &options.name,
+		"--findings":    &options.findingsPath,
+		"--baseline":    &options.baselinePath,
+		"--remediation": &options.remediation,
+		"--exclude":     &excludePattern,
+		"--scope":       &scopePattern,
+	}
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		target, ok := stringTargets[argument]
+		if !ok {
+			return gateOptions{}, &unknownOptionError{option: argument}
+		}
+		if index+1 >= len(args) {
+			return gateOptions{}, &missingValueError{option: argument}
+		}
+		index++
+		*target = args[index]
+	}
+	if options.findingsPath == "" {
+		return gateOptions{}, errMissingFindingsPath
+	}
+	if options.baselinePath == "" {
+		return gateOptions{}, errMissingBaselinePath
+	}
+	if excludePattern != "" {
+		compiled, compileErr := regexp.Compile(excludePattern)
+		if compileErr != nil {
+			return gateOptions{}, &invalidValueError{option: "--exclude", value: excludePattern}
+		}
+		options.exclude = compiled
+	}
+	if scopePattern != "" {
+		compiled, compileErr := regexp.Compile(scopePattern)
+		if compileErr != nil {
+			return gateOptions{}, &invalidValueError{option: "--scope", value: scopePattern}
+		}
+		options.scope = compiled
+	}
+	return options, nil
+}
+
+// readFindingsFile reads a findings file into one slice element per line,
+// reusing readLines so the gate sees the same N-line-to-N-element shape the
+// findings subcommand uses.
+func readFindingsFile(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	return readLines(file)
+}
+
 type sentinelError string
 
 func (errorValue sentinelError) Error() string { return string(errorValue) }
@@ -426,6 +704,12 @@ const errMissingManifestPath sentinelError = "--manifest requires a path"
 const errMissingKeyFile sentinelError = "map action requires --keyfile"
 
 const errMissingRangeFile sentinelError = "linefilter action requires --rangefile"
+
+const errMissingProbeOutput sentinelError = "--probe requires --probe-out"
+
+const errMissingFindingsPath sentinelError = "gate requires --findings"
+
+const errMissingBaselinePath sentinelError = "gate requires --baseline"
 
 type unknownOptionError struct {
 	option string
@@ -449,4 +733,13 @@ type unknownActionError struct {
 
 func (errorValue *unknownActionError) Error() string {
 	return "unknown findings action " + errorValue.action
+}
+
+type invalidValueError struct {
+	option string
+	value  string
+}
+
+func (errorValue *invalidValueError) Error() string {
+	return "invalid value " + errorValue.value + " for " + errorValue.option
 }
