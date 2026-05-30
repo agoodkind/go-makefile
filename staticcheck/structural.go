@@ -384,7 +384,7 @@ func reportSlogCallsWithoutTraceID(pass *analysis.Pass, file *ast.File, fn *ast.
 		if !ok {
 			return true
 		}
-		if slogCallHasTraceContext(pass, file, call, ctxName) {
+		if slogCallHasTraceContext(call, ctxName) {
 			return true
 		}
 		_, name, _ := selectorName(call.Fun)
@@ -393,7 +393,7 @@ func reportSlogCallsWithoutTraceID(pass *analysis.Pass, file *ast.File, fn *ast.
 	})
 }
 
-func slogCallHasTraceContext(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, ctxName string) bool {
+func slogCallHasTraceContext(call *ast.CallExpr, ctxName string) bool {
 	if !isAnyLevelSlogCall(call) {
 		return true
 	}
