@@ -6,6 +6,7 @@
 package main
 
 import (
+	"errors"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -16,9 +17,77 @@ import (
 	"goodkind.io/go-makefile/internal/lint"
 )
 
-// runFmt applies the configured Go formatters, mirroring run_fmt.
+// errNoGoFiles signals that the current module owns no Go source files, so the
+// formatter has nothing to format and the format gate passes vacuously.
+var errNoGoFiles = errors.New("no go files in module")
+
+// golangciFmtCommand builds the golangci-lint fmt argv scoped to the files the
+// current module owns. golangci-lint fmt walks the filesystem rather than
+// resolving packages through go list, so passing ./... makes it descend into
+// nested modules (a vendored git submodule or a sibling module with its own
+// go.mod) and format foreign files. Scoping to the go-list file set keeps fmt
+// within the current module, matching what every run linter already does.
+// GOLANGCI_FMT_FILES overrides the computed list. It returns errNoGoFiles when
+// the module owns no Go files so callers pass the gate without invoking fmt.
+func golangciFmtCommand() (string, []string, error) {
+	binary := lintEnvDefault("GOLANGCI_LINT", "golangci-lint")
+	flagsText := os.Getenv("GOLANGCI_LINT_FLAGS")
+	var files []string
+	if override := os.Getenv("GOLANGCI_FMT_FILES"); override != "" {
+		files = splitWords(override)
+	} else {
+		resolved, err := moduleGoFiles(splitWords(lintEnvDefault("GOLANGCI_LINT_TARGETS", "./...")))
+		if err != nil {
+			return "", nil, err
+		}
+		files = resolved
+	}
+	if len(files) == 0 {
+		return "", nil, errNoGoFiles
+	}
+	args := []string{"fmt"}
+	args = append(args, splitWords(flagsText)...)
+	args = append(args, files...)
+	return binary, args, nil
+}
+
+// moduleGoFiles enumerates the .go files the current module owns for the given
+// package targets via go list, including build-tag-ignored files so platform
+// sources stay formatted. go list never descends into nested modules, so this
+// is the structural set of files the module owns. It runs go, so it emits a
+// boundary log.
+func moduleGoFiles(targets []string) ([]string, error) {
+	slog.Info("lint list module go files for fmt")
+	const listTemplate = `{{$d := .Dir}}{{range .GoFiles}}{{$d}}/{{.}}
+{{end}}{{range .CgoFiles}}{{$d}}/{{.}}
+{{end}}{{range .TestGoFiles}}{{$d}}/{{.}}
+{{end}}{{range .XTestGoFiles}}{{$d}}/{{.}}
+{{end}}{{range .IgnoredGoFiles}}{{$d}}/{{.}}
+{{end}}`
+	listArgs := append([]string{"list", "-f", listTemplate}, targets...)
+	out, err := exec.Command("go", listArgs...).Output()
+	if err != nil {
+		return nil, err
+	}
+	lines := make([]string, 0)
+	for _, line := range strings.Split(string(out), "\n") {
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return sortedUnique(lines), nil
+}
+
+// runFmt applies the configured Go formatters scoped to the current module,
+// mirroring run_fmt. It no-ops when the module owns no Go files.
 func runFmt() error {
-	binary, args := golangciCommand("fmt")
+	binary, args, err := golangciFmtCommand()
+	if errors.Is(err, errNoGoFiles) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
 	return runLintCPU(binary, args)
 }
 

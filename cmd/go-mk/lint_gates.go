@@ -6,6 +6,7 @@
 package main
 
 import (
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -200,7 +201,15 @@ func runLintFormat() int {
 		return statusFromError(err)
 	}
 	outputPath := filepath.Join(makeDir, "lint-format.out")
-	binary, args := golangciCommand("fmt")
+	binary, args, fmtErr := golangciFmtCommand()
+	if errors.Is(fmtErr, errNoGoFiles) {
+		writeStdout("lint-format: OK\n")
+		writeStdout("  No Go source files in this module.\n")
+		return 0
+	}
+	if fmtErr != nil {
+		return statusFromError(fmtErr)
+	}
 	withDiff := []string{args[0], "--diff"}
 	withDiff = append(withDiff, args[1:]...)
 	status, err := captureCommand(binary, withDiff, outputPath)
