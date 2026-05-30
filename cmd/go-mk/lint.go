@@ -83,6 +83,9 @@ const (
 	cmdCaptureGolangciScope    lintCommand = "capture-golangci-scope"
 	cmdCaptureGocyclo          lintCommand = "capture-gocyclo"
 	cmdCaptureDeadcode         lintCommand = "capture-deadcode"
+	cmdStaticcheckExtra        lintCommand = "staticcheck-extra"
+	cmdStaticcheckExtraBin     lintCommand = "staticcheck-extra-bin"
+	cmdStaticcheckExtraCapture lintCommand = "staticcheck-extra-capture"
 )
 
 // runLint dispatches the lint-* subcommands ported from go-mk-lint.sh. It
@@ -127,6 +130,12 @@ func runLint(command string, args []string) (int, bool) {
 		return statusFromError(runCaptureGocyclo(args)), true
 	case cmdCaptureDeadcode:
 		return statusFromError(runCaptureDeadcode(args)), true
+	case cmdStaticcheckExtra:
+		return runStaticcheckExtra(), true
+	case cmdStaticcheckExtraBin:
+		return runStaticcheckBin(), true
+	case cmdStaticcheckExtraCapture:
+		return runStaticcheckCapture(args), true
 	default:
 		return 0, false
 	}
@@ -362,6 +371,15 @@ func writeFindingsFile(path string, lines []string) error {
 // the cmd/go-mk gate subcommand byte-for-byte. It reads the baseline file, so
 // it emits a boundary log. It returns true when the gate passed.
 func runGateAndPrint(gateName string, current []string, baselinePath, remediation, excludePattern, scopePattern string) (bool, error) {
+	return runGateAndPrintSuppress(gateName, current, baselinePath, remediation, excludePattern, scopePattern, false)
+}
+
+// runGateAndPrintSuppress is runGateAndPrint with an explicit suppressFixed flag
+// that drops the "Saved findings now fixed" line on a pass, mirroring the shell
+// suppress_fixed_count argument the staticcheck-extra gate sets when flags are
+// enabled without a scope. It reads the baseline file, so it emits a boundary
+// log. It returns true when the gate passed.
+func runGateAndPrintSuppress(gateName string, current []string, baselinePath, remediation, excludePattern, scopePattern string, suppressFixed bool) (bool, error) {
 	slog.Info("lint run gate", slog.String("gate", gateName), slog.String("baseline", baselinePath))
 	baselineLines, err := readBaselineFindings(baselinePath, gateName, excludePattern, scopePattern)
 	if err != nil {
@@ -372,6 +390,7 @@ func runGateAndPrint(gateName string, current []string, baselinePath, remediatio
 		return false, err
 	}
 	result := lintgate.Evaluate(gateName, current, baselineLines, excludeRegexp, scopeRegexp, remediation)
+	result.SuppressFixedCount = suppressFixed
 	for _, line := range lintgate.Render(result) {
 		writeStdout(line + "\n")
 	}

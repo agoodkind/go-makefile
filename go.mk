@@ -90,7 +90,6 @@ GO_MK_SCRIPT_FILES := \
 	scripts/go-mk-baseline.sh \
 	scripts/go-mk-bin.sh \
 	scripts/go-mk-notice.sh \
-	scripts/go-mk-staticcheck-extra.sh \
 	scripts/go-mk-sync.sh \
 	notices.txt
 
@@ -389,11 +388,11 @@ lint-deadcode: go-mk-bin
 baseline-bin go-mk-bin:
 	@bash "$(GO_MK_HELPER_DIR)/go-mk-bin.sh" bin
 
-staticcheck-extra-bin:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-staticcheck-extra.sh" bin
+staticcheck-extra-bin: go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" staticcheck-extra-bin
 
 staticcheck-extra: staticcheck-extra-bin
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-staticcheck-extra.sh" run
+	@"$(GO_MK_BIN_RESOLVED)" staticcheck-extra
 
 lint-golangci-baseline:
 	@BASELINE_UPDATE_MODE=sync bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" golangci

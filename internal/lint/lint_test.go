@@ -109,6 +109,51 @@ func TestDedupeFailedGates(t *testing.T) {
 	}
 }
 
+func TestStaticcheckScopePattern(t *testing.T) {
+	cases := []struct {
+		name     string
+		explicit string
+		flags    string
+		want     string
+	}{
+		{name: "explicit wins", explicit: "custom", flags: "-time_now_outside_clock", want: "custom"},
+		{name: "no flags", flags: "", want: ""},
+		{name: "single scoped flag", flags: "-time_now_outside_clock", want: "time_now_outside_clock"},
+		{name: "unscoped flag collapses", flags: "-time_now_outside_clock -no_any_or_empty_interface", want: ""},
+		{name: "disabled flag skipped", flags: "-time_now_outside_clock=false", want: ""},
+		{name: "non-flag word skipped", flags: "./... -time_now_outside_clock", want: "time_now_outside_clock"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := StaticcheckScopePattern(testCase.explicit, testCase.flags)
+			if got != testCase.want {
+				t.Fatalf("StaticcheckScopePattern = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestStaticcheckSuppressFixed(t *testing.T) {
+	cases := []struct {
+		name  string
+		flags string
+		scope string
+		want  bool
+	}{
+		{name: "flags no scope suppresses", flags: "-no_any_or_empty_interface", scope: "", want: true},
+		{name: "flags with scope keeps", flags: "-time_now_outside_clock", scope: "time_now_outside_clock", want: false},
+		{name: "no flags keeps", flags: "", scope: "", want: false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := StaticcheckSuppressFixed(testCase.flags, testCase.scope)
+			if got != testCase.want {
+				t.Fatalf("StaticcheckSuppressFixed = %v, want %v", got, testCase.want)
+			}
+		})
+	}
+}
+
 func TestSlugify(t *testing.T) {
 	if got := Slugify("Hello, World! 123"); got != "helloworld123" {
 		t.Fatalf("Slugify = %q", got)

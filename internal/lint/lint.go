@@ -180,6 +180,77 @@ func DedupeFailedGates(names []string) []string {
 	return out
 }
 
+// staticcheckFlagScopePatterns maps a staticcheck-extra flag name to the
+// baseline scope regex that narrows the gate to that flag's findings, mirroring
+// go_mk_staticcheck_scope_pattern_for_flag. Only time_now_outside_clock has a
+// scope today; any other enabled flag has no mapping, which collapses the whole
+// scope to empty (the gate then runs unscoped).
+var staticcheckFlagScopePatterns = map[string]string{
+	"time_now_outside_clock": "time_now_outside_clock",
+}
+
+// StaticcheckScopePattern resolves the staticcheck-extra baseline scope regex,
+// mirroring go_mk_staticcheck_baseline_scope_pattern. An explicit pattern wins.
+// Otherwise, with no flags it is empty; with flags it is the "|"-joined scope
+// patterns of the enabled flags, but if any enabled flag has no scope mapping
+// the whole pattern is empty so the gate runs unscoped. A flag is enabled unless
+// its value is false or 0. A non-flag word (no leading dash) is skipped.
+//
+// ---- StaticcheckScopePattern ----
+func StaticcheckScopePattern(explicit, flagsText string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if strings.TrimSpace(flagsText) == "" {
+		return ""
+	}
+	patterns := make([]string, 0)
+	for _, word := range strings.Fields(flagsText) {
+		name, value, isFlag := parseStaticcheckFlagWord(word)
+		if !isFlag {
+			continue
+		}
+		if value == "false" || value == "0" {
+			continue
+		}
+		pattern, ok := staticcheckFlagScopePatterns[name]
+		if !ok {
+			return ""
+		}
+		patterns = append(patterns, pattern)
+	}
+	if len(patterns) == 0 {
+		return ""
+	}
+	return strings.Join(patterns, "|")
+}
+
+// parseStaticcheckFlagWord splits a flag word into its name and value, mirroring
+// the shell case arms: --name=value and -name=value carry an explicit value;
+// --name and -name default to "true"; a word without a leading dash is not a
+// flag.
+func parseStaticcheckFlagWord(word string) (name, value string, isFlag bool) {
+	trimmed := strings.TrimLeft(word, "-")
+	if trimmed == word || trimmed == "" {
+		return "", "", false
+	}
+	if equals := strings.IndexByte(trimmed, '='); equals >= 0 {
+		return trimmed[:equals], trimmed[equals+1:], true
+	}
+	return trimmed, "true", true
+}
+
+// StaticcheckSuppressFixed reports whether the staticcheck-extra gate suppresses
+// the "Saved findings now fixed" count, mirroring
+// go_mk_staticcheck_suppress_fixed_count: it suppresses when flags are set but
+// the resolved scope pattern is empty, so an unscoped full-flag run does not
+// report fixed counts it cannot attribute to a scope.
+//
+// ---- StaticcheckSuppressFixed ----
+func StaticcheckSuppressFixed(flagsText, scopePattern string) bool {
+	return strings.TrimSpace(flagsText) != "" && scopePattern == ""
+}
+
 // Slugify reproduces go_mk_slugify for the bypass-token comparison: it keeps
 // only ASCII letters, digits, underscore, and hyphen, and lowercases letters.
 // The shell first transliterates UTF-8 to ASCII via iconv, which this

@@ -112,6 +112,9 @@ func main() {
 		writeStdout("Name: capture-golangci-scope\n")
 		writeStdout("Name: capture-gocyclo\n")
 		writeStdout("Name: capture-deadcode\n")
+		writeStdout("Name: staticcheck-extra\n")
+		writeStdout("Name: staticcheck-extra-bin\n")
+		writeStdout("Name: staticcheck-extra-capture\n")
 		return
 	}
 	if command == "write-batch" {

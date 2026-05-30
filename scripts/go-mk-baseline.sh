@@ -276,8 +276,14 @@ update_staticcheck_baseline() {
                 ;;
         esac
     fi
-    bash "${SCRIPT_DIR}/go-mk-staticcheck-extra.sh" bin
-    bash "${SCRIPT_DIR}/go-mk-staticcheck-extra.sh" capture "${raw_output}" "${findings_output}"
+    bash "${SCRIPT_DIR}/go-mk-bin.sh" bin
+    staticcheck_bin=$(bash "${SCRIPT_DIR}/go-mk-bin.sh" selected-bin)
+    if [[ -z "${staticcheck_bin}" || ! -x "${staticcheck_bin}" ]]; then
+        printf "go-mk: could not resolve the go-mk binary\n" >&2
+        return 1
+    fi
+    "${staticcheck_bin}" staticcheck-extra-bin
+    "${staticcheck_bin}" staticcheck-extra-capture "${raw_output}" "${findings_output}"
     write_component_baseline \
         "staticcheck-extra" \
         "${STATICCHECK_EXTRA_BASELINE:-.staticcheck-extra-baseline.txt}" \

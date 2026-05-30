@@ -38,6 +38,11 @@ type GateResult struct {
 	NewFindings []string
 	GoneCount   int
 	Remediation string
+	// SuppressFixedCount drops the "Saved findings now fixed" line on a pass
+	// even when GoneCount is positive, mirroring the shell suppress_fixed_count
+	// flag the staticcheck-extra gate sets when flags are enabled without a
+	// scope so a fixed count it cannot attribute to a scope is not reported.
+	SuppressFixedCount bool
 }
 
 // Evaluate reproduces the set logic of go_mk_run_baseline_diff_gate as a pure
@@ -186,7 +191,7 @@ func renderPassed(result GateResult) []string {
 	lines := make([]string, 0, 3)
 	lines = append(lines, result.Gate+": OK")
 	lines = append(lines, "  New findings: 0")
-	if result.GoneCount > 0 {
+	if result.GoneCount > 0 && !result.SuppressFixedCount {
 		lines = append(lines, "  Saved findings now fixed: "+strconv.Itoa(result.GoneCount))
 	}
 	return lines
