@@ -31,6 +31,19 @@ commands:
   findings --action <action> [options]         transform finding lines read from stdin
   lint-concurrency [options]                   resolve lint concurrency and GOFLAGS from the host
   gate [options]                               diff current findings against a baseline
+  lint                                         run the lint chain (every gate in LINT_GATES)
+  lint-tools                                   install golangci-lint, gofumpt, and goimports
+  lint-golangci                                golangci-lint with the baseline gate
+  lint-golangci-scope                          one golangci linter or rule against its baseline slice
+  lint-format                                  formatter diff gate
+  lint-gocyclo                                 gocyclo with the baseline gate
+  lint-deadcode                                deadcode with the baseline gate
+  lint-files                                   scoped lint against LINT_FILES
+  lint-diff                                    scoped lint against staged Go files and lines
+  fmt | vet | test | govulncheck              run the matching Go pass
+  capture-golangci[-baseline|-scope] [r] [f]   capture golangci findings to files
+  capture-gocyclo [raw] [findings]             capture gocyclo findings to files
+  capture-deadcode [raw] [findings]            capture deadcode findings to files
   -flags                                       print supported capabilities
 
 lint-concurrency options:
@@ -81,6 +94,24 @@ func main() {
 		writeStdout("Name: findings\n")
 		writeStdout("Name: lint-concurrency\n")
 		writeStdout("Name: gate\n")
+		writeStdout("Name: lint\n")
+		writeStdout("Name: lint-tools\n")
+		writeStdout("Name: lint-golangci\n")
+		writeStdout("Name: lint-golangci-scope\n")
+		writeStdout("Name: lint-format\n")
+		writeStdout("Name: lint-gocyclo\n")
+		writeStdout("Name: lint-deadcode\n")
+		writeStdout("Name: lint-files\n")
+		writeStdout("Name: lint-diff\n")
+		writeStdout("Name: fmt\n")
+		writeStdout("Name: vet\n")
+		writeStdout("Name: test\n")
+		writeStdout("Name: govulncheck\n")
+		writeStdout("Name: capture-golangci\n")
+		writeStdout("Name: capture-golangci-baseline\n")
+		writeStdout("Name: capture-golangci-scope\n")
+		writeStdout("Name: capture-gocyclo\n")
+		writeStdout("Name: capture-deadcode\n")
 		return
 	}
 	if command == "write-batch" {
@@ -114,6 +145,9 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	}
+	if code, handled := runLint(command, os.Args[2:]); handled {
+		os.Exit(code)
 	}
 	writeStderr(usage)
 	os.Exit(2)

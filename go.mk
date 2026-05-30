@@ -5,7 +5,7 @@
 	lint-deadcode lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new staticcheck-extra-bin \
 	baseline baseline-bin baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
-	go-mk-sync update-go-mk smoke-fetch go-mk-notice
+	go-mk-sync update-go-mk smoke-fetch go-mk-notice go-mk-bin
 
 GO_MK_URL       := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
 GO_MK_CACHE     := $(HOME)/.cache/go-makefile/go.mk
@@ -26,7 +26,7 @@ GO_MK_SELF      := $(lastword $(MAKEFILE_LIST))
 GO_MK_SELF_DIR  := $(patsubst %/,%,$(dir $(abspath $(GO_MK_SELF))))
 GO_MK_LOCAL_SCRIPT_DIR := $(if $(strip $(GO_MK_DEV_DIR)),$(GO_MK_DEV_DIR)/scripts,$(GO_MK_SELF_DIR)/scripts)
 GO_MK_FETCHED_SCRIPT_DIR := $(CURDIR)/.make/scripts
-GO_MK_HELPER_DIR := $(if $(wildcard $(GO_MK_LOCAL_SCRIPT_DIR)/go-mk-lint.sh),$(GO_MK_LOCAL_SCRIPT_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
+GO_MK_HELPER_DIR := $(if $(wildcard $(GO_MK_LOCAL_SCRIPT_DIR)/go-mk-common.sh),$(GO_MK_LOCAL_SCRIPT_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
 GO_MK_FETCH_SCRIPT := $(GO_MK_HELPER_DIR)/go-mk-fetch-one.sh
 GO_MK_LOCAL_NOTICES := $(if $(strip $(GO_MK_DEV_DIR)),$(GO_MK_DEV_DIR)/notices.txt,$(GO_MK_SELF_DIR)/notices.txt)
 GO_MK_NOTICES_FILE := $(if $(wildcard $(GO_MK_LOCAL_NOTICES)),$(GO_MK_LOCAL_NOTICES),$(CURDIR)/.make/notices.txt)
@@ -87,7 +87,6 @@ GO_MK_SCRIPT_FILES := \
 	scripts/go-mk-gate.sh \
 	scripts/go-mk-findings.awk \
 	scripts/go-mk-baseline.awk \
-	scripts/go-mk-lint.sh \
 	scripts/go-mk-baseline.sh \
 	scripts/go-mk-bin.sh \
 	scripts/go-mk-notice.sh \
@@ -221,6 +220,11 @@ GO_MK_BUILD_REPO   ?= $(if $(and $(GO_MK_DEV_DIR),$(wildcard $(GO_MK_DEV_DIR)/cm
 GO_MK_BUILD_PKG    ?= $(if $(GO_MK_BUILD_REPO),./cmd/go-mk)
 GO_MK_INSTALL      ?= goodkind.io/go-makefile/cmd/go-mk@main
 
+# Path to the resolved go-mk engine binary. go-mk-bin.sh prints the configured
+# GO_MK_BIN or the on-demand .make/go-mk build output. The lint targets depend
+# on the go-mk-bin target so the binary is built before they invoke it.
+GO_MK_BIN_RESOLVED := $(if $(strip $(GO_MK_BIN)),$(GO_MK_BIN),$(CURDIR)/.make/go-mk)
+
 export GO_MK_ROOT := $(CURDIR)
 export GO_MK_HELPER_DIR
 export GO_MK_NOTICES_FILE
@@ -330,23 +334,23 @@ help:
 	@printf '  %-40s %s\n' 'go-mk-sync / update-go-mk' 'refresh go.mk, helper scripts, modules, and golangci.yml'
 	@printf '  %-40s %s\n' 'smoke-fetch' 'force a fetch-path smoke run'
 
-lint: lint-tools | go-mk-notice
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint
+lint: lint-tools go-mk-bin | go-mk-notice
+	@"$(GO_MK_BIN_RESOLVED)" lint
 
 go-mk-notice:
 	@bash "$(GO_MK_HELPER_DIR)/go-mk-notice.sh" || true
 
-lint-tools:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-tools
+lint-tools: go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" lint-tools
 
-lint-golangci: lint-tools
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-golangci
+lint-golangci: lint-tools go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" lint-golangci
 
-lint-format:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-format
+lint-format: go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" lint-format
 
-lint-gocyclo:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-gocyclo
+lint-gocyclo: go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" lint-gocyclo
 
 lint-gocyclo-baseline:
 	@BASELINE_UPDATE_MODE=sync bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" gocyclo
@@ -359,28 +363,28 @@ lint-gocyclo-baseline-remove-fixed: lint-gocyclo-baseline-prune-fixed
 lint-gocyclo-baseline-accept-new:
 	@BASELINE_UPDATE_MODE=accept-new bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" gocyclo
 
-lint-files: lint-tools staticcheck-extra-bin
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-files
+lint-files: lint-tools staticcheck-extra-bin go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" lint-files
 
-lint-diff: lint-tools staticcheck-extra-bin
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-diff
+lint-diff: lint-tools staticcheck-extra-bin go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" lint-diff
 
-fmt: lint-tools
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" fmt
+fmt: lint-tools go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" fmt
 
-vet:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" vet
+vet: go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" vet
 
-test:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" test
+test: go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" test
 
-govulncheck:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" govulncheck
+govulncheck: go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" govulncheck
 
-lint-deadcode:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-deadcode
+lint-deadcode: go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" lint-deadcode
 
-baseline-bin:
+baseline-bin go-mk-bin:
 	@bash "$(GO_MK_HELPER_DIR)/go-mk-bin.sh" bin
 
 staticcheck-extra-bin:
@@ -400,8 +404,8 @@ lint-golangci-baseline-remove-fixed: lint-golangci-baseline-prune-fixed
 lint-golangci-baseline-accept-new:
 	@BASELINE_UPDATE_MODE=accept-new bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" golangci
 
-lint-golangci-scope: lint-tools
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-golangci-scope
+lint-golangci-scope: lint-tools go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" lint-golangci-scope
 
 lint-golangci-baseline-scope:
 	@BASELINE_UPDATE_MODE=sync bash "$(GO_MK_HELPER_DIR)/go-mk-baseline.sh" golangci-scope
