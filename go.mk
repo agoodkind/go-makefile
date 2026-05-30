@@ -89,7 +89,7 @@ GO_MK_SCRIPT_FILES := \
 	scripts/go-mk-baseline.awk \
 	scripts/go-mk-lint.sh \
 	scripts/go-mk-baseline.sh \
-	scripts/go-mk-baseline-bin.sh \
+	scripts/go-mk-bin.sh \
 	scripts/go-mk-notice.sh \
 	scripts/go-mk-staticcheck-extra.sh \
 	scripts/go-mk-sync.sh \
@@ -213,13 +213,13 @@ STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
 STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
 STATICCHECK_EXTRA_EXCLUDE_PATHS ?=
 
-# go-mk-baseline engine binary, built on demand from this (root) module. The
+# go-mk engine binary, built on demand from this (root) module. The
 # default install spec tracks the main branch tip (@main) so every consumer
 # resolves the current engine with no version pin.
-GO_MK_BASELINE_BIN          ?=
-GO_MK_BASELINE_BUILD_REPO   ?= $(if $(and $(GO_MK_DEV_DIR),$(wildcard $(GO_MK_DEV_DIR)/cmd/go-mk-baseline)),$(GO_MK_DEV_DIR))
-GO_MK_BASELINE_BUILD_PKG    ?= $(if $(GO_MK_BASELINE_BUILD_REPO),./cmd/go-mk-baseline)
-GO_MK_BASELINE_INSTALL      ?= goodkind.io/go-makefile/cmd/go-mk-baseline@main
+GO_MK_BIN          ?=
+GO_MK_BUILD_REPO   ?= $(if $(and $(GO_MK_DEV_DIR),$(wildcard $(GO_MK_DEV_DIR)/cmd/go-mk)),$(GO_MK_DEV_DIR))
+GO_MK_BUILD_PKG    ?= $(if $(GO_MK_BUILD_REPO),./cmd/go-mk)
+GO_MK_INSTALL      ?= goodkind.io/go-makefile/cmd/go-mk@main
 
 export GO_MK_ROOT := $(CURDIR)
 export GO_MK_HELPER_DIR
@@ -279,10 +279,10 @@ export STATICCHECK_EXTRA_TARGETS
 export STATICCHECK_EXTRA_BASELINE
 export STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS
 export STATICCHECK_EXTRA_EXCLUDE_PATHS
-export GO_MK_BASELINE_BIN
-export GO_MK_BASELINE_BUILD_REPO
-export GO_MK_BASELINE_BUILD_PKG
-export GO_MK_BASELINE_INSTALL
+export GO_MK_BIN
+export GO_MK_BUILD_REPO
+export GO_MK_BUILD_PKG
+export GO_MK_INSTALL
 
 ifeq ($(BUILD_CHECKS),true)
 default-build-deps := build-check
@@ -381,7 +381,7 @@ lint-deadcode:
 	@bash "$(GO_MK_HELPER_DIR)/go-mk-lint.sh" lint-deadcode
 
 baseline-bin:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-baseline-bin.sh" bin
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-bin.sh" bin
 
 staticcheck-extra-bin:
 	@bash "$(GO_MK_HELPER_DIR)/go-mk-staticcheck-extra.sh" bin

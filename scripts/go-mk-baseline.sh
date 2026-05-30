@@ -5,7 +5,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "${SCRIPT_DIR}/go-mk-common.sh"
 
 # Components captured this run, collected as JSON manifest records and written by
-# the go-mk-baseline binary in one batch so a single neutral roll-up prints.
+# the go-mk binary in one batch so a single neutral roll-up prints.
 GO_MK_BASELINE_MANIFEST=""
 
 # json_escape escapes a value for embedding in a JSON string.
@@ -55,10 +55,10 @@ flush_manifest() {
     if [[ -z "${GO_MK_BASELINE_MANIFEST}" ]]; then
         return 0
     fi
-    bash "${SCRIPT_DIR}/go-mk-baseline-bin.sh" bin
-    resolved_bin=$(bash "${SCRIPT_DIR}/go-mk-baseline-bin.sh" selected-bin)
+    bash "${SCRIPT_DIR}/go-mk-bin.sh" bin
+    resolved_bin=$(bash "${SCRIPT_DIR}/go-mk-bin.sh" selected-bin)
     if [[ -z "${resolved_bin}" || ! -x "${resolved_bin}" ]]; then
-        printf "go-mk-baseline: could not resolve the baseline binary\n" >&2
+        printf "go-mk: could not resolve the baseline binary\n" >&2
         return 1
     fi
     printf '{"components":[%s]}' "${GO_MK_BASELINE_MANIFEST}" | "${resolved_bin}" write-batch --manifest -
@@ -324,7 +324,7 @@ case "${component}" in
         update_staticcheck_baseline "${mode}" || update_status=$?
         ;;
     *)
-        printf "go-mk-baseline: unknown component %s\n" "${component}"
+        printf "go-mk: unknown component %s\n" "${component}"
         exit 2
         ;;
 esac

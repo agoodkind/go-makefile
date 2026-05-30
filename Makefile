@@ -22,14 +22,14 @@ STATICCHECK_EXTRA_LOCAL_ARGS := \
 ROOT_LINT_ARGS  += $(STATICCHECK_EXTRA_LOCAL_ARGS)
 STATIC_LINT_ARGS += $(STATICCHECK_EXTRA_LOCAL_ARGS)
 
-# Dog-food the go-mk-baseline engine binary from this checkout (the root module)
+# Dog-food the go-mk engine binary from this checkout (the root module)
 # for both the root and static sub-makes, so engine changes are exercised before
 # push and neither sub-make resolves @main over the network.
-GO_MK_BASELINE_LOCAL_ARGS := \
-	GO_MK_BASELINE_BUILD_REPO="$(CURDIR)" \
-	GO_MK_BASELINE_BUILD_PKG=./cmd/go-mk-baseline
-ROOT_LINT_ARGS  += $(GO_MK_BASELINE_LOCAL_ARGS)
-STATIC_LINT_ARGS += $(GO_MK_BASELINE_LOCAL_ARGS)
+GO_MK_LOCAL_ARGS := \
+	GO_MK_BUILD_REPO="$(CURDIR)" \
+	GO_MK_BUILD_PKG=./cmd/go-mk
+ROOT_LINT_ARGS  += $(GO_MK_LOCAL_ARGS)
+STATIC_LINT_ARGS += $(GO_MK_LOCAL_ARGS)
 
 ROOT_GO_MK   := $(MAKE) -f $(GO_MK) $(ROOT_LINT_ARGS)
 STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)

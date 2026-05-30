@@ -1,4 +1,4 @@
-// Command go-mk-baseline rewrites lint baseline files and prints a neutral
+// Command go-mk rewrites lint baseline files and prints a neutral
 // update report. It is resolved on demand and tracks the go-makefile main
 // branch, so consumers adopt the current engine on their next make run with no
 // version pin. The shell captures findings and enforces the token gate before
@@ -17,7 +17,7 @@ import (
 	"goodkind.io/go-makefile/internal/baseline"
 )
 
-const usage = `usage: go-mk-baseline <command> [options]
+const usage = `usage: go-mk <command> [options]
 
 commands:
   write-batch [--json] [--manifest <path|->]   rewrite every baseline in the manifest
@@ -48,7 +48,7 @@ func main() {
 	}
 	if command == "write-batch" {
 		if err := runWriteBatch(os.Args[2:]); err != nil {
-			writeStderr("go-mk-baseline: " + err.Error() + "\n")
+			writeStderr("go-mk: " + err.Error() + "\n")
 			os.Exit(1)
 		}
 		return
