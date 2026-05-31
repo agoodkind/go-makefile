@@ -47,6 +47,7 @@ notice_run_auto_baseline() {
     local linter
     local rule
     local pattern
+    local resolved_bin
 
     notice_id="$1"
     directive="$2"
@@ -68,9 +69,16 @@ notice_run_auto_baseline() {
         return 0
     fi
 
+    bash "${SCRIPT_DIR}/go-mk-bin.sh" bin
+    resolved_bin=$(bash "${SCRIPT_DIR}/go-mk-bin.sh" selected-bin)
+    if [[ -z "${resolved_bin}" || ! -x "${resolved_bin}" ]]; then
+        printf "go-makefile notice #%s: could not resolve the go-mk binary; skipping auto-baseline\n" "${notice_id}" >&2
+        return 0
+    fi
+
     printf "go-makefile notice #%s: auto-baselining existing findings for %s\n" "${notice_id}" "${directive}" >&2
     if LINTER="${linter}" RULE="${rule}" GOLANGCI_LINT_BASELINE_SCOPE_PATTERN="${pattern}" \
-        bash "${SCRIPT_DIR}/go-mk-baseline.sh" auto-baseline-scope >&2; then
+        "${resolved_bin}" baseline auto-baseline-scope >&2; then
         printf "%s\n" "${notice_id}" >> "${applied_file}"
         applied_ids=$(printf "%s\n%s\n" "${applied_ids}" "${notice_id}")
         printf "go-makefile notice #%s: wrote %s. Review with 'git diff %s' and commit it together with %s.\n" \

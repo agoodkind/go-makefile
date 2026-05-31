@@ -116,6 +116,7 @@ func main() {
 		writeStdout("Name: staticcheck-extra-bin\n")
 		writeStdout("Name: staticcheck-extra-capture\n")
 		writeStdout("Name: baseline-gate\n")
+		writeStdout("Name: baseline\n")
 		return
 	}
 	if command == "write-batch" {
@@ -153,6 +154,9 @@ func main() {
 	if command == "baseline-gate" {
 		os.Exit(runGateConfirm(os.Args[2:]))
 	}
+	if command == "baseline" {
+		os.Exit(runBaseline(os.Args[2:]))
+	}
 	if code, handled := runLint(command, os.Args[2:]); handled {
 		os.Exit(code)
 	}
@@ -179,13 +183,23 @@ func runWriteBatch(args []string) error {
 		}
 		return &unknownOptionError{option: argument}
 	}
-	if os.Getenv("BASELINE_OUTPUT_FORMAT") == "json" {
-		emitJSON = true
-	}
-
 	manifest, err := loadManifest(manifestPath)
 	if err != nil {
 		return err
+	}
+	return writeManifest(manifest, emitJSON)
+}
+
+// writeManifest plans and writes every component in the manifest, then renders
+// the per-component statistics, mirroring the back half of the shell
+// write-batch flow. It is shared by the write-batch subcommand (which loads the
+// manifest from a file or stdin) and the baseline subcommand (which builds the
+// manifest in process), so both honour the BASELINE_OUTPUT_FORMAT=json override
+// and emit identical roll-up text. It writes files and stdout, so it stays in
+// package main.
+func writeManifest(manifest baseline.Manifest, emitJSON bool) error {
+	if os.Getenv("BASELINE_OUTPUT_FORMAT") == "json" {
+		emitJSON = true
 	}
 
 	now := manifest.Now
