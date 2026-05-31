@@ -87,7 +87,6 @@ GO_MK_SCRIPT_FILES := \
 	scripts/go-mk-findings.awk \
 	scripts/go-mk-baseline.awk \
 	scripts/go-mk-bin.sh \
-	scripts/go-mk-notice.sh \
 	scripts/go-mk-sync.sh \
 	notices.txt
 
@@ -336,8 +335,8 @@ help:
 lint: lint-tools go-mk-bin | go-mk-notice
 	@"$(GO_MK_BIN_RESOLVED)" lint
 
-go-mk-notice:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-notice.sh" || true
+go-mk-notice: go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" notice || true
 
 lint-tools: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" lint-tools
