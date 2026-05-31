@@ -73,8 +73,7 @@ GO_MK_FETCHED_BOOTSTRAP := $(call go_mk_fetch_bootstrap,scripts/go-mk-fetch-one.
 endif
 
 define go-mk-fetch-one
-$(shell mkdir -p .make && bash "$(GO_MK_FETCH_SCRIPT)" "$(1)" ".make/$(1)" "$(GO_MK_DEV_DIR)" > .make/go-mk-fetch.log)
-$(if $(wildcard .make/$(1)),,$(error go-makefile failed to fetch $(1)))
+$(if $(filter ok,$(shell mkdir -p .make && bash "$(GO_MK_FETCH_SCRIPT)" "$(1)" ".make/$(1)" "$(GO_MK_DEV_DIR)" > .make/go-mk-fetch.log 2>&1; test -s ".make/$(1)" && echo ok)),,$(error go-makefile failed to fetch $(1)))
 endef
 
 define go-mk-require-one
