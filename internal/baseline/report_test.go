@@ -78,6 +78,12 @@ func TestRenderTextRollupListsEachAndSummary(t *testing.T) {
 	if !strings.Contains(text, "no change") {
 		t.Errorf("missing no-change line: %s", text)
 	}
+	if !strings.Contains(text, "no existing") {
+		t.Errorf("missing no-existing column: %s", text)
+	}
+	if !strings.Contains(text, "4 -> 0") {
+		t.Errorf("missing before/after column: %s", text)
+	}
 	if !strings.Contains(text, "Done. 31 remaining across 4 baselines.") {
 		t.Errorf("missing summary: %s", text)
 	}

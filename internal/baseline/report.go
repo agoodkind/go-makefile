@@ -22,6 +22,17 @@ func changePhrase(statistics Stats) string {
 	return strings.Join(parts, ", ")
 }
 
+// remainingPhrase renders the third column: the before/after key counts, or
+// "no existing" when the baseline was empty and stayed empty. before is the old
+// key set, which partitions exactly into removed and refreshed.
+func remainingPhrase(statistics Stats) string {
+	before := statistics.Removed + statistics.Refreshed
+	if before == 0 && statistics.Remaining == 0 {
+		return "no existing"
+	}
+	return fmt.Sprintf("%d -> %d", before, statistics.Remaining)
+}
+
 // singleLines renders one component's result for a single-component run.
 func singleLines(statistics Stats) []string {
 	return []string{
@@ -57,7 +68,7 @@ func rollupLines(all []Stats) []string {
 		totalRemaining += statistics.Remaining
 		label := fmt.Sprintf("%-*s", labelWidth, statistics.Label)
 		change := fmt.Sprintf("%-*s", changeWidth, changePhrase(statistics))
-		lines = append(lines, fmt.Sprintf("  %s   %s   %d remaining", label, change, statistics.Remaining))
+		lines = append(lines, fmt.Sprintf("  %s   %s   %s", label, change, remainingPhrase(statistics)))
 	}
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf(
