@@ -39,5 +39,6 @@ func Analyzers() []*analysis.Analyzer {
 		LifecycleNoopCloserAnalyzer,
 		LifecycleSilentCloseErrAnalyzer,
 		GrpcMethodNameLiteralAnalyzer,
+		NoTildePathLiteralAnalyzer,
 	}
 }
