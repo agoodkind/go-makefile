@@ -8,8 +8,126 @@ set -eo pipefail
 # spec tracks the main branch tip (@main), so consumers always resolve the
 # current engine with no version pin, and the @main arm reinstalls every run.
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-source "${SCRIPT_DIR}/go-mk-common.sh"
+# This bootstrap resolver is self-contained: it inlines the few helpers it needs
+# (temp dir, capture, lint-concurrency build env) rather than sourcing the former
+# go-mk-common.sh, which has been collapsed into the go-mk binary's internal
+# packages. Only the binary build/resolve bootstrap remains as shell.
+GO_MK_TEMP_DIR=""
+GO_MK_COMMAND_STATUS=0
+GO_MK_EFFECTIVE_LINT_CONCURRENCY=""
+
+go_mk_cleanup() {
+    if [[ -n "${GO_MK_TEMP_DIR}" && -d "${GO_MK_TEMP_DIR}" ]]; then
+        rm -rf "${GO_MK_TEMP_DIR}"
+    fi
+}
+
+trap go_mk_cleanup EXIT
+
+go_mk_setup_temp_dir() {
+    if [[ -z "${GO_MK_TEMP_DIR}" ]]; then
+        GO_MK_TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/go-mk.XXXXXX")
+    fi
+}
+
+go_mk_run_capture() {
+    local output_file
+    local error_file
+
+    output_file="$1"
+    shift
+    error_file="${output_file}.err"
+    GO_MK_COMMAND_STATUS=0
+    "$@" > "${output_file}" 2>"${error_file}" || GO_MK_COMMAND_STATUS=$?
+    cat "${error_file}" >> "${output_file}"
+    rm -f "${error_file}"
+}
+
+go_mk_resolve_lint_concurrency() {
+    local requested_concurrency
+    local processor_count
+    local load_text
+    local load_average
+    local error_file
+
+    if [[ -n "${GO_MK_EFFECTIVE_LINT_CONCURRENCY}" ]]; then
+        return
+    fi
+
+    requested_concurrency="${LINT_CONCURRENCY:-auto}"
+    if [[ "${requested_concurrency}" != "auto" ]]; then
+        GO_MK_EFFECTIVE_LINT_CONCURRENCY="${requested_concurrency}"
+        return
+    fi
+
+    go_mk_setup_temp_dir
+    error_file="${GO_MK_TEMP_DIR}/concurrency.err"
+    processor_count=$(getconf _NPROCESSORS_ONLN 2>"${error_file}" || sysctl -n hw.ncpu 2>"${error_file}" || printf "4")
+    if [[ -z "${processor_count}" || "${processor_count}" -lt 1 ]]; then
+        processor_count=1
+    fi
+
+    if [[ "$(uname)" == "Darwin" ]]; then
+        load_text=$(sysctl -n vm.loadavg 2>"${error_file}" || printf "")
+        load_average=$(printf "%s\n" "${load_text}" | awk "{ print \$2 + 0 }")
+    else
+        load_text=$(cat /proc/loadavg 2>"${error_file}" || printf "")
+        load_average=$(printf "%s\n" "${load_text}" | awk "{ print \$1 + 0; exit }")
+    fi
+    if [[ -z "${load_average}" ]]; then
+        load_average=0
+    fi
+
+    GO_MK_EFFECTIVE_LINT_CONCURRENCY=$(
+        awk -v processor_count="${processor_count}" -v load_average="${load_average}" '
+            BEGIN {
+                value = int(processor_count - load_average - 1)
+                minimum = processor_count < 2 ? 1 : 2
+                if (value < minimum) {
+                    value = minimum
+                }
+                if (value > processor_count) {
+                    value = processor_count
+                }
+                print value
+            }
+        '
+    )
+}
+
+go_mk_lint_goflags() {
+    local existing_flags
+    local output_flags
+    local flag_word
+
+    existing_flags="${GOFLAGS:-}"
+    output_flags=""
+    for flag_word in ${existing_flags}; do
+        if [[ "${flag_word}" == -p=* ]]; then
+            continue
+        fi
+        if [[ -z "${output_flags}" ]]; then
+            output_flags="${flag_word}"
+        else
+            output_flags="${output_flags} ${flag_word}"
+        fi
+    done
+
+    if [[ -z "${output_flags}" ]]; then
+        printf -- "-p=%s\n" "${GO_MK_EFFECTIVE_LINT_CONCURRENCY}"
+    else
+        printf "%s -p=%s\n" "${output_flags}" "${GO_MK_EFFECTIVE_LINT_CONCURRENCY}"
+    fi
+}
+
+go_mk_run_lint_cpu() {
+    go_mk_resolve_lint_concurrency
+    if [[ "${GO_MK_EFFECTIVE_LINT_CONCURRENCY}" == "0" ]]; then
+        "$@"
+        return
+    fi
+    env GOMAXPROCS="${GO_MK_EFFECTIVE_LINT_CONCURRENCY}" GOFLAGS="$(go_mk_lint_goflags)" "$@"
+}
 
 baseline_output_path() {
     printf "%s/.make/go-mk\n" "${GO_MK_ROOT:-${PWD}}"
