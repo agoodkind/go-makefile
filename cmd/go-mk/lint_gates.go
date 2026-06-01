@@ -20,18 +20,32 @@ import (
 // golangciCommand builds the golangci-lint argv for the run or fmt mode,
 // mirroring golangci_command: the run mode uses GOLANGCI_LINT_RUN_FLAGS (or
 // GOLANGCI_LINT_FLAGS) and the fmt mode uses GOLANGCI_LINT_FLAGS, both followed
-// by GOLANGCI_LINT_TARGETS (default ./...).
-func golangciCommand(mode string) (string, []string) {
+// by GOLANGCI_LINT_TARGETS (default ./...). golangci-lint v2 does its own
+// filesystem walk for "./..." rather than going through go list, so the run
+// mode expands the default target through expandedPackageTargets to drop
+// packages that live under nested git working trees. The fmt mode keeps the
+// raw targets because the format gate is driven separately through
+// moduleGoFiles, which applies the same filter to the resolved file list.
+func golangciCommand(mode string) (string, []string, error) {
 	binary := lintEnvDefault("GOLANGCI_LINT", "golangci-lint")
 	flagsText := lintEnvDefault("GOLANGCI_LINT_RUN_FLAGS", os.Getenv("GOLANGCI_LINT_FLAGS"))
 	if mode == "fmt" {
 		flagsText = os.Getenv("GOLANGCI_LINT_FLAGS")
 	}
 	targetsText := lintEnvDefault("GOLANGCI_LINT_TARGETS", "./...")
+	rawTargets := splitWords(targetsText)
+	targets := rawTargets
+	if mode == "run" {
+		expanded, err := expandedPackageTargets(rawTargets)
+		if err != nil {
+			return "", nil, err
+		}
+		targets = expanded
+	}
 	args := []string{mode}
 	args = append(args, splitWords(flagsText)...)
-	args = append(args, splitWords(targetsText)...)
-	return binary, args
+	args = append(args, targets...)
+	return binary, args, nil
 }
 
 // golangciExcludePattern resolves the golangci exclude pattern from the default
@@ -47,7 +61,10 @@ func golangciExcludePattern() string {
 // extracts the findings to findingsPath, and returns the run status, mirroring
 // capture_golangci_findings.
 func captureGolangciFindings(rawPath, findingsPath string) (int, error) {
-	binary, args := golangciCommand("run")
+	binary, args, err := golangciCommand("run")
+	if err != nil {
+		return 0, err
+	}
 	status, err := captureCommand(binary, args, rawPath)
 	if err != nil {
 		return 0, err
@@ -153,7 +170,10 @@ func runLintGolangciScope() int {
 // scopes them to the resolved scope pattern, mirroring
 // capture_golangci_scope_findings.
 func captureGolangciScopeFindings(rawPath, findingsPath string) error {
-	binary, args := golangciCommand("run")
+	binary, args, err := golangciCommand("run")
+	if err != nil {
+		return err
+	}
 	if linterName := os.Getenv("LINTER"); linterName != "" {
 		scoped := []string{args[0], "--enable-only=" + linterName}
 		scoped = append(scoped, args[1:]...)
@@ -304,11 +324,16 @@ func isUnexpandedFindExpression(text string) bool {
 
 // findGoFiles reproduces the shell default GOCYCLO_TARGETS find command by
 // walking the working tree from "." in Go: it collects every *.go file, drops
-// *_test.go files, and prunes the vendor, gen, and third_party directories,
+// *_test.go files, and prunes the vendor, gen, and third_party directories
+// plus any nested git working tree discovered under the current directory,
 // returning each path as "./<path>" the way find prints it. It reads the
 // filesystem, so it emits a boundary log.
 func findGoFiles() ([]string, error) {
 	slog.Info("lint find go files for gocyclo")
+	roots, err := nestedWorktreeRoots()
+	if err != nil {
+		return nil, err
+	}
 	prunedDirs := map[string]struct{}{
 		"vendor":      {},
 		"gen":         {},
@@ -324,6 +349,9 @@ func findGoFiles() ([]string, error) {
 				if _, pruned := prunedDirs[entry.Name()]; pruned {
 					return filepath.SkipDir
 				}
+			}
+			if walkPath != "." && pathInAnyRoot("./"+filepath.ToSlash(walkPath), roots) {
+				return filepath.SkipDir
 			}
 			return nil
 		}
@@ -410,7 +438,10 @@ func captureDeadcodeFindings(rawPath, findingsPath string) error {
 		lintEnvDefault("DEADCODE_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
 		os.Getenv("DEADCODE_EXCLUDE_PATHS"),
 	)
-	targets := splitWords(lintEnvDefault("DEADCODE_TARGETS", "./..."))
+	targets, err := expandedPackageTargets(splitWords(lintEnvDefault("DEADCODE_TARGETS", "./...")))
+	if err != nil {
+		return err
+	}
 	gopathBin, err := goEnvPath("GOPATH")
 	if err != nil {
 		return err

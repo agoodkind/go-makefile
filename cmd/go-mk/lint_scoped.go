@@ -54,7 +54,10 @@ func golangciFmtCommand() (string, []string, error) {
 // moduleGoFiles enumerates the .go files the current module owns for the given
 // package targets via go list, including build-tag-ignored files so platform
 // sources stay formatted. go list never descends into nested modules, so this
-// is the structural set of files the module owns. It runs go, so it emits a
+// is the structural set of files the module owns. Files that resolve to a
+// path under a nested git working tree are dropped defensively, since a
+// worktree of the same repo shares the module path and would otherwise be
+// formatted as if it were the current module. It runs go, so it emits a
 // boundary log.
 func moduleGoFiles(targets []string) ([]string, error) {
 	slog.Info("lint list module go files for fmt")
@@ -69,11 +72,41 @@ func moduleGoFiles(targets []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	roots, err := nestedWorktreeRoots()
+	if err != nil {
+		return nil, err
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
 	lines := make([]string, 0)
-	for _, line := range strings.Split(string(out), "\n") {
-		if line != "" {
-			lines = append(lines, line)
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if line == "" {
+			continue
 		}
+		lines = append(lines, line)
+	}
+	if len(roots) > 0 {
+		relLines := make([]string, 0, len(lines))
+		absByRel := make(map[string]string, len(lines))
+		for _, line := range lines {
+			rel, relErr := filepath.Rel(cwd, line)
+			if relErr != nil {
+				relLines = append(relLines, line)
+				absByRel[line] = line
+				continue
+			}
+			key := "./" + filepath.ToSlash(rel)
+			relLines = append(relLines, key)
+			absByRel[key] = line
+		}
+		kept := dropPathsUnderNestedWorktrees(relLines, roots)
+		out := make([]string, 0, len(kept))
+		for _, key := range kept {
+			out = append(out, absByRel[key])
+		}
+		lines = out
 	}
 	return sortedUnique(lines), nil
 }

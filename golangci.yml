@@ -122,6 +122,7 @@ linters:
       - third_party$
       - builtin$
       - examples$
+      - \.claude/worktrees/
 
 issues:
   max-issues-per-linter: 0
@@ -138,6 +139,7 @@ formatters:
       - third_party$
       - builtin$
       - examples$
+      - \.claude/worktrees/
 
 output:
   sort-order:

@@ -285,7 +285,10 @@ func staticcheckCaptureFindings(rawPath, findingsPath string) error {
 		return writeFindingsFile(findingsPath, nil)
 	}
 	flagArgs := splitWords(os.Getenv("STATICCHECK_EXTRA_FLAGS"))
-	targetArgs := splitWords(lintEnvDefault("STATICCHECK_EXTRA_TARGETS", "./..."))
+	targetArgs, err := expandedPackageTargets(splitWords(lintEnvDefault("STATICCHECK_EXTRA_TARGETS", "./...")))
+	if err != nil {
+		return err
+	}
 	excludePattern := lint.ExcludePattern(
 		lintEnvDefault("STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
 		os.Getenv("STATICCHECK_EXTRA_EXCLUDE_PATHS"),
