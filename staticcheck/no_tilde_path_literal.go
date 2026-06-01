@@ -9,11 +9,11 @@ import (
 
 // NoTildePathLiteralAnalyzer flags string literals that equal "~" or
 // start with "~/". The Go standard library never expands tilde in path
-// arguments (os.Open, os.MkdirAll, filepath.*, exec.Command, and so on
-// all treat "~" as a literal directory name), so any such literal is a
+// arguments ([os.Open], [os.MkdirAll], filepath.*, [exec.Command], and so
+// on all treat "~" as a literal directory name), so any such literal is a
 // latent bug that creates a literal "~" directory at runtime instead of
-// resolving to the user's home directory. Use os.UserHomeDir() and
-// filepath.Join to build the path explicitly.
+// resolving to the user's home directory. Use [os.UserHomeDir] and
+// [filepath.Join] to build the path explicitly.
 var NoTildePathLiteralAnalyzer = &analysis.Analyzer{
 	Name: "no_tilde_path_literal",
 	Doc:  "rejects string literals beginning with ~/ or equal to ~; use os.UserHomeDir() + filepath.Join instead",
