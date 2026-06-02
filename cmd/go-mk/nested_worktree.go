@@ -167,9 +167,14 @@ func expandedPackageTargets(targets []string) ([]string, error) {
 }
 
 // listFilteredPackages runs `go list -f '{{.Dir}}\t{{.ImportPath}}' ./...`
-// and returns the import paths of packages whose directory is not under
-// any of the given nested worktree roots. The directory path is compared
-// after being made relative to the current working directory.
+// and returns the "./"-prefixed relative directory of every package whose
+// directory is not under any of the given nested worktree roots. Relative
+// directory targets are used rather than import paths because golangci-lint
+// v2 stats each positional argument as a filesystem path relative to the
+// current working directory; an import path would resolve to a nonexistent
+// "<cwd>/<importpath>" and fail typechecking. go/packages-based tools
+// (staticcheck, deadcode) resolve the same relative patterns, so all three
+// gates accept this form.
 func listFilteredPackages(roots map[string]struct{}) ([]string, error) {
 	slog.Info("lint list packages for nested worktree filter")
 	out, err := exec.Command("go", "list", "-f", "{{.Dir}}\t{{.ImportPath}}", "./...").Output()
@@ -193,10 +198,11 @@ func listFilteredPackages(roots map[string]struct{}) ([]string, error) {
 		if relErr != nil {
 			continue
 		}
-		if pathInAnyRoot("./"+filepath.ToSlash(rel), roots) {
+		relTarget := "./" + filepath.ToSlash(rel)
+		if pathInAnyRoot(relTarget, roots) {
 			continue
 		}
-		pkgs = append(pkgs, parts[1])
+		pkgs = append(pkgs, relTarget)
 	}
 	slices.Sort(pkgs)
 	return slices.Compact(pkgs), nil
