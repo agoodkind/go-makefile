@@ -76,6 +76,16 @@ func TestOneLineFallbackSentence(t *testing.T) {
 	}
 }
 
+func TestOneLineBucketsFileListing(t *testing.T) {
+	got := OneLine(map[string]int{
+		"lint find go files for gocyclo":    1,
+		"lint list module go files for fmt": 1,
+	})
+	if got != "listed Go files 2 times" {
+		t.Errorf("file-listing OneLine = %q, want %q", got, "listed Go files 2 times")
+	}
+}
+
 func TestHandlerSummaryCollapsesInfoAndPassesWarnError(t *testing.T) {
 	var buf bytes.Buffer
 	handler := &Handler{
