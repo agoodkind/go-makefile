@@ -191,6 +191,7 @@ func formatFindings(raw []string) []string {
 var diagnosticsOmit = map[string]struct{}{
 	"lint run gate":          {},
 	"lint run gate via make": {},
+	"build-check run tool":   {},
 }
 
 // diagnosticsLine renders the merged boundary-log counts as the report footnote,

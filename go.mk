@@ -1,7 +1,7 @@
 .PHONY: build deploy clean help \
 	lint lint-tools lint-golangci lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
 	lint-golangci-scope lint-golangci-baseline-scope lint-golangci-baseline-scope-accept-new \
-	lint-files lint-diff lint-format lint-gocyclo lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new fmt vet test govulncheck build-check build-check-start check \
+	lint-files lint-diff lint-format lint-gocyclo lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new fmt vet test govulncheck build-check check \
 	lint-deadcode lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new staticcheck-extra-bin \
 	baseline baseline-bin baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
@@ -430,10 +430,8 @@ staticcheck-extra-baseline-remove-fixed: staticcheck-extra-baseline-prune-fixed
 staticcheck-extra-baseline-accept-new: staticcheck-extra-bin go-mk-bin
 	@BASELINE_UPDATE_MODE=accept-new "$(GO_MK_BIN_RESOLVED)" baseline staticcheck-extra
 
-build-check: build-check-start vet lint govulncheck
-
-build-check-start:
-	@printf 'build-check: running vet, lint, and govulncheck\n'
+build-check: go-mk-bin | go-mk-notice
+	@"$(GO_MK_BIN_RESOLVED)" build-check
 
 check: lint
 
