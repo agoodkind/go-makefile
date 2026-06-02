@@ -23,6 +23,8 @@ import (
 	"goodkind.io/go-makefile/internal/capture"
 	"goodkind.io/go-makefile/internal/findings"
 	"goodkind.io/go-makefile/internal/lintgate"
+	"goodkind.io/go-makefile/internal/logsummary"
+	"goodkind.io/go-makefile/internal/report"
 )
 
 // goFindingPattern and goLocationPattern mirror GO_MK_GO_FINDING_PATTERN and
@@ -391,13 +393,44 @@ func runGateAndPrintSuppress(gateName string, current []string, baselinePath, re
 	}
 	result := lintgate.Evaluate(gateName, current, baselineLines, excludeRegexp, scopeRegexp, remediation)
 	result.SuppressFixedCount = suppressFixed
-	for _, line := range lintgate.Render(result) {
-		writeStdout(line + "\n")
+	if gateEmitEnabled() {
+		emitGateMarker(gateName, result)
+	} else {
+		for _, line := range lintgate.Render(result) {
+			writeStdout(line + "\n")
+		}
 	}
 	if !result.Passed {
 		recordFailedGate(gateName)
 	}
 	return result.Passed, nil
+}
+
+// gateEmitEnabled reports whether this process is a gate child the lint chain
+// spawned to emit a structured result marker instead of human text. The chain
+// sets GO_MK_DIAG_EMIT so it can collect every gate's outcome and render one
+// report; standalone runs leave it unset and keep the per-gate human render.
+func gateEmitEnabled() bool {
+	return os.Getenv("GO_MK_DIAG_EMIT") == "1"
+}
+
+// emitGateMarker writes the gate's structured outcome plus this process's
+// collapsed diagnostic counts as one marker line on stderr, which the parent
+// captures, strips, and folds into the single report. The gate's detection is
+// untouched: the marker carries lintgate's own verdict and findings.
+func emitGateMarker(gateName string, result lintgate.GateResult) {
+	line, err := report.EncodeMarker(report.GateMarker{
+		Name:        gateName,
+		Passed:      result.Passed,
+		Findings:    result.NewFindings,
+		Remediation: result.Remediation,
+		Diagnostics: logsummary.Counts(),
+	})
+	if err != nil {
+		slog.Error("lint encode gate marker", slog.String("gate", gateName), slog.String("err", err.Error()))
+		return
+	}
+	writeStderr(line + "\n")
 }
 
 // compilePatterns compiles the exclude and scope patterns, returning nil
