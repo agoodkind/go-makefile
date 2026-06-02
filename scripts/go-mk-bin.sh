@@ -227,7 +227,7 @@ baseline_resolve_bin() {
         if [[ -x "${output_path}" ]]; then
             go_mk_setup_temp_dir
             find_error="${GO_MK_TEMP_DIR}/go-mk-find.err"
-            newest_source=$(find "${repo_path}/cmd/go-mk" "${repo_path}/internal/baseline" -name "*.go" -newer "${output_path}" 2>"${find_error}" | head -1 || true)
+            newest_source=$(find "${repo_path}/cmd/go-mk" "${repo_path}/internal" -name "*.go" -newer "${output_path}" 2>"${find_error}" | head -1 || true)
         fi
         if [[ ! -x "${output_path}" || -n "${newest_source}" ]] || baseline_missing_flags "${output_path}"; then
             baseline_build_from_repo
