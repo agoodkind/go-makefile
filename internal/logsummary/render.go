@@ -99,12 +99,13 @@ func sentenceCase(text string) string {
 	return strings.ToUpper(text[:1]) + text[1:]
 }
 
-// render builds the summary block from message counts, collapsing messages into
-// buckets, sorting by count descending then by sentence so the order is stable,
-// and returning the empty string when there was nothing to report.
-func render(counts map[string]int) string {
+// phrases collapses message counts into buckets and returns the rendered
+// sentences ("Read 14 files", "Ran 9 commands", ...) ordered by count descending
+// then text, so both the multi-line block and the one-line footnote share one
+// stable ordering.
+func phrases(counts map[string]int) []string {
 	if len(counts) == 0 {
-		return ""
+		return nil
 	}
 	tallies := make(map[string]*tally)
 	for message, count := range counts {
@@ -121,17 +122,47 @@ func render(counts map[string]int) string {
 	for _, item := range tallies {
 		lines = append(lines, sentenceFor(item))
 	}
+	sortByCountThenText(tallies, lines)
+	return lines
+}
+
+// render builds the multi-line summary block, returning the empty string when
+// there was nothing to report.
+func render(counts map[string]int) string {
+	lines := phrases(counts)
 	if len(lines) == 0 {
 		return ""
 	}
-	sortByCountThenText(tallies, lines)
-
 	out := make([]string, 0, len(lines)+1)
 	out = append(out, "Diagnostics summary")
 	for _, line := range lines {
 		out = append(out, "  "+line)
 	}
 	return strings.Join(out, "\n") + "\n"
+}
+
+// OneLine renders the diagnostics counts as a single lowercase footnote such as
+// "read 14 files, ran 9 commands, installed 5 Go tools", or the empty string
+// when there is nothing to report. The report prints it under "Diagnostics:".
+func OneLine(counts map[string]int) string {
+	lines := phrases(counts)
+	if len(lines) == 0 {
+		return ""
+	}
+	lowered := make([]string, len(lines))
+	for index, line := range lines {
+		lowered[index] = lowerFirst(line)
+	}
+	return strings.Join(lowered, ", ")
+}
+
+// lowerFirst lowercases only the first rune so "Installed 5 Go tools" becomes
+// "installed 5 Go tools" without touching the embedded "Go".
+func lowerFirst(text string) string {
+	if text == "" {
+		return text
+	}
+	return strings.ToLower(text[:1]) + text[1:]
 }
 
 // sentenceFor renders one tally as its singular or plural sentence.

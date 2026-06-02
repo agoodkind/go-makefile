@@ -58,6 +58,20 @@ func TestRenderEmpty(t *testing.T) {
 	}
 }
 
+func TestOneLineLowercaseJoined(t *testing.T) {
+	got := OneLine(map[string]int{
+		"lint read file":       11,
+		"lint install go tool": 3,
+	})
+	want := "read 11 files, installed 3 Go tools"
+	if got != want {
+		t.Errorf("OneLine = %q, want %q", got, want)
+	}
+	if OneLine(map[string]int{}) != "" {
+		t.Error("OneLine of empty counts should be empty")
+	}
+}
+
 func TestRenderMergesMessagesIntoOneBucket(t *testing.T) {
 	got := render(map[string]int{
 		"lint read file":         2,

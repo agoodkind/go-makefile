@@ -164,3 +164,13 @@ func Flush() {
 	}
 	_, _ = out.Write([]byte(text))
 }
+
+// Counts returns a snapshot of the active handler's collapsed boundary-log
+// counts, or nil when nothing is installed. A gate child includes these in its
+// result marker so the parent can fold them into the run's one diagnostics line.
+func Counts() map[string]int {
+	if active == nil {
+		return nil
+	}
+	return active.counter.snapshot()
+}
