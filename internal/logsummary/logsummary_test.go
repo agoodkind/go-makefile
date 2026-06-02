@@ -14,11 +14,12 @@ import (
 
 func TestParseMode(t *testing.T) {
 	cases := map[string]Mode{
-		"":        ModeQuiet,
-		"bogus":   ModeQuiet,
+		"":        ModeSummary,
+		"bogus":   ModeSummary,
+		"summary": ModeSummary,
 		"quiet":   ModeQuiet,
 		"off":     ModeQuiet,
-		"summary": ModeSummary,
+		"silent":  ModeQuiet,
 		"debug":   ModeDebug,
 		"verbose": ModeDebug,
 	}
@@ -29,32 +30,15 @@ func TestParseMode(t *testing.T) {
 	}
 }
 
-func TestRenderOrdersByCountThenText(t *testing.T) {
-	got := render(map[string]int{
+func TestOneLineOrdersByCountThenText(t *testing.T) {
+	got := OneLine(map[string]int{
 		"lint read file":         11,
 		"lint install go tool":   3,
 		"lint run gate via make": 1,
 	})
-	want := "Diagnostics summary\n" +
-		"  Read 11 files\n" +
-		"  Installed 3 Go tools\n" +
-		"  Ran 1 gate\n"
+	want := "read 11 files, installed 3 Go tools, ran 1 gate"
 	if got != want {
-		t.Errorf("render mismatch:\ngot:\n%s\nwant:\n%s", got, want)
-	}
-}
-
-func TestRenderSingular(t *testing.T) {
-	got := render(map[string]int{"lint read file": 1})
-	want := "Diagnostics summary\n  Read 1 file\n"
-	if got != want {
-		t.Errorf("render singular = %q, want %q", got, want)
-	}
-}
-
-func TestRenderEmpty(t *testing.T) {
-	if got := render(map[string]int{}); got != "" {
-		t.Errorf("render empty = %q, want empty", got)
+		t.Errorf("OneLine = %q, want %q", got, want)
 	}
 }
 
@@ -72,22 +56,23 @@ func TestOneLineLowercaseJoined(t *testing.T) {
 	}
 }
 
-func TestRenderMergesMessagesIntoOneBucket(t *testing.T) {
-	got := render(map[string]int{
+func TestOneLineSingularAndMerge(t *testing.T) {
+	if got := OneLine(map[string]int{"lint read file": 1}); got != "read 1 file" {
+		t.Errorf("singular OneLine = %q, want %q", got, "read 1 file")
+	}
+	merged := OneLine(map[string]int{
 		"lint read file":         2,
 		"lint read file content": 3,
 	})
-	want := "Diagnostics summary\n  Read 5 files\n"
-	if got != want {
-		t.Errorf("render merge = %q, want %q", got, want)
+	if merged != "read 5 files" {
+		t.Errorf("merge OneLine = %q, want %q", merged, "read 5 files")
 	}
 }
 
-func TestRenderFallbackSentence(t *testing.T) {
-	got := render(map[string]int{"lint evaluate bypass token": 2})
-	want := "Diagnostics summary\n  Evaluate bypass token: 2 times\n"
-	if got != want {
-		t.Errorf("render fallback = %q, want %q", got, want)
+func TestOneLineFallbackSentence(t *testing.T) {
+	got := OneLine(map[string]int{"lint evaluate bypass token": 2})
+	if got != "evaluate bypass token: 2 times" {
+		t.Errorf("fallback OneLine = %q, want %q", got, "evaluate bypass token: 2 times")
 	}
 }
 

@@ -126,21 +126,6 @@ func phrases(counts map[string]int) []string {
 	return lines
 }
 
-// render builds the multi-line summary block, returning the empty string when
-// there was nothing to report.
-func render(counts map[string]int) string {
-	lines := phrases(counts)
-	if len(lines) == 0 {
-		return ""
-	}
-	out := make([]string, 0, len(lines)+1)
-	out = append(out, "Diagnostics summary")
-	for _, line := range lines {
-		out = append(out, "  "+line)
-	}
-	return strings.Join(out, "\n") + "\n"
-}
-
 // OneLine renders the diagnostics counts as a single lowercase footnote such as
 // "read 14 files, ran 9 commands, installed 5 Go tools", or the empty string
 // when there is nothing to report. The report prints it under "Diagnostics:".

@@ -89,7 +89,6 @@ func main() {
 	// below the INFO threshold it collapses; GO_MK_LOG=debug surfaces it.
 	slog.Debug("go-mk invoked")
 	code := run()
-	logsummary.Flush()
 	os.Exit(code)
 }
 

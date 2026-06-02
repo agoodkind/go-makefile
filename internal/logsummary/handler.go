@@ -35,20 +35,19 @@ const (
 )
 
 // ParseMode maps the GO_MK_LOG value to a Mode. The default for an empty or
-// unrecognized value is quiet, so a full make build, which spawns several go-mk
-// processes that cannot share a counter, stays free of repeated summary blocks;
-// the counts are opt-in via GO_MK_LOG=summary and the full stream via
-// GO_MK_LOG=debug. It uses an if chain rather than a switch so the
-// string_switch_should_be_enum analyzer stays satisfied without a named string
-// type for what is only an environment value.
+// unrecognized value is summary: INFO boundary logs are collapsed and counted so
+// the chain can render them as one diagnostics footnote, while GO_MK_LOG=quiet
+// drops them and GO_MK_LOG=debug streams the full raw log. It uses an if chain
+// rather than a switch so the string_switch_should_be_enum analyzer stays
+// satisfied without a named string type for what is only an environment value.
 func ParseMode(value string) Mode {
 	if value == "debug" || value == "verbose" {
 		return ModeDebug
 	}
-	if value == "summary" {
-		return ModeSummary
+	if value == "quiet" || value == "off" || value == "silent" {
+		return ModeQuiet
 	}
-	return ModeQuiet
+	return ModeSummary
 }
 
 // counter accumulates INFO record counts keyed by the slog message. The handler
@@ -129,17 +128,15 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 	return &Handler{base: h.base.WithGroup(name), mode: h.mode, counter: h.counter}
 }
 
-// active is the installed handler and out the writer its summary is flushed to.
-// They are package level because the codebase logs through the global default
-// logger rather than an injected one, so main installs once and flushes once.
-var (
-	active *Handler
-	out    io.Writer
-)
+// active is the installed handler. It is package level because the codebase logs
+// through the global default logger rather than an injected one, so main installs
+// once and the chain reads the counts back through Counts.
+var active *Handler
 
 // Install builds a text base handler over writer, wraps it in the summary
 // handler for mode, and sets it as the slog default. main calls this once at
-// startup with os.Stderr.
+// startup with os.Stderr. The collapsed INFO counts are read back with Counts
+// and rendered as the one diagnostics footnote in the run report.
 func Install(writer io.Writer, mode Mode) {
 	level := slog.LevelInfo
 	if mode == ModeDebug {
@@ -147,22 +144,7 @@ func Install(writer io.Writer, mode Mode) {
 	}
 	base := slog.NewTextHandler(writer, &slog.HandlerOptions{Level: level})
 	active = &Handler{base: base, mode: mode, counter: newCounter()}
-	out = writer
 	slog.SetDefault(slog.New(active))
-}
-
-// Flush writes the counted summary for the installed handler and is a no-op
-// when nothing was installed or no INFO records were collapsed. main calls it
-// after run returns and before os.Exit, since os.Exit skips deferred calls.
-func Flush() {
-	if active == nil || out == nil {
-		return
-	}
-	text := render(active.counter.snapshot())
-	if text == "" {
-		return
-	}
-	_, _ = out.Write([]byte(text))
 }
 
 // Counts returns a snapshot of the active handler's collapsed boundary-log
