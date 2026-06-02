@@ -22,6 +22,7 @@ import (
 	"goodkind.io/go-makefile/internal/capture"
 	"goodkind.io/go-makefile/internal/findings"
 	"goodkind.io/go-makefile/internal/lintgate"
+	"goodkind.io/go-makefile/internal/logsummary"
 )
 
 const usage = `usage: go-mk <command> [options]
@@ -82,9 +83,23 @@ func writeStderr(text string) {
 }
 
 func main() {
+	logsummary.Install(os.Stderr, logsummary.ParseMode(os.Getenv("GO_MK_LOG")))
+	// main is the process boundary, so it emits one structured event to
+	// satisfy missing_boundary_log. It is Debug so the summary handler keeps it
+	// below the INFO threshold it collapses; GO_MK_LOG=debug surfaces it.
+	slog.Debug("go-mk invoked")
+	code := run()
+	logsummary.Flush()
+	os.Exit(code)
+}
+
+// run dispatches the subcommand and returns the process exit code. main owns
+// the single os.Exit so the diagnostic summary flushes first; run returns
+// codes up the stack to satisfy the os_exit_outside_main analyzer.
+func run() int {
 	if len(os.Args) < 2 {
 		writeStderr(usage)
-		os.Exit(2)
+		return 2
 	}
 	command := os.Args[1]
 	if command == "-flags" || command == "--flags" {
@@ -118,54 +133,54 @@ func main() {
 		writeStdout("Name: baseline-gate\n")
 		writeStdout("Name: baseline\n")
 		writeStdout("Name: notice\n")
-		return
+		return 0
 	}
 	if command == "write-batch" {
 		if err := runWriteBatch(os.Args[2:]); err != nil {
 			writeStderr("go-mk: " + err.Error() + "\n")
-			os.Exit(1)
+			return 1
 		}
-		return
+		return 0
 	}
 	if command == "findings" {
 		if err := runFindings(os.Args[2:]); err != nil {
 			writeStderr("go-mk: " + err.Error() + "\n")
-			os.Exit(1)
+			return 1
 		}
-		return
+		return 0
 	}
 	if command == "lint-concurrency" {
 		if err := runLintConcurrency(os.Args[2:]); err != nil {
 			writeStderr("go-mk: " + err.Error() + "\n")
-			os.Exit(1)
+			return 1
 		}
-		return
+		return 0
 	}
 	if command == "gate" {
 		passed, err := runGate(os.Args[2:])
 		if err != nil {
 			writeStderr("go-mk: " + err.Error() + "\n")
-			os.Exit(1)
+			return 1
 		}
 		if !passed {
-			os.Exit(1)
+			return 1
 		}
-		return
+		return 0
 	}
 	if command == "baseline-gate" {
-		os.Exit(runGateConfirm(os.Args[2:]))
+		return runGateConfirm(os.Args[2:])
 	}
 	if command == "baseline" {
-		os.Exit(runBaseline(os.Args[2:]))
+		return runBaseline(os.Args[2:])
 	}
 	if command == "notice" {
-		os.Exit(runNotice())
+		return runNotice()
 	}
 	if code, handled := runLint(command, os.Args[2:]); handled {
-		os.Exit(code)
+		return code
 	}
 	writeStderr(usage)
-	os.Exit(2)
+	return 2
 }
 
 func runWriteBatch(args []string) error {

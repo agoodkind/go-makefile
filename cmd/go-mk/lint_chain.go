@@ -73,7 +73,9 @@ func runGateViaMake(makeProgram string, makeArgs []string, gateName string) ([]s
 	args = append(args, makeArgs...)
 	args = append(args, "--no-print-directory", gateName)
 	cmd := exec.Command(makeProgram, args...)
-	cmd.Env = setEnvVar(os.Environ(), "GO_MK_SKIP_FETCH", "1")
+	childEnv := setEnvVar(os.Environ(), "GO_MK_SKIP_FETCH", "1")
+	childEnv = setEnvVar(childEnv, "GO_MK_LOG", childLogMode())
+	cmd.Env = childEnv
 	out, err := cmd.CombinedOutput()
 	lines := splitOutputLines(string(out))
 	if err == nil {
@@ -84,6 +86,18 @@ func runGateViaMake(makeProgram string, makeArgs []string, gateName string) ([]s
 	}
 	slog.Error("lint gate make failed to run", slog.String("gate", gateName), slog.String("err", err.Error()))
 	return lines, 1
+}
+
+// childLogMode returns the GO_MK_LOG value for a gate child process. Children
+// run quiet so their per-file boundary logs never reach the captured aggregate,
+// leaving any summary to the top-level process alone; only debug cascades, so a
+// GO_MK_LOG=debug run still gets the full per-gate stream.
+func childLogMode() string {
+	mode := os.Getenv("GO_MK_LOG")
+	if mode == "debug" || mode == "verbose" {
+		return mode
+	}
+	return "quiet"
 }
 
 // splitOutputLines splits captured output into lines, dropping a single
