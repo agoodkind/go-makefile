@@ -319,16 +319,10 @@ if [ -f .golangci.yml ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# .goreleaser.yaml (binary layout only)
+# Release is driven by the go-mk binary `release` command, wired through
+# go-release.mk. There is no per-repo release config file to render; binary
+# repos opt in by adding go-release.mk to GO_MK_MODULES.
 # ---------------------------------------------------------------------------
-if [ "$LAYOUT" = "binary" ]; then
-	if [ -f .goreleaser.yaml ]; then
-		skip .goreleaser.yaml
-	else
-		render_artifact "templates/goreleaser.yaml.tmpl" .goreleaser.yaml
-		echo "created .goreleaser.yaml"
-	fi
-fi
 
 # ---------------------------------------------------------------------------
 # .gitignore

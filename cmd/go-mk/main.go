@@ -133,6 +133,7 @@ func run() int {
 		writeStdout("Name: baseline\n")
 		writeStdout("Name: notice\n")
 		writeStdout("Name: build-check\n")
+		writeStdout("Name: release\n")
 		return 0
 	}
 	if command == "write-batch" {
@@ -178,6 +179,9 @@ func run() int {
 	}
 	if command == "build-check" {
 		return runBuildCheck()
+	}
+	if command == "release" {
+		return runRelease()
 	}
 	if code, handled := runLint(command, os.Args[2:]); handled {
 		return code

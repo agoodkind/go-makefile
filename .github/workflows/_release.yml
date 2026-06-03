@@ -1,7 +1,25 @@
 name: Release
 
+# Reusable, fully open-source Go release primitive. All orchestration lives in
+# the go-mk binary `release` command (cross-compile with CGO disabled, sign and
+# notarize darwin binaries with anchore/quill, tar.gz with sha256 checksums, tag
+# push, GitHub release). This workflow only sets up the toolchain and runs
+# `make release`; build identity, version package, platforms, and entitlements
+# come from the consumer's Makefile. Signing is skipped automatically when the
+# signing secret is absent.
+
 on:
   workflow_call:
+    inputs:
+      quill_version:
+        description: Pinned anchore/quill version to install.
+        required: false
+        type: string
+        default: "v0.7.1"
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -9,6 +27,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      QUILL_SIGN_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+      QUILL_SIGN_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+      QUILL_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+      QUILL_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+      QUILL_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -18,36 +43,10 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Compute release tag
-        id: tag
-        run: |
-          TS=$(date -u +%Y%m%d%H%M)
-          HEX=$(printf '%x' "$GITHUB_RUN_NUMBER")
-          SHA=$(git rev-parse --short HEAD)
-          TAG="${TS}-${HEX}-${SHA}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "hex_run=$HEX" >> "$GITHUB_OUTPUT"
-          echo "Release tag: $TAG"
-
-      - name: Push tag
+      - name: Install quill
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$TAG"
-          git push origin "$TAG"
+          GOFLAGS: ""
+        run: go install github.com/anchore/quill/cmd/quill@${{ inputs.quill_version }}
 
-      - name: Release via goreleaser
-        uses: goreleaser/goreleaser-action@v7
-        with:
-          version: latest
-          args: release --clean --skip=validate
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEX_RUN: ${{ steps.tag.outputs.hex_run }}
-          APPLE_DEVELOPER_ID_CERT: ${{ secrets.APPLE_DEVELOPER_ID_CERT }}
-          APPLE_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
-          APPLE_NOTARYTOOL_ISSUER_ID: ${{ secrets.APPLE_NOTARYTOOL_ISSUER_ID }}
-          APPLE_NOTARYTOOL_KEY_ID: ${{ secrets.APPLE_NOTARYTOOL_KEY_ID }}
-          APPLE_NOTARYTOOL_KEY: ${{ secrets.APPLE_NOTARYTOOL_KEY }}
+      - name: Release
+        run: make release
