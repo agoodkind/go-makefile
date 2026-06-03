@@ -130,10 +130,27 @@ func runVet() error {
 	return runLintCPU("go", append([]string{"vet"}, targets...))
 }
 
-// runTest runs go test, mirroring run_test.
+// runTest runs go test, mirroring run_test. When GO_TEST_LDFLAGS is set it is
+// inserted as a single -ldflags argv element so a multi-word stamping value
+// (several -X directives) reaches `go test` intact. GO_TEST_TARGETS stays
+// whitespace-split for package and flag lists, which cannot carry a quoted
+// multi-word value.
 func runTest() error {
 	targets := splitWords(lintEnvDefault("GO_TEST_TARGETS", "./..."))
-	return runLintCPU("go", append([]string{"test"}, targets...))
+	args := append([]string{"test"}, testLdflagsArgs()...)
+	args = append(args, targets...)
+	return runLintCPU("go", args)
+}
+
+// testLdflagsArgs returns the -ldflags flag and its value as two argv elements
+// when GO_TEST_LDFLAGS is set, keeping the multi-word value unsplit. It returns
+// nil when the variable is empty so the default invocation is unchanged.
+func testLdflagsArgs() []string {
+	value := strings.TrimSpace(os.Getenv("GO_TEST_LDFLAGS"))
+	if value == "" {
+		return nil
+	}
+	return []string{"-ldflags", value}
 }
 
 // runGovulncheck installs and runs govulncheck, mirroring run_govulncheck.

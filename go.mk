@@ -141,6 +141,7 @@ GO_BUILD_FLAGS         ?=
 GO_BUILD_OUTPUT_FLAGS  ?= $(if $(strip $(GO_BUILD_OUTPUT)),-o $(GO_BUILD_OUTPUT),)
 GO_BUILD_TARGETS       ?= $(if $(strip $(CMD)),$(CMD),./...)
 GO_TEST_TARGETS        ?= ./...
+GO_TEST_LDFLAGS        ?=
 GO_VET_TARGETS         ?= ./...
 GOVULNCHECK_TARGETS    ?= ./...
 GO_INSTALL_FLAGS       ?= $(filter-out -o %,$(GO_BUILD_FLAGS))
@@ -262,6 +263,7 @@ export GOCYCLO_BASELINE
 export GOCYCLO_DEFAULT_EXCLUDE_PATHS
 export GOCYCLO_EXCLUDE_PATHS
 export GO_TEST_TARGETS
+export GO_TEST_LDFLAGS
 export GO_VET_TARGETS
 export GOVULNCHECK_TARGETS
 export DEADCODE_INSTALL
