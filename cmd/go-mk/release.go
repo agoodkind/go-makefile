@@ -42,6 +42,7 @@ type releaseConfig struct {
 	shortSHA     string
 	targetSHA    string
 	buildTime    string
+	prerelease   bool
 }
 
 // runRelease loads the release configuration and runs the full pipeline,
@@ -94,7 +95,18 @@ func loadReleaseConfig() (releaseConfig, error) {
 	if parsed, convErr := strconv.ParseInt(runNumber, 10, 64); convErr == nil {
 		hexRun = strconv.FormatInt(parsed, 16)
 	}
+
+	// A push of a v-prefixed tag is a stable release that reuses that tag; any
+	// other trigger (a main-branch commit, a manual dispatch) is a rolling
+	// prerelease under a computed timestamp tag. GitHub renders the two
+	// differently: stable carries the green "Latest" badge, prerelease the
+	// "Pre-release" badge.
+	refName := strings.TrimSpace(os.Getenv("GITHUB_REF_NAME"))
+	stable := isStableRef(strings.TrimSpace(os.Getenv("GITHUB_REF")), refName)
 	tag := fmt.Sprintf("%s-%s-%s", now.Format("200601021504"), hexRun, shortSHA)
+	if stable {
+		tag = refName
+	}
 
 	return releaseConfig{
 		binary:       binary,
@@ -108,7 +120,15 @@ func loadReleaseConfig() (releaseConfig, error) {
 		shortSHA:     shortSHA,
 		targetSHA:    targetSHA,
 		buildTime:    now.Format("2006-01-02T15:04:05Z"),
+		prerelease:   !stable,
 	}, nil
+}
+
+// isStableRef reports whether the triggering git ref is a stable release: a
+// pushed tag whose name starts with "v". Every other ref (a branch commit, a
+// manual dispatch with an empty or non-tag ref) is a rolling prerelease.
+func isStableRef(gitRef, refName string) bool {
+	return strings.HasPrefix(gitRef, "refs/tags/") && strings.HasPrefix(refName, "v")
 }
 
 // executeRelease runs the ordered release steps and stops on the first error.
@@ -138,9 +158,13 @@ func executeRelease(cfg releaseConfig) error {
 	return publishRelease(cfg, append(archives, checksums))
 }
 
-// pushReleaseTag creates the computed tag at the target commit and pushes it to
-// origin under the github-actions bot identity.
+// pushReleaseTag creates the computed prerelease tag at the target commit and
+// pushes it to origin under the github-actions bot identity. A stable release
+// reuses the v-tag that already triggered the run, so there is nothing to push.
 func pushReleaseTag(cfg releaseConfig) error {
+	if !cfg.prerelease {
+		return nil
+	}
 	if err := runProcess("git", []string{"config", "user.name", "github-actions[bot]"}, nil); err != nil {
 		return err
 	}
@@ -350,6 +374,11 @@ func publishRelease(cfg releaseConfig, assets []string) error {
 		"--target", cfg.targetSHA,
 		"--title", cfg.binary + " " + cfg.tag,
 		"--generate-notes",
+	}
+	if cfg.prerelease {
+		args = append(args, "--prerelease")
+	} else {
+		args = append(args, "--latest")
 	}
 	args = append(args, assets...)
 	return runProcess("gh", args, nil)
