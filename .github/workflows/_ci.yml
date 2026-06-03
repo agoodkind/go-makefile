@@ -2,6 +2,15 @@ name: CI
 
 on:
   workflow_call:
+    inputs:
+      submodules:
+        description: >-
+          Submodule checkout mode passed straight to actions/checkout
+          (false, true, or recursive). Defaults to false so consumers
+          without submodules are unaffected.
+        required: false
+        type: string
+        default: "false"
 
 jobs:
   lint:
@@ -9,6 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: ${{ inputs.submodules }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -24,6 +35,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: ${{ inputs.submodules }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -35,6 +48,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: ${{ inputs.submodules }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -45,6 +60,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: ${{ inputs.submodules }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
