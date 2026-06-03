@@ -134,6 +134,7 @@ func run() int {
 		writeStdout("Name: notice\n")
 		writeStdout("Name: build-check\n")
 		writeStdout("Name: release\n")
+		writeStdout("Name: go-version-check\n")
 		return 0
 	}
 	if command == "write-batch" {
@@ -182,6 +183,9 @@ func run() int {
 	}
 	if command == "release" {
 		return runRelease()
+	}
+	if command == "go-version-check" {
+		return runGoVersionCheck()
 	}
 	if code, handled := runLint(command, os.Args[2:]); handled {
 		return code

@@ -56,7 +56,7 @@ func runBuildCheck() int {
 		Steps:           steps,
 		DiagnosticsLine: diagnosticsLine(diag),
 	}))
-	return status
+	return applyGoVersionNotice(status)
 }
 
 // runBuildCheckRaw streams vet, the gates, and govulncheck for the
@@ -72,7 +72,7 @@ func runBuildCheckRaw() int {
 	if err := runGovulncheck(); err != nil {
 		status = statusFromError(err)
 	}
-	return status
+	return applyGoVersionNotice(status)
 }
 
 // runVetStep runs go vet as a captured build-check step.
