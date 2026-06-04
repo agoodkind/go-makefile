@@ -30,7 +30,7 @@ LIBRARY ?=
 ifeq ($(strip $(LIBRARY)),1)
 
 # Library mode: no binary to produce, but lint/vet/govulncheck still gate.
-build: $(default-build-deps)
+build: build-check
 	@echo "library mode: no binary to build"
 
 deploy: install
@@ -146,12 +146,12 @@ export CODESIGN_ENTITLEMENTS
 # (vet+lint+govulncheck) runs first through the make prerequisite unless
 # BUILD_CHECKS=false. install builds every declared binary before placing it,
 # so it always builds. Signing runs inside the engine on macOS only.
-build: $(default-build-deps) | go-mk-bin
+build: build-check | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" build
 
 deploy: install
 
-install: $(default-build-deps) | go-mk-bin
+install: build-check | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" install
 
 uninstall: | go-mk-bin

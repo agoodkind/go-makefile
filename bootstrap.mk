@@ -53,6 +53,6 @@ $(foreach m,$(GO_MK_MODULES),$(shell { $(call _go_mk_fetch,$(m),.make/$(m)); } 1
 endif
 
 # go.mk handles -including the modules at its tail (after all its variables
-# are defined), so the modules see default-build-deps etc. Don't duplicate
+# are defined), so the modules see build-check etc. Don't duplicate
 # the include here or every module target gets overriding-commands warnings.
 -include $(GO_MK)
