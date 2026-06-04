@@ -146,7 +146,6 @@ GO_VET_TARGETS         ?= ./...
 GOVULNCHECK_TARGETS    ?= ./...
 GO_INSTALL_FLAGS       ?= $(filter-out -o %,$(GO_BUILD_FLAGS))
 GO_INSTALL_TARGET      ?= $(CMD)
-BUILD_CHECKS           ?= true
 
 # Gate tokens default to today's Wikipedia featured article slug, but can be
 # swapped to any rotating public or private endpoint that emits one string.
@@ -285,14 +284,8 @@ export GO_MK_BUILD_REPO
 export GO_MK_BUILD_PKG
 export GO_MK_INSTALL
 
-ifeq ($(BUILD_CHECKS),true)
-default-build-deps := build-check
-else
-default-build-deps :=
-endif
-
 ifeq ($(filter go-build.mk,$(GO_MK_MODULES)),)
-build: $(default-build-deps) | go-mk-notice
+build: build-check | go-mk-notice
 	go build $(GO_BUILD_OUTPUT_FLAGS) $(GO_BUILD_FLAGS) $(GO_BUILD_TARGETS)
 
 deploy:

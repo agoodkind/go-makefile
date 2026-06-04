@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"goodkind.io/go-makefile/internal/findings"
+	"goodkind.io/go-makefile/internal/gate"
 	"goodkind.io/go-makefile/internal/lint"
 	"goodkind.io/go-makefile/internal/logsummary"
 	"goodkind.io/go-makefile/internal/report"
@@ -283,30 +284,35 @@ func printFailedSummary(failedPath string) {
 	writeStdout("  Failed gates: see failed target output above\n")
 }
 
-// bypassPassed reports whether the BYPASS_LINT token matches the gate token and
-// BYPASS_CONFIRM is set, in which case the chain runner prints the bypass
-// banner and returns success, mirroring the bypass arm of run_lint_chain. It
-// runs the token command, so it emits a boundary log.
-func bypassPassed() bool {
-	bypassValue := lint.Slugify(os.Getenv("BYPASS_LINT"))
-	if bypassValue == "" {
+// bypassActive reports whether the BYPASS_LINT token matches the gate token and
+// BYPASS_CONFIRM is affirmative. It prints nothing, so both the lint chain and
+// the build-check orchestrator can consult it. It runs the token command, so it
+// emits a boundary log.
+func bypassActive() bool {
+	bypassValue := os.Getenv("BYPASS_LINT")
+	if lint.Slugify(bypassValue) == "" {
 		return false
 	}
-	tokenCmd := lintEnvDefault("BYPASS_TOKEN_CMD", os.Getenv("GO_MK_GATE_TOKEN_CMD"))
-	if tokenCmd == "" {
+	if !gate.ConfirmAccepted(os.Getenv("BYPASS_CONFIRM")) {
 		return false
 	}
 	slog.Info("lint evaluate bypass token")
-	out, err := exec.Command("sh", "-c", tokenCmd).Output()
-	if err != nil {
+	expectedRaw, ok := gateTokenExpected(os.Getenv("BYPASS_TOKEN_CMD"))
+	if !ok {
 		return false
 	}
-	expected := lint.Slugify(string(out))
-	if expected == "" || bypassValue != expected || os.Getenv("BYPASS_CONFIRM") != "1" {
+	return gate.TokensMatch(expectedRaw, bypassValue)
+}
+
+// bypassPassed reports whether the lint bypass is active, printing the bypass
+// banner when it is, mirroring the bypass arm of run_lint_chain. The banner
+// names BYPASS_LINT but never prints the matched token value.
+func bypassPassed() bool {
+	if !bypassActive() {
 		return false
 	}
 	writeStdout("\n***********************************************************************\n")
-	writeStdout("*** LINT FINDINGS NON-BLOCKING via BYPASS_LINT=" + expected + "\n")
+	writeStdout("*** LINT FINDINGS NON-BLOCKING via BYPASS_LINT\n")
 	writeStdout("*** Findings reported above but build proceeds. Do not merge without fixing.\n")
 	writeStdout("***********************************************************************\n\n")
 	return true

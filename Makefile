@@ -46,14 +46,10 @@ STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
         go-mk-sync update-go-mk smoke-fetch help
 
 # Each gate target runs the central go.mk recipe twice, once per Go module.
-# The static analyzer module runs with BUILD_CHECKS=false on build because
-# it has no main package (would no-op anyway via go.mk's library handling)
-# and we do not want it pulling its own build-check chain through this
-# coordinating Makefile.
 
 build:
 	$(ROOT_GO_MK) build
-	$(STATIC_GO_MK) BUILD_CHECKS=false build
+	$(STATIC_GO_MK) build
 
 build-check:
 	$(ROOT_GO_MK) build-check

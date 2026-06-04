@@ -152,14 +152,7 @@ func baselineGatePasses() bool {
 	if !gate.ConfirmAccepted(os.Getenv("BASELINE_CONFIRM")) {
 		return false
 	}
-	tokenCommand := os.Getenv("BASELINE_TOKEN_CMD")
-	if tokenCommand == "" {
-		tokenCommand = os.Getenv("GO_MK_GATE_TOKEN_CMD")
-	}
-	if tokenCommand == "" {
-		return false
-	}
-	expectedRaw, ok := runTokenCommand(tokenCommand)
+	expectedRaw, ok := gateTokenExpected(os.Getenv("BASELINE_TOKEN_CMD"))
 	if !ok {
 		return false
 	}

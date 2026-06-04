@@ -23,6 +23,10 @@ func runBuildCheck() int {
 	if logsummary.ParseMode(os.Getenv("GO_MK_LOG")) == logsummary.ModeDebug {
 		return runBuildCheckRaw()
 	}
+	if bypassActive() {
+		writeStdout("build-check skipped via BYPASS_LINT\n")
+		return 0
+	}
 
 	steps := make([]report.StepResult, 0, 8)
 	diag := make(map[string]int)
@@ -62,6 +66,10 @@ func runBuildCheck() int {
 // runBuildCheckRaw streams vet, the gates, and govulncheck for the
 // GO_MK_LOG=debug path, mirroring the historical separate-target behaviour.
 func runBuildCheckRaw() int {
+	if bypassActive() {
+		writeStdout("build-check skipped via BYPASS_LINT\n")
+		return 0
+	}
 	status := 0
 	if err := runVet(); err != nil {
 		status = statusFromError(err)

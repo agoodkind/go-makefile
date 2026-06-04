@@ -185,6 +185,20 @@ func registerInputCommands(root *cobra.Command) {
 	root.AddCommand(passThroughCommand("baseline-gate", "Diff findings against a baseline and confirm the result", runGateConfirm))
 	root.AddCommand(passThroughCommand("baseline", "Rewrite the lint baselines", runBaseline))
 	root.AddCommand(passThroughCommand("gate", "Diff current findings against a baseline", gateToCode))
+
+	// gate-token resolves the rotating daily token the bypass and baseline gates
+	// compare against. It is hidden: it carries the maintainer secret, so it is
+	// not advertised in help. It is still callable as `go-mk gate-token`.
+	gateToken := &cobra.Command{
+		Use:    "gate-token",
+		Args:   cobra.NoArgs,
+		Hidden: true,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			recordedExit = runGateToken()
+			return nil
+		},
+	}
+	root.AddCommand(gateToken)
 }
 
 // passThroughCommand builds a flag-parsing-disabled command whose RunE records
