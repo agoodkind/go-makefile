@@ -8,7 +8,6 @@ func TestMarkerRoundTrip(t *testing.T) {
 		Passed:      false,
 		Findings:    []string{"internal/foo/bar.go:42:1: gocyclo: complexity 21 over 20 in bigFunc"},
 		Remediation: "run the baseline refresh and re-run the gate.",
-		Diagnostics: map[string]int{"lint read file": 3, "lint run gate": 1},
 	}
 	line, err := EncodeMarker(original)
 	if err != nil {
@@ -26,9 +25,6 @@ func TestMarkerRoundTrip(t *testing.T) {
 	}
 	if len(decoded.Findings) != 1 || decoded.Findings[0] != original.Findings[0] {
 		t.Errorf("findings mismatch: %+v", decoded.Findings)
-	}
-	if decoded.Diagnostics["lint read file"] != 3 {
-		t.Errorf("diagnostics mismatch: %+v", decoded.Diagnostics)
 	}
 }
 

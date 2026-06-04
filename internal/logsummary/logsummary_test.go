@@ -1,7 +1,6 @@
-// Package logsummary tests the dedup handler and its summary rendering: mode
-// parsing, the count-to-sentence rollup including singular/plural and the
-// fallback wording, message-to-bucket merging, and the handler contract that
-// INFO is collapsed while WARN and ERROR pass through to the base handler.
+// Package logsummary tests the stderr-collapse handler: mode parsing and the
+// handler contract that INFO is dropped from the stderr stream while WARN and
+// ERROR pass through to the base handler.
 package logsummary
 
 import (
@@ -30,112 +29,44 @@ func TestParseMode(t *testing.T) {
 	}
 }
 
-func TestOneLineOrdersByCountThenText(t *testing.T) {
-	got := OneLine(map[string]int{
-		"lint read file":         11,
-		"lint install go tool":   3,
-		"lint run gate via make": 1,
-	})
-	want := "read 11 files, installed 3 Go tools, ran 1 gate"
-	if got != want {
-		t.Errorf("OneLine = %q, want %q", got, want)
-	}
-}
-
-func TestOneLineLowercaseJoined(t *testing.T) {
-	got := OneLine(map[string]int{
-		"lint read file":       11,
-		"lint install go tool": 3,
-	})
-	want := "read 11 files, installed 3 Go tools"
-	if got != want {
-		t.Errorf("OneLine = %q, want %q", got, want)
-	}
-	if OneLine(map[string]int{}) != "" {
-		t.Error("OneLine of empty counts should be empty")
-	}
-}
-
-func TestOneLineSingularAndMerge(t *testing.T) {
-	if got := OneLine(map[string]int{"lint read file": 1}); got != "read 1 file" {
-		t.Errorf("singular OneLine = %q, want %q", got, "read 1 file")
-	}
-	merged := OneLine(map[string]int{
-		"lint read file":         2,
-		"lint read file content": 3,
-	})
-	if merged != "read 5 files" {
-		t.Errorf("merge OneLine = %q, want %q", merged, "read 5 files")
-	}
-}
-
-func TestOneLineFallbackSentence(t *testing.T) {
-	got := OneLine(map[string]int{"lint evaluate bypass token": 2})
-	if got != "evaluate bypass token: 2 times" {
-		t.Errorf("fallback OneLine = %q, want %q", got, "evaluate bypass token: 2 times")
-	}
-}
-
-func TestOneLineBucketsFileListing(t *testing.T) {
-	got := OneLine(map[string]int{
-		"lint find go files for gocyclo":    1,
-		"lint list module go files for fmt": 1,
-	})
-	if got != "listed Go files 2 times" {
-		t.Errorf("file-listing OneLine = %q, want %q", got, "listed Go files 2 times")
-	}
-}
-
-func TestHandlerSummaryCollapsesInfoAndPassesWarnError(t *testing.T) {
+func TestHandlerSummaryDropsInfoAndPassesWarnError(t *testing.T) {
 	var buf bytes.Buffer
-	handler := &Handler{
-		base:    slog.NewTextHandler(&buf, nil),
-		mode:    ModeSummary,
-		counter: newCounter(),
-	}
+	handler := &Handler{base: slog.NewTextHandler(&buf, nil), mode: ModeSummary}
 	logger := slog.New(handler)
 	logger.Info("lint read file", slog.String("path", "a.go"))
-	logger.Info("lint read file", slog.String("path", "b.go"))
 	logger.Warn("watch out")
 	logger.Error("broke", slog.String("err", "boom"))
 
 	streamed := buf.String()
 	if strings.Contains(streamed, "lint read file") {
-		t.Errorf("INFO should be collapsed, not streamed:\n%s", streamed)
+		t.Errorf("INFO should be dropped from stderr, not streamed:\n%s", streamed)
 	}
 	if !strings.Contains(streamed, "watch out") || !strings.Contains(streamed, "broke") {
 		t.Errorf("WARN and ERROR must pass through:\n%s", streamed)
-	}
-	if got := handler.counter.snapshot()["lint read file"]; got != 2 {
-		t.Errorf("collapsed INFO count = %d, want 2", got)
 	}
 }
 
 func TestHandlerQuietDropsInfoKeepsError(t *testing.T) {
 	var buf bytes.Buffer
-	handler := &Handler{
-		base:    slog.NewTextHandler(&buf, nil),
-		mode:    ModeQuiet,
-		counter: newCounter(),
-	}
+	handler := &Handler{base: slog.NewTextHandler(&buf, nil), mode: ModeQuiet}
 	logger := slog.New(handler)
 	logger.Info("lint read file")
 	logger.Error("broke", slog.String("err", "boom"))
 
-	if got := len(handler.counter.snapshot()); got != 0 {
-		t.Errorf("quiet mode must not count INFO, got %d entries", got)
+	streamed := buf.String()
+	if strings.Contains(streamed, "lint read file") {
+		t.Errorf("quiet mode must drop INFO from stderr:\n%s", streamed)
 	}
-	if !strings.Contains(buf.String(), "broke") {
-		t.Errorf("quiet mode must still stream ERROR:\n%s", buf.String())
+	if !strings.Contains(streamed, "broke") {
+		t.Errorf("quiet mode must still stream ERROR:\n%s", streamed)
 	}
 }
 
 func TestHandlerDebugStreamsInfo(t *testing.T) {
 	var buf bytes.Buffer
 	handler := &Handler{
-		base:    slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}),
-		mode:    ModeDebug,
-		counter: newCounter(),
+		base: slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}),
+		mode: ModeDebug,
 	}
 	logger := slog.New(handler)
 	logger.Info("lint read file", slog.String("path", "a.go"))
@@ -143,13 +74,10 @@ func TestHandlerDebugStreamsInfo(t *testing.T) {
 	if !strings.Contains(buf.String(), "lint read file") {
 		t.Errorf("debug mode must stream INFO:\n%s", buf.String())
 	}
-	if got := len(handler.counter.snapshot()); got != 0 {
-		t.Errorf("debug mode must not collapse, got %d entries", got)
-	}
 }
 
 func TestHandlerEnabledThresholds(t *testing.T) {
-	summary := &Handler{base: slog.NewTextHandler(&bytes.Buffer{}, nil), mode: ModeSummary, counter: newCounter()}
+	summary := &Handler{base: slog.NewTextHandler(&bytes.Buffer{}, nil), mode: ModeSummary}
 	if summary.Enabled(context.Background(), slog.LevelDebug) {
 		t.Error("summary mode should not enable Debug")
 	}

@@ -25,7 +25,6 @@ func runBuildCheck() int {
 	}
 
 	steps := make([]report.StepResult, 0, 8)
-	diag := make(map[string]int)
 	status := 0
 
 	vetResult, vetStatus := runVetStep()
@@ -34,12 +33,11 @@ func runBuildCheck() int {
 		status = vetStatus
 	}
 
-	gateSteps, gateDiag, gateStatus, err := collectGateSteps()
+	gateSteps, gateStatus, err := collectGateSteps()
 	if err != nil {
 		return statusFromError(err)
 	}
 	steps = append(steps, gateSteps...)
-	mergeCounts(diag, gateDiag)
 	if gateStatus != 0 {
 		status = gateStatus
 	}
@@ -50,11 +48,9 @@ func runBuildCheck() int {
 		status = vulnStatus
 	}
 
-	mergeCounts(diag, logsummary.Counts())
 	writeStdout(report.Render(report.Report{
-		Title:           "go-mk build-check",
-		Steps:           steps,
-		DiagnosticsLine: diagnosticsLine(diag),
+		Title: "go-mk build-check",
+		Steps: steps,
 	}))
 	if status != 0 && bypassActive() {
 		status = 0

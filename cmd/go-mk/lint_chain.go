@@ -36,15 +36,13 @@ func runLintChain() int {
 	if logsummary.ParseMode(os.Getenv("GO_MK_LOG")) == logsummary.ModeDebug {
 		return runLintChainRaw()
 	}
-	steps, diag, status, err := collectGateSteps()
+	steps, status, err := collectGateSteps()
 	if err != nil {
 		return statusFromError(err)
 	}
-	mergeCounts(diag, logsummary.Counts())
 	writeStdout(report.Render(report.Report{
-		Title:           "lint",
-		Steps:           steps,
-		DiagnosticsLine: diagnosticsLine(diag),
+		Title: "lint",
+		Steps: steps,
 	}))
 	if status == 0 {
 		return 0
@@ -58,9 +56,9 @@ func runLintChain() int {
 // collectGateSteps runs each gate as an emit child, decodes its result marker
 // into a StepResult, and accumulates the per-gate diagnostic counts. It renders
 // nothing so both runLintChain and the build-check orchestrator can reuse it.
-func collectGateSteps() ([]report.StepResult, map[string]int, int, error) {
+func collectGateSteps() ([]report.StepResult, int, error) {
 	if err := ensureMakeDir(); err != nil {
-		return nil, nil, 0, err
+		return nil, 0, err
 	}
 	clearFailedGateFile()
 	gateList := splitWords(lintEnvDefault("LINT_GATES", defaultLintGates))
@@ -68,20 +66,16 @@ func collectGateSteps() ([]report.StepResult, map[string]int, int, error) {
 	makeArgs := splitWords(os.Getenv("GO_MK_RECURSIVE_MAKE_ARGS"))
 
 	steps := make([]report.StepResult, 0, len(gateList))
-	diag := make(map[string]int)
 	status := 0
 	for _, gateName := range gateList {
 		output, gateStatus := runGateViaMake(makeProgram, makeArgs, gateName)
 		marker, rest, found := extractMarker(output)
 		steps = append(steps, gateStep(gateName, marker, found, gateStatus, rest))
-		if found {
-			mergeCounts(diag, marker.Diagnostics)
-		}
 		if gateStatus != 0 {
 			status = gateStatus
 		}
 	}
-	return steps, diag, status, nil
+	return steps, status, nil
 }
 
 // runLintChainRaw streams every gate's full output, mirroring the historical
@@ -184,40 +178,6 @@ func formatFindings(raw []string) []string {
 		out = append(out, strings.Split(rendered, "\n")...)
 	}
 	return out
-}
-
-// diagnosticsOmit lists boundary messages the footnote drops because the status
-// table already conveys them; counting both the parent's recursion and each
-// child's gate evaluation would otherwise overstate the gate count.
-var diagnosticsOmit = map[string]struct{}{
-	"lint run gate":          {},
-	"lint run gate via make": {},
-	"build-check run tool":   {},
-}
-
-// diagnosticsLine renders the merged boundary-log counts as the report footnote,
-// dropping the gate-run messages the table already shows, or the empty string
-// when there is nothing left to report.
-func diagnosticsLine(counts map[string]int) string {
-	filtered := make(map[string]int, len(counts))
-	for message, count := range counts {
-		if _, omit := diagnosticsOmit[message]; omit {
-			continue
-		}
-		filtered[message] = count
-	}
-	one := logsummary.OneLine(filtered)
-	if one == "" {
-		return ""
-	}
-	return "Diagnostics: " + one
-}
-
-// mergeCounts adds the counts in from into into.
-func mergeCounts(into, from map[string]int) {
-	for message, count := range from {
-		into[message] += count
-	}
 }
 
 // findingPlural returns "s" for any count other than one.

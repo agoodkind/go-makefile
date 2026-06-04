@@ -12,6 +12,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"goodkind.io/go-makefile/internal/lint"
@@ -72,15 +75,40 @@ func gateTokenRaw() (string, bool) {
 	return feed.TFA.Titles.Canonical, true
 }
 
-// gateTokenSlug returns the slugified daily token, the value a caller passes as
-// BYPASS_LINT or BASELINE_TOKEN. It returns the empty string and false when the
-// token cannot be resolved.
-func gateTokenSlug() (string, bool) {
+// dailyTokenSlug returns the slugified daily token, reading it from a per-UTC-day
+// cache file under .make when present so repeated same-day builds make no
+// network call. On a cache miss it fetches the title, slugifies it, writes the
+// slug to the cache, and returns it. Only the slug is cached; the raw title
+// never touches disk. It returns the empty string and false when the token
+// cannot be resolved.
+func dailyTokenSlug() (string, bool) {
+	day := time.Now().UTC().Format("2006-01-02")
+	cachePath := filepath.Join(makeDir, "gate-token-"+day)
+	if cached, err := os.ReadFile(cachePath); err == nil {
+		if slug := strings.TrimSpace(string(cached)); slug != "" {
+			return slug, true
+		}
+	}
 	raw, ok := gateTokenRaw()
 	if !ok {
 		return "", false
 	}
-	return lint.Slugify(raw), true
+	slug := lint.Slugify(raw)
+	if slug == "" {
+		return "", false
+	}
+	if err := os.MkdirAll(makeDir, 0o755); err == nil {
+		slog.Info("gate write token cache", slog.String("day", day))
+		_ = os.WriteFile(cachePath, []byte(slug+"\n"), 0o644)
+	}
+	return slug, true
+}
+
+// gateTokenSlug returns the slugified daily token, the value a caller passes as
+// BYPASS_LINT or BASELINE_TOKEN. It returns the empty string and false when the
+// token cannot be resolved.
+func gateTokenSlug() (string, bool) {
+	return dailyTokenSlug()
 }
 
 // runGateToken prints the slugified daily token, so a caller can run
@@ -98,11 +126,13 @@ func runGateToken() int {
 
 // gateTokenExpected resolves the expected token for a gate check. An explicit
 // token command (BYPASS_TOKEN_CMD or BASELINE_TOKEN_CMD) overrides the native
-// fetch; otherwise the native HTTP resolver is used. The returned value is raw,
-// since the caller slugifies through gate.TokensMatch.
+// resolver and returns its raw output; otherwise the cached daily slug is
+// returned. gate.TokensMatch slugifies both sides, and slugifying a slug yields
+// the same slug, so returning the slug compares correctly and the same-day cache
+// keeps the gate off the network.
 func gateTokenExpected(commandOverride string) (string, bool) {
 	if commandOverride != "" {
 		return runTokenCommand(commandOverride)
 	}
-	return gateTokenRaw()
+	return dailyTokenSlug()
 }

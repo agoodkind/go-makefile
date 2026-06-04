@@ -22,7 +22,6 @@ import (
 	"goodkind.io/go-makefile/internal/capture"
 	"goodkind.io/go-makefile/internal/findings"
 	"goodkind.io/go-makefile/internal/lintgate"
-	"goodkind.io/go-makefile/internal/logsummary"
 )
 
 // writeStdout writes user-facing output to standard output.
@@ -36,12 +35,15 @@ func writeStderr(text string) {
 }
 
 func main() {
-	logsummary.Install(os.Stderr, logsummary.ParseMode(os.Getenv("GO_MK_LOG")))
-	// main is the process boundary, so it emits one structured event to
-	// satisfy missing_boundary_log. It is Debug so the summary handler keeps it
-	// below the INFO threshold it collapses; GO_MK_LOG=debug surfaces it.
+	cleanup := setupLogging()
+	// This is the process boundary, so it emits one structured event to satisfy
+	// missing_boundary_log. It is Debug so the summary handler keeps it below the
+	// INFO threshold it collapses; GO_MK_LOG=debug surfaces it.
 	slog.Debug("go-mk invoked")
 	code := run()
+	// cleanup ends the span and flushes any exporter. It runs before os.Exit,
+	// which would skip a deferred call, so a clean run still exports its trace.
+	cleanup()
 	os.Exit(code)
 }
 

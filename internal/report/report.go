@@ -1,9 +1,8 @@
 // Package report renders the single, clean run report the go-mk monolith prints
 // for a lint or build-check run. The command layer collects one StepResult per
-// check (gate, vet, govulncheck) plus a pre-rendered diagnostics footnote, and
-// this package turns them into one scannable block: an aligned status table, the
-// findings shown once under each failing check, a single verdict line, and the
-// diagnostics footnote on success. It is pure string formatting with no I/O, so
+// check (gate, vet, govulncheck), and this package turns them into one scannable
+// block: an aligned status table, the findings shown once under each failing
+// check, and a single verdict line. It is pure string formatting with no I/O, so
 // it is fully unit tested and never decides pass or fail; the caller supplies the
 // status it computed from the gate.
 package report
@@ -36,13 +35,10 @@ type StepResult struct {
 	Remediation string
 }
 
-// Report is the whole run. DiagnosticsLine is a pre-rendered one-line footnote
-// (for example "Diagnostics: read 14 files, ran 9 commands") printed only when
-// every step passed, so a failure keeps the findings prominent.
+// Report is the whole run.
 type Report struct {
-	Title           string
-	Steps           []StepResult
-	DiagnosticsLine string
+	Title string
+	Steps []StepResult
 }
 
 func (step StepResult) failed() bool {
@@ -94,11 +90,6 @@ func Render(rep Report) string {
 	builder.WriteString("\n")
 	if len(failedNames) == 0 {
 		builder.WriteString("  All checks passed.\n")
-		if rep.DiagnosticsLine != "" {
-			builder.WriteString("\n  ")
-			builder.WriteString(rep.DiagnosticsLine)
-			builder.WriteString("\n")
-		}
 		return builder.String()
 	}
 	fmt.Fprintf(&builder, "  %d check%s failed: %s\n",

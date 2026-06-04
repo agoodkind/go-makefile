@@ -142,16 +142,17 @@ export CODESIGN_IDENTITY
 export CODESIGN_TIMESTAMP
 export CODESIGN_ENTITLEMENTS
 
-# build, install, and uninstall run in the go-mk engine. build-check
-# (vet+lint+govulncheck) runs first through the make prerequisite unless
-# BUILD_CHECKS=false. install builds every declared binary before placing it,
-# so it always builds. Signing runs inside the engine on macOS only.
-build: build-check | go-mk-bin
+# build, install, and uninstall run in the go-mk engine. The engine runs the
+# full gate (vet, lint, govulncheck) in-process before it compiles, so one
+# process owns the whole run: one correlation trace, one header, and gates that
+# cannot be skipped. install builds every declared binary before placing it.
+# Signing runs inside the engine on macOS only.
+build: | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" build
 
 deploy: install
 
-install: build-check | go-mk-bin
+install: | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" install
 
 uninstall: | go-mk-bin

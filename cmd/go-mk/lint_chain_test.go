@@ -9,10 +9,9 @@ import (
 
 func TestExtractMarkerStripsAndParses(t *testing.T) {
 	line, err := report.EncodeMarker(report.GateMarker{
-		Name:        "lint-gocyclo",
-		Passed:      false,
-		Findings:    []string{"a.go:1:1: too complex"},
-		Diagnostics: map[string]int{"lint read file": 2},
+		Name:     "lint-gocyclo",
+		Passed:   false,
+		Findings: []string{"a.go:1:1: too complex"},
 	})
 	if err != nil {
 		t.Fatalf("EncodeMarker: %v", err)
@@ -65,20 +64,5 @@ func TestGateStepFallbackWithoutMarker(t *testing.T) {
 	}
 	if len(step.Findings) == 0 {
 		t.Error("fallback must surface captured output so nothing is hidden")
-	}
-}
-
-func TestDiagnosticsLineOmitsGateRuns(t *testing.T) {
-	got := diagnosticsLine(map[string]int{
-		"lint read file":         3,
-		"lint run gate":          5,
-		"lint run gate via make": 5,
-		"build-check run tool":   2,
-	})
-	if got != "Diagnostics: read 3 files" {
-		t.Errorf("diagnosticsLine = %q, want %q", got, "Diagnostics: read 3 files")
-	}
-	if diagnosticsLine(map[string]int{}) != "" {
-		t.Error("empty counts should yield no footnote")
 	}
 }

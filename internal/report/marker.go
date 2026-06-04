@@ -12,17 +12,14 @@ import (
 const MarkerPrefix = "\x1fGOMK-RESULT\x1f"
 
 // GateMarker is the wire form of one gate child's outcome: the gate's own
-// verdict and findings (computed by lintgate, unchanged) plus the child
-// process's collapsed diagnostic counts. The parent decodes it into a
-// StepResult and folds the diagnostics into the run total. Findings holds the
-// raw finding strings; the parent formats them for display so the gate's
-// detection stays untouched.
+// verdict and findings, computed by lintgate and unchanged. The parent decodes
+// it into a StepResult. Findings holds the raw finding strings; the parent
+// formats them for display so the gate's detection stays untouched.
 type GateMarker struct {
-	Name        string         `json:"name"`
-	Passed      bool           `json:"passed"`
-	Findings    []string       `json:"findings"`
-	Remediation string         `json:"remediation"`
-	Diagnostics map[string]int `json:"diagnostics"`
+	Name        string   `json:"name"`
+	Passed      bool     `json:"passed"`
+	Findings    []string `json:"findings"`
+	Remediation string   `json:"remediation"`
 }
 
 // EncodeMarker renders a marker as one prefixed line with no embedded newlines,

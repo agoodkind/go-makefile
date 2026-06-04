@@ -1,6 +1,5 @@
 // Package report tests the single clean-report renderer: the aligned status
-// table, the per-failure detail blocks, the verdict line, and the
-// success-only diagnostics footnote.
+// table, the per-failure detail blocks, and the verdict line.
 package report
 
 import (
@@ -16,16 +15,13 @@ func TestRenderCleanRun(t *testing.T) {
 			{Name: "lint-golangci", Status: StatusOK},
 			{Name: "staticcheck-extra", Status: StatusOK},
 		},
-		DiagnosticsLine: "Diagnostics: read 14 files, ran 9 commands",
 	})
 	want := "go-mk build-check\n\n" +
 		"  vet                ok\n" +
 		"  lint-golangci      ok\n" +
 		"  staticcheck-extra  ok\n" +
 		"\n" +
-		"  All checks passed.\n" +
-		"\n" +
-		"  Diagnostics: read 14 files, ran 9 commands\n"
+		"  All checks passed.\n"
 	if got != want {
 		t.Errorf("clean render mismatch:\ngot:\n%q\nwant:\n%q", got, want)
 	}
@@ -48,7 +44,6 @@ func TestRenderFailedRunShowsFindingsOnce(t *testing.T) {
 			},
 			{Name: "govulncheck", Status: StatusOK},
 		},
-		DiagnosticsLine: "Diagnostics: read 14 files",
 	})
 
 	if !strings.Contains(got, "  lint-gocyclo   FAILED  (1 new finding)\n") {

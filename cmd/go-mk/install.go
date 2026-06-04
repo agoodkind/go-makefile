@@ -40,9 +40,14 @@ type installConfig struct {
 	codesignEntitlements string
 }
 
-// runInstall builds every declared binary, then installs each, returning the
-// process exit code. Build runs before install in the one command.
+// runInstall runs the full gate, builds every declared binary, then installs
+// each, returning the process exit code. The gate runs in-process first so one
+// process owns the whole run and a gate failure blocks the install unless the
+// bypass token is active.
 func runInstall() int {
+	if code := runBuildCheck(); code != 0 {
+		return code
+	}
 	cfg, err := loadInstallConfig()
 	if err != nil {
 		return statusFromError(err)
@@ -58,9 +63,14 @@ func runInstall() int {
 	return 0
 }
 
-// runBuild builds every declared binary without installing, returning the
-// process exit code.
+// runBuild runs the full gate, then builds every declared binary without
+// installing, returning the process exit code. The gate runs in-process first
+// so one process owns the whole run and a gate failure blocks the build unless
+// the bypass token is active.
 func runBuild() int {
+	if code := runBuildCheck(); code != 0 {
+		return code
+	}
 	cfg, err := loadInstallConfig()
 	if err != nil {
 		return statusFromError(err)
@@ -158,23 +168,33 @@ func parseInstallBins(text, binary, mainPkg, installDir string) ([]binSpec, erro
 	return bins, nil
 }
 
-// buildAll builds every declared binary into the dist directory.
+// buildAll builds every declared binary into the dist directory and prints one
+// sign line for the whole run rather than one per binary.
 func buildAll(cfg installConfig) error {
 	if err := os.MkdirAll(cfg.distDir, 0o755); err != nil {
 		return err
 	}
+	signed := 0
 	for _, bin := range cfg.bins {
-		if err := buildOne(cfg, bin); err != nil {
+		didSign, err := buildOne(cfg, bin)
+		if err != nil {
 			return err
 		}
+		if didSign {
+			signed++
+		}
+	}
+	if signed > 0 {
+		slog.Info("install signed binaries", slog.Int("count", signed))
+		writeStdout("codesign   ok\n")
 	}
 	return nil
 }
 
 // buildOne compiles one binary into dist/<name> with the assembled build flags,
-// then signs it on macOS. CGO and GOOS/GOARCH are inherited from the
-// environment so the repo's own settings apply.
-func buildOne(cfg installConfig, bin binSpec) error {
+// then signs it on macOS, returning whether it signed. CGO and GOOS/GOARCH are
+// inherited from the environment so the repo's own settings apply.
+func buildOne(cfg installConfig, bin binSpec) (bool, error) {
 	out := filepath.Join(cfg.distDir, bin.name)
 	args := []string{"build"}
 	if cfg.buildTags != "" {
@@ -186,20 +206,23 @@ func buildOne(cfg installConfig, bin binSpec) error {
 	args = append(args, cfg.extraFlags...)
 	args = append(args, "-o", out, bin.mainPkg)
 	if err := runProcess("go", args, nil); err != nil {
-		return err
+		return false, err
 	}
 	return signBinary(cfg, out)
 }
 
-// signBinary signs one binary with codesign on macOS. It is a no-op on every
-// other platform, so a Linux-only or cross-platform repo builds with no signing
-// step. An empty identity on macOS is an error, matching the former make macro.
-func signBinary(cfg installConfig, bin string) error {
+// signBinary signs one binary with codesign on macOS, returning whether it
+// signed so the caller prints one sign line per run rather than one per binary.
+// The verify runs without --verbose so a multi-binary run does not stream a
+// block per binary. It is a no-op on every other platform, so a Linux-only or
+// cross-platform repo builds with no signing step. An empty identity on macOS is
+// an error, matching the former make macro.
+func signBinary(cfg installConfig, bin string) (bool, error) {
 	if runtime.GOOS != "darwin" {
-		return nil
+		return false, nil
 	}
 	if cfg.codesignIdentity == "" {
-		return errNoCodesignIdentity
+		return false, errNoCodesignIdentity
 	}
 	args := []string{
 		"--force", "--sign", cfg.codesignIdentity,
@@ -212,9 +235,12 @@ func signBinary(cfg installConfig, bin string) error {
 	}
 	args = append(args, bin)
 	if err := runProcess("codesign", args, nil); err != nil {
-		return err
+		return false, err
 	}
-	return runProcess("codesign", []string{"--verify", "--verbose=2", bin}, nil)
+	if err := runProcess("codesign", []string{"--verify", bin}, nil); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // installOne installs one built binary into its target directory. When the
