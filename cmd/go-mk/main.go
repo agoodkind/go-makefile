@@ -134,6 +134,9 @@ func run() int {
 		writeStdout("Name: notice\n")
 		writeStdout("Name: build-check\n")
 		writeStdout("Name: release\n")
+		writeStdout("Name: install\n")
+		writeStdout("Name: build\n")
+		writeStdout("Name: uninstall\n")
 		writeStdout("Name: go-version-check\n")
 		return 0
 	}
@@ -183,6 +186,15 @@ func run() int {
 	}
 	if command == "release" {
 		return runRelease()
+	}
+	if command == "install" {
+		return runInstall()
+	}
+	if command == "build" {
+		return runBuild()
+	}
+	if command == "uninstall" {
+		return runUninstall()
 	}
 	if command == "go-version-check" {
 		return runGoVersionCheck()

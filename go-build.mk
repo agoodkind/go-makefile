@@ -21,7 +21,7 @@
 # Makefile if needed.
 STATICCHECK_EXTRA_FLAGS ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
 
-.PHONY: build deploy install install-start uninstall version-info clean-dist
+.PHONY: build deploy install uninstall version-info clean-dist
 
 # Auto-detect mode. LIBRARY mode skips build/install (lint/test/vet still apply
 # from go.mk). The default is binary mode, requiring BINARY+CMD+VPKG.
@@ -65,6 +65,12 @@ DIST_BIN := $(DIST_DIR)/$(BINARY)
 
 INSTALL_DIR ?= $(or $(XDG_BIN_HOME),$(HOME)/.local/bin)
 INSTALL_BIN := $(INSTALL_DIR)/$(BINARY)
+
+# Extra binaries beyond the primary BINARY, declared as space-separated
+# name:cmd pairs (an optional third field name:cmd:dir overrides INSTALL_DIR for
+# that binary). Empty means the single BINARY:CMD, so single-binary repos
+# declare nothing. The go-mk install/build/uninstall commands read this.
+INSTALL_BINS ?=
 
 # Version metadata derived from git. Single canonical scheme across all repos.
 GIT_COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -117,51 +123,39 @@ BUNDLE_ID          ?= io.goodkind.$(BINARY)
 CODESIGN_IDENTITY  ?= $(or $(CERT_ID),$(shell if [ "$$(uname)" = "Darwin" ]; then security find-identity -v -p codesigning 2>/dev/null | awk '/Developer ID Application/ { print $$2; exit }'; fi))
 CODESIGN_TIMESTAMP ?= none
 CODESIGN_ENTITLEMENTS ?=
-CODESIGN_ENTITLEMENTS_FLAG := $(if $(strip $(CODESIGN_ENTITLEMENTS)),--entitlements "$(CODESIGN_ENTITLEMENTS)",)
+# Inputs the go-mk install/build/uninstall commands read from the environment.
+# go-mk assembles the build argv from the GO_BUILD_* values, stamps nothing
+# itself (the ldflags are computed above), signs on macOS from the CODESIGN_*
+# values, and installs each declared binary.
+export BINARY
+export CMD
+export VPKG
+export GKLOG_VPKG
+export DIST_DIR
+export INSTALL_DIR
+export INSTALL_BINS
+export GO_BUILD_TAGS
+export GO_BUILD_LDFLAGS
+export GO_BUILD_EXTRA_FLAGS
+export BUNDLE_ID
+export CODESIGN_IDENTITY
+export CODESIGN_TIMESTAMP
+export CODESIGN_ENTITLEMENTS
 
-define codesign_binary
-	@if [ "$$(uname)" = "Darwin" ]; then \
-		if [ -z "$(CODESIGN_IDENTITY)" ]; then \
-			echo "No Developer ID Application signing identity found."; \
-			echo "Set CERT_ID in config.mk or install a Developer ID Application certificate."; \
-			exit 1; \
-		fi; \
-		echo "Signing $(1) with $(CODESIGN_IDENTITY)..."; \
-		codesign --force --sign "$(CODESIGN_IDENTITY)" --identifier "$(BUNDLE_ID)" --options runtime --timestamp=$(CODESIGN_TIMESTAMP) $(CODESIGN_ENTITLEMENTS_FLAG) "$(1)"; \
-		codesign --verify --verbose=2 "$(1)"; \
-	fi
-endef
+# build, install, and uninstall run in the go-mk engine. build-check
+# (vet+lint+govulncheck) runs first through the make prerequisite unless
+# BUILD_CHECKS=false. install builds every declared binary before placing it,
+# so it always builds. Signing runs inside the engine on macOS only.
+build: $(default-build-deps) | go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" build
 
-# Build runs build-check (vet+lint+govulncheck) from go.mk first, unless
-# BUILD_CHECKS=false is set. On macOS, the resulting binary is signed in
-# place before install copies it.
-build: $(default-build-deps)
-	@mkdir -p $(DIST_DIR)
-	go build $(GO_BUILD_FLAGS) -o $(DIST_BIN) $(CMD)
-	@echo "built: $(DIST_BIN)"
-	$(call codesign_binary,$(DIST_BIN))
-
-# Atomic install to $(INSTALL_BIN) via mktemp + rename. Avoids a torn binary
-# if the cp is interrupted mid-write.
 deploy: install
 
-install: install-start build
-	@printf 'install: installing %s to %s\n' '$(BINARY)' '$(INSTALL_BIN)'
-	@mkdir -p $(INSTALL_DIR)
-	@out="$$(mktemp $(INSTALL_BIN).new.XXXXXX)"; \
-	trap 'rm -f "$$out"' EXIT; \
-	cp -f "$(DIST_BIN)" "$$out"; \
-	chmod 0755 "$$out"; \
-	test -s "$$out"; \
-	mv -f "$$out" "$(INSTALL_BIN)"
-	@echo "installed: $(INSTALL_BIN)"
+install: $(default-build-deps) | go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" install
 
-install-start:
-	@printf 'install: building %s before install to %s\n' '$(BINARY)' '$(INSTALL_BIN)'
-
-uninstall:
-	@rm -f $(INSTALL_BIN)
-	@echo "removed: $(INSTALL_BIN)"
+uninstall: | go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" uninstall
 
 version-info:
 	@echo "binary:      $(BINARY)"
