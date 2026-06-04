@@ -116,7 +116,7 @@ GOLANGCI_LINT_TARGETS  ?= ./...
 LINT_CONCURRENCY       ?= auto
 GO_MK_COMMA            := ,
 GOLANGCI_LINT_FLAGS    ?= -c $(GO_MK_GOLANGCI_CONFIG)
-GOLANGCI_LINT_RUN_FLAGS ?= $(GOLANGCI_LINT_FLAGS) $(if $(filter-out 0 auto,$(strip $(LINT_CONCURRENCY))),--concurrency=$(LINT_CONCURRENCY))
+GOLANGCI_LINT_RUN_FLAGS ?= $(GOLANGCI_LINT_FLAGS) --allow-parallel-runners $(if $(filter-out 0 auto,$(strip $(LINT_CONCURRENCY))),--concurrency=$(LINT_CONCURRENCY))
 GOLANGCI_LINT_BASELINE ?= .golangci-lint-baseline.txt
 GOLANGCI_LINT_BASELINE_RUNS ?= 3
 GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
