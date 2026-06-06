@@ -114,6 +114,9 @@ func moduleGoFiles(targets []string) ([]string, error) {
 // runFmt applies the configured Go formatters scoped to the current module,
 // mirroring run_fmt. It no-ops when the module owns no Go files.
 func runFmt() error {
+	if err := ensureLintTools(); err != nil {
+		return err
+	}
 	binary, args, err := golangciFmtCommand()
 	if errors.Is(err, errNoGoFiles) {
 		return nil
@@ -281,6 +284,13 @@ func runLintFiles() int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+	if err := ensureLintTools(); err != nil {
+		return statusFromError(err)
+	}
+	// Resolve (build) the analyzer binary in-process, the work the
+	// staticcheck-extra-bin make prerequisite used to do. A resolution failure is
+	// best-effort: resolveStaticcheckBin below then reports the gate as skipped.
+	_ = staticcheckResolveBin()
 	files := splitWords(filesText)
 	packages := lint.ScopedPackagesFromFiles(files)
 	lineRangesFile := os.Getenv("LINT_LINE_RANGES")

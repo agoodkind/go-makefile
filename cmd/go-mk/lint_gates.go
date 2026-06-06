@@ -91,11 +91,26 @@ func runLintTools() error {
 	return installGoTool(lintEnvDefault("GOIMPORTS_INSTALL", "golang.org/x/tools/cmd/goimports@v0.45.0"))
 }
 
+// ensureLintTools installs the golangci-lint tool trio for a standalone gate or
+// fmt run, the work the lint-tools make prerequisite used to do. The aggregate
+// chain installs the tools once in collectGateSteps and then sets
+// GO_MK_DIAG_EMIT, so the per-gate ensure is a no-op there and the install
+// happens exactly once across the run.
+func ensureLintTools() error {
+	if gateEmitEnabled() {
+		return nil
+	}
+	return runLintTools()
+}
+
 // runLintGolangci runs the golangci-lint gate, mirroring run_lint_golangci. It
 // captures findings, gates them against the baseline, and on a tool failure
 // with no findings prints the FAILED block with the raw output.
 func runLintGolangci() int {
 	if err := ensureMakeDir(); err != nil {
+		return statusFromError(err)
+	}
+	if err := ensureLintTools(); err != nil {
 		return statusFromError(err)
 	}
 	rawPath := filepath.Join(makeDir, "golangci-lint.raw.out")
@@ -139,6 +154,9 @@ func runLintGolangciScope() int {
 		return 2
 	}
 	if err := ensureMakeDir(); err != nil {
+		return statusFromError(err)
+	}
+	if err := ensureLintTools(); err != nil {
 		return statusFromError(err)
 	}
 	rawPath := filepath.Join(makeDir, "golangci-lint-scope.raw.out")
@@ -218,6 +236,9 @@ func scopeLines(lines []string, scopePattern string) []string {
 // tool exits non-zero.
 func runLintFormat() int {
 	if err := ensureMakeDir(); err != nil {
+		return statusFromError(err)
+	}
+	if err := ensureLintTools(); err != nil {
 		return statusFromError(err)
 	}
 	outputPath := filepath.Join(makeDir, "lint-format.out")

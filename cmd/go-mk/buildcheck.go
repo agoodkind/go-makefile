@@ -20,6 +20,9 @@ import (
 // report. GO_MK_LOG=debug falls back to streaming each phase for troubleshooting.
 // It returns the exit code, non-zero when any step failed.
 func runBuildCheck() int {
+	// notice runs in-process here, the work the go-mk-notice make prerequisite
+	// used to do. It is best-effort and prints only to stderr.
+	runNotice()
 	if logsummary.ParseMode(os.Getenv("GO_MK_LOG")) == logsummary.ModeDebug {
 		return runBuildCheckRaw()
 	}
