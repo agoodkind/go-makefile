@@ -15,11 +15,10 @@ on:
         description: >-
           Space-separated apt packages to install before the Go steps, for
           consumers that need system libraries (for example a CGO dependency
-          such as libpcre2-dev). Empty by default so consumers without system
-          dependencies are unaffected.
+          such as libpcre2-dev). A consumer with no system dependencies omits
+          this input and the install step does not run.
         required: false
         type: string
-        default: ""
 
 jobs:
   lint:
