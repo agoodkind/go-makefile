@@ -12,7 +12,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-func TestNoTildePathLiteralFlagsBareTilde(t *testing.T) {
+func TestNoTildeDisplayReturnNotFlagged(t *testing.T) {
 	t.Parallel()
 
 	source := `package service
@@ -22,57 +22,116 @@ func Path() string {
 }
 `
 	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service.go", source)
+	wantNoDiagnostics(t, diags)
+}
+
+func TestNoTildeDisplayReturnSlashNotFlagged(t *testing.T) {
+	t.Parallel()
+
+	source := `package service
+
+func ConfigPath() string {
+	return "~/.config/app"
+}
+`
+	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service.go", source)
+	wantNoDiagnostics(t, diags)
+}
+
+func TestNoTildeFlagsDirectPathArg(t *testing.T) {
+	t.Parallel()
+
+	source := `package service
+
+import "os"
+
+func Load() {
+	_, _ = os.Open("~/.config/app")
+}
+`
+	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service.go", source)
+	wantOnce(t, diags, `hardcoded home directory "~/.config/app"`)
+}
+
+func TestNoTildeFlagsFilepathJoinArg(t *testing.T) {
+	t.Parallel()
+
+	source := `package service
+
+import "path/filepath"
+
+func Build() string {
+	return filepath.Join("~", "config")
+}
+`
+	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service.go", source)
 	wantOnce(t, diags, `hardcoded home directory "~"`)
 }
 
-func TestNoTildePathLiteralFlagsTildeSlashPath(t *testing.T) {
+func TestNoTildeFlagsLocalAssignedThenPathArg(t *testing.T) {
 	t.Parallel()
 
 	source := `package service
 
-func ConfigPath() string {
-	return "~/.config/app"
+import "os"
+
+func Load() {
+	home := "~/.config/app"
+	_, _ = os.Open(home)
 }
 `
 	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service.go", source)
 	wantOnce(t, diags, `hardcoded home directory "~/.config/app"`)
 }
 
-func TestNoTildePathLiteralFlagsRawString(t *testing.T) {
-	t.Parallel()
-
-	source := "package service\n\nfunc ConfigPath() string {\n\treturn `~/.config/app`\n}\n"
-	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service.go", source)
-	wantOnce(t, diags, `hardcoded home directory "~/.config/app"`)
-}
-
-func TestNoTildePathLiteralIgnoresMiddleTilde(t *testing.T) {
+func TestNoTildeIgnoresLocalAssignedNotUsedInPath(t *testing.T) {
 	t.Parallel()
 
 	source := `package service
 
-func Token() string {
-	return "a~b"
+func Describe() string {
+	label := "~/.config/app"
+	return "configured at " + label
 }
 `
 	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service.go", source)
-	if len(diags) != 0 {
-		t.Fatalf("expected no diagnostics for middle-tilde literal, got %d: %v", len(diags), diags)
-	}
+	wantNoDiagnostics(t, diags)
 }
 
-func TestNoTildePathLiteralSkipsTestFiles(t *testing.T) {
+func TestNoTildeIgnoresMiddleTilde(t *testing.T) {
 	t.Parallel()
 
 	source := `package service
 
-func ConfigPath() string {
-	return "~/.config/app"
+import "os"
+
+func Token() {
+	_, _ = os.Open("a~b")
+}
+`
+	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service.go", source)
+	wantNoDiagnostics(t, diags)
+}
+
+func TestNoTildeSkipsTestFiles(t *testing.T) {
+	t.Parallel()
+
+	source := `package service
+
+import "os"
+
+func Load() {
+	_, _ = os.Open("~/.config/app")
 }
 `
 	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service_test.go", source)
+	wantNoDiagnostics(t, diags)
+}
+
+func wantNoDiagnostics(t *testing.T, diags []analysis.Diagnostic) {
+	t.Helper()
 	if len(diags) != 0 {
-		t.Fatalf("expected no diagnostics in test file, got %d: %v", len(diags), diags)
+		t.Fatalf("expected no diagnostics, got %d: %v", len(diags), diags)
 	}
 }
 

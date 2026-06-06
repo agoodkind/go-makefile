@@ -10,9 +10,9 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -33,6 +33,9 @@ const defaultLintGates = "lint-golangci lint-format lint-gocyclo lint-deadcode s
 // the historical raw streaming for troubleshooting. It returns the exit code and
 // honours the BYPASS_LINT bypass.
 func runLintChain() int {
+	// notice runs in-process here, the work the go-mk-notice make prerequisite
+	// used to do. It is best-effort and prints only to stderr.
+	runNotice()
 	if logsummary.ParseMode(os.Getenv("GO_MK_LOG")) == logsummary.ModeDebug {
 		return runLintChainRaw()
 	}
@@ -53,22 +56,39 @@ func runLintChain() int {
 	return status
 }
 
-// collectGateSteps runs each gate as an emit child, decodes its result marker
-// into a StepResult, and accumulates the per-gate diagnostic counts. It renders
-// nothing so both runLintChain and the build-check orchestrator can reuse it.
+// collectGateSteps runs each gate in-process, decodes its result marker into a
+// StepResult, and accumulates the per-gate diagnostic counts. It renders nothing
+// so both runLintChain and the build-check orchestrator can reuse it. The whole
+// run stays inside one go-mk process under one trace: it ensures the lint tools
+// up front (the work the lint-tools make prerequisite used to do) and invokes
+// each gate as a direct function call instead of recursing into make.
 func collectGateSteps() ([]report.StepResult, int, error) {
 	if err := ensureMakeDir(); err != nil {
 		return nil, 0, err
 	}
 	clearFailedGateFile()
+	if err := runLintTools(); err != nil {
+		return nil, 0, err
+	}
+	// GO_MK_DIAG_EMIT switches each gate's render to its structured marker, which
+	// the capture below collects. The recursive-make path set this on the gate
+	// sub-make's environment; in-process it is set once on this process.
+	if err := os.Setenv("GO_MK_DIAG_EMIT", "1"); err != nil {
+		return nil, 0, err
+	}
+	runners := gateRunners()
 	gateList := splitWords(lintEnvDefault("LINT_GATES", defaultLintGates))
-	makeProgram := lintEnvDefault("GO_MK_RECURSIVE_MAKE", lintEnvDefault("MAKE", "make"))
-	makeArgs := splitWords(os.Getenv("GO_MK_RECURSIVE_MAKE_ARGS"))
 
 	steps := make([]report.StepResult, 0, len(gateList))
 	status := 0
 	for _, gateName := range gateList {
-		output, gateStatus := runGateViaMake(makeProgram, makeArgs, gateName)
+		runner, ok := runners[gateName]
+		if !ok {
+			steps = append(steps, unknownGateStep(gateName))
+			status = 1
+			continue
+		}
+		output, gateStatus := captureGateOutput(runner)
 		marker, rest, found := extractMarker(output)
 		steps = append(steps, gateStep(gateName, marker, found, gateStatus, rest))
 		if gateStatus != 0 {
@@ -78,30 +98,95 @@ func collectGateSteps() ([]report.StepResult, int, error) {
 	return steps, status, nil
 }
 
-// runLintChainRaw streams every gate's full output, mirroring the historical
-// run_lint_chain. It is the GO_MK_LOG=debug path used to troubleshoot the gates
-// without the structured report.
+// gateRunners maps each LINT_GATES name to its in-process runner. LINT_GATES
+// still selects and orders the gates; the chain invokes these directly instead
+// of recursing into make, so the lint run is one go-mk process under one trace.
+// A gate name absent from this map is reported as a failed step rather than
+// silently passing.
+func gateRunners() map[string]func() int {
+	return map[string]func() int{
+		"lint-golangci":     runLintGolangci,
+		"lint-format":       runLintFormat,
+		"lint-gocyclo":      runLintGocyclo,
+		"lint-deadcode":     runLintDeadcode,
+		"staticcheck-extra": runStaticcheckExtra,
+	}
+}
+
+// unknownGateStep records and renders a LINT_GATES entry that has no in-process
+// runner, so a misconfigured gate list is visible instead of silently skipped.
+func unknownGateStep(gateName string) report.StepResult {
+	slog.Warn("lint encountered unknown gate", slog.String("gate", gateName))
+	return report.StepResult{
+		Name:     gateName,
+		Status:   report.StatusFailed,
+		Findings: []string{"unknown lint gate; not registered for in-process execution"},
+	}
+}
+
+// captureGateOutput runs one gate in-process with stdout and stderr redirected
+// to a pipe, returning the combined output split into lines and the gate's exit
+// status. It reproduces the combined-output capture the recursive-make path
+// produced, so extractMarker and gateStep treat an in-process gate exactly like
+// a gate sub-make. The run's structured logs are unaffected: the summary handler
+// holds the original stderr captured at setupLogging, so slog output still
+// reaches the terminal rather than the pipe.
+func captureGateOutput(run func() int) ([]string, int) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		slog.Error("lint could not open gate capture pipe", slog.String("err", err.Error()))
+		return nil, run()
+	}
+	originalStdout, originalStderr := os.Stdout, os.Stderr
+	os.Stdout = writer
+	os.Stderr = writer
+	collected := make(chan string, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("lint gate capture reader panicked", slog.Any("err", r))
+				collected <- ""
+			}
+		}()
+		data, _ := io.ReadAll(reader)
+		collected <- string(data)
+	}()
+	status := run()
+	os.Stdout = originalStdout
+	os.Stderr = originalStderr
+	_ = writer.Close()
+	text := <-collected
+	_ = reader.Close()
+	return splitOutputLines(text), status
+}
+
+// runLintChainRaw streams every gate's full output for the GO_MK_LOG=debug path
+// used to troubleshoot the gates without the structured report. It ensures the
+// lint tools, then runs each gate in-process in render mode (GO_MK_DIAG_EMIT
+// unset) so the gate prints its own human text directly.
 func runLintChainRaw() int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
 	clearFailedGateFile()
+	if err := runLintTools(); err != nil {
+		return statusFromError(err)
+	}
+	runners := gateRunners()
 	gateList := splitWords(lintEnvDefault("LINT_GATES", defaultLintGates))
-	makeProgram := lintEnvDefault("GO_MK_RECURSIVE_MAKE", lintEnvDefault("MAKE", "make"))
-	makeArgs := splitWords(os.Getenv("GO_MK_RECURSIVE_MAKE_ARGS"))
 
-	aggregate := make([]string, 0)
 	status := 0
 	for _, gateName := range gateList {
 		writeStdout("lint: running " + gateName + "\n")
-		output, gateStatus := runGateViaMake(makeProgram, makeArgs, gateName)
-		aggregate = append(aggregate, output...)
-		if gateStatus != 0 {
-			status = gateStatus
+		runner, ok := runners[gateName]
+		if !ok {
+			writeStdout("lint: unknown gate " + gateName + "\n")
+			status = 1
+			continue
 		}
-	}
-	for _, line := range lint.FilterMakeErrorLines(aggregate) {
-		writeStdout(line + "\n")
+		if code := runner(); code != 0 {
+			status = code
+		}
 	}
 	if status == 0 {
 		return 0
@@ -186,33 +271,6 @@ func findingPlural(count int) string {
 		return ""
 	}
 	return "s"
-}
-
-// runGateViaMake runs one gate target via recursive make with GO_MK_SKIP_FETCH
-// set, captures combined stdout and stderr into a slice of lines, and returns
-// the captured exit status, mirroring the per-gate recurse in run_lint_chain.
-// It runs a process, so it emits a boundary log.
-func runGateViaMake(makeProgram string, makeArgs []string, gateName string) ([]string, int) {
-	slog.Info("lint run gate via make", slog.String("gate", gateName))
-	args := make([]string, 0, len(makeArgs)+2)
-	args = append(args, makeArgs...)
-	args = append(args, "--no-print-directory", gateName)
-	cmd := exec.Command(makeProgram, args...)
-	childEnv := setEnvVar(os.Environ(), "GO_MK_SKIP_FETCH", "1")
-	if logsummary.ParseMode(os.Getenv("GO_MK_LOG")) != logsummary.ModeDebug {
-		childEnv = setEnvVar(childEnv, "GO_MK_DIAG_EMIT", "1")
-	}
-	cmd.Env = childEnv
-	out, err := cmd.CombinedOutput()
-	lines := splitOutputLines(string(out))
-	if err == nil {
-		return lines, 0
-	}
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		return lines, exitErr.ExitCode()
-	}
-	slog.Error("lint gate make failed to run", slog.String("gate", gateName), slog.String("err", err.Error()))
-	return lines, 1
 }
 
 // splitOutputLines splits captured output into lines, dropping a single
