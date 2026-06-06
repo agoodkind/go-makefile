@@ -2,7 +2,10 @@ package staticcheck
 
 import (
 	"go/ast"
+	"go/build"
 	"go/types"
+	"path/filepath"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 )
@@ -96,7 +99,7 @@ func checkFuncTypeSignature(pass *analysis.Pass, file *ast.File, ft *ast.FuncTyp
 func checkDeclaredType(pass *analysis.Pass, file *ast.File, spec *ast.TypeSpec) {
 	astCheckExpr(pass, file, spec.Type)
 	if t := pass.TypesInfo.TypeOf(spec.Type); t != nil {
-		if reason := bannedReason(t); reason != "" {
+		if reason := bannedReason(pass, t); reason != "" {
 			reportAtf(pass, file, spec.Pos(),
 				"type %s expands to %s, which is forbidden; define a deeply enumerated named type instead",
 				spec.Name.Name, reason)
@@ -108,7 +111,7 @@ func checkDeclaredType(pass *analysis.Pass, file *ast.File, spec *ast.TypeSpec) 
 			if ft == nil {
 				continue
 			}
-			if reason := bannedReason(ft); reason != "" {
+			if reason := bannedReason(pass, ft); reason != "" {
 				reportAtf(pass, file, field.Pos(),
 					"struct field type %s expands to %s; define a deeply enumerated named type",
 					types.ExprString(field.Type), reason)
@@ -124,7 +127,7 @@ func checkDeclaredType(pass *analysis.Pass, file *ast.File, spec *ast.TypeSpec) 
 func checkSignatureExpr(pass *analysis.Pass, file *ast.File, expr ast.Expr) {
 	astCheckExpr(pass, file, expr)
 	if t := pass.TypesInfo.TypeOf(expr); t != nil {
-		if reason := bannedReason(t); reason != "" {
+		if reason := bannedReason(pass, t); reason != "" {
 			reportAtf(pass, file, expr.Pos(),
 				"signature uses %s, which expands to %s; define a deeply enumerated named type",
 				types.ExprString(expr), reason)
@@ -156,49 +159,116 @@ func astCheckExpr(pass *analysis.Pass, file *ast.File, expr ast.Expr) {
 // through aliases, named types, maps, slices, arrays, channels, and
 // pointers. It stops at struct boundaries so struct field reporting is
 // done by checkDeclaredType.
-func bannedReason(t types.Type) string {
+//
+// A named type or alias declared in a dependency or in the standard library
+// is never reported. The consumer did not author that type; it only named
+// it. tea.Msg, whose underlying is interface{}, is mandated by the bubbletea
+// Model interface, and [database/sql/driver.Value] is `type Value any`. The
+// anti-laundering intent applies only to types declared inside the analyzed
+// module, whose source files live in the working tree rather than under the
+// module cache, GOROOT, or a vendor directory.
+func bannedReason(pass *analysis.Pass, t types.Type) string {
 	if t == nil {
+		return ""
+	}
+	if obj := typeDefiningObject(t); obj != nil && objectIsExternal(pass, obj) {
 		return ""
 	}
 	switch x := t.Underlying().(type) {
 	case *types.Interface:
-		if x.NumMethods() == 0 && x.NumEmbeddeds() == 0 {
-			return "any (empty interface)"
-		}
-		for embedded := range x.EmbeddedTypes() {
-			if r := bannedReason(embedded); r != "" {
-				return "interface embedding " + r
-			}
-		}
-		return ""
+		return interfaceBannedReason(pass, x)
 	case *types.Map:
-		if r := bannedReason(x.Key()); r != "" {
-			return "map with key " + r
-		}
-		if r := bannedReason(x.Elem()); r != "" {
-			return "map with value " + r
-		}
-		return ""
+		return mapBannedReason(pass, x)
 	case *types.Slice:
-		if r := bannedReason(x.Elem()); r != "" {
+		if r := bannedReason(pass, x.Elem()); r != "" {
 			return "slice of " + r
 		}
-		return ""
 	case *types.Array:
-		if r := bannedReason(x.Elem()); r != "" {
+		if r := bannedReason(pass, x.Elem()); r != "" {
 			return "array of " + r
 		}
-		return ""
 	case *types.Chan:
-		if r := bannedReason(x.Elem()); r != "" {
+		if r := bannedReason(pass, x.Elem()); r != "" {
 			return "channel of " + r
 		}
-		return ""
 	case *types.Pointer:
-		if r := bannedReason(x.Elem()); r != "" {
+		if r := bannedReason(pass, x.Elem()); r != "" {
 			return "pointer to " + r
 		}
-		return ""
 	}
 	return ""
+}
+
+// interfaceBannedReason reports the empty-interface reason for an interface
+// underlying type: the bare empty interface itself, or an embedded interface
+// that expands to one.
+func interfaceBannedReason(pass *analysis.Pass, x *types.Interface) string {
+	if x.NumMethods() == 0 && x.NumEmbeddeds() == 0 {
+		return "any (empty interface)"
+	}
+	for embedded := range x.EmbeddedTypes() {
+		if r := bannedReason(pass, embedded); r != "" {
+			return "interface embedding " + r
+		}
+	}
+	return ""
+}
+
+// mapBannedReason reports the empty-interface reason for a map underlying type,
+// checking the key then the value.
+func mapBannedReason(pass *analysis.Pass, x *types.Map) string {
+	if r := bannedReason(pass, x.Key()); r != "" {
+		return "map with key " + r
+	}
+	if r := bannedReason(pass, x.Elem()); r != "" {
+		return "map with value " + r
+	}
+	return ""
+}
+
+// typeDefiningObject returns the TypeName that declares t when t is a named
+// type or an alias, and nil otherwise. It locates the source file that
+// declares the type so dependency and standard-library types can be exempted.
+func typeDefiningObject(t types.Type) *types.TypeName {
+	switch x := t.(type) {
+	case *types.Named:
+		return x.Obj()
+	case *types.Alias:
+		return x.Obj()
+	}
+	return nil
+}
+
+// objectIsExternal reports whether obj is declared outside the analyzed
+// module: in a dependency under the module cache, in the standard library
+// under GOROOT, or under a vendor directory. A builtin or universe type
+// (obj.Pkg() == nil, such as error) is treated as in-repo so existing
+// behavior is unchanged.
+func objectIsExternal(pass *analysis.Pass, obj *types.TypeName) bool {
+	if obj == nil || obj.Pkg() == nil {
+		return false
+	}
+	pos := obj.Pos()
+	if !pos.IsValid() {
+		return false
+	}
+	return fileIsExternalDependency(pass.Fset.Position(pos).Filename)
+}
+
+// fileIsExternalDependency reports whether path lives in the module cache,
+// the standard library tree, or a vendor directory. The substring checks
+// mirror the path heuristic style used by isGoBuildCacheDescriptorPath.
+func fileIsExternalDependency(path string) bool {
+	if path == "" {
+		return false
+	}
+	slash := filepath.ToSlash(path)
+	if strings.Contains(slash, "/vendor/") || strings.Contains(slash, "/pkg/mod/") {
+		return true
+	}
+	goroot := build.Default.GOROOT
+	if goroot == "" {
+		return false
+	}
+	return pathIsWithin(slash, filepath.ToSlash(filepath.Clean(goroot)))
 }
