@@ -11,6 +11,15 @@ on:
         required: false
         type: string
         default: "false"
+      apt_packages:
+        description: >-
+          Space-separated apt packages to install before the Go steps, for
+          consumers that need system libraries (for example a CGO dependency
+          such as libpcre2-dev). Empty by default so consumers without system
+          dependencies are unaffected.
+        required: false
+        type: string
+        default: ""
 
 jobs:
   lint:
@@ -20,6 +29,11 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: ${{ inputs.submodules }}
+      - name: Install apt packages
+        if: inputs.apt_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ inputs.apt_packages }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -37,6 +51,11 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: ${{ inputs.submodules }}
+      - name: Install apt packages
+        if: inputs.apt_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ inputs.apt_packages }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -50,6 +69,11 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: ${{ inputs.submodules }}
+      - name: Install apt packages
+        if: inputs.apt_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ inputs.apt_packages }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -62,6 +86,11 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: ${{ inputs.submodules }}
+      - name: Install apt packages
+        if: inputs.apt_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ inputs.apt_packages }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
