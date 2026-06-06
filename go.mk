@@ -14,14 +14,6 @@ GO_MK_API_REPO  ?= agoodkind/go-makefile
 GO_MK_API_REF   ?= main
 GO_MK_CACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile
 
-GO_MK_ENTRY_MAKEFILE := $(firstword $(MAKEFILE_LIST))
-GO_MK_ENTRY_BASENAME := $(notdir $(GO_MK_ENTRY_MAKEFILE))
-GO_MK_RECURSIVE_MAKE := $(MAKE)
-GO_MK_RECURSIVE_MAKE_ARGS :=
-ifeq ($(filter Makefile makefile GNUmakefile,$(GO_MK_ENTRY_BASENAME)),)
-GO_MK_RECURSIVE_MAKE_ARGS := -f $(GO_MK_ENTRY_MAKEFILE)
-endif
-
 GO_MK_SELF      := $(lastword $(MAKEFILE_LIST))
 GO_MK_SELF_DIR  := $(patsubst %/,%,$(dir $(abspath $(GO_MK_SELF))))
 GO_MK_LOCAL_SCRIPT_DIR := $(if $(strip $(GO_MK_DEV_DIR)),$(GO_MK_DEV_DIR)/scripts,$(GO_MK_SELF_DIR)/scripts)
@@ -222,8 +214,6 @@ GO_MK_BIN_RESOLVED := $(if $(strip $(GO_MK_BIN)),$(GO_MK_BIN),$(CURDIR)/.make/go
 export GO_MK_ROOT := $(CURDIR)
 export GO_MK_HELPER_DIR
 export GO_MK_NOTICES_FILE
-export GO_MK_RECURSIVE_MAKE
-export GO_MK_RECURSIVE_MAKE_ARGS
 export GO_MK_SCRIPT_FILES
 export GO_MK_BASE_URL
 export GO_MK_API_REPO
@@ -285,7 +275,7 @@ export GO_MK_BUILD_PKG
 export GO_MK_INSTALL
 
 ifeq ($(filter go-build.mk,$(GO_MK_MODULES)),)
-build: build-check | go-mk-notice
+build: build-check
 	go build $(GO_BUILD_OUTPUT_FLAGS) $(GO_BUILD_FLAGS) $(GO_BUILD_TARGETS)
 
 deploy:
@@ -324,7 +314,7 @@ help:
 	@printf '  %-40s %s\n' 'go-mk-sync / update-go-mk' 'refresh go.mk, helper scripts, modules, and golangci.yml'
 	@printf '  %-40s %s\n' 'smoke-fetch' 'force a fetch-path smoke run'
 
-lint: lint-tools go-mk-bin | go-mk-notice
+lint: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" lint
 
 go-mk-notice: go-mk-bin
@@ -333,7 +323,7 @@ go-mk-notice: go-mk-bin
 lint-tools: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" lint-tools
 
-lint-golangci: lint-tools go-mk-bin
+lint-golangci: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" lint-golangci
 
 lint-format: go-mk-bin
@@ -353,13 +343,13 @@ lint-gocyclo-baseline-remove-fixed: lint-gocyclo-baseline-prune-fixed
 lint-gocyclo-baseline-accept-new: go-mk-bin
 	@BASELINE_UPDATE_MODE=accept-new "$(GO_MK_BIN_RESOLVED)" baseline gocyclo
 
-lint-files: lint-tools staticcheck-extra-bin go-mk-bin
+lint-files: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" lint-files
 
-lint-diff: lint-tools staticcheck-extra-bin go-mk-bin
+lint-diff: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" lint-diff
 
-fmt: lint-tools go-mk-bin
+fmt: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" fmt
 
 vet: go-mk-bin
@@ -380,7 +370,7 @@ baseline-bin go-mk-bin:
 staticcheck-extra-bin: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" staticcheck-extra-bin
 
-staticcheck-extra: staticcheck-extra-bin
+staticcheck-extra: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" staticcheck-extra
 
 lint-golangci-baseline: go-mk-bin
@@ -394,7 +384,7 @@ lint-golangci-baseline-remove-fixed: lint-golangci-baseline-prune-fixed
 lint-golangci-baseline-accept-new: go-mk-bin
 	@BASELINE_UPDATE_MODE=accept-new "$(GO_MK_BIN_RESOLVED)" baseline golangci
 
-lint-golangci-scope: lint-tools go-mk-bin
+lint-golangci-scope: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" lint-golangci-scope
 
 lint-golangci-baseline-scope: go-mk-bin
@@ -414,31 +404,31 @@ lint-deadcode-baseline-remove-fixed: lint-deadcode-baseline-prune-fixed
 lint-deadcode-baseline-accept-new: go-mk-bin
 	@BASELINE_UPDATE_MODE=accept-new "$(GO_MK_BIN_RESOLVED)" baseline deadcode
 
-staticcheck-extra-baseline: staticcheck-extra-bin go-mk-bin
+staticcheck-extra-baseline: go-mk-bin
 	@BASELINE_UPDATE_MODE=sync "$(GO_MK_BIN_RESOLVED)" baseline staticcheck-extra
 
-staticcheck-extra-baseline-prune-fixed: staticcheck-extra-bin go-mk-bin
+staticcheck-extra-baseline-prune-fixed: go-mk-bin
 	@BASELINE_UPDATE_MODE=prune-fixed "$(GO_MK_BIN_RESOLVED)" baseline staticcheck-extra
 
 staticcheck-extra-baseline-remove-fixed: staticcheck-extra-baseline-prune-fixed
 
-staticcheck-extra-baseline-accept-new: staticcheck-extra-bin go-mk-bin
+staticcheck-extra-baseline-accept-new: go-mk-bin
 	@BASELINE_UPDATE_MODE=accept-new "$(GO_MK_BIN_RESOLVED)" baseline staticcheck-extra
 
-build-check: go-mk-bin | go-mk-notice
+build-check: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" build-check
 
 check: lint
 
-baseline: lint-tools staticcheck-extra-bin go-mk-bin
+baseline: go-mk-bin
 	@BASELINE_UPDATE_MODE=sync "$(GO_MK_BIN_RESOLVED)" baseline all
 
-baseline-prune-fixed: lint-tools staticcheck-extra-bin go-mk-bin
+baseline-prune-fixed: go-mk-bin
 	@BASELINE_UPDATE_MODE=prune-fixed "$(GO_MK_BIN_RESOLVED)" baseline all
 
 baseline-remove-fixed: baseline-prune-fixed
 
-baseline-accept-new: lint-tools staticcheck-extra-bin go-mk-bin
+baseline-accept-new: go-mk-bin
 	@BASELINE_UPDATE_MODE=accept-new "$(GO_MK_BIN_RESOLVED)" baseline all
 
 baseline-add-new: baseline-accept-new
