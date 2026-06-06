@@ -1,18 +1,39 @@
 name: Release
 
-# Reusable, fully open-source Go release primitive. All orchestration lives in
-# the go-mk binary `release` command (cross-compile with CGO disabled, sign and
-# notarize darwin binaries with anchore/quill, tar.gz with sha256 checksums, tag
-# push, GitHub release). This workflow only sets up the toolchain and runs
-# `make release`; build identity, version package, platforms, and entitlements
-# come from the consumer's Makefile. Signing is skipped automatically when the
-# signing secret is absent.
+# Reusable, fully open-source Go release primitive. Each platform builds on its
+# own native runner, so a cgo consumer whose system libraries cannot be
+# cross-compiled (libpcre2, sqlite, tree-sitter, and the like) still builds
+# correctly; darwin binaries are signed and notarized with anchore/quill
+# (Apache-2.0). All build, sign, archive, checksum, tag, and publish logic lives
+# in the go-mk `release` command, driven one stage per job: tag computes a single
+# shared tag, build runs per native runner, and publish collects every uploaded
+# archive into one GitHub release. Build identity, version package, and
+# entitlements come from the consumer's Makefile. Signing is skipped
+# automatically when the signing secret is absent.
 
 on:
   workflow_call:
     inputs:
+      cgo:
+        description: Build with CGO_ENABLED=1 on the native runners.
+        required: false
+        type: boolean
+        default: false
+      apt_packages:
+        description: Space-separated apt packages to install on the Linux build runners.
+        required: false
+        type: string
+      brew_packages:
+        description: Space-separated Homebrew packages to install on the macOS build runners.
+        required: false
+        type: string
+      submodules:
+        description: Submodule checkout mode passed straight to actions/checkout.
+        required: false
+        type: string
+        default: "false"
       quill_version:
-        description: Pinned anchore/quill version to install.
+        description: Pinned anchore/quill version to install for darwin signing.
         required: false
         type: string
         default: "v0.7.1"
@@ -22,31 +43,104 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Release
+  tag:
+    name: Tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: ${{ inputs.submodules }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - id: tag
+        env:
+          RELEASE_STAGE: tag
+        run: make release
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: tag
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-24.04
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-24.04-arm
+          - goos: darwin
+            goarch: amd64
+            runner: macos-15-intel
+          - goos: darwin
+            goarch: arm64
+            runner: macos-14
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: ${{ inputs.submodules }}
+      - name: Install apt packages
+        if: runner.os == 'Linux' && inputs.apt_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ inputs.apt_packages }}
+      - name: Install brew packages
+        if: runner.os == 'macOS' && inputs.brew_packages != ''
+        run: brew install ${{ inputs.brew_packages }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Install quill
+        if: runner.os == 'macOS'
+        env:
+          GOFLAGS: ""
+        run: go install github.com/anchore/quill/cmd/quill@${{ inputs.quill_version }}
+      - name: Build
+        env:
+          RELEASE_STAGE: build
+          RELEASE_TAG: ${{ needs.tag.outputs.tag }}
+          RELEASE_PLATFORMS: ${{ matrix.goos }}/${{ matrix.goarch }}
+          CGO_ENABLED: ${{ inputs.cgo && '1' || '0' }}
+          QUILL_SIGN_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          QUILL_SIGN_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          QUILL_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          QUILL_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          QUILL_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: make release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: [tag, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
-      QUILL_SIGN_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
-      QUILL_SIGN_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
-      QUILL_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
-      QUILL_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
-      QUILL_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-
-      - name: Install quill
+      - name: Publish
         env:
-          GOFLAGS: ""
-        run: go install github.com/anchore/quill/cmd/quill@${{ inputs.quill_version }}
-
-      - name: Release
+          RELEASE_STAGE: publish
+          RELEASE_TAG: ${{ needs.tag.outputs.tag }}
         run: make release
