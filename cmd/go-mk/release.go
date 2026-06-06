@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -45,14 +46,107 @@ type releaseConfig struct {
 	prerelease   bool
 }
 
-// runRelease loads the release configuration and runs the full pipeline,
-// returning the process exit code.
+// runRelease loads the release configuration and runs the requested stage. The
+// matrix workflow drives three stages: tag computes one shared tag, build runs
+// per native runner (one platform, cgo honoured, darwin signed), and publish
+// collects every uploaded archive into the GitHub release. An unset stage keeps
+// the single-runner all-in-one pipeline for a pure-Go consumer that does not
+// need the matrix. It returns the process exit code.
 func runRelease() int {
 	cfg, err := loadReleaseConfig()
 	if err != nil {
 		return statusFromError(err)
 	}
-	return statusFromError(executeRelease(cfg))
+	switch releaseStage(strings.TrimSpace(os.Getenv("RELEASE_STAGE"))) {
+	case stageTag:
+		return statusFromError(emitReleaseTag(cfg))
+	case stageBuild:
+		return statusFromError(buildStage(cfg))
+	case stagePublish:
+		return statusFromError(publishStage(cfg))
+	default:
+		return statusFromError(executeRelease(cfg))
+	}
+}
+
+// releaseStage is the named enum of release stages the matrix workflow drives
+// through RELEASE_STAGE. An empty or unrecognized value runs the single-runner
+// all-in-one pipeline.
+type releaseStage string
+
+const (
+	stageTag     releaseStage = "tag"
+	stageBuild   releaseStage = "build"
+	stagePublish releaseStage = "publish"
+)
+
+// emitReleaseTag prints the computed tag so the matrix workflow threads one
+// consistent tag to every build and publish job. It writes the tag to stdout
+// and, under GitHub Actions, appends `tag=<tag>` to GITHUB_OUTPUT so the calling
+// step exposes it as an output.
+func emitReleaseTag(cfg releaseConfig) error {
+	writeStdout(cfg.tag + "\n")
+	outputPath := strings.TrimSpace(os.Getenv("GITHUB_OUTPUT"))
+	if outputPath == "" {
+		return nil
+	}
+	slog.Info("release emit tag", slog.String("tag", cfg.tag))
+	file, err := os.OpenFile(outputPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+	_, err = file.WriteString("tag=" + cfg.tag + "\n")
+	return err
+}
+
+// buildStage builds, signs, and archives the configured platforms without
+// pushing a tag or publishing. Each native runner sets RELEASE_PLATFORMS to its
+// own os/arch, so this builds one platform with the runner's toolchain; cgo is
+// honoured through CGO_ENABLED and the system libraries the workflow installed.
+func buildStage(cfg releaseConfig) error {
+	if err := os.MkdirAll(cfg.distDir, 0o755); err != nil {
+		return err
+	}
+	for _, platform := range cfg.platforms {
+		if err := buildPlatform(cfg, platform); err != nil {
+			return err
+		}
+	}
+	if err := signDarwinBinaries(cfg); err != nil {
+		return err
+	}
+	_, err := archivePlatforms(cfg)
+	return err
+}
+
+// publishStage pushes the prerelease tag, writes checksums over the archives the
+// build jobs uploaded into the dist directory, and publishes the GitHub release.
+// It runs once after the build matrix completes.
+func publishStage(cfg releaseConfig) error {
+	if err := pushReleaseTag(cfg); err != nil {
+		return err
+	}
+	archives, err := distArchives(cfg.distDir)
+	if err != nil {
+		return err
+	}
+	checksums, err := writeChecksums(cfg, archives)
+	if err != nil {
+		return err
+	}
+	return publishRelease(cfg, append(archives, checksums))
+}
+
+// distArchives returns the sorted tar.gz archives present in the dist directory,
+// the per-platform artifacts the build jobs uploaded for this release.
+func distArchives(distDir string) ([]string, error) {
+	matches, err := filepath.Glob(filepath.Join(distDir, "*.tar.gz"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(matches)
+	return matches, nil
 }
 
 // loadReleaseConfig resolves the release inputs from the environment and git.
@@ -106,6 +200,12 @@ func loadReleaseConfig() (releaseConfig, error) {
 	tag := fmt.Sprintf("%s-%s-%s", now.Format("200601021504"), hexRun, shortSHA)
 	if stable {
 		tag = refName
+	}
+	// The matrix tag job computes the timestamp tag once and threads it to every
+	// build and publish job through RELEASE_TAG so each native runner agrees on
+	// one tag; a stable v-tag is already identical across runners.
+	if forced := strings.TrimSpace(os.Getenv("RELEASE_TAG")); forced != "" {
+		tag = forced
 	}
 
 	return releaseConfig{
@@ -190,8 +290,20 @@ func buildPlatform(cfg releaseConfig, platform string) error {
 	}
 	outPath := filepath.Join(outDir, cfg.binary)
 	args := []string{"build", "-trimpath", "-ldflags", releaseLdflags(cfg), "-o", outPath, cfg.mainPkg}
-	env := []string{"CGO_ENABLED=0", "GOOS=" + osName, "GOARCH=" + arch}
+	env := []string{"CGO_ENABLED=" + cgoEnabledValue(), "GOOS=" + osName, "GOARCH=" + arch}
 	return runProcess("go", args, env)
+}
+
+// cgoEnabledValue returns the CGO_ENABLED value for release builds, defaulting
+// to "0" so a pure-Go consumer keeps reproducible cross-compiles. A consumer
+// with a cgo dependency sets CGO_ENABLED=1 in the build job, where the native
+// runner and the system libraries the workflow installed make cgo compilation
+// possible.
+func cgoEnabledValue() string {
+	if value := strings.TrimSpace(os.Getenv("CGO_ENABLED")); value != "" {
+		return value
+	}
+	return "0"
 }
 
 // releaseLdflags builds the -ldflags value, stamping the project version
