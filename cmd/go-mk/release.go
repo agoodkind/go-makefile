@@ -330,12 +330,30 @@ func releaseLdflags(cfg releaseConfig) string {
 	return strings.Join(parts, " ")
 }
 
+// hasDarwinPlatform reports whether any configured platform targets darwin, so
+// a runner that built no darwin binary skips quill resolution entirely.
+func hasDarwinPlatform(platforms []string) bool {
+	for _, platform := range platforms {
+		if osName, _, ok := strings.Cut(platform, "/"); ok && osName == "darwin" {
+			return true
+		}
+	}
+	return false
+}
+
 // signDarwinBinaries signs and notarizes every darwin binary with quill. It is
 // skipped when no signing material is present so forks and dry runs still
 // build. quill reads its credentials from the QUILL_* environment variables.
 func signDarwinBinaries(cfg releaseConfig) error {
 	if strings.TrimSpace(os.Getenv("QUILL_SIGN_P12")) == "" {
 		slog.Info("release skip signing", slog.String("reason", "QUILL_SIGN_P12 unset"))
+		return nil
+	}
+	// Resolve quill only when this runner actually built a darwin binary. A
+	// linux build job in the matrix carries the signing secret in its
+	// environment but has no darwin platform and no quill installed, so
+	// resolving quill there would fail a build that has nothing to sign.
+	if !hasDarwinPlatform(cfg.platforms) {
 		return nil
 	}
 	quill, err := resolveQuill()
