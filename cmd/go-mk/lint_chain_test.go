@@ -1,38 +1,10 @@
 package main
 
 import (
-	"strings"
 	"testing"
 
 	"goodkind.io/go-makefile/internal/report"
 )
-
-func TestExtractMarkerStripsAndParses(t *testing.T) {
-	line, err := report.EncodeMarker(report.GateMarker{
-		Name:     "lint-gocyclo",
-		Passed:   false,
-		Findings: []string{"a.go:1:1: too complex"},
-	})
-	if err != nil {
-		t.Fatalf("EncodeMarker: %v", err)
-	}
-	captured := []string{"go: downloading something", line, "tool noise"}
-	marker, rest, found := extractMarker(captured)
-	if !found {
-		t.Fatal("expected to find a marker")
-	}
-	if marker.Name != "lint-gocyclo" || marker.Passed {
-		t.Errorf("unexpected marker: %+v", marker)
-	}
-	for _, leftover := range rest {
-		if strings.HasPrefix(leftover, report.MarkerPrefix) {
-			t.Errorf("marker line was not stripped: %q", leftover)
-		}
-	}
-	if len(rest) != 2 {
-		t.Errorf("rest should keep the non-marker lines, got %v", rest)
-	}
-}
 
 func TestGateStepFromMarker(t *testing.T) {
 	pass := gateStep("lint-format", report.GateMarker{Name: "lint-format", Passed: true}, true, 0, nil)

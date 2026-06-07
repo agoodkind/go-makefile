@@ -347,9 +347,12 @@ func runStaticcheckExtra() int {
 	}
 	// Resolve (build or install) the analyzer binary in-process, the work the
 	// staticcheck-extra-bin make prerequisite used to do, so the gate is one
-	// self-contained go-mk process.
-	if status := runStaticcheckBin(); status != 0 {
-		return status
+	// self-contained go-mk process. The aggregate run resolves it once up front
+	// in prepareChecks and sets checksToolsPrepared, so the gate skips it there.
+	if !checksToolsPrepared {
+		if status := runStaticcheckBin(); status != 0 {
+			return status
+		}
 	}
 	rawPath := filepath.Join(makeDir, "staticcheck-extra.raw.out")
 	findingsPath := filepath.Join(makeDir, "staticcheck-extra.out")

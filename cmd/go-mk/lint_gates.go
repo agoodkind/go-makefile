@@ -15,6 +15,7 @@ import (
 
 	"goodkind.io/go-makefile/internal/findings"
 	"goodkind.io/go-makefile/internal/lint"
+	"goodkind.io/go-makefile/internal/report"
 )
 
 // golangciCommand builds the golangci-lint argv for the run or fmt mode,
@@ -93,11 +94,10 @@ func runLintTools() error {
 
 // ensureLintTools installs the golangci-lint tool trio for a standalone gate or
 // fmt run, the work the lint-tools make prerequisite used to do. The aggregate
-// chain installs the tools once in collectGateSteps and then sets
-// GO_MK_DIAG_EMIT, so the per-gate ensure is a no-op there and the install
-// happens exactly once across the run.
+// run installs every tool once in prepareChecks and sets checksToolsPrepared, so
+// the per-gate ensure is a no-op there and the install happens exactly once.
 func ensureLintTools() error {
-	if gateEmitEnabled() {
+	if checksToolsPrepared {
 		return nil
 	}
 	return runLintTools()
@@ -244,6 +244,10 @@ func runLintFormat() int {
 	outputPath := filepath.Join(makeDir, "lint-format.out")
 	binary, args, fmtErr := golangciFmtCommand()
 	if errors.Is(fmtErr, errNoGoFiles) {
+		if gateCollecting {
+			recordGateMarker(report.GateMarker{Name: "lint-format", Passed: true})
+			return 0
+		}
 		writeStdout("lint-format: OK\n")
 		writeStdout("  No Go source files in this module.\n")
 		return 0
@@ -262,20 +266,33 @@ func runLintFormat() int {
 		return statusFromError(err)
 	}
 	if output != "" {
+		recordFailedGate("lint-format")
+		if gateCollecting {
+			rest := append([]string{"golangci-lint formatters need to update:"}, splitOutputLines(output)...)
+			rest = append(rest, "run make fmt")
+			recordGateToolFailure(rest)
+			return 1
+		}
 		writeStdout("golangci-lint formatters need to update:\n")
 		writeStdout(output)
 		if !strings.HasSuffix(output, "\n") {
 			writeStdout("\n")
 		}
 		writeStdout("run make fmt\n")
-		recordFailedGate("lint-format")
 		return 1
 	}
 	if status != 0 {
+		recordFailedGate("lint-format")
+		if gateCollecting {
+			recordGateToolFailure([]string{"Exit status: " + strconv.Itoa(status)})
+			return status
+		}
 		writeStdout("lint-format: FAILED\n")
 		writeStdout("  Exit status: " + strconv.Itoa(status) + "\n")
-		recordFailedGate("lint-format")
 		return status
+	}
+	if gateCollecting {
+		recordGateMarker(report.GateMarker{Name: "lint-format", Passed: true})
 	}
 	return 0
 }
@@ -417,8 +434,10 @@ func runLintGocyclo() int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
-	if err := installGoTool(lintEnvDefault("GOCYCLO_INSTALL", "github.com/fzipp/gocyclo/cmd/gocyclo@latest")); err != nil {
-		return statusFromError(err)
+	if !checksToolsPrepared {
+		if err := installGoTool(lintEnvDefault("GOCYCLO_INSTALL", "github.com/fzipp/gocyclo/cmd/gocyclo@latest")); err != nil {
+			return statusFromError(err)
+		}
 	}
 	rawPath := filepath.Join(makeDir, "gocyclo.raw.out")
 	findingsPath := filepath.Join(makeDir, "gocyclo.out")
@@ -483,8 +502,10 @@ func runLintDeadcode() int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
-	if err := installGoTool(lintEnvDefault("DEADCODE_INSTALL", "golang.org/x/tools/cmd/deadcode@latest")); err != nil {
-		return statusFromError(err)
+	if !checksToolsPrepared {
+		if err := installGoTool(lintEnvDefault("DEADCODE_INSTALL", "golang.org/x/tools/cmd/deadcode@latest")); err != nil {
+			return statusFromError(err)
+		}
 	}
 	rawPath := filepath.Join(makeDir, "deadcode.raw.out")
 	findingsPath := filepath.Join(makeDir, "deadcode.out")
@@ -518,6 +539,15 @@ func runLintDeadcode() int {
 // with no extracted findings, mirroring the shell's tool-failure tail. It reads
 // the raw file, so it emits a boundary log via readFileContent.
 func reportToolFailure(gateName string, status int, rawPath string) int {
+	if gateCollecting {
+		rest := []string{"Exit status: " + strconv.Itoa(status), "", "Output:"}
+		if lines, err := readFileLines(rawPath); err == nil {
+			rest = append(rest, lines...)
+		}
+		recordGateToolFailure(rest)
+		recordFailedGate(gateName)
+		return status
+	}
 	writeStdout(gateName + ": FAILED\n")
 	writeStdout("  Exit status: " + strconv.Itoa(status) + "\n\n")
 	writeStdout("Output:\n")

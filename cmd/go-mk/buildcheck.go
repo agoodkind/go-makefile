@@ -26,35 +26,10 @@ func runBuildCheck() int {
 	if logsummary.ParseMode(os.Getenv("GO_MK_LOG")) == logsummary.ModeDebug {
 		return runBuildCheckRaw()
 	}
-
-	steps := make([]report.StepResult, 0, 8)
-	status := 0
-
-	vetResult, vetStatus := runVetStep()
-	steps = append(steps, vetResult)
-	if vetStatus != 0 {
-		status = vetStatus
-	}
-
-	gateSteps, gateStatus, err := collectGateSteps()
-	if err != nil {
+	if err := prepareChecks(true); err != nil {
 		return statusFromError(err)
 	}
-	steps = append(steps, gateSteps...)
-	if gateStatus != 0 {
-		status = gateStatus
-	}
-
-	vulnResult, vulnStatus := runGovulncheckStep()
-	steps = append(steps, vulnResult)
-	if vulnStatus != 0 {
-		status = vulnStatus
-	}
-
-	writeStdout(report.Render(report.Report{
-		Title: "go-mk build-check",
-		Steps: steps,
-	}))
+	status := runChecks("go-mk build-check", buildCheckChecks())
 	if status != 0 && bypassActive() {
 		status = 0
 	}
@@ -89,8 +64,10 @@ func runVetStep() (report.StepResult, int) {
 // runGovulncheckStep installs and runs govulncheck as a captured build-check
 // step, mirroring runGovulncheck but collecting a StepResult.
 func runGovulncheckStep() (report.StepResult, int) {
-	if err := installGoTool("golang.org/x/vuln/cmd/govulncheck@latest"); err != nil {
-		return toolFailure("govulncheck", err), 1
+	if !checksToolsPrepared {
+		if err := installGoTool("golang.org/x/vuln/cmd/govulncheck@latest"); err != nil {
+			return toolFailure("govulncheck", err), 1
+		}
 	}
 	gopathBin, err := goEnvPath("GOPATH")
 	if err != nil {

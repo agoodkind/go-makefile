@@ -10,7 +10,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -39,14 +38,10 @@ func runLintChain() int {
 	if logsummary.ParseMode(os.Getenv("GO_MK_LOG")) == logsummary.ModeDebug {
 		return runLintChainRaw()
 	}
-	steps, status, err := collectGateSteps()
-	if err != nil {
+	if err := prepareChecks(false); err != nil {
 		return statusFromError(err)
 	}
-	writeStdout(report.Render(report.Report{
-		Title: "lint",
-		Steps: steps,
-	}))
+	status := runChecks("lint", gateChecks())
 	if status == 0 {
 		return 0
 	}
@@ -54,48 +49,6 @@ func runLintChain() int {
 		return 0
 	}
 	return status
-}
-
-// collectGateSteps runs each gate in-process, decodes its result marker into a
-// StepResult, and accumulates the per-gate diagnostic counts. It renders nothing
-// so both runLintChain and the build-check orchestrator can reuse it. The whole
-// run stays inside one go-mk process under one trace: it ensures the lint tools
-// up front (the work the lint-tools make prerequisite used to do) and invokes
-// each gate as a direct function call instead of recursing into make.
-func collectGateSteps() ([]report.StepResult, int, error) {
-	if err := ensureMakeDir(); err != nil {
-		return nil, 0, err
-	}
-	clearFailedGateFile()
-	if err := runLintTools(); err != nil {
-		return nil, 0, err
-	}
-	// GO_MK_DIAG_EMIT switches each gate's render to its structured marker, which
-	// the capture below collects. The recursive-make path set this on the gate
-	// sub-make's environment; in-process it is set once on this process.
-	if err := os.Setenv("GO_MK_DIAG_EMIT", "1"); err != nil {
-		return nil, 0, err
-	}
-	runners := gateRunners()
-	gateList := splitWords(lintEnvDefault("LINT_GATES", defaultLintGates))
-
-	steps := make([]report.StepResult, 0, len(gateList))
-	status := 0
-	for _, gateName := range gateList {
-		runner, ok := runners[gateName]
-		if !ok {
-			steps = append(steps, unknownGateStep(gateName))
-			status = 1
-			continue
-		}
-		output, gateStatus := captureGateOutput(runner)
-		marker, rest, found := extractMarker(output)
-		steps = append(steps, gateStep(gateName, marker, found, gateStatus, rest))
-		if gateStatus != 0 {
-			status = gateStatus
-		}
-	}
-	return steps, status, nil
 }
 
 // gateRunners maps each LINT_GATES name to its in-process runner. LINT_GATES
@@ -122,42 +75,6 @@ func unknownGateStep(gateName string) report.StepResult {
 		Status:   report.StatusFailed,
 		Findings: []string{"unknown lint gate; not registered for in-process execution"},
 	}
-}
-
-// captureGateOutput runs one gate in-process with stdout and stderr redirected
-// to a pipe, returning the combined output split into lines and the gate's exit
-// status. It reproduces the combined-output capture the recursive-make path
-// produced, so extractMarker and gateStep treat an in-process gate exactly like
-// a gate sub-make. The run's structured logs are unaffected: the summary handler
-// holds the original stderr captured at setupLogging, so slog output still
-// reaches the terminal rather than the pipe.
-func captureGateOutput(run func() int) ([]string, int) {
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		slog.Error("lint could not open gate capture pipe", slog.String("err", err.Error()))
-		return nil, run()
-	}
-	originalStdout, originalStderr := os.Stdout, os.Stderr
-	os.Stdout = writer
-	os.Stderr = writer
-	collected := make(chan string, 1)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("lint gate capture reader panicked", slog.Any("err", r))
-				collected <- ""
-			}
-		}()
-		data, _ := io.ReadAll(reader)
-		collected <- string(data)
-	}()
-	status := run()
-	os.Stdout = originalStdout
-	os.Stderr = originalStderr
-	_ = writer.Close()
-	text := <-collected
-	_ = reader.Close()
-	return splitOutputLines(text), status
 }
 
 // runLintChainRaw streams every gate's full output for the GO_MK_LOG=debug path
@@ -205,27 +122,6 @@ func clearFailedGateFile() {
 	if err := os.Remove(failedPath); err != nil && !os.IsNotExist(err) {
 		slog.Warn("lint could not clear failed-gate file", slog.String("err", err.Error()))
 	}
-}
-
-// extractMarker scans captured gate output for the one result marker, returning
-// it along with the remaining lines (the marker stripped) and whether a marker
-// was found. The remaining lines are kept only as a fallback for a gate that
-// failed without emitting a marker.
-func extractMarker(lines []string) (report.GateMarker, []string, bool) {
-	rest := make([]string, 0, len(lines))
-	var marker report.GateMarker
-	found := false
-	for _, line := range lines {
-		if !found {
-			if parsed, ok := report.ParseMarker(line); ok {
-				marker = parsed
-				found = true
-				continue
-			}
-		}
-		rest = append(rest, line)
-	}
-	return marker, rest, found
 }
 
 // gateStep turns one gate's marker (or, as a fallback, its exit status and
