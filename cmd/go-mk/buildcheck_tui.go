@@ -152,10 +152,14 @@ func (m *checkModel) firstPendingIndex() int {
 func runChecksTUI(title string, checks []check) int {
 	width := checkNameWidth(checks)
 	model := newCheckModel(title, width, checks)
-	// A progress display needs no keyboard input. Disabling input keeps the run
-	// from opening the controlling TTY for input and from quitting early on a
-	// stdin EOF. SIGINT still terminates the process.
-	program := tea.NewProgram(model, tea.WithInput(nil))
+	// Standard input/output: Bubble Tea must read the terminal so it consumes the
+	// replies to the capability queries it emits at startup (synchronized-output
+	// and keyboard-protocol probes). Disabling input leaves those replies
+	// unconsumed, and they leak onto the shell as stray bytes after the program
+	// exits. When stdout is not a terminal the caller uses the streamed path
+	// instead, and if Bubble Tea cannot open the terminal here, Run returns an
+	// error and this function falls back to printing the report below.
+	program := tea.NewProgram(model)
 	results := make([]report.StepResult, len(checks))
 	done := make(chan int, 1)
 	go func() {
