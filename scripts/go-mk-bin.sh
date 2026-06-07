@@ -158,6 +158,10 @@ baseline_build_from_repo() {
     package_path="${GO_MK_BUILD_PKG:-./cmd/go-mk}"
     original_dir="${PWD}"
     mkdir -p "$(dirname "${output_path}")"
+    # Remove any prior output first so the build replaces a stale dev binary or
+    # an install symlink, rather than writing through a symlink into the
+    # installed binary.
+    rm -f "${output_path}"
     cd "${repo_path}"
     go_mk_run_lint_cpu go build -o "${output_path}" "${package_path}"
     cd "${original_dir}"
@@ -199,6 +203,7 @@ baseline_resolve_bin() {
     local output_path
     local newest_source
     local find_error
+    local rebuild_reason
 
     configured_bin="${GO_MK_BIN:-}"
     repo_path="${GO_MK_BUILD_REPO:-}"
@@ -223,13 +228,31 @@ baseline_resolve_bin() {
             printf "go-mk: build repo %s not present; skipping\n" "${repo_path}"
             return 0
         fi
-        newest_source=""
-        if [[ -x "${output_path}" ]]; then
+        rebuild_reason=""
+        if [[ ! -x "${output_path}" ]]; then
+            rebuild_reason="missing cached binary"
+        elif [[ -L "${output_path}" ]]; then
+            # A symlink is an installed (@main) binary, not a dev build. In dev
+            # mode always replace it with a fresh build from the dev checkout so
+            # a switch from the pinned engine back to the dev checkout takes
+            # effect even when the installed binary is newer than the source.
+            rebuild_reason="cached binary is an install symlink, not a dev build"
+        else
             go_mk_setup_temp_dir
             find_error="${GO_MK_TEMP_DIR}/go-mk-find.err"
-            newest_source=$(find "${repo_path}/cmd/go-mk" "${repo_path}/internal" -name "*.go" -newer "${output_path}" 2>"${find_error}" | head -1 || true)
+            # Rebuild when any build input is newer than the cached binary: a
+            # .go file under cmd/go-mk or internal, or the module files go.mod
+            # and go.sum, so a dependency bump with no .go change still triggers
+            # a rebuild.
+            newest_source=$(find "${repo_path}/cmd/go-mk" "${repo_path}/internal" "${repo_path}/go.mod" "${repo_path}/go.sum" \
+                \( -name "*.go" -o -name "go.mod" -o -name "go.sum" \) -newer "${output_path}" 2>"${find_error}" | head -1 || true)
+            if [[ -n "${newest_source}" ]]; then
+                rebuild_reason="source newer than cached binary"
+            elif baseline_missing_flags "${output_path}"; then
+                rebuild_reason="cached binary missing required capabilities"
+            fi
         fi
-        if [[ ! -x "${output_path}" || -n "${newest_source}" ]] || baseline_missing_flags "${output_path}"; then
+        if [[ -n "${rebuild_reason}" ]]; then
             baseline_build_from_repo
         fi
         return 0
