@@ -349,6 +349,15 @@ func findingResolvesInTree(path, root string) bool {
 	return true
 }
 
+// toolFailedWithoutFindings reports whether a non-zero tool exit with no
+// surfaced findings should be treated as a tool failure. When findings were
+// dropped as out-of-tree (a stale content-addressed cache replaying a deleted
+// sibling worktree's paths), the non-zero exit is explained by those dropped
+// findings, so the empty findings list is expected and is not a tool failure.
+func toolFailedWithoutFindings(status, findingCount, droppedOutOfTree int) bool {
+	return status != 0 && findingCount == 0 && droppedOutOfTree == 0
+}
+
 // outOfTreeNotice renders the user-facing line the golangci gate prints when
 // extractFindings dropped findings whose paths point outside the worktree,
 // which a stale content-addressed lint cache replays from a deleted sibling

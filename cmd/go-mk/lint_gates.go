@@ -143,7 +143,7 @@ func runLintGolangci() int {
 	if !passed {
 		return 1
 	}
-	if status != 0 && len(current) == 0 {
+	if toolFailedWithoutFindings(status, len(current), dropped) {
 		return reportToolFailure("golangci-lint", status, rawPath)
 	}
 	return 0

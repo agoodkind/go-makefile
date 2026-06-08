@@ -90,6 +90,34 @@ func TestLintEnvGolangciCacheRespectsOverride(t *testing.T) {
 	}
 }
 
+// TestToolFailedWithoutFindings proves that a non-zero golangci exit with no
+// surfaced findings is a real tool failure only when nothing was dropped as
+// out-of-tree; when out-of-tree findings were dropped, the non-zero exit is
+// explained by them and the gate must not report a tool failure.
+func TestToolFailedWithoutFindings(t *testing.T) {
+	testCases := []struct {
+		name    string
+		status  int
+		count   int
+		dropped int
+		want    bool
+	}{
+		{name: "genuine failure", status: 1, count: 0, dropped: 0, want: true},
+		{name: "explained by drops", status: 1, count: 0, dropped: 2, want: false},
+		{name: "clean run", status: 0, count: 0, dropped: 0, want: false},
+		{name: "has findings", status: 1, count: 3, dropped: 0, want: false},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := toolFailedWithoutFindings(testCase.status, testCase.count, testCase.dropped)
+			if got != testCase.want {
+				t.Errorf("toolFailedWithoutFindings(%d, %d, %d) = %v, want %v",
+					testCase.status, testCase.count, testCase.dropped, got, testCase.want)
+			}
+		})
+	}
+}
+
 // TestOutOfTreeNotice pins the user-facing line the golangci gate prints when it
 // drops out-of-tree findings.
 func TestOutOfTreeNotice(t *testing.T) {
