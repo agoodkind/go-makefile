@@ -203,6 +203,18 @@ func lintEnv() []string {
 	env := os.Environ()
 	env = setEnvVar(env, "GOMAXPROCS", strconv.Itoa(concurrency))
 	env = setEnvVar(env, "GOFLAGS", capture.LintGOFLAGS(os.Getenv("GOFLAGS"), concurrency))
+	// Isolate golangci-lint's content-addressed results cache per worktree so a
+	// sibling worktree with byte-identical files cannot poison this run with the
+	// sibling's stored absolute paths. A caller-set value is respected. Only
+	// golangci-lint reads this variable, so other tools are unaffected.
+	// golangci-lint requires an absolute cache path, so resolve it against the
+	// working directory; if that resolution fails, leave the variable unset and
+	// let golangci-lint fall back to its default cache.
+	if os.Getenv("GOLANGCI_LINT_CACHE") == "" {
+		if cacheDir, absErr := filepath.Abs(filepath.Join(makeDir, "golangci-cache")); absErr == nil {
+			env = setEnvVar(env, "GOLANGCI_LINT_CACHE", cacheDir)
+		}
+	}
 	return env
 }
 
@@ -265,19 +277,26 @@ func installGoTool(spec string) error {
 // extractFindings reads a raw capture file, keeps lines matching matchPattern,
 // normalizes each path against the repository root, drops lines matching the
 // exclude pattern, and returns the sorted unique findings, mirroring
-// go_mk_extract_findings. It reads a file, so it emits a boundary log.
-func extractFindings(rawPath, matchPattern, excludePattern string) ([]string, error) {
+// go_mk_extract_findings. It also drops findings whose file does not resolve to
+// an existing file inside the worktree root and returns how many it dropped:
+// golangci-lint's results cache is content-addressed, so an identical file
+// linted earlier in a now-deleted sibling worktree is replayed with that
+// worktree's path, which NormalizePath would otherwise launder into a
+// repo-local-looking path and surface as a false new finding. It reads files, so
+// it emits a boundary log.
+func extractFindings(rawPath, matchPattern, excludePattern string) ([]string, int, error) {
 	slog.Info("lint extract findings", slog.String("raw", rawPath))
 	lines, err := readFileLines(rawPath)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	pattern, err := regexp.Compile(matchPattern)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	root := lintRoot()
 	kept := make([]string, 0, len(lines))
+	droppedOutOfTree := 0
 	for _, line := range lines {
 		if !pattern.MatchString(line) {
 			continue
@@ -286,15 +305,57 @@ func extractFindings(rawPath, matchPattern, excludePattern string) ([]string, er
 		if excludePattern != "" {
 			excludeRegexp, compileErr := regexp.Compile(excludePattern)
 			if compileErr != nil {
-				return nil, compileErr
+				return nil, 0, compileErr
 			}
 			if excludeRegexp.MatchString(normalized) {
 				continue
 			}
 		}
+		if path, ok := findings.FindingPath(normalized); ok && !findingResolvesInTree(path, root) {
+			droppedOutOfTree++
+			continue
+		}
 		kept = append(kept, normalized)
 	}
-	return sortedUnique(kept), nil
+	return sortedUnique(kept), droppedOutOfTree, nil
+}
+
+// findingResolvesInTree reports whether the file named by a normalized finding
+// path is an existing file at or under the worktree root. A relative path is
+// joined to root; an absolute path is accepted only when it lies under root. The
+// containment check catches an absolute foreign path, and the existence check
+// catches a relative path that NormalizePath left pointing at a deleted sibling
+// worktree (its top segment is the sibling's name, which is absent under root). A
+// stat error other than not-exist is treated as resolved, so a transient
+// filesystem error never silently drops a real finding. An empty path resolves,
+// so a finding with no parseable path is kept unchanged.
+func findingResolvesInTree(path, root string) bool {
+	if path == "" {
+		return true
+	}
+	rootClean := filepath.Clean(root)
+	var target string
+	if filepath.IsAbs(path) {
+		target = filepath.Clean(path)
+	} else {
+		target = filepath.Clean(filepath.Join(rootClean, path))
+	}
+	if target != rootClean && !strings.HasPrefix(target, rootClean+string(filepath.Separator)) {
+		return false
+	}
+	if _, statErr := os.Stat(target); statErr != nil {
+		return !os.IsNotExist(statErr)
+	}
+	return true
+}
+
+// outOfTreeNotice renders the user-facing line the golangci gate prints when
+// extractFindings dropped findings whose paths point outside the worktree,
+// which a stale content-addressed lint cache replays from a deleted sibling
+// worktree.
+func outOfTreeNotice(dropped int) string {
+	return "ignored " + strconv.Itoa(dropped) +
+		" finding(s) with out-of-tree paths (stale lint cache; run golangci-lint cache clean to clear)"
 }
 
 // lintRoot returns the normalization root, mirroring the shell GO_MK_ROOT

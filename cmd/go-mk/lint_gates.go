@@ -59,25 +59,26 @@ func golangciExcludePattern() string {
 }
 
 // captureGolangciFindings runs golangci-lint, captures its output to rawPath,
-// extracts the findings to findingsPath, and returns the run status, mirroring
+// extracts the findings to findingsPath, and returns the run status and the
+// number of out-of-tree findings dropped (see extractFindings), mirroring
 // capture_golangci_findings.
-func captureGolangciFindings(rawPath, findingsPath string) (int, error) {
+func captureGolangciFindings(rawPath, findingsPath string) (int, int, error) {
 	binary, args, err := golangciCommand("run")
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	status, err := captureCommand(binary, args, rawPath)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	extracted, err := extractFindings(rawPath, goFindingPattern.String(), golangciExcludePattern())
+	extracted, dropped, err := extractFindings(rawPath, goFindingPattern.String(), golangciExcludePattern())
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if writeErr := writeFindingsFile(findingsPath, extracted); writeErr != nil {
-		return 0, writeErr
+		return 0, 0, writeErr
 	}
-	return status, nil
+	return status, dropped, nil
 }
 
 // runLintTools installs golangci-lint, gofumpt, and goimports, mirroring
@@ -115,9 +116,16 @@ func runLintGolangci() int {
 	}
 	rawPath := filepath.Join(makeDir, "golangci-lint.raw.out")
 	findingsPath := filepath.Join(makeDir, "golangci-lint.out")
-	status, err := captureGolangciFindings(rawPath, findingsPath)
+	status, dropped, err := captureGolangciFindings(rawPath, findingsPath)
 	if err != nil {
 		return statusFromError(err)
+	}
+	if dropped > 0 {
+		slog.Warn("lint dropped out-of-tree findings",
+			slog.String("gate", "golangci-lint"), slog.Int("count", dropped))
+		if !gateCollecting {
+			writeStdout(outOfTreeNotice(dropped) + "\n")
+		}
 	}
 	current, err := readFileLines(findingsPath)
 	if err != nil {
@@ -200,7 +208,7 @@ func captureGolangciScopeFindings(rawPath, findingsPath string) error {
 	if _, err := captureCommand(binary, args, rawPath); err != nil {
 		return err
 	}
-	extracted, err := extractFindings(rawPath, goFindingPattern.String(), golangciExcludePattern())
+	extracted, _, err := extractFindings(rawPath, goFindingPattern.String(), golangciExcludePattern())
 	if err != nil {
 		return err
 	}
@@ -490,7 +498,7 @@ func captureDeadcodeFindings(rawPath, findingsPath string) error {
 	if _, err := captureCommand(deadcodePath, targets, rawPath); err != nil {
 		return err
 	}
-	extracted, err := extractFindings(rawPath, goLocationPattern.String(), excludePattern)
+	extracted, _, err := extractFindings(rawPath, goLocationPattern.String(), excludePattern)
 	if err != nil {
 		return err
 	}

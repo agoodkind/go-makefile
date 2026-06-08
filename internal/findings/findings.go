@@ -63,6 +63,20 @@ func Key(line, pwd, cwd string) string {
 	return out[:location[0]] + ":::" + out[location[1]:]
 }
 
+// FindingPath returns the file path in front of the first :line:col: run in
+// line, and false when the line has no such run (so it has no parseable path).
+// It reuses locationPattern, the same split Key and Print use, so the path is
+// the substring before the first ":line:col:".
+//
+// ---- FindingPath ----
+func FindingPath(line string) (string, bool) {
+	location := locationPattern.FindStringIndex(line)
+	if location == nil {
+		return "", false
+	}
+	return line[:location[0]], true
+}
+
 // Baseline returns the baseline payload for a finding line, matching the awk
 // baseline_finding. It drops blank or whitespace-only lines and lines that begin
 // with a hash by returning the empty string and false. Otherwise it cuts the

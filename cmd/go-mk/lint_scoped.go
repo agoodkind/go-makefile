@@ -177,7 +177,7 @@ func runCaptureGolangci(args []string) error {
 	}
 	rawPath := captureArg(args, 0, filepath.Join(makeDir, "golangci-lint.raw.out"))
 	findingsPath := captureArg(args, 1, filepath.Join(makeDir, "golangci-lint.out"))
-	_, err := captureGolangciFindings(rawPath, findingsPath)
+	_, _, err := captureGolangciFindings(rawPath, findingsPath)
 	return err
 }
 
@@ -202,7 +202,7 @@ func runCaptureGolangciBaseline(args []string) error {
 	for runIndex := 1; runIndex <= runCount; runIndex++ {
 		runRaw := filepath.Join(makeDir, "golangci-lint-baseline."+itoa(runIndex)+".raw.out")
 		runFindings := filepath.Join(makeDir, "golangci-lint-baseline."+itoa(runIndex)+".out")
-		if _, err := captureGolangciFindings(runRaw, runFindings); err != nil {
+		if _, _, err := captureGolangciFindings(runRaw, runFindings); err != nil {
 			return err
 		}
 		rawLines, err := readFileLines(runRaw)
@@ -383,7 +383,7 @@ func isExecutable(path string) bool {
 // run_scoped_gate. It returns true when the gate passed (including the
 // zero-findings short-circuit).
 func runScopedGate(gateName, rawPath, findingsPath string, files []string, baselinePath, excludePattern, rangesFile string) (bool, error) {
-	extracted, err := extractFindings(rawPath, goLocationPattern.String(), excludePattern)
+	extracted, _, err := extractFindings(rawPath, goLocationPattern.String(), excludePattern)
 	if err != nil {
 		return false, err
 	}
