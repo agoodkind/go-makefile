@@ -1,7 +1,7 @@
 .PHONY: build deploy clean help \
 	lint lint-tools lint-golangci lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
 	lint-golangci-scope lint-golangci-baseline-scope lint-golangci-baseline-scope-accept-new \
-	lint-files lint-diff lint-format lint-gocyclo lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new fmt vet test govulncheck build-check check \
+	lint-files lint-diff lint-format lint-gocyclo lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new fmt vet test govulncheck build-gate build-check check \
 	lint-deadcode lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new staticcheck-extra-bin \
 	baseline baseline-bin baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
@@ -142,9 +142,6 @@ GO_INSTALL_TARGET      ?= $(CMD)
 # Gate tokens default to today's Wikipedia featured article slug, but can be
 # swapped to any rotating public or private endpoint that emits one string.
 GO_MK_GATE_TOKEN_CMD ?= curl -fsSL "https://en.wikipedia.org/api/rest_v1/feed/featured/$$(date -u +%Y/%m/%d)" | jq -r '.tfa.titles.canonical'
-BYPASS_LINT      ?=
-BYPASS_CONFIRM   ?=
-BYPASS_TOKEN_CMD ?= $(GO_MK_GATE_TOKEN_CMD)
 
 BASELINE_CONFIRM   ?=
 BASELINE_TOKEN     ?=
@@ -241,9 +238,6 @@ export BASELINE_CONFIRM
 export BASELINE_TOKEN
 export BASELINE_TOKEN_CMD
 export BASELINE_UPDATE_MODE
-export BYPASS_LINT
-export BYPASS_CONFIRM
-export BYPASS_TOKEN_CMD
 export GO_MK_GATE_TOKEN_CMD
 export GOCYCLO_OVER
 export GOCYCLO_TARGETS
@@ -275,7 +269,8 @@ export GO_MK_BUILD_PKG
 export GO_MK_INSTALL
 
 ifeq ($(filter go-build.mk,$(GO_MK_MODULES)),)
-build: build-check
+build: go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" build-gate
 	go build $(GO_BUILD_OUTPUT_FLAGS) $(GO_BUILD_FLAGS) $(GO_BUILD_TARGETS)
 
 deploy:
@@ -290,7 +285,7 @@ endif
 
 help:
 	@printf '%s\n' 'Canonical entry points:'
-	@printf '  %-40s %s\n' 'build' 'vet + lint + govulncheck, then go build'
+	@printf '  %-40s %s\n' 'build' 'local build-check, then compile; CI skips inline gate only with OIDC proof'
 	@printf '  %-40s %s\n' 'check' 'alias for lint'
 	@printf '  %-40s %s\n' 'lint' 'run every lint gate'
 	@printf '  %-40s %s\n' 'build-check' 'vet + lint + govulncheck'
@@ -417,6 +412,9 @@ staticcheck-extra-baseline-accept-new: go-mk-bin
 
 build-check: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" build-check
+
+build-gate: go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" build-gate
 
 check: lint
 

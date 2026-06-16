@@ -1,10 +1,9 @@
-// Native gate-token resolver for go-mk. The bypass and baseline gates compare a
+// Native gate-token resolver for go-mk. The baseline gates compare a
 // caller-supplied token against a rotating daily token. This file fetches that
 // daily token in process over HTTP and parses the JSON, so no curl or jq is
-// needed. The `gate-token` subcommand prints the slugified token for use as
-// BYPASS_LINT or BASELINE_TOKEN. The same resolver feeds the gate checks, so the
-// printed token and the checked token are slugified by one function and always
-// agree.
+// needed. The `gate-token` subcommand prints the slugified token for baseline
+// maintenance. The same resolver feeds the gate checks, so the printed token
+// and the checked token are slugified by one function and always agree.
 package main
 
 import (
@@ -104,16 +103,14 @@ func dailyTokenSlug() (string, bool) {
 	return slug, true
 }
 
-// gateTokenSlug returns the slugified daily token, the value a caller passes as
-// BYPASS_LINT or BASELINE_TOKEN. It returns the empty string and false when the
-// token cannot be resolved.
+// gateTokenSlug returns the slugified daily token for baseline maintenance. It
+// returns the empty string and false when the token cannot be resolved.
 func gateTokenSlug() (string, bool) {
 	return dailyTokenSlug()
 }
 
-// runGateToken prints the slugified daily token, so a caller can run
-// `BYPASS_LINT=$(go-mk gate-token) BYPASS_CONFIRM=1 make build`. It returns 0 on
-// success and 1 when the token cannot be resolved.
+// runGateToken prints the slugified daily token for baseline maintenance. It
+// returns 0 on success and 1 when the token cannot be resolved.
 func runGateToken() int {
 	slug, ok := gateTokenSlug()
 	if !ok {
@@ -124,12 +121,12 @@ func runGateToken() int {
 	return 0
 }
 
-// gateTokenExpected resolves the expected token for a gate check. An explicit
-// token command (BYPASS_TOKEN_CMD or BASELINE_TOKEN_CMD) overrides the native
-// resolver and returns its raw output; otherwise the cached daily slug is
-// returned. gate.TokensMatch slugifies both sides, and slugifying a slug yields
-// the same slug, so returning the slug compares correctly and the same-day cache
-// keeps the gate off the network.
+// gateTokenExpected resolves the expected token for a baseline gate check. An
+// explicit token command overrides the native resolver and returns its raw
+// output; otherwise the cached daily slug is returned. gate.TokensMatch
+// slugifies both sides, and slugifying a slug yields the same slug, so returning
+// the slug compares correctly and the same-day cache keeps the gate off the
+// network.
 func gateTokenExpected(commandOverride string) (string, bool) {
 	if commandOverride != "" {
 		return runTokenCommand(commandOverride)

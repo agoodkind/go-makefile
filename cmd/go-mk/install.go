@@ -40,12 +40,11 @@ type installConfig struct {
 	codesignEntitlements string
 }
 
-// runInstall runs the full gate, builds every declared binary, then installs
-// each, returning the process exit code. The gate runs in-process first so one
-// process owns the whole run and a gate failure blocks the install unless the
-// bypass token is active.
+// runInstall runs the build gate, builds every declared binary, then installs
+// each, returning the process exit code. The gate runs in-process locally and
+// skips only when GitHub Actions proves the reusable CI gate job covers it.
 func runInstall() int {
-	if code := runBuildCheck(); code != 0 {
+	if code := runBuildGate(); code != 0 {
 		return code
 	}
 	cfg, err := loadInstallConfig()
@@ -63,12 +62,11 @@ func runInstall() int {
 	return 0
 }
 
-// runBuild runs the full gate, then builds every declared binary without
-// installing, returning the process exit code. The gate runs in-process first
-// so one process owns the whole run and a gate failure blocks the build unless
-// the bypass token is active.
+// runBuild runs the build gate, then builds every declared binary without
+// installing, returning the process exit code. The gate runs in-process locally
+// and skips only when GitHub Actions proves the reusable CI gate job covers it.
 func runBuild() int {
-	if code := runBuildCheck(); code != 0 {
+	if code := runBuildGate(); code != 0 {
 		return code
 	}
 	cfg, err := loadInstallConfig()
