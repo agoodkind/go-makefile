@@ -30,9 +30,6 @@ func runBuildCheck() int {
 		return statusFromError(err)
 	}
 	status := runChecks("go-mk build-check", buildCheckChecks())
-	if status != 0 && bypassActive() {
-		status = 0
-	}
 	return applyGoVersionNotice(status)
 }
 
@@ -48,9 +45,6 @@ func runBuildCheckRaw() int {
 	}
 	if err := runGovulncheck(); err != nil {
 		status = statusFromError(err)
-	}
-	if status != 0 && bypassActive() {
-		status = 0
 	}
 	return applyGoVersionNotice(status)
 }
