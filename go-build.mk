@@ -29,8 +29,9 @@ LIBRARY ?=
 
 ifeq ($(strip $(LIBRARY)),1)
 
-# Library mode: no binary to produce, but lint/vet/govulncheck still gate.
-build: build-check
+# Library mode: no binary to produce, but the same build gate still runs.
+build: | go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" build-gate
 	@echo "library mode: no binary to build"
 
 deploy: install
@@ -142,11 +143,11 @@ export CODESIGN_IDENTITY
 export CODESIGN_TIMESTAMP
 export CODESIGN_ENTITLEMENTS
 
-# build, install, and uninstall run in the go-mk engine. The engine runs the
-# full gate (vet, lint, govulncheck) in-process before it compiles, so one
-# process owns the whole run: one correlation trace, one header, and gates that
-# cannot be skipped. install builds every declared binary before placing it.
-# Signing runs inside the engine on macOS only.
+# build and install run the go-mk build gate before compiling. Local builds run
+# vet, lint, and govulncheck inline; GitHub Actions skips that inline gate only
+# after OIDC proof because the reusable CI workflow has a separate gate job.
+# install builds every declared binary before placing it. Signing runs inside
+# the engine on macOS only.
 build: | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" build
 
