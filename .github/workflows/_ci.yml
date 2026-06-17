@@ -19,11 +19,34 @@ on:
           this input and the install step does not run.
         required: false
         type: string
+      go_tool_packages:
+        description: >-
+          Space-separated Go packages to install before make runs, for
+          consumers that need generated-code tools such as buf.
+        required: false
+        type: string
+      go_version_file:
+        description: >-
+          Path to the consumer's go.mod file. Defaults to the repository root
+          module.
+        required: false
+        type: string
+        default: go.mod
+      runs_on:
+        description: Runner label for Go jobs.
+        required: false
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        description: Directory where make targets run.
+        required: false
+        type: string
+        default: .
 
 jobs:
   gate:
     name: Gate
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs_on }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -35,17 +58,25 @@ jobs:
           sudo apt-get install -y ${{ inputs.apt_packages }}
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: ${{ inputs.go_version_file }}
+      - name: Install Go tool packages
+        if: inputs.go_tool_packages != ''
+        run: |
+          for go_tool_package in ${{ inputs.go_tool_packages }}; do
+            go install "${go_tool_package}"
+          done
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
       - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
           install-only: true
       - run: make build-check
+        working-directory: ${{ inputs.working_directory }}
 
   build-test:
     name: Build and Test
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs_on }}
     permissions:
       contents: read
       id-token: write
@@ -60,6 +91,15 @@ jobs:
           sudo apt-get install -y ${{ inputs.apt_packages }}
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: ${{ inputs.go_version_file }}
+      - name: Install Go tool packages
+        if: inputs.go_tool_packages != ''
+        run: |
+          for go_tool_package in ${{ inputs.go_tool_packages }}; do
+            go install "${go_tool_package}"
+          done
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
       - run: make build
+        working-directory: ${{ inputs.working_directory }}
       - run: make test
+        working-directory: ${{ inputs.working_directory }}
