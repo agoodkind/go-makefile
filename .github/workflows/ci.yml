@@ -11,15 +11,7 @@ permissions:
 
 jobs:
   go:
-    if: github.event_name == 'pull_request'
     uses: ./.github/workflows/_ci.yml
     permissions:
       contents: read
       id-token: write
-
-  release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/_release.yml
-    permissions:
-      contents: write
-    secrets: inherit
