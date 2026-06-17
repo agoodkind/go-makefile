@@ -42,6 +42,11 @@ on:
         required: false
         type: string
         default: ubuntu-latest
+      timeout_minutes:
+        description: Timeout in minutes for each Go job.
+        required: false
+        type: number
+        default: 360
       working_directory:
         description: Directory where make targets run.
         required: false
@@ -59,6 +64,7 @@ jobs:
   gate:
     name: Gate
     runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -92,6 +98,7 @@ jobs:
   build-test:
     name: Build and Test
     runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
       contents: read
       id-token: write
