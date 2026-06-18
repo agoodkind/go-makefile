@@ -26,7 +26,7 @@ on:
         required: false
         type: string
       golangci_lint_version:
-        description: golangci-lint version installed before make build-check.
+        description: golangci-lint version installed before quality gates.
         required: false
         type: string
         default: v2.12.2
@@ -61,10 +61,43 @@ on:
         type: string
 
 jobs:
-  gate:
-    name: Gate
+  quality:
+    name: Quality / ${{ matrix.name }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Vet
+            command: make vet
+            install_golangci_lint: false
+          - name: Test
+            command: make test
+            install_golangci_lint: false
+          - name: Golangci Lint
+            command: make lint-golangci
+            install_golangci_lint: true
+          - name: Format
+            command: make lint-format
+            install_golangci_lint: true
+          - name: Gocyclo
+            command: make lint-gocyclo
+            install_golangci_lint: false
+          - name: Deadcode
+            command: make lint-deadcode
+            install_golangci_lint: false
+          - name: Staticcheck Extra
+            command: make staticcheck-extra
+            install_golangci_lint: false
+          - name: Govulncheck
+            command: make govulncheck
+            install_golangci_lint: false
+          - name: Go Version
+            command: make go-version-check
+            install_golangci_lint: false
     steps:
       - uses: actions/checkout@v6
         with:
@@ -88,15 +121,16 @@ jobs:
         if: inputs.pre_make_commands != ''
         run: ${{ inputs.pre_make_commands }}
       - name: Install golangci-lint
+        if: matrix.install_golangci_lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ inputs.golangci_lint_version }}
           install-only: true
-      - run: make build-check
+      - run: ${{ matrix.command }}
         working-directory: ${{ inputs.working_directory }}
 
-  build-test:
-    name: Build and Test
+  build:
+    name: Build
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
@@ -125,6 +159,4 @@ jobs:
         if: inputs.pre_make_commands != ''
         run: ${{ inputs.pre_make_commands }}
       - run: make build
-        working-directory: ${{ inputs.working_directory }}
-      - run: make test
         working-directory: ${{ inputs.working_directory }}

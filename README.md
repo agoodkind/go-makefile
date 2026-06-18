@@ -20,8 +20,8 @@ by one fetched file, `go.mk`.
   there instead of `main`.
 - Lint gates diff tool findings against committed baseline files and fail only on
   new findings. Changing a baseline requires the token gate.
-- Local `make build` runs `build-check` before compiling. The CI build/lint
-  split is CI-only: the reusable workflow runs a separate `gate` job, and the
+- Local `make build` runs `build-check` before compiling. The CI split is
+  CI-only: the reusable workflow reports each quality gate separately, and the
   build job skips inline gates only after `go-mk` verifies a GitHub Actions OIDC
   JWT for the current repository and run.
 - Specifics live in source: `bootstrap.sh` (what bootstrap writes), `go.mk`
