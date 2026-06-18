@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -114,4 +116,109 @@ func TestDirWritable(t *testing.T) {
 	if dirWritable(target) {
 		t.Fatalf("dirWritable(%q) = true, want false under a read-only directory", target)
 	}
+}
+
+func TestInstallAllRunsHooksAroundInstalls(t *testing.T) {
+	restoreInstallSeams(t)
+	calls := []string{}
+	runInstallHookFunc = func(label string, command string) error {
+		calls = append(calls, "hook:"+label+":"+command)
+		return nil
+	}
+	installOneFunc = func(_ installConfig, bin binSpec) error {
+		calls = append(calls, "install:"+bin.name)
+		return nil
+	}
+
+	cfg := installConfig{
+		bins: []binSpec{
+			{name: "first"},
+			{name: "second"},
+		},
+		installPreCommand:  "pre command",
+		installPostCommand: "post command",
+	}
+	if err := installAll(cfg); err != nil {
+		t.Fatalf("installAll: %v", err)
+	}
+	want := []string{
+		"hook:pre:pre command",
+		"install:first",
+		"install:second",
+		"hook:post:post command",
+	}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+}
+
+func TestInstallAllRunsPostHookAfterInstallFailure(t *testing.T) {
+	restoreInstallSeams(t)
+	installErr := errors.New("install failed")
+	postErr := errors.New("post failed")
+	calls := []string{}
+	runInstallHookFunc = func(label string, _ string) error {
+		calls = append(calls, "hook:"+label)
+		if label == "post" {
+			return postErr
+		}
+		return nil
+	}
+	installOneFunc = func(_ installConfig, bin binSpec) error {
+		calls = append(calls, "install:"+bin.name)
+		return installErr
+	}
+
+	err := installAll(installConfig{
+		bins:               []binSpec{{name: "tool"}},
+		installPreCommand:  "pre",
+		installPostCommand: "post",
+	})
+	if !errors.Is(err, installErr) {
+		t.Fatalf("installAll error = %v, want install error", err)
+	}
+	if !errors.Is(err, postErr) {
+		t.Fatalf("installAll error = %v, want post error", err)
+	}
+	want := []string{"hook:pre", "install:tool", "hook:post"}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+}
+
+func TestInstallAllSkipsInstallAndPostWhenPreHookFails(t *testing.T) {
+	restoreInstallSeams(t)
+	preErr := errors.New("pre failed")
+	calls := []string{}
+	runInstallHookFunc = func(label string, _ string) error {
+		calls = append(calls, "hook:"+label)
+		return preErr
+	}
+	installOneFunc = func(_ installConfig, bin binSpec) error {
+		calls = append(calls, "install:"+bin.name)
+		return nil
+	}
+
+	err := installAll(installConfig{
+		bins:               []binSpec{{name: "tool"}},
+		installPreCommand:  "pre",
+		installPostCommand: "post",
+	})
+	if !errors.Is(err, preErr) {
+		t.Fatalf("installAll error = %v, want pre error", err)
+	}
+	want := []string{"hook:pre"}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+}
+
+func restoreInstallSeams(t *testing.T) {
+	t.Helper()
+	originalInstallOneFunc := installOneFunc
+	originalRunInstallHookFunc := runInstallHookFunc
+	t.Cleanup(func() {
+		installOneFunc = originalInstallOneFunc
+		runInstallHookFunc = originalRunInstallHookFunc
+	})
 }

@@ -9,6 +9,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -38,7 +39,14 @@ type installConfig struct {
 	bundleID             string
 	codesignTimestamp    string
 	codesignEntitlements string
+	installPreCommand    string
+	installPostCommand   string
 }
+
+var (
+	installOneFunc     = installOne
+	runInstallHookFunc = runInstallHook
+)
 
 // runInstall runs the build gate, builds every declared binary, then installs
 // each, returning the process exit code. The gate runs in-process locally and
@@ -54,12 +62,7 @@ func runInstall() int {
 	if err := buildAll(cfg); err != nil {
 		return statusFromError(err)
 	}
-	for _, bin := range cfg.bins {
-		if err := installOne(cfg, bin); err != nil {
-			return statusFromError(err)
-		}
-	}
-	return 0
+	return statusFromError(installAll(cfg))
 }
 
 // runBuild runs the build gate, then builds every declared binary without
@@ -124,6 +127,8 @@ func loadInstallConfig() (installConfig, error) {
 		bundleID:             strings.TrimSpace(os.Getenv("BUNDLE_ID")),
 		codesignTimestamp:    timestamp,
 		codesignEntitlements: strings.TrimSpace(os.Getenv("CODESIGN_ENTITLEMENTS")),
+		installPreCommand:    strings.TrimSpace(os.Getenv("GO_MK_INSTALL_PRE_CMD")),
+		installPostCommand:   strings.TrimSpace(os.Getenv("GO_MK_INSTALL_POST_CMD")),
 	}, nil
 }
 
@@ -207,6 +212,35 @@ func buildOne(cfg installConfig, bin binSpec) (bool, error) {
 		return false, err
 	}
 	return signBinary(cfg, out)
+}
+
+func installAll(cfg installConfig) error {
+	if err := runInstallHookFunc("pre", cfg.installPreCommand); err != nil {
+		return err
+	}
+	var installErr error
+	for _, bin := range cfg.bins {
+		if err := installOneFunc(cfg, bin); err != nil {
+			installErr = err
+			break
+		}
+	}
+	if err := runInstallHookFunc("post", cfg.installPostCommand); err != nil {
+		if installErr != nil {
+			slog.Error("install post hook failed after install failure", "install_err", installErr, "err", err)
+			return errors.Join(installErr, err)
+		}
+		return err
+	}
+	return installErr
+}
+
+func runInstallHook(label string, command string) error {
+	if command == "" {
+		return nil
+	}
+	slog.Info("install hook", slog.String("hook", label))
+	return runProcess("sh", []string{"-c", command}, nil)
 }
 
 // signBinary signs one binary with codesign on macOS, returning whether it
