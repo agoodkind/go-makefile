@@ -165,7 +165,7 @@ func prepareChecks(includeGovulncheck bool) error {
 		return errStaticcheckPrepare
 	}
 	if includeGovulncheck {
-		if err := installGoTool("golang.org/x/vuln/cmd/govulncheck@latest"); err != nil {
+		if err := installGoTool(lintEnvDefault("GOVULNCHECK_INSTALL", defaultGovulncheckInstall)); err != nil {
 			return err
 		}
 	}

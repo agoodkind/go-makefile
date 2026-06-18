@@ -136,6 +136,11 @@ GO_TEST_TARGETS        ?= ./...
 GO_TEST_LDFLAGS        ?=
 GO_VET_TARGETS         ?= ./...
 GOVULNCHECK_TARGETS    ?= ./...
+# Pinned to v1.3.0 (vendoring golang.org/x/tools v0.44.0). govulncheck v1.4.0
+# bumped to x/tools v0.46.0, whose ssa RuntimeTypes panics on uninstantiated
+# generic type params (golang/go#77549). Move the pin forward once a released
+# x/tools carries the generic-methods fix.
+GOVULNCHECK_INSTALL    ?= golang.org/x/vuln/cmd/govulncheck@v1.3.0
 GO_INSTALL_FLAGS       ?= $(filter-out -o %,$(GO_BUILD_FLAGS))
 GO_INSTALL_TARGET      ?= $(CMD)
 
@@ -249,6 +254,7 @@ export GO_TEST_TARGETS
 export GO_TEST_LDFLAGS
 export GO_VET_TARGETS
 export GOVULNCHECK_TARGETS
+export GOVULNCHECK_INSTALL
 export DEADCODE_INSTALL
 export DEADCODE_TARGETS
 export DEADCODE_BASELINE
