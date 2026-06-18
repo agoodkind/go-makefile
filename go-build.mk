@@ -124,6 +124,8 @@ BUNDLE_ID          ?= io.goodkind.$(BINARY)
 CODESIGN_IDENTITY  ?= $(or $(CERT_ID),$(shell if [ "$$(uname)" = "Darwin" ]; then security find-identity -v -p codesigning 2>/dev/null | awk '/Developer ID Application/ { print $$2; exit }'; fi))
 CODESIGN_TIMESTAMP ?= none
 CODESIGN_ENTITLEMENTS ?=
+GO_MK_INSTALL_PRE_CMD ?=
+GO_MK_INSTALL_POST_CMD ?=
 # Inputs the go-mk install/build/uninstall commands read from the environment.
 # go-mk assembles the build argv from the GO_BUILD_* values, stamps nothing
 # itself (the ldflags are computed above), signs on macOS from the CODESIGN_*
@@ -142,6 +144,8 @@ export BUNDLE_ID
 export CODESIGN_IDENTITY
 export CODESIGN_TIMESTAMP
 export CODESIGN_ENTITLEMENTS
+export GO_MK_INSTALL_PRE_CMD
+export GO_MK_INSTALL_POST_CMD
 
 # build and install run the go-mk build gate before compiling. Local builds run
 # vet, lint, and govulncheck inline; GitHub Actions skips that inline gate only
