@@ -59,7 +59,7 @@ func runVetStep() (report.StepResult, int) {
 // step, mirroring runGovulncheck but collecting a StepResult.
 func runGovulncheckStep() (report.StepResult, int) {
 	if !checksToolsPrepared {
-		if err := installGoTool("golang.org/x/vuln/cmd/govulncheck@latest"); err != nil {
+		if err := installGoTool(lintEnvDefault("GOVULNCHECK_INSTALL", defaultGovulncheckInstall)); err != nil {
 			return toolFailure("govulncheck", err), 1
 		}
 	}

@@ -156,9 +156,16 @@ func testLdflagsArgs() []string {
 	return []string{"-ldflags", value}
 }
 
+// defaultGovulncheckInstall pins govulncheck to v1.3.0, whose vendored
+// golang.org/x/tools v0.44.0 predates the v0.46.0 ssa RuntimeTypes change that
+// panics on uninstantiated generic type params (golang/go#77549). Consumers
+// override via GOVULNCHECK_INSTALL; move the pin forward once a released x/tools
+// carries the generic-methods fix.
+const defaultGovulncheckInstall = "golang.org/x/vuln/cmd/govulncheck@v1.3.0"
+
 // runGovulncheck installs and runs govulncheck, mirroring run_govulncheck.
 func runGovulncheck() error {
-	if err := installGoTool("golang.org/x/vuln/cmd/govulncheck@latest"); err != nil {
+	if err := installGoTool(lintEnvDefault("GOVULNCHECK_INSTALL", defaultGovulncheckInstall)); err != nil {
 		return err
 	}
 	gopathBin, err := goEnvPath("GOPATH")
