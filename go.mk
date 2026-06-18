@@ -5,7 +5,7 @@
 	lint-deadcode lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new staticcheck-extra-bin \
 	baseline baseline-bin baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
-	go-mk-sync update-go-mk smoke-fetch go-mk-notice go-mk-bin
+	go-mk-sync update-go-mk smoke-fetch go-mk-notice go-version-check go-mk-bin
 
 GO_MK_URL       := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
 GO_MK_CACHE     := $(HOME)/.cache/go-makefile/go.mk
@@ -297,6 +297,7 @@ help:
 	@printf '  %-40s %s\n' 'build-check' 'vet + lint + govulncheck'
 	@printf '  %-40s %s\n' 'fmt' 'apply configured Go formatters'
 	@printf '  %-40s %s\n' 'test' 'go test ./...'
+	@printf '  %-40s %s\n' 'go-version-check' 'report whether go.mod tracks the latest Go release'
 	@printf '\n%s\n' 'Scoped iteration:'
 	@printf '  %-40s %s\n' 'lint-diff' 'run scoped lint against staged Go files'
 	@printf '  %-40s %s\n' 'lint-files LINT_FILES=...' 'run scoped lint against listed files'
@@ -361,6 +362,9 @@ test: go-mk-bin
 
 govulncheck: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" govulncheck
+
+go-version-check: go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" go-version-check
 
 lint-deadcode: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" lint-deadcode

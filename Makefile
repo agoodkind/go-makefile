@@ -36,7 +36,7 @@ STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
 
 .DEFAULT_GOAL := check
 
-.PHONY: build check lint fmt vet test govulncheck build-check \
+.PHONY: build check lint fmt vet test govulncheck go-version-check build-check \
         lint-tools lint-golangci lint-files lint-diff lint-format lint-gocyclo lint-deadcode staticcheck-extra \
         lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
         lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new \
@@ -163,6 +163,10 @@ test:
 govulncheck:
 	$(ROOT_GO_MK) govulncheck
 	$(STATIC_GO_MK) govulncheck
+
+go-version-check:
+	$(ROOT_GO_MK) go-version-check
+	$(STATIC_GO_MK) go-version-check
 
 baseline:
 	$(ROOT_GO_MK) baseline

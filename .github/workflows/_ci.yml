@@ -26,7 +26,7 @@ on:
         required: false
         type: string
       golangci_lint_version:
-        description: golangci-lint version installed before make build-check.
+        description: golangci-lint version installed before quality gates.
         required: false
         type: string
         default: v2.12.2
@@ -61,10 +61,32 @@ on:
         type: string
 
 jobs:
-  gate:
-    name: Gate
+  quality:
+    name: Quality / ${{ matrix.name }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Vet
+            command: make vet
+          - name: Test
+            command: make test
+          - name: Golangci Lint
+            command: make lint-golangci
+          - name: Format
+            command: make lint-format
+          - name: Gocyclo
+            command: make lint-gocyclo
+          - name: Deadcode
+            command: make lint-deadcode
+          - name: Staticcheck Extra
+            command: make staticcheck-extra
+          - name: Govulncheck
+            command: make govulncheck
+          - name: Go Version
+            command: make go-version-check
     steps:
       - uses: actions/checkout@v6
         with:
@@ -92,11 +114,11 @@ jobs:
         with:
           version: ${{ inputs.golangci_lint_version }}
           install-only: true
-      - run: make build-check
+      - run: ${{ matrix.command }}
         working-directory: ${{ inputs.working_directory }}
 
-  build-test:
-    name: Build and Test
+  build:
+    name: Build
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
@@ -125,6 +147,4 @@ jobs:
         if: inputs.pre_make_commands != ''
         run: ${{ inputs.pre_make_commands }}
       - run: make build
-        working-directory: ${{ inputs.working_directory }}
-      - run: make test
         working-directory: ${{ inputs.working_directory }}
