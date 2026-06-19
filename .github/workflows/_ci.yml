@@ -99,7 +99,7 @@ jobs:
             command: make go-version-check
             install_golangci_lint: false
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: ${{ inputs.submodules }}
       - name: Install apt packages
@@ -137,7 +137,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: ${{ inputs.submodules }}
       - name: Install apt packages
