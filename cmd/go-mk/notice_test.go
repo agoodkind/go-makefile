@@ -58,6 +58,37 @@ func TestRunNoticeRecordsDirectiveAsAppliedForFreshRepo(t *testing.T) {
 	}
 }
 
+func TestRunNoticeShowsDirectiveWhenFreshAppliedRecordFails(t *testing.T) {
+	root := t.TempDir()
+	chdir(t, root)
+	clearBaselineEnv(t)
+
+	noticesPath := filepath.Join(root, "notices.txt")
+	notices := "1\tGATE=golangci LINTER=revive RULE=file-length-limit\tEnabled historical rule\n"
+	if err := os.WriteFile(noticesPath, []byte(notices), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GO_MK_NOTICES_FILE", noticesPath)
+	t.Setenv("GO_MK_APPLIED_NOTICES", filepath.Join("missing", ".go-mk-applied-notices"))
+
+	var status int
+	stderr := captureStderr(t, func() {
+		status = runNotice()
+	})
+	if status != 0 {
+		t.Fatalf("runNotice status = %d, want 0", status)
+	}
+	if !strings.Contains(stderr, "could not record applied notice") {
+		t.Fatalf("stderr = %q, want applied-recording diagnostic", stderr)
+	}
+	if !strings.Contains(stderr, "notice #1: Enabled historical rule") {
+		t.Fatalf("stderr = %q, want directive summary when recording fails", stderr)
+	}
+	if _, err := os.Stat(".golangci-lint-baseline.txt"); !os.IsNotExist(err) {
+		t.Fatalf(".golangci-lint-baseline.txt stat error = %v, want not exist", err)
+	}
+}
+
 func TestAnyConfiguredBaselineFileExistsDetectsDefaultBaseline(t *testing.T) {
 	root := t.TempDir()
 	chdir(t, root)
@@ -96,6 +127,35 @@ func TestAnyConfiguredBaselineFileExistsUsesCustomBaselinePaths(t *testing.T) {
 	}
 }
 
+func TestAnyConfiguredBaselineFileExistsTreatsStatErrorsAsExisting(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root can bypass directory permissions")
+	}
+	root := t.TempDir()
+	chdir(t, root)
+	clearBaselineEnv(t)
+
+	blockedDirectory := filepath.Join(root, "blocked")
+	if err := os.Mkdir(blockedDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	baselinePath := filepath.Join(blockedDirectory, "golangci.txt")
+	if err := os.WriteFile(baselinePath, []byte("# baseline\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(blockedDirectory, 0o755)
+	})
+	if err := os.Chmod(blockedDirectory, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOLANGCI_LINT_BASELINE", baselinePath)
+
+	if !anyConfiguredBaselineFileExists() {
+		t.Fatal("anyConfiguredBaselineFileExists = false for unreadable baseline path")
+	}
+}
+
 func clearBaselineEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("GOLANGCI_LINT_BASELINE", "")
@@ -125,17 +185,24 @@ func captureStderr(t *testing.T, action func()) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	writerClosed := false
+	defer func() {
+		os.Stderr = previous
+		if !writerClosed {
+			_ = writer.Close()
+		}
+		_ = reader.Close()
+	}()
 	os.Stderr = writer
 	action()
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
 	os.Stderr = previous
+	closeErr := writer.Close()
+	writerClosed = true
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
 	output, err := io.ReadAll(reader)
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := reader.Close(); err != nil {
 		t.Fatal(err)
 	}
 	return string(output)
