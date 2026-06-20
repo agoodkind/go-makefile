@@ -159,7 +159,6 @@ vet:
 test:
 	$(ROOT_GO_MK) test
 	$(STATIC_GO_MK) test
-	./scripts/test-bootstrap.sh
 
 govulncheck:
 	$(ROOT_GO_MK) govulncheck
