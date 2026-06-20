@@ -578,8 +578,9 @@ func reconcileGitignore(trackedFiles []string, stdout io.Writer) error {
 }
 
 func bootstrapGitignoreEntries(trackedFiles []string) []string {
-	// go.work is per-developer and load-bearing module routing lives in go.mod
-	// replace directives, so the workspace file stays untracked.
+	// go.work stays untracked: it is per-developer, and go.mk regenerates it on
+	// demand from GO_MK_WORKSPACE_USE for routing the module proxy cannot resolve
+	// on its own, so the workspace file is never committed.
 	entries := []string{".make/", "go.work", "go.work.sum"}
 	seen := map[string]bool{
 		".make/":      true,

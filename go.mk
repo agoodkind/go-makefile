@@ -476,7 +476,11 @@ go-mk-workspace:
 # Combined order-only prerequisites attached to every target that loads or
 # compiles packages. Empty (the default) adds nothing. This block sits before
 # the module include so the recipe-less build rule merges onto go-build.mk's
-# build recipe.
+# build recipe. The CI matrix split legs lint-format and lint-gocyclo are
+# deliberately omitted: gofumpt/goimports and gocyclo are textual or AST-only,
+# they never compile or resolve packages, and they pass on a fresh runner
+# without generated sources or a go.work, so attaching the prerequisite would
+# only add cost.
 GO_MK_PREREQS := $(if $(strip $(GO_MK_WORKSPACE_USE)),go-mk-workspace) $(GO_MK_GENERATE)
 ifneq ($(strip $(GO_MK_PREREQS)),)
 build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test govulncheck: | $(GO_MK_PREREQS)

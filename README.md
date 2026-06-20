@@ -25,8 +25,11 @@ by one fetched file, `go.mk`.
 - Repos that generate source before compiling (for example a tree-sitter parser
   or proto) set `GO_MK_GENERATE` to the codegen target name(s) before
   `include bootstrap.mk`. go.mk runs them as an order-only prerequisite of every
-  build, lint, vet, test, and govulncheck target. Multiple targets are
-  space-separated; unset is a no-op.
+  build, vet, test, govulncheck, and lint target the CI matrix calls, including
+  the split legs `lint-golangci`, `lint-deadcode`, and `staticcheck-extra`, so a
+  consumer never threads the prerequisite per leg. The textual legs `lint-format`
+  and `lint-gocyclo` are excluded because they never compile a package. Multiple
+  targets are space-separated; unset is a no-op.
 - Do not commit `go.work`; the bootstrap gitignores `go.work` and `go.work.sum`.
   When a repo vendors a module the proxy cannot build on its own (for example
   `gksyntax`, whose generated parser C and nested grammar submodules are not in
