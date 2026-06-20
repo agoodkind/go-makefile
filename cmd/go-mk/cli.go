@@ -71,6 +71,7 @@ func newRootCommand() *cobra.Command {
 	}
 	registerLintCommands(root)
 	registerEngineCommands(root)
+	registerBootstrapCommand(root)
 	registerInputCommands(root)
 	return root
 }
