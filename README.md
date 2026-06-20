@@ -22,6 +22,24 @@ by one fetched file, `go.mk`.
   committed; the bootstrap gitignores `.make/`. Run `make update-go-mk` to
   refetch. Set `GO_MK_DEV_DIR` to a local go-makefile checkout to fetch from
   there instead of `main`.
+- Repos that generate source before compiling (for example a tree-sitter parser
+  or proto) set `GO_MK_GENERATE` to the codegen target name(s) before
+  `include bootstrap.mk`. go.mk runs them as an order-only prerequisite of every
+  build, vet, test, govulncheck, and lint target the CI matrix calls, including
+  the split legs `lint-golangci`, `lint-deadcode`, and `staticcheck-extra`, so a
+  consumer never threads the prerequisite per leg. The textual legs `lint-format`
+  and `lint-gocyclo` are excluded because they never compile a package. Multiple
+  targets are space-separated; unset is a no-op.
+- Do not commit `go.work`; the bootstrap gitignores `go.work` and `go.work.sum`.
+  When a repo vendors a module the proxy cannot build on its own (for example
+  `gksyntax`, whose generated parser C and nested grammar submodules are not in
+  the module zip), set `GO_MK_WORKSPACE_USE` to the workspace use-paths (for
+  example `. third_party/gksyntax`) before `include bootstrap.mk`. go.mk
+  materializes a gitignored `go.work` from those paths before every build, lint,
+  vet, test, and govulncheck target, so fresh checkouts and CI route the module
+  without a committed `go.work`. A committed go.mod `replace` is not an option
+  here because gomoddirectives rejects local replacements. An existing `go.work`
+  is left untouched, so a developer override survives.
 - Lint gates diff tool findings against committed baseline files and fail only on
   new findings. Bootstrap touches the baseline files and `.go-mk-applied-notices`,
   and adds repo-local `.gitignore` allowlist rules so they stay tracked.

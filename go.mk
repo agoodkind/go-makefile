@@ -447,5 +447,44 @@ update-go-mk go-mk-sync:
 smoke-fetch:
 	@bash "$(GO_MK_HELPER_DIR)/go-mk-sync.sh" smoke-fetch
 
+# GO_MK_GENERATE: opt-in codegen prerequisite. A consumer sets this BEFORE
+# `include bootstrap.mk` to the name(s) of codegen target(s) that must run
+# before any target loads or compiles packages (for example tree-sitter
+# parser generation, proto, or go:embed payloads). Space-separated for
+# multiple targets. The codegen target itself is defined in the consumer
+# Makefile; go.mk only references it as an order-only prerequisite, so it
+# runs first without forcing the .PHONY engine targets to rebuild.
+GO_MK_GENERATE ?=
+
+# GO_MK_WORKSPACE_USE: opt-in go.work routing. A consumer sets this BEFORE
+# `include bootstrap.mk` to the use-paths of a workspace whose modules the
+# proxy cannot build on their own (for example a submodule-vendored module
+# whose C sources are absent from its module zip). go-mk-workspace then
+# materializes a gitignored go.work from those paths before any compile, so a
+# fresh checkout, worktree, or CI run routes the modules without a committed
+# go.work or a go.mod replace (the latter is rejected by gomoddirectives). An
+# existing go.work is left untouched, so a developer override survives.
+GO_MK_WORKSPACE_USE ?=
+
+.PHONY: go-mk-workspace
+go-mk-workspace:
+	@if [ -n "$(strip $(GO_MK_WORKSPACE_USE))" ] && [ ! -f go.work ]; then \
+		echo "go-mk-workspace: creating go.work (use $(GO_MK_WORKSPACE_USE))"; \
+		go work init $(GO_MK_WORKSPACE_USE); \
+	fi
+
+# Combined order-only prerequisites attached to every target that loads or
+# compiles packages. Empty (the default) adds nothing. This block sits before
+# the module include so the recipe-less build rule merges onto go-build.mk's
+# build recipe. The CI matrix split legs lint-format and lint-gocyclo are
+# deliberately omitted: gofumpt/goimports and gocyclo are textual or AST-only,
+# they never compile or resolve packages, and they pass on a fresh runner
+# without generated sources or a go.work, so attaching the prerequisite would
+# only add cost.
+GO_MK_PREREQS := $(if $(strip $(GO_MK_WORKSPACE_USE)),go-mk-workspace) $(GO_MK_GENERATE)
+ifneq ($(strip $(GO_MK_PREREQS)),)
+build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test govulncheck: | $(GO_MK_PREREQS)
+endif
+
 # Include opt-in modules at end so they see all go.mk definitions.
 $(foreach m,$(GO_MK_MODULES),$(eval -include .make/$(m)))
