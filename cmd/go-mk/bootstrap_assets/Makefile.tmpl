@@ -25,6 +25,11 @@ GO_MK_MODULES := go-build.mk
 # order-only prerequisite of build, lint, vet, test, and govulncheck. Leave
 # unset when there is no codegen.
 # GO_MK_GENERATE := my-codegen-target
+# Optional go.work routing. If this repo vendors a module the proxy cannot build
+# on its own (a submodule whose C sources are absent from its module zip), set
+# GO_MK_WORKSPACE_USE to the workspace use-paths; go.mk materializes a gitignored
+# go.work from them before every build. Leave unset otherwise.
+# GO_MK_WORKSPACE_USE := . third_party/my-vendored-module
 # bootstrap.mk fetches go.mk + golangci.yml + every module in GO_MK_MODULES
 # at parse time and -includes them. Update path: edit go-makefile/bootstrap.mk,
 # then refresh consumer copies (one-off cp; not enshrined as infrastructure).

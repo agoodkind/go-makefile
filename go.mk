@@ -453,13 +453,33 @@ smoke-fetch:
 # parser generation, proto, or go:embed payloads). Space-separated for
 # multiple targets. The codegen target itself is defined in the consumer
 # Makefile; go.mk only references it as an order-only prerequisite, so it
-# runs first without forcing the .PHONY engine targets to rebuild. Empty
-# (the default) adds nothing and leaves the engine targets unchanged. This
-# block sits before the module include so the recipe-less build rule merges
-# onto go-build.mk's build recipe.
+# runs first without forcing the .PHONY engine targets to rebuild.
 GO_MK_GENERATE ?=
-ifneq ($(strip $(GO_MK_GENERATE)),)
-build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test govulncheck: | $(GO_MK_GENERATE)
+
+# GO_MK_WORKSPACE_USE: opt-in go.work routing. A consumer sets this BEFORE
+# `include bootstrap.mk` to the use-paths of a workspace whose modules the
+# proxy cannot build on their own (for example a submodule-vendored module
+# whose C sources are absent from its module zip). go-mk-workspace then
+# materializes a gitignored go.work from those paths before any compile, so a
+# fresh checkout, worktree, or CI run routes the modules without a committed
+# go.work or a go.mod replace (the latter is rejected by gomoddirectives). An
+# existing go.work is left untouched, so a developer override survives.
+GO_MK_WORKSPACE_USE ?=
+
+.PHONY: go-mk-workspace
+go-mk-workspace:
+	@if [ -n "$(strip $(GO_MK_WORKSPACE_USE))" ] && [ ! -f go.work ]; then \
+		echo "go-mk-workspace: creating go.work (use $(GO_MK_WORKSPACE_USE))"; \
+		go work init $(GO_MK_WORKSPACE_USE); \
+	fi
+
+# Combined order-only prerequisites attached to every target that loads or
+# compiles packages. Empty (the default) adds nothing. This block sits before
+# the module include so the recipe-less build rule merges onto go-build.mk's
+# build recipe.
+GO_MK_PREREQS := $(if $(strip $(GO_MK_WORKSPACE_USE)),go-mk-workspace) $(GO_MK_GENERATE)
+ifneq ($(strip $(GO_MK_PREREQS)),)
+build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test govulncheck: | $(GO_MK_PREREQS)
 endif
 
 # Include opt-in modules at end so they see all go.mk definitions.

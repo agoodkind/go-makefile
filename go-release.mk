@@ -30,8 +30,9 @@ export RELEASE_ENTITLEMENTS
 release: | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" release
 
-# GO_MK_GENERATE codegen prerequisite (see go.mk). Release cross-compiles the
-# module, so it needs generated parsers/proto first. Empty default is a no-op.
-ifneq ($(strip $(GO_MK_GENERATE)),)
-release: | $(GO_MK_GENERATE)
+# GO_MK_PREREQS (see go.mk): codegen and go.work routing. Release cross-compiles
+# the module, so it needs generated parsers/proto and go.work first. Empty
+# default is a no-op.
+ifneq ($(strip $(GO_MK_PREREQS)),)
+release: | $(GO_MK_PREREQS)
 endif

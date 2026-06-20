@@ -30,9 +30,13 @@ by one fetched file, `go.mk`.
 - Do not commit `go.work`; the bootstrap gitignores `go.work` and `go.work.sum`.
   When a repo vendors a module the proxy cannot build on its own (for example
   `gksyntax`, whose generated parser C and nested grammar submodules are not in
-  the module zip), route it with a committed relative `replace` in go.mod, for
-  example `replace goodkind.io/gksyntax => ./third_party/gksyntax`, and keep
-  `go.work` as a local-only override for active co-development.
+  the module zip), set `GO_MK_WORKSPACE_USE` to the workspace use-paths (for
+  example `. third_party/gksyntax`) before `include bootstrap.mk`. go.mk
+  materializes a gitignored `go.work` from those paths before every build, lint,
+  vet, test, and govulncheck target, so fresh checkouts and CI route the module
+  without a committed `go.work`. A committed go.mod `replace` is not an option
+  here because gomoddirectives rejects local replacements. An existing `go.work`
+  is left untouched, so a developer override survives.
 - Lint gates diff tool findings against committed baseline files and fail only on
   new findings. Bootstrap touches the baseline files and `.go-mk-applied-notices`,
   and adds repo-local `.gitignore` allowlist rules so they stay tracked.

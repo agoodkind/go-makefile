@@ -183,9 +183,10 @@ clean-dist:
 
 endif
 
-# GO_MK_GENERATE codegen prerequisite (see go.mk). Attach to this module's
-# compile targets so a consumer that opts into go-build.mk also generates its
-# parsers/proto before build and install. Empty default is a no-op.
-ifneq ($(strip $(GO_MK_GENERATE)),)
-build install: | $(GO_MK_GENERATE)
+# GO_MK_PREREQS (see go.mk): codegen and go.work routing. Attach to this
+# module's compile targets so a consumer that opts into go-build.mk also
+# generates its parsers/proto and materializes go.work before build and install.
+# Empty default is a no-op.
+ifneq ($(strip $(GO_MK_PREREQS)),)
+build install: | $(GO_MK_PREREQS)
 endif
