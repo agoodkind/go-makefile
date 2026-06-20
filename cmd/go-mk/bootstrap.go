@@ -106,6 +106,7 @@ func runBootstrap(options bootstrapOptions) error {
 	if err != nil {
 		return err
 	}
+	baselineFiles := bootstrapManagedBaselineFiles(options.stderr)
 	printBootstrapSummary(options.stdout, modulePath, context)
 	if err := reconcileMakefile(context, options.stdout, options.stderr); err != nil {
 		return err
@@ -113,8 +114,11 @@ func runBootstrap(options bootstrapOptions) error {
 	if err := reconcileBootstrapMk(options.stdout); err != nil {
 		return err
 	}
+	if err := reconcileBaselineFiles(baselineFiles, options.stdout); err != nil {
+		return err
+	}
 	warnIfLocalGolangCI(options.stderr)
-	if err := reconcileGitignore(options.stdout); err != nil {
+	if err := reconcileGitignore(baselineFiles, options.stdout); err != nil {
 		return err
 	}
 	printBootstrapDone(options.stdout)
@@ -453,6 +457,75 @@ func reconcileBootstrapMk(stdout io.Writer) error {
 	return nil
 }
 
+func configuredBaselineFiles() []string {
+	return []string{
+		lintEnvDefault("GOLANGCI_LINT_BASELINE", ".golangci-lint-baseline.txt"),
+		lintEnvDefault("GOCYCLO_BASELINE", ".gocyclo-baseline.txt"),
+		lintEnvDefault("DEADCODE_BASELINE", ".deadcode-baseline.txt"),
+		lintEnvDefault("STATICCHECK_EXTRA_BASELINE", ".staticcheck-extra-baseline.txt"),
+	}
+}
+
+func bootstrapManagedBaselineFiles(stderr io.Writer) []string {
+	managedFiles := make([]string, 0, len(configuredBaselineFiles()))
+	seen := make(map[string]bool, len(configuredBaselineFiles()))
+	for _, baselineFile := range configuredBaselineFiles() {
+		managedPath, ok := sanitizeBootstrapManagedPath(baselineFile)
+		if !ok {
+			fmt.Fprintf(stderr, "warning: bootstrap skips non-repo baseline path %s; keep it tracked manually\n", baselineFile)
+			continue
+		}
+		if seen[managedPath] {
+			continue
+		}
+		seen[managedPath] = true
+		managedFiles = append(managedFiles, managedPath)
+	}
+	return managedFiles
+}
+
+func sanitizeBootstrapManagedPath(filePath string) (string, bool) {
+	trimmedPath := strings.TrimSpace(filePath)
+	if trimmedPath == "" {
+		return "", false
+	}
+	cleanPath := filepath.Clean(trimmedPath)
+	if filepath.IsAbs(cleanPath) {
+		return "", false
+	}
+	if cleanPath == "." || cleanPath == ".." {
+		return "", false
+	}
+	if strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	normalizedPath := path.Clean(filepath.ToSlash(cleanPath))
+	if normalizedPath == "." || normalizedPath == ".." || strings.HasPrefix(normalizedPath, "../") {
+		return "", false
+	}
+	return normalizedPath, true
+}
+
+func reconcileBaselineFiles(baselineFiles []string, stdout io.Writer) error {
+	slog.Info("bootstrap reconcile baseline files", slog.Int("files", len(baselineFiles)))
+	for _, baselineFile := range baselineFiles {
+		if fileExists(baselineFile) {
+			continue
+		}
+		parentDirectory := filepath.Dir(baselineFile)
+		if parentDirectory != "." {
+			if err := os.MkdirAll(parentDirectory, 0o755); err != nil {
+				return err
+			}
+		}
+		if err := os.WriteFile(baselineFile, nil, 0o644); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "created %s (commit this file)\n", baselineFile)
+	}
+	return nil
+}
+
 func warnIfLocalGolangCI(stderr io.Writer) {
 	slog.Info("bootstrap inspect golangci config")
 	if fileExists(".golangci.yml") {
@@ -460,11 +533,11 @@ func warnIfLocalGolangCI(stderr io.Writer) {
 	}
 }
 
-func reconcileGitignore(stdout io.Writer) error {
+func reconcileGitignore(baselineFiles []string, stdout io.Writer) error {
 	slog.Info("bootstrap reconcile gitignore")
-	const makeEntry = ".make/"
+	managedEntries := bootstrapGitignoreEntries(baselineFiles)
 	if !fileExists(".gitignore") {
-		if err := os.WriteFile(".gitignore", []byte(makeEntry+"\n"), 0o644); err != nil {
+		if err := os.WriteFile(".gitignore", []byte(strings.Join(managedEntries, "\n")+"\n"), 0o644); err != nil {
 			return err
 		}
 		fmt.Fprintln(stdout, "created .gitignore")
@@ -474,7 +547,8 @@ func reconcileGitignore(stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if hasLine(string(contents), makeEntry) {
+	missingEntries := missingGitignoreEntries(string(contents), managedEntries)
+	if len(missingEntries) == 0 {
 		return nil
 	}
 	var builder strings.Builder
@@ -482,13 +556,62 @@ func reconcileGitignore(stdout io.Writer) error {
 	if len(contents) > 0 && !strings.HasSuffix(string(contents), "\n") {
 		builder.WriteString("\n")
 	}
-	builder.WriteString(makeEntry)
-	builder.WriteString("\n")
+	for _, entry := range missingEntries {
+		builder.WriteString(entry)
+		builder.WriteString("\n")
+	}
 	if err := os.WriteFile(".gitignore", []byte(builder.String()), 0o644); err != nil {
 		return err
 	}
-	fmt.Fprintln(stdout, "added .make/ to .gitignore")
+	fmt.Fprintln(stdout, "updated .gitignore")
 	return nil
+}
+
+func bootstrapGitignoreEntries(baselineFiles []string) []string {
+	entries := []string{".make/"}
+	seen := map[string]bool{
+		".make/": true,
+	}
+	for _, baselineFile := range baselineFiles {
+		for _, entry := range gitignoreAllowlistEntries(baselineFile) {
+			if seen[entry] {
+				continue
+			}
+			seen[entry] = true
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
+func gitignoreAllowlistEntries(filePath string) []string {
+	pathParts := strings.Split(path.Clean(filePath), "/")
+	entries := make([]string, 0, len(pathParts))
+	currentPath := ""
+	for index, pathPart := range pathParts {
+		if currentPath == "" {
+			currentPath = pathPart
+		} else {
+			currentPath += "/" + pathPart
+		}
+		if index < len(pathParts)-1 {
+			entries = append(entries, "!"+currentPath+"/")
+			continue
+		}
+		entries = append(entries, "!"+currentPath)
+	}
+	return entries
+}
+
+func missingGitignoreEntries(contents string, entries []string) []string {
+	missingEntries := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if hasLine(contents, entry) {
+			continue
+		}
+		missingEntries = append(missingEntries, entry)
+	}
+	return missingEntries
 }
 
 func hasLine(contents string, expected string) bool {
@@ -512,6 +635,7 @@ func printBootstrapDone(writer io.Writer) {
 	fmt.Fprintln(writer, "  make lint    just the full lint chain")
 	fmt.Fprintln(writer, "  make fmt     apply gofumpt + goimports")
 	fmt.Fprintln(writer)
+	fmt.Fprintln(writer, "Commit Makefile, bootstrap.mk, .gitignore, and the baseline files.")
 	fmt.Fprintln(writer, "Run 'make help' for the full target list, including per-linter sub-targets")
 	fmt.Fprintln(writer, "and baseline-refresh targets. Do not add project-local lint, deadcode, audit,")
 	fmt.Fprintln(writer, "or staticcheck targets; doing so splits enforcement and lets agents bypass")

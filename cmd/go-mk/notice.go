@@ -91,13 +91,7 @@ func runNotice() int {
 // is present. When none exists, directive notices belong to initial adoption
 // and should not trigger historical auto-baseline work.
 func anyConfiguredBaselineFileExists() bool {
-	baselineFiles := []string{
-		lintEnvDefault("GOLANGCI_LINT_BASELINE", ".golangci-lint-baseline.txt"),
-		lintEnvDefault("GOCYCLO_BASELINE", ".gocyclo-baseline.txt"),
-		lintEnvDefault("DEADCODE_BASELINE", ".deadcode-baseline.txt"),
-		lintEnvDefault("STATICCHECK_EXTRA_BASELINE", ".staticcheck-extra-baseline.txt"),
-	}
-	for _, baselineFile := range baselineFiles {
+	for _, baselineFile := range configuredBaselineFiles() {
 		if baselineFileExists(baselineFile) {
 			return true
 		}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,10 +57,12 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileExists(t, filepath.Join(repoDir, "Makefile"))
 		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
 		assertFileExists(t, filepath.Join(repoDir, ".gitignore"))
+		assertBaselineFilesExist(t, repoDir)
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "BINARY := bootstrap-probe")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk go-release.mk")
 		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "GO_MK_BOOTSTRAP_FETCHED := 1")
 		assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
+		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBaselineFiles())
 		runMakeHelp(t, repoDir, repoRoot)
 	})
 
@@ -77,6 +80,8 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "LIBRARY := 1")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk")
 		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
+		assertBaselineFilesExist(t, repoDir)
+		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBaselineFiles())
 	})
 
 	t.Run("custom Makefile is preserved", func(t *testing.T) {
@@ -94,6 +99,8 @@ func TestBootstrapScenarios(t *testing.T) {
 		}
 		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
 		assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
+		assertBaselineFilesExist(t, repoDir)
+		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBaselineFiles())
 	})
 
 	t.Run("generated rerun is stable", func(t *testing.T) {
@@ -145,6 +152,27 @@ func TestBootstrapScenarios(t *testing.T) {
 
 		assertFileContains(t, makefilePath, "include bootstrap.mk")
 	})
+
+	t.Run("baseline files are unignored", func(t *testing.T) {
+		repoDir := filepath.Join(t.TempDir(), "unignored")
+		mustMkdirAll(t, repoDir)
+		initGitRepo(t, repoDir)
+		t.Setenv("GOLANGCI_LINT_BASELINE", "baselines/golangci.txt")
+		writeBootstrapTestFile(t, filepath.Join(repoDir, ".gitignore"), "*.txt\nbaselines/\n")
+		t.Chdir(repoDir)
+
+		runBootstrapForTest(t, bootstrapOptions{
+			modulePath:   "goodkind.io/unignored",
+			forceLibrary: true,
+			yes:          true,
+		})
+
+		assertBaselineFilesExist(t, repoDir)
+		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBaselineFiles())
+		for _, baselineFile := range configuredBaselineFiles() {
+			assertPathNotGitIgnored(t, repoDir, baselineFile)
+		}
+	})
 }
 
 func runBootstrapForTest(t *testing.T, options bootstrapOptions) {
@@ -169,6 +197,37 @@ func runMakeHelp(t *testing.T, repoDir string, repoRoot string) {
 	}
 }
 
+func initGitRepo(t *testing.T, repoDir string) {
+	t.Helper()
+	command := exec.Command("git", "init", "-q")
+	command.Dir = repoDir
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git init failed: %v\noutput:\n%s", err, string(output))
+	}
+}
+
+func assertPathNotGitIgnored(t *testing.T, repoDir string, filePath string) {
+	t.Helper()
+	command := exec.Command("git", "check-ignore", "--quiet", filePath)
+	command.Dir = repoDir
+	err := command.Run()
+	if err == nil {
+		t.Fatalf("%s is still gitignored", filePath)
+	}
+	var exitError *exec.ExitError
+	if !errors.As(err, &exitError) {
+		t.Fatalf("git check-ignore %s: %v", filePath, err)
+	}
+	if exitError.ExitCode() != 1 {
+		output, outputErr := exec.Command("git", "check-ignore", "-v", filePath).CombinedOutput()
+		if outputErr != nil {
+			t.Fatalf("git check-ignore -v %s: %v", filePath, outputErr)
+		}
+		t.Fatalf("git check-ignore %s returned exit code %d\noutput:\n%s", filePath, exitError.ExitCode(), string(output))
+	}
+}
+
 func assertFileExists(t *testing.T, filePath string) {
 	t.Helper()
 	info, err := os.Stat(filePath)
@@ -185,6 +244,21 @@ func assertFileContains(t *testing.T, filePath string, expectedText string) {
 	contents := mustReadFile(t, filePath)
 	if !strings.Contains(contents, expectedText) {
 		t.Fatalf("%s does not contain %q\ncontents:\n%s", filePath, expectedText, contents)
+	}
+}
+
+func assertBaselineFilesExist(t *testing.T, repoDir string) {
+	t.Helper()
+	for _, baselineFile := range configuredBaselineFiles() {
+		assertFileExists(t, filepath.Join(repoDir, baselineFile))
+	}
+}
+
+func assertGitignoreContainsBootstrapEntries(t *testing.T, repoDir string, baselineFiles []string) {
+	t.Helper()
+	gitignorePath := filepath.Join(repoDir, ".gitignore")
+	for _, entry := range bootstrapGitignoreEntries(baselineFiles) {
+		assertFileContains(t, gitignorePath, entry)
 	}
 }
 
