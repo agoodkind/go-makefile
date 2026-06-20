@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -119,6 +120,9 @@ func runBootstrap(options bootstrapOptions) error {
 	}
 	warnIfLocalGolangCI(options.stderr)
 	if err := reconcileGitignore(trackedFiles, options.stdout); err != nil {
+		return err
+	}
+	if err := reconcileGoModTools(options.stdout); err != nil {
 		return err
 	}
 	printBootstrapDone(options.stdout)
@@ -575,6 +579,80 @@ func reconcileGitignore(trackedFiles []string, stdout io.Writer) error {
 	}
 	fmt.Fprintln(stdout, "updated .gitignore")
 	return nil
+}
+
+// goMakefileManagedTools are the tool packages go-makefile installs itself via
+// `go install`, with versions controlled by go.mk's *_INSTALL variables. A
+// consumer must
+// not also pin them with a go.mod `tool` directive: that pulls each tool's large
+// transitive graph into the module (for example golangci-lint -> viper, which
+// drags in the pre-split google.golang.org/genproto and then collides with the
+// split genproto modules in a go.work build). Bootstrap removes these directives
+// so they cannot accumulate; project-specific tools (buf, mockgen, and the like)
+// are left untouched.
+var goMakefileManagedTools = []string{
+	"github.com/golangci/golangci-lint/v2/cmd/golangci-lint",
+	"github.com/fzipp/gocyclo/cmd/gocyclo",
+	"golang.org/x/tools/cmd/deadcode",
+	"golang.org/x/tools/cmd/goimports",
+	"golang.org/x/vuln/cmd/govulncheck",
+	"mvdan.cc/gofumpt",
+	"goodkind.io/go-makefile/staticcheck/cmd/staticcheck-extra",
+}
+
+func reconcileGoModTools(stdout io.Writer) error {
+	slog.Info("bootstrap reconcile go.mod tool directives")
+	if !fileExists("go.mod") {
+		return nil
+	}
+	declared, err := goModToolDirectives()
+	if err != nil {
+		return err
+	}
+	managed := make(map[string]bool, len(goMakefileManagedTools))
+	for _, toolPath := range goMakefileManagedTools {
+		managed[toolPath] = true
+	}
+	dropArgs := []string{"mod", "edit"}
+	droppedCount := 0
+	for _, toolPath := range declared {
+		if !managed[toolPath] {
+			continue
+		}
+		dropArgs = append(dropArgs, "-droptool="+toolPath)
+		droppedCount++
+	}
+	if droppedCount == 0 {
+		return nil
+	}
+	if err := exec.Command("go", dropArgs...).Run(); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "removed %d go-makefile-managed tool directive(s) from go.mod; run `go mod tidy` to prune their dependencies\n", droppedCount)
+	return nil
+}
+
+// goModToolDirectives returns the tool directive paths declared in the current
+// module's go.mod, read via `go mod edit -json`.
+func goModToolDirectives() ([]string, error) {
+	slog.Info("bootstrap read go.mod tool directives")
+	output, err := exec.Command("go", "mod", "edit", "-json").Output()
+	if err != nil {
+		return nil, err
+	}
+	var parsed struct {
+		Tool []struct {
+			Path string `json:"Path"`
+		} `json:"Tool"`
+	}
+	if err := json.Unmarshal(output, &parsed); err != nil {
+		return nil, err
+	}
+	toolPaths := make([]string, 0, len(parsed.Tool))
+	for _, tool := range parsed.Tool {
+		toolPaths = append(toolPaths, tool.Path)
+	}
+	return toolPaths, nil
 }
 
 func bootstrapGitignoreEntries(trackedFiles []string) []string {

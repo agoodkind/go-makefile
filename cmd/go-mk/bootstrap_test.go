@@ -39,6 +39,45 @@ func TestBootstrapAssetsMatchCanonicalFiles(t *testing.T) {
 	)
 }
 
+func TestReconcileGoModToolsStripsManagedTools(t *testing.T) {
+	repoDir := t.TempDir()
+	t.Chdir(repoDir)
+	goModContent := "module goodkind.io/tooltest\n\ngo 1.26.4\n\n" +
+		"tool (\n" +
+		"\tgithub.com/golangci/golangci-lint/v2/cmd/golangci-lint\n" +
+		"\tgithub.com/fzipp/gocyclo/cmd/gocyclo\n" +
+		"\tgolang.org/x/tools/cmd/deadcode\n" +
+		"\tgolang.org/x/vuln/cmd/govulncheck\n" +
+		"\tgithub.com/bufbuild/buf/cmd/buf\n" +
+		")\n"
+	writeBootstrapTestFile(t, filepath.Join(repoDir, "go.mod"), goModContent)
+
+	var stdout bytes.Buffer
+	if err := reconcileGoModTools(&stdout); err != nil {
+		t.Fatalf("reconcileGoModTools returned error: %v", err)
+	}
+
+	contents := mustReadFile(t, filepath.Join(repoDir, "go.mod"))
+	for _, managed := range goMakefileManagedTools {
+		if strings.Contains(contents, managed) {
+			t.Fatalf("managed tool directive %q was not removed\ngo.mod:\n%s", managed, contents)
+		}
+	}
+	if !strings.Contains(contents, "github.com/bufbuild/buf/cmd/buf") {
+		t.Fatalf("project-specific tool directive was removed\ngo.mod:\n%s", contents)
+	}
+
+	// Re-running is a no-op now that no managed tool directive remains.
+	before := contents
+	var secondStdout bytes.Buffer
+	if err := reconcileGoModTools(&secondStdout); err != nil {
+		t.Fatalf("second reconcileGoModTools returned error: %v", err)
+	}
+	if after := mustReadFile(t, filepath.Join(repoDir, "go.mod")); after != before {
+		t.Fatalf("second run changed go.mod\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
 func TestBootstrapScenarios(t *testing.T) {
 	repoRoot := testRepoRoot(t)
 
