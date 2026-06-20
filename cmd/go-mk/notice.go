@@ -57,15 +57,21 @@ func runNotice() int {
 	if err != nil {
 		return 0
 	}
+	freshRepo := !anyConfiguredBaselineFileExists()
 	for _, record := range records {
 		numericID, ok := atoiNotice(record.id)
 		if !ok {
 			continue
 		}
-		if record.directive != "" && record.directive != "-" && !applied[record.id] {
-			runNoticeAutoBaseline(record, appliedFile, applied)
+		directiveNotice := record.directive != "" && record.directive != "-"
+		if directiveNotice && !applied[record.id] {
+			if freshRepo {
+				recordFreshNoticeApplied(record, appliedFile, applied)
+			} else {
+				runNoticeAutoBaseline(record, appliedFile, applied)
+			}
 		}
-		if numericID > lastSeen {
+		if numericID > lastSeen && !(freshRepo && directiveNotice) {
 			writeStderr("go-makefile notice #" + record.id + ": " + record.summary + "\n")
 		}
 		if numericID > maxSeen {
@@ -78,6 +84,24 @@ func runNotice() int {
 	}
 	_ = writeSeenFile(seenFile, maxSeen)
 	return 0
+}
+
+// anyConfiguredBaselineFileExists reports whether this repository has already
+// committed any baseline file managed by go-makefile. When none exists, notice
+// directives are historical adoption context rather than changes to grandfather.
+func anyConfiguredBaselineFileExists() bool {
+	baselineFiles := []string{
+		lintEnvDefault("GOLANGCI_LINT_BASELINE", ".golangci-lint-baseline.txt"),
+		lintEnvDefault("GOCYCLO_BASELINE", ".gocyclo-baseline.txt"),
+		lintEnvDefault("DEADCODE_BASELINE", ".deadcode-baseline.txt"),
+		lintEnvDefault("STATICCHECK_EXTRA_BASELINE", ".staticcheck-extra-baseline.txt"),
+	}
+	for _, baselineFile := range baselineFiles {
+		if _, err := os.Stat(baselineFile); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // readNoticeRecords reads the notices file into records, skipping blank lines
@@ -149,6 +173,16 @@ func loadLastSeen(path string) int {
 func writeSeenFile(path string, maxSeen int) error {
 	slog.Info("notice write seen", slog.String("path", path))
 	return os.WriteFile(path, []byte(strconv.Itoa(maxSeen)+"\n"), 0o644)
+}
+
+// recordFreshNoticeApplied records a directive notice as applied without
+// auto-baselining. A first-adoption repo has no previous baseline to preserve,
+// so running the scoped baseline would create adoption-only churn.
+func recordFreshNoticeApplied(record noticeFields, appliedFile string, applied map[string]bool) {
+	if err := appendAppliedNotice(appliedFile, record.id); err != nil {
+		return
+	}
+	applied[record.id] = true
 }
 
 // runNoticeAutoBaseline rolls out the scoped, token-free golangci auto-baseline
