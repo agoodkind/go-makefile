@@ -11,7 +11,7 @@ CMD    := [[.Cmd]]
 [[if .Vpkg]]VPKG   := [[.Vpkg]]
 [[end]]
 # Pipeline modules. Add go-service.mk if this binary ships as a daemon and
-# set LAUNCHD_LABEL, SYSTEMD_UNIT, LOG_PATH before -include $(GO_MK).
+# set LAUNCHD_LABEL, SYSTEMD_UNIT, LOG_PATH before the include bootstrap.mk line.
 GO_MK_MODULES := go-build.mk go-release.mk
 [[else]]# Library mode: build/install no-op; lint/vet/test from go.mk still apply.
 LIBRARY := 1

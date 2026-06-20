@@ -264,7 +264,7 @@ func readModulePath(filePath string) (string, error) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
-		if len(fields) == 2 && fields[0] == "module" {
+		if len(fields) >= 2 && fields[0] == "module" {
 			return fields[1], nil
 		}
 	}
