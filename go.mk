@@ -447,5 +447,20 @@ update-go-mk go-mk-sync:
 smoke-fetch:
 	@bash "$(GO_MK_HELPER_DIR)/go-mk-sync.sh" smoke-fetch
 
+# GO_MK_GENERATE: opt-in codegen prerequisite. A consumer sets this BEFORE
+# `include bootstrap.mk` to the name(s) of codegen target(s) that must run
+# before any target loads or compiles packages (for example tree-sitter
+# parser generation, proto, or go:embed payloads). Space-separated for
+# multiple targets. The codegen target itself is defined in the consumer
+# Makefile; go.mk only references it as an order-only prerequisite, so it
+# runs first without forcing the .PHONY engine targets to rebuild. Empty
+# (the default) adds nothing and leaves the engine targets unchanged. This
+# block sits before the module include so the recipe-less build rule merges
+# onto go-build.mk's build recipe.
+GO_MK_GENERATE ?=
+ifneq ($(strip $(GO_MK_GENERATE)),)
+build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test govulncheck: | $(GO_MK_GENERATE)
+endif
+
 # Include opt-in modules at end so they see all go.mk definitions.
 $(foreach m,$(GO_MK_MODULES),$(eval -include .make/$(m)))

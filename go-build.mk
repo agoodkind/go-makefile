@@ -182,3 +182,10 @@ clean-dist:
 	@echo "cleaned: $(DIST_DIR)"
 
 endif
+
+# GO_MK_GENERATE codegen prerequisite (see go.mk). Attach to this module's
+# compile targets so a consumer that opts into go-build.mk also generates its
+# parsers/proto before build and install. Empty default is a no-op.
+ifneq ($(strip $(GO_MK_GENERATE)),)
+build install: | $(GO_MK_GENERATE)
+endif
