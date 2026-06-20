@@ -87,9 +87,9 @@ func runNotice() int {
 	return 0
 }
 
-// anyConfiguredBaselineFileExists reports whether this repository has already
-// committed any baseline file managed by go-makefile. When none exists, notice
-// directives are historical adoption context rather than changes to grandfather.
+// anyConfiguredBaselineFileExists reports whether any configured baseline file
+// is present. When none exists, notice directives are historical adoption
+// context rather than changes to grandfather.
 func anyConfiguredBaselineFileExists() bool {
 	baselineFiles := []string{
 		lintEnvDefault("GOLANGCI_LINT_BASELINE", ".golangci-lint-baseline.txt"),

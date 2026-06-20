@@ -144,7 +144,9 @@ func TestAnyConfiguredBaselineFileExistsTreatsStatErrorsAsExisting(t *testing.T)
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chmod(blockedDirectory, 0o755)
+		if err := os.Chmod(blockedDirectory, 0o755); err != nil {
+			t.Fatalf("restore blocked directory permissions: %v", err)
+		}
 	})
 	if err := os.Chmod(blockedDirectory, 0); err != nil {
 		t.Fatal(err)
@@ -174,7 +176,9 @@ func chdir(t *testing.T, directory string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(previous)
+		if err := os.Chdir(previous); err != nil {
+			t.Fatalf("restore working directory: %v", err)
+		}
 	})
 }
 
