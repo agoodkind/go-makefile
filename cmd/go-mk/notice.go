@@ -88,8 +88,8 @@ func runNotice() int {
 }
 
 // anyConfiguredBaselineFileExists reports whether any configured baseline file
-// is present. When none exists, notice directives are historical adoption
-// context rather than changes to grandfather.
+// is present. When none exists, directive notices belong to initial adoption
+// and should not trigger historical auto-baseline work.
 func anyConfiguredBaselineFileExists() bool {
 	baselineFiles := []string{
 		lintEnvDefault("GOLANGCI_LINT_BASELINE", ".golangci-lint-baseline.txt"),
