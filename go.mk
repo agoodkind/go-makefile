@@ -473,6 +473,15 @@ go-mk-workspace:
 		go work init $(GO_MK_WORKSPACE_USE); \
 	fi
 
+# go-mk-workspace runs after codegen so a use-path provided by a generated
+# submodule has its go.mod before `go work init` reads it. go work init silently
+# drops a use-path whose directory contains no module, which would otherwise
+# leave the build to download that module from the proxy instead of using the
+# local tree.
+ifneq ($(strip $(GO_MK_GENERATE)),)
+go-mk-workspace: | $(GO_MK_GENERATE)
+endif
+
 # Combined order-only prerequisites attached to every target that loads or
 # compiles packages. Empty (the default) adds nothing. This block sits before
 # the module include so the recipe-less build rule merges onto go-build.mk's
