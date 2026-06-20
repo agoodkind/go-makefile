@@ -261,6 +261,12 @@ func parseNoticeDirective(directive string) noticeDirective {
 // it emits a boundary log.
 func appendAppliedNotice(path, id string) error {
 	slog.Info("notice append applied", slog.String("path", path), slog.String("id", id))
+	directory := filepath.Dir(path)
+	if directory != "" && directory != "." {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			return err
+		}
+	}
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err

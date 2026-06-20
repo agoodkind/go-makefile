@@ -68,8 +68,11 @@ func TestRunNoticeShowsDirectiveWhenFreshAppliedRecordFails(t *testing.T) {
 	if err := os.WriteFile(noticesPath, []byte(notices), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile("not-a-directory", []byte("file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("GO_MK_NOTICES_FILE", noticesPath)
-	t.Setenv("GO_MK_APPLIED_NOTICES", filepath.Join("missing", ".go-mk-applied-notices"))
+	t.Setenv("GO_MK_APPLIED_NOTICES", filepath.Join("not-a-directory", ".go-mk-applied-notices"))
 
 	var status int
 	stderr := captureStderr(t, func() {
@@ -86,6 +89,39 @@ func TestRunNoticeShowsDirectiveWhenFreshAppliedRecordFails(t *testing.T) {
 	}
 	if _, err := os.Stat(".golangci-lint-baseline.txt"); !os.IsNotExist(err) {
 		t.Fatalf(".golangci-lint-baseline.txt stat error = %v, want not exist", err)
+	}
+}
+
+func TestRunNoticeCreatesFreshAppliedNoticeParentDirectory(t *testing.T) {
+	root := t.TempDir()
+	chdir(t, root)
+	clearBaselineEnv(t)
+
+	noticesPath := filepath.Join(root, "notices.txt")
+	notices := "1\tGATE=golangci LINTER=revive RULE=file-length-limit\tEnabled historical rule\n"
+	if err := os.WriteFile(noticesPath, []byte(notices), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	appliedPath := filepath.Join(".make", "nested", ".go-mk-applied-notices")
+	t.Setenv("GO_MK_NOTICES_FILE", noticesPath)
+	t.Setenv("GO_MK_APPLIED_NOTICES", appliedPath)
+
+	var status int
+	stderr := captureStderr(t, func() {
+		status = runNotice()
+	})
+	if status != 0 {
+		t.Fatalf("runNotice status = %d, want 0", status)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want no directive output after applied record succeeds", stderr)
+	}
+	applied, err := os.ReadFile(appliedPath)
+	if err != nil {
+		t.Fatalf("read applied notices: %v", err)
+	}
+	if string(applied) != "1\n" {
+		t.Fatalf("applied notices = %q, want %q", string(applied), "1\n")
 	}
 }
 
