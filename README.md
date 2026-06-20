@@ -42,10 +42,11 @@ by one fetched file, `go.mk`.
   is left untouched, so a developer override survives.
 - Do not pin the lint tools (golangci-lint, gocyclo, deadcode, govulncheck,
   gofumpt, goimports, staticcheck-extra) with a go.mod `tool` directive; go.mk
-  installs its own pinned versions, and a duplicate directive only drags each
-  tool's transitive graph into the module. Bootstrap removes these managed tool
-  directives on every run and leaves project-specific tools alone; run
-  `go mod tidy` afterward to prune their dependencies.
+  installs them itself with versions it controls via the `*_INSTALL` variables,
+  and a duplicate directive only drags each tool's transitive graph into the
+  module. Bootstrap removes these managed tool directives on every run and leaves
+  project-specific tools alone; run `go mod tidy` afterward to prune their
+  dependencies.
 - Lint gates diff tool findings against committed baseline files and fail only on
   new findings. Bootstrap touches the baseline files and `.go-mk-applied-notices`,
   and adds repo-local `.gitignore` allowlist rules so they stay tracked.

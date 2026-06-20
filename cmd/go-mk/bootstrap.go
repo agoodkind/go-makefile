@@ -582,7 +582,8 @@ func reconcileGitignore(trackedFiles []string, stdout io.Writer) error {
 }
 
 // goMakefileManagedTools are the tool packages go-makefile installs itself via
-// `go install <pkg>@<pinned>` (see go.mk *_INSTALL variables). A consumer must
+// `go install`, with versions controlled by go.mk's *_INSTALL variables. A
+// consumer must
 // not also pin them with a go.mod `tool` directive: that pulls each tool's large
 // transitive graph into the module (for example golangci-lint -> viper, which
 // drags in the pre-split google.golang.org/genproto and then collides with the
