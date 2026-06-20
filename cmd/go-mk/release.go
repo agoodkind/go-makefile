@@ -531,7 +531,11 @@ func runProcess(name string, args []string, extraEnv []string) error {
 // gitOutput returns the trimmed stdout of a git command. It is a process
 // boundary, so it emits a structured slog event.
 func gitOutput(args ...string) (string, error) {
-	slog.Info("release git", slog.Int("args", len(args)))
+	return loggedGitOutput("release git", args...)
+}
+
+func loggedGitOutput(message string, args ...string) (string, error) {
+	slog.Info(message, slog.Int("args", len(args)))
 	out, err := exec.Command("git", args...).Output()
 	if err != nil {
 		return "", err

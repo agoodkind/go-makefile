@@ -177,7 +177,7 @@ func resolveVanityRoot(options bootstrapOptions) string {
 
 func inferModulePath(vanityRoot string) (string, error) {
 	if isInsideGitWorkTree() {
-		remote, err := gitOutput("config", "--get", "remote.origin.url")
+		remote, err := bootstrapGitOutput("config", "--get", "remote.origin.url")
 		if err == nil {
 			normalized := normalizeGitRemote(remote)
 			if normalized != "" {
@@ -557,4 +557,8 @@ func runBootstrapProcess(name string, args []string, stdout io.Writer, stderr io
 	command.Stdout = stdout
 	command.Stderr = stderr
 	return command.Run()
+}
+
+func bootstrapGitOutput(args ...string) (string, error) {
+	return loggedGitOutput("bootstrap git", args...)
 }
