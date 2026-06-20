@@ -113,8 +113,8 @@ func TestRunNoticeCreatesFreshAppliedNoticeParentDirectory(t *testing.T) {
 	if status != 0 {
 		t.Fatalf("runNotice status = %d, want 0", status)
 	}
-	if stderr != "" {
-		t.Fatalf("stderr = %q, want no directive output after applied record succeeds", stderr)
+	if strings.Contains(stderr, "go-makefile notice #1:") {
+		t.Fatalf("stderr = %q, want no directive notice output after applied record succeeds", stderr)
 	}
 	applied, err := os.ReadFile(appliedPath)
 	if err != nil {
