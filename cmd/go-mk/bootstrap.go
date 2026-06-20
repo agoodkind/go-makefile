@@ -106,7 +106,7 @@ func runBootstrap(options bootstrapOptions) error {
 	if err != nil {
 		return err
 	}
-	baselineFiles := bootstrapManagedBaselineFiles(options.stderr)
+	trackedFiles := bootstrapManagedTrackedFiles(options.stderr)
 	printBootstrapSummary(options.stdout, modulePath, context)
 	if err := reconcileMakefile(context, options.stdout, options.stderr); err != nil {
 		return err
@@ -114,11 +114,11 @@ func runBootstrap(options bootstrapOptions) error {
 	if err := reconcileBootstrapMk(options.stdout); err != nil {
 		return err
 	}
-	if err := reconcileBaselineFiles(baselineFiles, options.stdout); err != nil {
+	if err := reconcileTrackedFiles(trackedFiles, options.stdout); err != nil {
 		return err
 	}
 	warnIfLocalGolangCI(options.stderr)
-	if err := reconcileGitignore(baselineFiles, options.stdout); err != nil {
+	if err := reconcileGitignore(trackedFiles, options.stdout); err != nil {
 		return err
 	}
 	printBootstrapDone(options.stdout)
@@ -466,13 +466,23 @@ func configuredBaselineFiles() []string {
 	}
 }
 
-func bootstrapManagedBaselineFiles(stderr io.Writer) []string {
-	managedFiles := make([]string, 0, len(configuredBaselineFiles()))
-	seen := make(map[string]bool, len(configuredBaselineFiles()))
-	for _, baselineFile := range configuredBaselineFiles() {
-		managedPath, ok := sanitizeBootstrapManagedPath(baselineFile)
+func configuredAppliedNoticesFile() string {
+	return lintEnvDefault("GO_MK_APPLIED_NOTICES", ".go-mk-applied-notices")
+}
+
+func configuredBootstrapTrackedFiles() []string {
+	trackedFiles := append([]string{}, configuredBaselineFiles()...)
+	trackedFiles = append(trackedFiles, configuredAppliedNoticesFile())
+	return trackedFiles
+}
+
+func bootstrapManagedTrackedFiles(stderr io.Writer) []string {
+	managedFiles := make([]string, 0, len(configuredBootstrapTrackedFiles()))
+	seen := make(map[string]bool, len(configuredBootstrapTrackedFiles()))
+	for _, trackedFile := range configuredBootstrapTrackedFiles() {
+		managedPath, ok := sanitizeBootstrapManagedPath(trackedFile)
 		if !ok {
-			fmt.Fprintf(stderr, "warning: bootstrap skips non-repo baseline path %s; keep it tracked manually\n", baselineFile)
+			fmt.Fprintf(stderr, "warning: bootstrap skips non-repo tracked file %s; keep it tracked manually\n", trackedFile)
 			continue
 		}
 		if seen[managedPath] {
@@ -506,22 +516,22 @@ func sanitizeBootstrapManagedPath(filePath string) (string, bool) {
 	return normalizedPath, true
 }
 
-func reconcileBaselineFiles(baselineFiles []string, stdout io.Writer) error {
-	slog.Info("bootstrap reconcile baseline files", slog.Int("files", len(baselineFiles)))
-	for _, baselineFile := range baselineFiles {
-		if fileExists(baselineFile) {
+func reconcileTrackedFiles(trackedFiles []string, stdout io.Writer) error {
+	slog.Info("bootstrap reconcile tracked files", slog.Int("files", len(trackedFiles)))
+	for _, trackedFile := range trackedFiles {
+		if fileExists(trackedFile) {
 			continue
 		}
-		parentDirectory := filepath.Dir(baselineFile)
+		parentDirectory := filepath.Dir(trackedFile)
 		if parentDirectory != "." {
 			if err := os.MkdirAll(parentDirectory, 0o755); err != nil {
 				return err
 			}
 		}
-		if err := os.WriteFile(baselineFile, nil, 0o644); err != nil {
+		if err := os.WriteFile(trackedFile, nil, 0o644); err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "created %s (commit this file)\n", baselineFile)
+		fmt.Fprintf(stdout, "created %s (commit this file)\n", trackedFile)
 	}
 	return nil
 }
@@ -533,9 +543,9 @@ func warnIfLocalGolangCI(stderr io.Writer) {
 	}
 }
 
-func reconcileGitignore(baselineFiles []string, stdout io.Writer) error {
+func reconcileGitignore(trackedFiles []string, stdout io.Writer) error {
 	slog.Info("bootstrap reconcile gitignore")
-	managedEntries := bootstrapGitignoreEntries(baselineFiles)
+	managedEntries := bootstrapGitignoreEntries(trackedFiles)
 	if !fileExists(".gitignore") {
 		if err := os.WriteFile(".gitignore", []byte(strings.Join(managedEntries, "\n")+"\n"), 0o644); err != nil {
 			return err
@@ -567,13 +577,13 @@ func reconcileGitignore(baselineFiles []string, stdout io.Writer) error {
 	return nil
 }
 
-func bootstrapGitignoreEntries(baselineFiles []string) []string {
+func bootstrapGitignoreEntries(trackedFiles []string) []string {
 	entries := []string{".make/"}
 	seen := map[string]bool{
 		".make/": true,
 	}
-	for _, baselineFile := range baselineFiles {
-		for _, entry := range gitignoreAllowlistEntries(baselineFile) {
+	for _, trackedFile := range trackedFiles {
+		for _, entry := range gitignoreAllowlistEntries(trackedFile) {
 			if seen[entry] {
 				continue
 			}
@@ -635,7 +645,7 @@ func printBootstrapDone(writer io.Writer) {
 	fmt.Fprintln(writer, "  make lint    just the full lint chain")
 	fmt.Fprintln(writer, "  make fmt     apply gofumpt + goimports")
 	fmt.Fprintln(writer)
-	fmt.Fprintln(writer, "Commit Makefile, bootstrap.mk, .gitignore, and the baseline files.")
+	fmt.Fprintln(writer, "Commit Makefile, bootstrap.mk, .gitignore, the baseline files, and .go-mk-applied-notices.")
 	fmt.Fprintln(writer, "Run 'make help' for the full target list, including per-linter sub-targets")
 	fmt.Fprintln(writer, "and baseline-refresh targets. Do not add project-local lint, deadcode, audit,")
 	fmt.Fprintln(writer, "or staticcheck targets; doing so splits enforcement and lets agents bypass")

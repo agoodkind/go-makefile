@@ -57,12 +57,12 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileExists(t, filepath.Join(repoDir, "Makefile"))
 		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
 		assertFileExists(t, filepath.Join(repoDir, ".gitignore"))
-		assertBaselineFilesExist(t, repoDir)
+		assertTrackedFilesExist(t, repoDir)
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "BINARY := bootstrap-probe")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk go-release.mk")
 		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "GO_MK_BOOTSTRAP_FETCHED := 1")
 		assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
-		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBaselineFiles())
+		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
 		runMakeHelp(t, repoDir, repoRoot)
 	})
 
@@ -80,8 +80,8 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "LIBRARY := 1")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk")
 		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
-		assertBaselineFilesExist(t, repoDir)
-		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBaselineFiles())
+		assertTrackedFilesExist(t, repoDir)
+		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
 	})
 
 	t.Run("custom Makefile is preserved", func(t *testing.T) {
@@ -99,8 +99,8 @@ func TestBootstrapScenarios(t *testing.T) {
 		}
 		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
 		assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
-		assertBaselineFilesExist(t, repoDir)
-		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBaselineFiles())
+		assertTrackedFilesExist(t, repoDir)
+		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
 	})
 
 	t.Run("generated rerun is stable", func(t *testing.T) {
@@ -158,7 +158,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		mustMkdirAll(t, repoDir)
 		initGitRepo(t, repoDir)
 		t.Setenv("GOLANGCI_LINT_BASELINE", "baselines/golangci.txt")
-		writeBootstrapTestFile(t, filepath.Join(repoDir, ".gitignore"), "*.txt\nbaselines/\n")
+		writeBootstrapTestFile(t, filepath.Join(repoDir, ".gitignore"), "*.txt\nbaselines/\n.*\n")
 		t.Chdir(repoDir)
 
 		runBootstrapForTest(t, bootstrapOptions{
@@ -167,10 +167,10 @@ func TestBootstrapScenarios(t *testing.T) {
 			yes:          true,
 		})
 
-		assertBaselineFilesExist(t, repoDir)
-		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBaselineFiles())
-		for _, baselineFile := range configuredBaselineFiles() {
-			assertPathNotGitIgnored(t, repoDir, baselineFile)
+		assertTrackedFilesExist(t, repoDir)
+		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
+		for _, trackedFile := range configuredBootstrapTrackedFiles() {
+			assertPathNotGitIgnored(t, repoDir, trackedFile)
 		}
 	})
 }
@@ -247,10 +247,10 @@ func assertFileContains(t *testing.T, filePath string, expectedText string) {
 	}
 }
 
-func assertBaselineFilesExist(t *testing.T, repoDir string) {
+func assertTrackedFilesExist(t *testing.T, repoDir string) {
 	t.Helper()
-	for _, baselineFile := range configuredBaselineFiles() {
-		assertFileExists(t, filepath.Join(repoDir, baselineFile))
+	for _, trackedFile := range configuredBootstrapTrackedFiles() {
+		assertFileExists(t, filepath.Join(repoDir, trackedFile))
 	}
 }
 

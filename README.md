@@ -7,7 +7,7 @@ by one fetched file, `go.mk`.
 
 1. Run from the repo root:
    `curl -fsSL https://raw.githubusercontent.com/agoodkind/go-makefile/main/bootstrap.sh | bash -s -- --yes`
-2. Commit the generated or repaired `Makefile`, `bootstrap.mk`, `.gitignore`, and baseline files.
+2. Commit the generated or repaired `Makefile`, `bootstrap.mk`, `.gitignore`, baseline files, and `.go-mk-applied-notices`.
 3. CI: add a workflow that sets `uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main`. The reusable workflow grants `contents: read` and `id-token: write` to the build job so `make build` can verify GitHub Actions OIDC proof before skipping its inline build gate.
 4. Releases: add a workflow that sets `uses: agoodkind/go-makefile/.github/workflows/_release.yml@main` with `permissions: contents: write` and `secrets: inherit`.
 5. Run `make help` to list targets. `make check` is the default.
@@ -23,9 +23,9 @@ by one fetched file, `go.mk`.
   refetch. Set `GO_MK_DEV_DIR` to a local go-makefile checkout to fetch from
   there instead of `main`.
 - Lint gates diff tool findings against committed baseline files and fail only on
-  new findings. Bootstrap touches the baseline files and adds repo-local
-  `.gitignore` allowlist rules so they stay tracked. Changing a baseline
-  requires the token gate.
+  new findings. Bootstrap touches the baseline files and `.go-mk-applied-notices`,
+  and adds repo-local `.gitignore` allowlist rules so they stay tracked.
+  Changing a baseline requires the token gate.
 - Local `make build` runs `build-check` before compiling. The CI split is
   CI-only: the reusable workflow reports each quality gate separately, and the
   build job skips inline gates only after `go-mk` verifies a GitHub Actions OIDC
