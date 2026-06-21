@@ -37,8 +37,8 @@ func runBuildCheck() int {
 // GO_MK_LOG=debug path, mirroring the historical separate-target behaviour.
 func runBuildCheckRaw() int {
 	status := 0
-	if err := runVet(); err != nil {
-		status = statusFromError(err)
+	if code := runAcrossPlatforms(func() int { return statusFromError(runVet()) }); code != 0 {
+		status = code
 	}
 	if code := runLintChain(); code != 0 {
 		status = code

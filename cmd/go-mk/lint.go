@@ -267,9 +267,23 @@ func goEnvPath(name string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// hostLintEnv is lintEnv without the platform-matrix override. Tool binaries
+// (golangci-lint, gocyclo, deadcode, govulncheck, the staticcheck-extra
+// analyzer) must be built for and run on the host, so installing or building
+// them must ignore the active target platform; only the analysis run that
+// follows applies GOOS/GOARCH so the tool inspects the target build.
+func hostLintEnv() []string {
+	saved := activePlatform
+	activePlatform = platformTarget{}
+	env := lintEnv()
+	activePlatform = saved
+	return env
+}
+
 // installGoTool runs `go install <spec>` under the lint concurrency
-// environment, mirroring go_mk_install_go_tool. The boundary log is emitted
-// because this runs a process.
+// environment, mirroring go_mk_install_go_tool. It uses the host environment so
+// a matrix pass never cross-compiles a tool binary the host then cannot run. The
+// boundary log is emitted because this runs a process.
 func installGoTool(spec string) error {
 	words := splitWords(spec)
 	if len(words) == 0 {
@@ -279,7 +293,7 @@ func installGoTool(spec string) error {
 	slog.Info("lint install go tool", slog.String("spec", spec))
 	args := append([]string{"install"}, words...)
 	cmd := exec.Command("go", args...)
-	cmd.Env = lintEnv()
+	cmd.Env = hostLintEnv()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
