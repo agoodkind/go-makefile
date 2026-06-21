@@ -202,15 +202,26 @@ func TestRunCIChangedFailsSafeOnNewBranch(t *testing.T) {
 	}
 }
 
-func TestRunCIChangedFailsSafeWhenBaseMissing(t *testing.T) {
+func TestRunCIChangedFailsSafeWhenBaseNotAncestor(t *testing.T) {
 	config := baseCIChangedConfig()
 	config.baseInHistory = func(string) bool { return false }
 	_, stdout, output := runCIChangedCapture(t, config)
 	if !strings.Contains(output, "changed=true") {
 		t.Fatalf("output = %q, want changed=true", output)
 	}
-	if !strings.Contains(stdout, "not in history") {
+	if !strings.Contains(stdout, "not an ancestor") {
 		t.Fatalf("stdout = %q, want force-push note", stdout)
+	}
+}
+
+func TestRunCIChangedFailsSafeOnSubmoduleError(t *testing.T) {
+	config := baseCIChangedConfig()
+	config.diffNames = func(_, _ string) ([]string, error) { return []string{"README.md"}, nil }
+	config.sourceFiles = func() ([]string, error) { return []string{"cmd/go-mk/main.go"}, nil }
+	config.submoduleDirs = func() ([]string, error) { return nil, errors.New("malformed .gitmodules") }
+	_, _, output := runCIChangedCapture(t, config)
+	if !strings.Contains(output, "changed=true") {
+		t.Fatalf("output = %q, want changed=true", output)
 	}
 }
 

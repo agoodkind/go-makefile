@@ -65,7 +65,11 @@ by one fetched file, `go.mk`.
   uncertainty (new branch, force push, `go list` error, non-`push` event). Set
   `skip_unchanged: false` to always run the gates. A consumer's own Go job can
   ride the same signal with `needs: <reusable job>` and
-  `if: needs.<job>.outputs.changed == 'true'`.
+  `if: needs.<job>.outputs.changed == 'true'`. Codegen inputs are detected without
+  a dedicated knob as long as they live in a submodule or a `GO_MK_WORKSPACE_USE`
+  path, or the generated `.go` is committed; a repo whose generated output is
+  gitignored and whose inputs are plain tracked files should commit that output so
+  the change is seen.
 - Specifics live in source: `cmd/go-mk/bootstrap.go` (what bootstrap writes),
   `go.mk` (targets and their knobs), `golangci.yml` (lint config),
   `staticcheck/` (bundled analyzers), `.github/workflows/` (CI and release

@@ -10,6 +10,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -137,7 +138,7 @@ func runCIChanged() int {
 		workspaceUse:  os.Getenv("GO_MK_WORKSPACE_USE"),
 		outputPath:    outputPath,
 		prefix:        prefix,
-		baseInHistory: gitCommitExists,
+		baseInHistory: func(base string) bool { return gitIsAncestor(base, head) },
 		diffNames:     gitDiffNames,
 		sourceFiles:   func() ([]string, error) { return goListSourceFiles(repoRoot) },
 		submoduleDirs: func() ([]string, error) { return gitSubmoduleDirs(repoRoot) },
@@ -161,7 +162,7 @@ func runCIChangedWith(config ciChangedConfig) int {
 	}
 	if !config.baseInHistory(config.base) {
 		return emitChanged(config.outputPath, config.stdout, true,
-			"base commit "+config.base+" not in history (force push or shallow clone); running all gates")
+			"base commit "+config.base+" is not an ancestor of head (force push or shallow clone); running all gates")
 	}
 	changedPaths, diffErr := config.diffNames(config.base, config.head)
 	if diffErr != nil {
@@ -178,8 +179,8 @@ func runCIChangedWith(config ciChangedConfig) int {
 	}
 	submodules, subErr := config.submoduleDirs()
 	if subErr != nil {
-		slog.Warn("ci-changed could not read submodules; ignoring them", slog.String("error", subErr.Error()))
-		submodules = nil
+		slog.Warn("ci-changed submodule discovery failed; running all gates", slog.String("error", subErr.Error()))
+		return emitChanged(config.outputPath, config.stdout, true, "submodule discovery failed; running all gates")
 	}
 	changed, reason := decideChanged(ciChangeInputs{
 		changedPaths:  changedPaths,
@@ -192,6 +193,15 @@ func runCIChangedWith(config ciChangedConfig) int {
 
 // decideChanged returns whether any changed path is a Go build input. It stops
 // at the first relevant path and reports it, so the summary names the trigger.
+//
+// Codegen inputs (GO_MK_GENERATE) are covered without a dedicated knob, because
+// every consumer's inputs already fall into a set this models: a submodule (the
+// tree-sitter grammar repos), a GO_MK_WORKSPACE_USE directory, or a committed
+// generated .go file that go list reports. The one shape it cannot see is a
+// plain tracked input whose generated output is gitignored (so the output never
+// appears in the diff and the input is not Go, build-config, submodule, or
+// workspace); such a repo should commit its generated code or keep the inputs in
+// a submodule/workspace path so the change is detected.
 func decideChanged(inputs ciChangeInputs) (bool, string) {
 	source := make(map[string]struct{}, len(inputs.sourceFiles))
 	for _, file := range inputs.sourceFiles {
@@ -301,11 +311,13 @@ func appendOutput(path, key, value string) error {
 	return err
 }
 
-// gitCommitExists reports whether the base commit is present in local history. A
-// force push or shallow clone makes it absent, where the caller fails safe.
-func gitCommitExists(base string) bool {
-	slog.Info("ci-changed verify base commit", slog.String("base", base))
-	return exec.Command("git", "cat-file", "-e", base+"^{commit}").Run() == nil
+// gitIsAncestor reports whether base is an ancestor of head, which also requires
+// base to exist locally. This is stricter than mere existence: a force push that
+// rewrote history (base no longer reachable from head) or a shallow clone (base
+// absent) makes it false, where the caller fails safe to running every gate.
+func gitIsAncestor(base, head string) bool {
+	slog.Info("ci-changed verify base ancestry", slog.String("base", base), slog.String("head", head))
+	return exec.Command("git", "merge-base", "--is-ancestor", base, head).Run() == nil
 }
 
 // gitDiffNames returns the repo-root-relative paths changed between base and
@@ -320,8 +332,10 @@ func gitDiffNames(base, head string) ([]string, error) {
 }
 
 // gitSubmoduleDirs reads the submodule paths from .gitmodules at the repo root.
-// A repo with no submodules returns an empty slice. It spawns a process when the
-// file exists, so it emits a boundary log.
+// A repo with no .gitmodules, or one with no path entries, returns an empty
+// slice. A genuine read failure (malformed or unreadable .gitmodules) returns an
+// error so the caller fails safe rather than silently dropping submodule paths.
+// It spawns a process when the file exists, so it emits a boundary log.
 func gitSubmoduleDirs(root string) ([]string, error) {
 	gitmodules := filepath.Join(root, ".gitmodules")
 	if _, err := os.Stat(gitmodules); err != nil {
@@ -329,7 +343,13 @@ func gitSubmoduleDirs(root string) ([]string, error) {
 	}
 	out, err := loggedGitOutput("ci-changed git submodules", "config", "--file", gitmodules, "--get-regexp", `^submodule\..*\.path$`)
 	if err != nil {
-		return nil, nil
+		// git config exits 1 when the regexp matches nothing, which is a normal
+		// empty result, not a failure. Any other exit is a real read error.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil, nil
+		}
+		return nil, err
 	}
 	dirs := make([]string, 0)
 	for _, line := range splitNonEmptyLines(string(out)) {
