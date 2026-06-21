@@ -40,7 +40,6 @@ type ciChangedConfig struct {
 // ciChangeInputs holds everything the pure decision needs, all as repo-root
 // relative slash paths.
 type ciChangeInputs struct {
-	prefix        string
 	changedPaths  []string
 	sourceFiles   []string
 	submoduleDirs []string
@@ -57,8 +56,13 @@ type goListPackage struct {
 	CgoFiles        []string
 	CFiles          []string
 	CXXFiles        []string
+	MFiles          []string
 	HFiles          []string
+	FFiles          []string
 	SFiles          []string
+	SwigFiles       []string
+	SwigCXXFiles    []string
+	SysoFiles       []string
 	EmbedFiles      []string
 	TestGoFiles     []string
 	XTestGoFiles    []string
@@ -66,37 +70,46 @@ type goListPackage struct {
 	XTestEmbedFiles []string
 }
 
-// buildConfigBasenames are module-root files whose change alters how the gates
-// run, so a change to any of them runs every gate.
+// buildConfigBasenames are file basenames whose change alters how the gates run.
+// They are matched anywhere in the tree, not just at one module root, so a change
+// to a second module's go.mod (for example staticcheck/go.mod in a repo that
+// gates two modules) still runs the gates rather than being silently skipped.
 var buildConfigBasenames = map[string]struct{}{
 	"go.mod":                          {},
 	"go.sum":                          {},
+	"go.work":                         {},
+	"go.work.sum":                     {},
 	"Makefile":                        {},
 	"bootstrap.mk":                    {},
 	"golangci.yml":                    {},
+	".gitmodules":                     {},
 	".golangci-lint-baseline.txt":     {},
 	".gocyclo-baseline.txt":           {},
 	".deadcode-baseline.txt":          {},
 	".staticcheck-extra-baseline.txt": {},
 }
 
-// rootBuildConfig are repo-root files that affect the build across modules.
-var rootBuildConfig = map[string]struct{}{
-	"go.work":     {},
-	"go.work.sum": {},
-	".gitmodules": {},
-}
-
 // sourceExtensions catch source files even when go list cannot see them, such as
-// a deleted file (gone from the package) or a brand-new one.
+// a deleted file (gone from the package) or a brand-new one. They mirror the
+// language file groups go list reports (cgo C/C++, Objective-C, Fortran, SWIG,
+// assembly, and prebuilt .syso objects).
 var sourceExtensions = map[string]struct{}{
-	".go":  {},
-	".c":   {},
-	".h":   {},
-	".cc":  {},
-	".cpp": {},
-	".cxx": {},
-	".s":   {},
+	".go":      {},
+	".c":       {},
+	".h":       {},
+	".cc":      {},
+	".cpp":     {},
+	".cxx":     {},
+	".hpp":     {},
+	".hxx":     {},
+	".m":       {},
+	".f":       {},
+	".for":     {},
+	".f90":     {},
+	".s":       {},
+	".swig":    {},
+	".swigcxx": {},
+	".syso":    {},
 }
 
 // runCIChanged resolves the git context and environment, then delegates to
@@ -169,7 +182,6 @@ func runCIChangedWith(config ciChangedConfig) int {
 		submodules = nil
 	}
 	changed, reason := decideChanged(ciChangeInputs{
-		prefix:        config.prefix,
 		changedPaths:  changedPaths,
 		sourceFiles:   source,
 		submoduleDirs: submodules,
@@ -192,7 +204,7 @@ func decideChanged(inputs ciChangeInputs) (bool, string) {
 		if hasSourceExtension(path) {
 			return true, "source file changed: " + path
 		}
-		if isBuildConfigPath(path, inputs.prefix) {
+		if isBuildConfigPath(path) {
 			return true, "build configuration changed: " + path
 		}
 		if underAnyDir(path, inputs.submoduleDirs) {
@@ -211,39 +223,18 @@ func hasSourceExtension(path string) bool {
 	return ok
 }
 
-// isBuildConfigPath reports whether a changed path is a build-config file. Module
-// files are matched under the module prefix; workspace and submodule pointers are
-// matched at the repo root.
-func isBuildConfigPath(path, prefix string) bool {
-	if _, ok := rootBuildConfig[path]; ok {
+// isBuildConfigPath reports whether a changed path is a build-config file. It
+// matches on the basename anywhere in the tree, plus any .mk fragment and the CI
+// workflow directory, so a manifest change in any module runs the gates rather
+// than being missed.
+func isBuildConfigPath(path string) bool {
+	if _, ok := buildConfigBasenames[filepath.Base(path)]; ok {
 		return true
 	}
-	if strings.HasPrefix(path, ".github/workflows/") {
+	if strings.HasSuffix(path, ".mk") {
 		return true
 	}
-	rel, ok := stripPrefix(path, prefix)
-	if !ok {
-		return false
-	}
-	if _, found := buildConfigBasenames[rel]; found {
-		return true
-	}
-	if strings.HasSuffix(rel, ".mk") {
-		return true
-	}
-	return strings.HasPrefix(rel, ".make/")
-}
-
-// stripPrefix removes the module prefix from a repo-root path, reporting false
-// when the path is outside the module subtree.
-func stripPrefix(path, prefix string) (string, bool) {
-	if prefix == "" {
-		return path, true
-	}
-	if !strings.HasPrefix(path, prefix) {
-		return "", false
-	}
-	return strings.TrimPrefix(path, prefix), true
+	return strings.HasPrefix(path, ".github/workflows/")
 }
 
 // underAnyDir reports whether a path is one of the directories or sits beneath
@@ -396,8 +387,9 @@ func goListSourceFiles(root string) ([]string, error) {
 // input of one package.
 func packageFileGroups(pkg goListPackage) [][]string {
 	return [][]string{
-		pkg.GoFiles, pkg.CgoFiles, pkg.CFiles, pkg.CXXFiles, pkg.HFiles,
-		pkg.SFiles, pkg.EmbedFiles, pkg.TestGoFiles, pkg.XTestGoFiles,
+		pkg.GoFiles, pkg.CgoFiles, pkg.CFiles, pkg.CXXFiles, pkg.MFiles,
+		pkg.HFiles, pkg.FFiles, pkg.SFiles, pkg.SwigFiles, pkg.SwigCXXFiles,
+		pkg.SysoFiles, pkg.EmbedFiles, pkg.TestGoFiles, pkg.XTestGoFiles,
 		pkg.TestEmbedFiles, pkg.XTestEmbedFiles,
 	}
 }

@@ -133,7 +133,10 @@ jobs:
           CHANGED: ${{ steps.detect.outputs.changed }}
           SKIP_UNCHANGED: ${{ inputs.skip_unchanged }}
         run: |
-          if [ "${SKIP_UNCHANGED}" != "true" ] || [ "${CHANGED}" = "true" ]; then
+          # Only skip when the detector explicitly said changed=false. An empty
+          # value (the detector or its GITHUB_OUTPUT write failed) fails safe to
+          # running every gate.
+          if [ "${SKIP_UNCHANGED}" != "true" ] || [ "${CHANGED}" != "false" ]; then
             echo "run=true" >> "${GITHUB_OUTPUT}"
           else
             echo "run=false" >> "${GITHUB_OUTPUT}"

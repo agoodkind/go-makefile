@@ -118,17 +118,36 @@ func TestDecideChanged(t *testing.T) {
 			changed: true,
 		},
 		{
-			name: "subdir module go.mod runs under prefix",
+			name: "subdir module go.mod runs",
 			inputs: ciChangeInputs{
-				prefix:       "dots/",
 				changedPaths: []string{"dots/go.mod"},
 			},
 			changed: true,
 		},
 		{
-			name: "root readme irrelevant to subdir module",
+			name: "second module go.mod runs",
 			inputs: ciChangeInputs{
-				prefix:       "dots/",
+				changedPaths: []string{"staticcheck/go.mod"},
+			},
+			changed: true,
+		},
+		{
+			name: "objective-c source runs",
+			inputs: ciChangeInputs{
+				changedPaths: []string{"internal/cam/capture.m"},
+			},
+			changed: true,
+		},
+		{
+			name: "prebuilt syso runs",
+			inputs: ciChangeInputs{
+				changedPaths: []string{"internal/rsrc/icon.syso"},
+			},
+			changed: true,
+		},
+		{
+			name: "readme alone skips",
+			inputs: ciChangeInputs{
 				changedPaths: []string{"README.md"},
 			},
 			changed: false,
