@@ -74,5 +74,3 @@ by one fetched file, `go.mk`.
   `go.mk` (targets and their knobs), `golangci.yml` (lint config),
   `staticcheck/` (bundled analyzers), `.github/workflows/` (CI and release
   jobs).
-
-<!-- ci skip-detection: docs-only change to exercise the changes gate -->
