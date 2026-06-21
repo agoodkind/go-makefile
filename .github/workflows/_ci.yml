@@ -59,10 +59,93 @@ on:
           Go tools.
         required: false
         type: string
+      skip_unchanged:
+        description: >-
+          When true (default), skip the quality and build work on a push that
+          changes nothing the Go build or tests depend on. The matrix and build
+          jobs still run and report their named checks, so required status checks
+          stay green; only the gate steps inside them are skipped. Set false to
+          always run the gates.
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      changed:
+        description: >-
+          Whether the push changed anything the Go build or tests depend on, as
+          computed by go-mk ci-changed. A consumer can gate its own extra Go job
+          with `needs: <this job>` and `if: needs.<job>.outputs.changed == 'true'`.
+        value: ${{ jobs.changes.outputs.changed }}
 
 jobs:
+  changes:
+    name: Changes
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      changed: ${{ steps.detect.outputs.changed }}
+    steps:
+      # fetch-depth 0 so the detector can diff against github.event.before, even
+      # across a merge commit or a several-commit push.
+      - uses: actions/checkout@v7
+        with:
+          submodules: ${{ inputs.submodules }}
+          fetch-depth: 0
+      - name: Install apt packages
+        if: inputs.apt_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ inputs.apt_packages }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: ${{ inputs.go_version_file }}
+      - name: Install Go tool packages
+        if: inputs.go_tool_packages != ''
+        run: |
+          for go_tool_package in ${{ inputs.go_tool_packages }}; do
+            go install "${go_tool_package}"
+          done
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+      - name: Run pre-make commands
+        if: inputs.pre_make_commands != ''
+        run: ${{ inputs.pre_make_commands }}
+      # make ci-changed runs codegen and go-mk-workspace first (GO_MK_PREREQS) so
+      # go list resolves, then writes changed=<bool> to GITHUB_OUTPUT. A non-zero
+      # exit (for example missing codegen tooling) fails safe to changed=true.
+      - name: Detect Go-relevant changes
+        id: detect
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          GO_MK_DIFF_BASE: ${{ github.event.before }}
+          GO_MK_DIFF_HEAD: ${{ github.sha }}
+          GO_MK_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if ! make ci-changed; then
+            echo "ci-changed detector failed; running all gates (fail-safe)" >&2
+            echo "changed=true" >> "${GITHUB_OUTPUT}"
+          fi
+      - name: Decide whether gates run
+        id: decide
+        env:
+          CHANGED: ${{ steps.detect.outputs.changed }}
+          SKIP_UNCHANGED: ${{ inputs.skip_unchanged }}
+        run: |
+          if [ "${SKIP_UNCHANGED}" != "true" ] || [ "${CHANGED}" = "true" ]; then
+            echo "run=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "run=false" >> "${GITHUB_OUTPUT}"
+          fi
+
   quality:
     name: Quality / ${{ matrix.name }}
+    # The job always runs so the matrix expands and every named check (Quality /
+    # Vet, and so on) reports, which required status checks depend on. When the
+    # detector says nothing relevant changed, every step below is skipped and the
+    # job still succeeds, so the required check stays green without doing the work.
+    needs: changes
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
@@ -99,64 +182,73 @@ jobs:
             command: make go-version-check
             install_golangci_lint: false
     steps:
-      - uses: actions/checkout@v7
+      - if: needs.changes.outputs.run == 'true'
+        uses: actions/checkout@v7
         with:
           submodules: ${{ inputs.submodules }}
       - name: Install apt packages
-        if: inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && inputs.apt_packages != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y ${{ inputs.apt_packages }}
-      - uses: actions/setup-go@v6
+      - if: needs.changes.outputs.run == 'true'
+        uses: actions/setup-go@v6
         with:
           go-version-file: ${{ inputs.go_version_file }}
       - name: Install Go tool packages
-        if: inputs.go_tool_packages != ''
+        if: needs.changes.outputs.run == 'true' && inputs.go_tool_packages != ''
         run: |
           for go_tool_package in ${{ inputs.go_tool_packages }}; do
             go install "${go_tool_package}"
           done
           echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
       - name: Run pre-make commands
-        if: inputs.pre_make_commands != ''
+        if: needs.changes.outputs.run == 'true' && inputs.pre_make_commands != ''
         run: ${{ inputs.pre_make_commands }}
       - name: Install golangci-lint
-        if: matrix.install_golangci_lint
+        if: needs.changes.outputs.run == 'true' && matrix.install_golangci_lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ inputs.golangci_lint_version }}
           install-only: true
-      - run: ${{ matrix.command }}
+      - if: needs.changes.outputs.run == 'true'
+        run: ${{ matrix.command }}
         working-directory: ${{ inputs.working_directory }}
 
   build:
     name: Build
+    # Same pattern as quality: the job always runs so the Build check reports;
+    # its steps are skipped when nothing relevant changed.
+    needs: changes
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v7
+      - if: needs.changes.outputs.run == 'true'
+        uses: actions/checkout@v7
         with:
           submodules: ${{ inputs.submodules }}
       - name: Install apt packages
-        if: inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && inputs.apt_packages != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y ${{ inputs.apt_packages }}
-      - uses: actions/setup-go@v6
+      - if: needs.changes.outputs.run == 'true'
+        uses: actions/setup-go@v6
         with:
           go-version-file: ${{ inputs.go_version_file }}
       - name: Install Go tool packages
-        if: inputs.go_tool_packages != ''
+        if: needs.changes.outputs.run == 'true' && inputs.go_tool_packages != ''
         run: |
           for go_tool_package in ${{ inputs.go_tool_packages }}; do
             go install "${go_tool_package}"
           done
           echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
       - name: Run pre-make commands
-        if: inputs.pre_make_commands != ''
+        if: needs.changes.outputs.run == 'true' && inputs.pre_make_commands != ''
         run: ${{ inputs.pre_make_commands }}
-      - run: make build
+      - if: needs.changes.outputs.run == 'true'
+        run: make build
         working-directory: ${{ inputs.working_directory }}

@@ -36,7 +36,7 @@ STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
 
 .DEFAULT_GOAL := check
 
-.PHONY: build check lint fmt vet test govulncheck go-version-check build-check \
+.PHONY: build check lint fmt vet test govulncheck go-version-check build-check ci-changed \
         lint-tools lint-golangci lint-files lint-diff lint-format lint-gocyclo lint-deadcode staticcheck-extra \
         lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
         lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new \
@@ -167,6 +167,12 @@ govulncheck:
 go-version-check:
 	$(ROOT_GO_MK) go-version-check
 	$(STATIC_GO_MK) go-version-check
+
+# ci-changed runs once against the root module. The detector diffs the whole repo
+# and its source-extension fast path catches a .go change in either module, so a
+# single invocation decides for the whole checkout.
+ci-changed:
+	$(ROOT_GO_MK) ci-changed
 
 baseline:
 	$(ROOT_GO_MK) baseline

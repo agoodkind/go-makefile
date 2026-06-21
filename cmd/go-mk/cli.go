@@ -160,6 +160,7 @@ func registerEngineCommands(root *cobra.Command) {
 		{"install", "Build and install every declared binary", runInstall},
 		{"uninstall", "Remove every declared binary from its install directory", runUninstall},
 		{"go-version-check", "Report whether go.mod tracks the latest Go release", runGoVersionCheck},
+		{"ci-changed", "Report whether a CI push changed anything the Go build depends on", runCIChanged},
 	}
 	for _, entry := range commands {
 		handler := entry.run
