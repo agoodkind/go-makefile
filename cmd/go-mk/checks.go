@@ -85,19 +85,38 @@ func runOneGate(gateName string, runner func() int) (report.StepResult, int) {
 }
 
 // buildCheckChecks lists the build-check units in order: vet, every gate in
-// LINT_GATES, then govulncheck.
+// LINT_GATES, then govulncheck. vet and the gates fan out per declared platform
+// when GO_MK_PLATFORMS is set; govulncheck runs once on the host because the
+// vulnerability database is platform-independent.
 func buildCheckChecks() []check {
-	checks := []check{{name: "vet", run: runVetStep}}
+	checks := vetChecks()
 	checks = append(checks, gateChecks()...)
 	checks = append(checks, check{name: "govulncheck", run: runGovulncheckStep})
 	return checks
 }
 
+// vetChecks lists go vet as one captured step per declared platform, or a single
+// host step when no matrix is declared.
+func vetChecks() []check {
+	targets := platformMatrix()
+	if len(targets) == 0 {
+		return []check{{name: "vet", run: runVetStep}}
+	}
+	checks := make([]check, 0, len(targets))
+	for _, target := range targets {
+		checks = append(checks, platformStepCheck("vet", runVetStep, target))
+	}
+	return checks
+}
+
 // gateChecks lists the lint gates in LINT_GATES order. Each closure captures its
-// gate name and runner so the orchestrator runs them one at a time.
+// gate name and runner so the orchestrator runs them one at a time. When
+// GO_MK_PLATFORMS declares a matrix, each gate fans out into one labeled step per
+// platform so the report shows the gate's verdict for every target.
 func gateChecks() []check {
 	runners := gateRunners()
 	gateList := splitWords(lintEnvDefault("LINT_GATES", defaultLintGates))
+	targets := platformMatrix()
 	checks := make([]check, 0, len(gateList))
 	for _, gateName := range gateList {
 		name := gateName
@@ -108,11 +127,45 @@ func gateChecks() []check {
 			}})
 			continue
 		}
-		checks = append(checks, check{name: name, run: func() (report.StepResult, int) {
-			return runOneGate(name, runner)
-		}})
+		if len(targets) == 0 {
+			checks = append(checks, check{name: name, run: func() (report.StepResult, int) {
+				return runOneGate(name, runner)
+			}})
+			continue
+		}
+		for _, target := range targets {
+			checks = append(checks, platformGateCheck(name, runner, target))
+		}
 	}
 	return checks
+}
+
+// platformGateCheck builds a gate check that forces the target platform for its
+// pass and labels the step with the platform, so a matrix run shows one row per
+// gate per target.
+func platformGateCheck(gateName string, runner func() int, target platformTarget) check {
+	displayName := gateName + " (" + target.label() + ")"
+	return check{name: displayName, run: func() (report.StepResult, int) {
+		activePlatform = target
+		result, code := runOneGate(gateName, runner)
+		activePlatform = platformTarget{}
+		result.Name = displayName
+		return result, code
+	}}
+}
+
+// platformStepCheck builds a captured-step check (vet, and other StepResult
+// runners) that forces the target platform for its pass and labels the step with
+// the platform.
+func platformStepCheck(stepName string, runner func() (report.StepResult, int), target platformTarget) check {
+	displayName := stepName + " (" + target.label() + ")"
+	return check{name: displayName, run: func() (report.StepResult, int) {
+		activePlatform = target
+		result, code := runner()
+		activePlatform = platformTarget{}
+		result.Name = displayName
+		return result, code
+	}}
 }
 
 // checkNameWidth returns the status-table column width for the given checks, so

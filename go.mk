@@ -273,6 +273,12 @@ export GO_MK_BIN
 export GO_MK_BUILD_REPO
 export GO_MK_BUILD_PKG
 export GO_MK_INSTALL
+# GO_MK_PLATFORMS is the optional "goos/goarch ..." matrix. When a consumer sets
+# it (for example a daemon built for linux/amd64 and freebsd/amd64), the analysis
+# gates and build-check run once per target with GOOS/GOARCH forced, so local and
+# CI validate every platform from this one committed declaration. Empty leaves
+# the host-only behavior unchanged.
+export GO_MK_PLATFORMS
 
 ifeq ($(filter go-build.mk,$(GO_MK_MODULES)),)
 build: go-mk-bin
