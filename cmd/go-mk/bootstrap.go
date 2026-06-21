@@ -20,13 +20,15 @@ import (
 	"golang.org/x/term"
 )
 
-//go:embed bootstrap_assets/bootstrap.mk bootstrap_assets/Makefile.tmpl
+//go:embed bootstrap_assets/bootstrap.mk bootstrap_assets/Makefile.tmpl bootstrap_assets/ci.yml
 var bootstrapAssetFS embed.FS
 
 const (
 	defaultBootstrapVanityRoot = "goodkind.io"
 	makefileAssetPath          = "bootstrap_assets/Makefile.tmpl"
 	bootstrapMkAssetPath       = "bootstrap_assets/bootstrap.mk"
+	ciWorkflowAssetPath        = "bootstrap_assets/ci.yml"
+	ciWorkflowPath             = ".github/workflows/ci.yml"
 	generatedMakefileFirstLine = "# `make help` is the canonical source of truth for every target this repo"
 )
 
@@ -113,6 +115,9 @@ func runBootstrap(options bootstrapOptions) error {
 		return err
 	}
 	if err := reconcileBootstrapMk(options.stdout); err != nil {
+		return err
+	}
+	if err := reconcileCIWorkflow(options.stdout); err != nil {
 		return err
 	}
 	if err := reconcileTrackedFiles(trackedFiles, options.stdout); err != nil {
@@ -461,6 +466,32 @@ func reconcileBootstrapMk(stdout io.Writer) error {
 	return nil
 }
 
+// reconcileCIWorkflow writes the canonical consumer CI workflow when none
+// exists, so fresh scaffolds inherit the push-on-every-branch trigger instead
+// of hand-rolling it. An existing workflow is left untouched: consumers
+// customize jobs (submodules, apt packages, extra jobs), so bootstrap never
+// overwrites it and only the trigger block in the asset is the canonical
+// reference for an existing file.
+func reconcileCIWorkflow(stdout io.Writer) error {
+	slog.Info("bootstrap reconcile ci workflow")
+	if fileExists(ciWorkflowPath) {
+		fmt.Fprintln(stdout, "skipping .github/workflows/ci.yml (exists; leaving consumer workflow unchanged)")
+		return nil
+	}
+	contents, err := bootstrapAssetFS.ReadFile(ciWorkflowAssetPath)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(ciWorkflowPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(ciWorkflowPath, contents, 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintln(stdout, "created .github/workflows/ci.yml")
+	return nil
+}
+
 func configuredBaselineFiles() []string {
 	return []string{
 		lintEnvDefault("GOLANGCI_LINT_BASELINE", ".golangci-lint-baseline.txt"),
@@ -728,7 +759,7 @@ func printBootstrapDone(writer io.Writer) {
 	fmt.Fprintln(writer, "  make lint    just the full lint chain")
 	fmt.Fprintln(writer, "  make fmt     apply gofumpt + goimports")
 	fmt.Fprintln(writer)
-	fmt.Fprintln(writer, "Commit Makefile, bootstrap.mk, .gitignore, the baseline files, and .go-mk-applied-notices.")
+	fmt.Fprintln(writer, "Commit Makefile, bootstrap.mk, .github/workflows/ci.yml, .gitignore, the baseline files, and .go-mk-applied-notices.")
 	fmt.Fprintln(writer, "Run 'make help' for the full target list, including per-linter sub-targets")
 	fmt.Fprintln(writer, "and baseline-refresh targets. Do not add project-local lint, deadcode, audit,")
 	fmt.Fprintln(writer, "or staticcheck targets; doing so splits enforcement and lets agents bypass")

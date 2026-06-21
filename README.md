@@ -7,8 +7,8 @@ by one fetched file, `go.mk`.
 
 1. Run from the repo root:
    `curl -fsSL https://raw.githubusercontent.com/agoodkind/go-makefile/main/bootstrap.sh | bash -s -- --yes`
-2. Commit the generated or repaired `Makefile`, `bootstrap.mk`, `.gitignore`, baseline files, and `.go-mk-applied-notices`.
-3. CI: add a workflow that sets `uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main`. The reusable workflow grants `contents: read` and `id-token: write` to the build job so `make build` can verify GitHub Actions OIDC proof before skipping its inline build gate.
+2. Commit the generated or repaired `Makefile`, `bootstrap.mk`, `.github/workflows/ci.yml`, `.gitignore`, baseline files, and `.go-mk-applied-notices`.
+3. CI: bootstrap scaffolds `.github/workflows/ci.yml` when none exists, calling `uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main`. The reusable workflow grants `contents: read` and `id-token: write` to the build job so `make build` can verify GitHub Actions OIDC proof before skipping its inline build gate. The scaffolded workflow triggers on `push` to every branch (`branches: ['**']`) with a `concurrency` cancel group, so every branch runs CI exactly once with no duplicate `pull_request` run; same-repo PRs still show these checks because GitHub matches checks to the head commit SHA, and `'**'` excludes tags so releases are untouched. Bootstrap leaves an existing `ci.yml` unchanged, so a repo that customizes jobs (submodules, apt packages, extra jobs) keeps its workflow while still using this trigger block as the reference. A repo that accepts fork PRs can add a fork-guarded `pull_request` trigger.
 4. Releases: add a workflow that sets `uses: agoodkind/go-makefile/.github/workflows/_release.yml@main` with `permissions: contents: write` and `secrets: inherit`.
 5. Run `make help` to list targets. `make check` is the default.
 
