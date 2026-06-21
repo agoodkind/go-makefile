@@ -5,7 +5,7 @@
 	lint-deadcode lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new staticcheck-extra-bin \
 	baseline baseline-bin baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
-	go-mk-sync update-go-mk smoke-fetch go-mk-notice go-version-check go-mk-bin
+	go-mk-sync update-go-mk smoke-fetch go-mk-notice go-version-check go-mk-bin ci-changed
 
 GO_MK_URL       := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
 GO_MK_CACHE     := $(HOME)/.cache/go-makefile/go.mk
@@ -372,6 +372,14 @@ govulncheck: go-mk-bin
 go-version-check: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" go-version-check
 
+# ci-changed reports whether a CI push touched anything the Go build depends on,
+# writing changed=<bool> to GITHUB_OUTPUT. It carries the same codegen/workspace
+# prerequisites as the gates (see GO_MK_PREREQS below) so go list resolves before
+# it runs. The reusable CI workflow reads its output to skip gate work on an
+# irrelevant push.
+ci-changed: go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" ci-changed
+
 lint-deadcode: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" lint-deadcode
 
@@ -472,6 +480,10 @@ GO_MK_GENERATE ?=
 # existing go.work is left untouched, so a developer override survives.
 GO_MK_WORKSPACE_USE ?=
 
+# Exported so the ci-changed engine command treats the workspace use-paths (the
+# vendored modules whose inputs go list cannot see on their own) as relevant.
+export GO_MK_WORKSPACE_USE
+
 .PHONY: go-mk-workspace
 go-mk-workspace:
 	@if [ -n "$(strip $(GO_MK_WORKSPACE_USE))" ] && [ ! -f go.work ]; then \
@@ -498,7 +510,7 @@ endif
 # only add cost.
 GO_MK_PREREQS := $(if $(strip $(GO_MK_WORKSPACE_USE)),go-mk-workspace) $(GO_MK_GENERATE)
 ifneq ($(strip $(GO_MK_PREREQS)),)
-build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test govulncheck: | $(GO_MK_PREREQS)
+build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test govulncheck ci-changed: | $(GO_MK_PREREQS)
 endif
 
 # Include opt-in modules at end so they see all go.mk definitions.

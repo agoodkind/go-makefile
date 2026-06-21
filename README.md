@@ -55,6 +55,21 @@ by one fetched file, `go.mk`.
   CI-only: the reusable workflow reports each quality gate separately, and the
   build job skips inline gates only after `go-mk` verifies a GitHub Actions OIDC
   JWT for the current repository and run.
+- The reusable CI skips the quality and build work on a push that changes nothing
+  the Go build or tests depend on. A `changes` job runs `go-mk ci-changed`, which
+  decides from `go list` (so `go:embed` payloads and cgo C sources count by
+  construction) plus the build-config, submodule, and `GO_MK_WORKSPACE_USE` paths,
+  diffed against `github.event.before`. The quality matrix and build jobs still
+  run and report their named checks, so required status checks stay green; only
+  their steps are skipped. Detection fails safe to running every gate on any
+  uncertainty (new branch, force push, `go list` error, non-`push` event). Set
+  `skip_unchanged: false` to always run the gates. A consumer's own Go job can
+  ride the same signal with `needs: <reusable job>` and
+  `if: needs.<job>.outputs.changed == 'true'`. Codegen inputs are detected without
+  a dedicated knob as long as they live in a submodule or a `GO_MK_WORKSPACE_USE`
+  path, or the generated `.go` is committed; a repo whose generated output is
+  gitignored and whose inputs are plain tracked files should commit that output so
+  the change is seen.
 - Specifics live in source: `cmd/go-mk/bootstrap.go` (what bootstrap writes),
   `go.mk` (targets and their knobs), `golangci.yml` (lint config),
   `staticcheck/` (bundled analyzers), `.github/workflows/` (CI and release
