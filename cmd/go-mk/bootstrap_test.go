@@ -96,6 +96,10 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileExists(t, filepath.Join(repoDir, "Makefile"))
 		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
 		assertFileExists(t, filepath.Join(repoDir, ".gitignore"))
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		assertFileExists(t, ciWorkflow)
+		assertFileContains(t, ciWorkflow, "branches: ['**']")
+		assertFileContains(t, ciWorkflow, "agoodkind/go-makefile/.github/workflows/_ci.yml@main")
 		assertTrackedFilesExist(t, repoDir)
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "BINARY := bootstrap-probe")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk go-release.mk")
@@ -153,9 +157,11 @@ func TestBootstrapScenarios(t *testing.T) {
 			yes:         true,
 		})
 
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
 		beforeMakefile := mustReadFile(t, filepath.Join(repoDir, "Makefile"))
 		beforeBootstrap := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk"))
 		beforeGitignore := mustReadFile(t, filepath.Join(repoDir, ".gitignore"))
+		beforeCIWorkflow := mustReadFile(t, ciWorkflow)
 
 		runBootstrapForTest(t, bootstrapOptions{
 			modulePath:  "goodkind.io/rerun",
@@ -166,6 +172,22 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileText(t, filepath.Join(repoDir, "Makefile"), beforeMakefile)
 		assertFileText(t, filepath.Join(repoDir, "bootstrap.mk"), beforeBootstrap)
 		assertFileText(t, filepath.Join(repoDir, ".gitignore"), beforeGitignore)
+		assertFileText(t, ciWorkflow, beforeCIWorkflow)
+	})
+
+	t.Run("custom ci.yml is preserved", func(t *testing.T) {
+		repoDir := filepath.Join(t.TempDir(), "custom-ci")
+		mustMkdirAll(t, repoDir)
+		writeBootstrapTestGoMod(t, repoDir, "goodkind.io/custom-ci")
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		mustMkdirAll(t, filepath.Dir(ciWorkflow))
+		customWorkflow := "name: CI\non:\n  push:\n    branches: [main]\njobs:\n  custom:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo custom\n"
+		writeBootstrapTestFile(t, ciWorkflow, customWorkflow)
+		t.Chdir(repoDir)
+
+		runBootstrapForTest(t, bootstrapOptions{yes: true})
+
+		assertFileText(t, ciWorkflow, customWorkflow)
 	})
 
 	t.Run("generated Makefile is repaired", func(t *testing.T) {

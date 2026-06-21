@@ -1,0 +1,25 @@
+name: CI
+
+# Run CI on every branch push, exactly once, with no duplication. There is no
+# `pull_request` trigger: a same-repo PR would double-run (push + pull_request),
+# and same-repo PRs already show these checks because GitHub matches checks to
+# the head commit SHA. `'**'` matches branches but not tags, so the tag-driven
+# release workflow is untouched. A repo that accepts fork PRs can add a
+# fork-guarded `pull_request` trigger.
+on:
+  push:
+    branches: ['**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
+    permissions:
+      contents: read
+      id-token: write
