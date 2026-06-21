@@ -89,7 +89,7 @@ func staticcheckBuildFromRepo() error {
 	slog.Info("staticcheck build from repo", slog.String("repo", repo), slog.String("output", output))
 	cmd := exec.Command("go", "build", "-o", output, pkg)
 	cmd.Dir = repo
-	cmd.Env = lintEnv()
+	cmd.Env = hostLintEnv()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -114,7 +114,7 @@ func staticcheckInstallBinary() error {
 	}
 	slog.Info("staticcheck install binary", slog.String("spec", installSpec))
 	cmd := exec.Command("go", "install", installSpec)
-	env := lintEnv()
+	env := hostLintEnv()
 	env = setEnvVar(env, "GOPROXY", "direct")
 	env = setEnvVar(env, "GONOSUMDB", "goodkind.io/go-makefile,goodkind.io/go-makefile/staticcheck")
 	env = setEnvVar(env, "GOBIN", goBin)

@@ -100,15 +100,15 @@ func runLint(command string, args []string) (int, bool) {
 	case cmdLintTools:
 		return statusFromError(runLintTools()), true
 	case cmdLintGolangci:
-		return runLintGolangci(), true
+		return runAcrossPlatforms(runLintGolangci), true
 	case cmdLintGolangciScope:
 		return runLintGolangciScope(), true
 	case cmdLintFormat:
-		return runLintFormat(), true
+		return runAcrossPlatforms(runLintFormat), true
 	case cmdLintGocyclo:
-		return runLintGocyclo(), true
+		return runAcrossPlatforms(runLintGocyclo), true
 	case cmdLintDeadcode:
-		return runLintDeadcode(), true
+		return runAcrossPlatforms(runLintDeadcode), true
 	case cmdLintFiles:
 		return runLintFiles(), true
 	case cmdLintDiff:
@@ -116,7 +116,7 @@ func runLint(command string, args []string) (int, bool) {
 	case cmdFmt:
 		return statusFromError(runFmt()), true
 	case cmdVet:
-		return statusFromError(runVet()), true
+		return runAcrossPlatforms(func() int { return statusFromError(runVet()) }), true
 	case cmdTest:
 		return statusFromError(runTest()), true
 	case cmdGovulncheck:
@@ -132,7 +132,7 @@ func runLint(command string, args []string) (int, bool) {
 	case cmdCaptureDeadcode:
 		return statusFromError(runCaptureDeadcode(args)), true
 	case cmdStaticcheckExtra:
-		return runStaticcheckExtra(), true
+		return runAcrossPlatforms(runStaticcheckExtra), true
 	case cmdStaticcheckExtraBin:
 		return runStaticcheckBin(), true
 	case cmdStaticcheckExtraCapture:
@@ -203,15 +203,26 @@ func lintEnv() []string {
 	env := os.Environ()
 	env = setEnvVar(env, "GOMAXPROCS", strconv.Itoa(concurrency))
 	env = setEnvVar(env, "GOFLAGS", capture.LintGOFLAGS(os.Getenv("GOFLAGS"), concurrency))
-	// Isolate golangci-lint's content-addressed results cache per worktree so a
-	// sibling worktree with byte-identical files cannot poison this run with the
-	// sibling's stored absolute paths. A caller-set value is respected. Only
-	// golangci-lint reads this variable, so other tools are unaffected.
-	// golangci-lint requires an absolute cache path, so resolve it against the
-	// working directory; if that resolution fails, leave the variable unset and
-	// let golangci-lint fall back to its default cache.
+	// A platform-matrix pass forces GOOS/GOARCH so the gates analyze the build
+	// for that target, overriding the host and any caller-set value. This is
+	// what makes the matrix non-bypassable: an empty or darwin host GOOS is
+	// replaced for each declared platform, so a single gate or an unset GOOS
+	// still runs the full set.
+	cacheName := "golangci-cache"
+	if activePlatform.goos != "" {
+		env = setEnvVar(env, "GOOS", activePlatform.goos)
+		env = setEnvVar(env, "GOARCH", activePlatform.goarch)
+		cacheName = "golangci-cache-" + activePlatform.goos + "-" + activePlatform.goarch
+	}
+	// Isolate golangci-lint's content-addressed results cache per worktree, and
+	// per platform during a matrix run, so a sibling worktree or a different
+	// target cannot poison this run with stored absolute paths. A caller-set
+	// value is respected. Only golangci-lint reads this variable, so other tools
+	// are unaffected. golangci-lint requires an absolute cache path, so resolve
+	// it against the working directory; if that resolution fails, leave the
+	// variable unset and let golangci-lint fall back to its default cache.
 	if os.Getenv("GOLANGCI_LINT_CACHE") == "" {
-		if cacheDir, absErr := filepath.Abs(filepath.Join(makeDir, "golangci-cache")); absErr == nil {
+		if cacheDir, absErr := filepath.Abs(filepath.Join(makeDir, cacheName)); absErr == nil {
 			env = setEnvVar(env, "GOLANGCI_LINT_CACHE", cacheDir)
 		}
 	}
@@ -256,9 +267,23 @@ func goEnvPath(name string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// hostLintEnv is lintEnv without the platform-matrix override. Tool binaries
+// (golangci-lint, gocyclo, deadcode, govulncheck, the staticcheck-extra
+// analyzer) must be built for and run on the host, so installing or building
+// them must ignore the active target platform; only the analysis run that
+// follows applies GOOS/GOARCH so the tool inspects the target build.
+func hostLintEnv() []string {
+	saved := activePlatform
+	activePlatform = platformTarget{}
+	env := lintEnv()
+	activePlatform = saved
+	return env
+}
+
 // installGoTool runs `go install <spec>` under the lint concurrency
-// environment, mirroring go_mk_install_go_tool. The boundary log is emitted
-// because this runs a process.
+// environment, mirroring go_mk_install_go_tool. It uses the host environment so
+// a matrix pass never cross-compiles a tool binary the host then cannot run. The
+// boundary log is emitted because this runs a process.
 func installGoTool(spec string) error {
 	words := splitWords(spec)
 	if len(words) == 0 {
@@ -268,7 +293,7 @@ func installGoTool(spec string) error {
 	slog.Info("lint install go tool", slog.String("spec", spec))
 	args := append([]string{"install"}, words...)
 	cmd := exec.Command("go", args...)
-	cmd.Env = lintEnv()
+	cmd.Env = hostLintEnv()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

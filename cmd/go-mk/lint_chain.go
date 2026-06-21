@@ -96,7 +96,7 @@ func runLintChainRaw() int {
 			status = 1
 			continue
 		}
-		if code := runner(); code != 0 {
+		if code := runAcrossPlatforms(runner); code != 0 {
 			status = code
 		}
 	}
