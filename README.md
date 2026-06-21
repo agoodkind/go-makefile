@@ -8,7 +8,7 @@ by one fetched file, `go.mk`.
 1. Run from the repo root:
    `curl -fsSL https://raw.githubusercontent.com/agoodkind/go-makefile/main/bootstrap.sh | bash -s -- --yes`
 2. Commit the generated or repaired `Makefile`, `bootstrap.mk`, `.gitignore`, baseline files, and `.go-mk-applied-notices`.
-3. CI: add a workflow that sets `uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main`. The reusable workflow grants `contents: read` and `id-token: write` to the build job so `make build` can verify GitHub Actions OIDC proof before skipping its inline build gate. Set the caller's triggers to `on: [push, pull_request]` so CI runs on every branch push and every pull request. The reusable workflow adds a concurrency group keyed on the branch that collapses the push and pull-request overlap to one run and never cancels `main`.
+3. CI: add a workflow that sets `uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main`. The reusable workflow grants `contents: read` and `id-token: write` to the build job so `make build` can verify GitHub Actions OIDC proof before skipping its inline build gate. Set the caller's triggers to run `push` on `branches: ['**']` plus `pull_request`, so CI runs on every branch push and every pull request without firing on tag pushes. The reusable workflow adds a concurrency group keyed on the branch that collapses the push and pull-request overlap to one run and never cancels the repository default branch.
 4. Releases: add a workflow that sets `uses: agoodkind/go-makefile/.github/workflows/_release.yml@main` with `permissions: contents: write` and `secrets: inherit`.
 5. Run `make help` to list targets. `make check` is the default.
 
