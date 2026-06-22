@@ -23,8 +23,11 @@ GO_MK_MODULES := go-build.mk
 # example a tree-sitter parser or proto), set GO_MK_GENERATE to the codegen
 # target name(s) here, before include bootstrap.mk. go.mk runs them as an
 # order-only prerequisite of build, lint, vet, test, and govulncheck. Leave
-# unset when there is no codegen.
+# unset when there is no codegen. To earn docs-only CI skips, also set
+# GO_MK_GENERATE_INPUTS to the repo-relative input dirs whose changes should
+# force the gates.
 # GO_MK_GENERATE := my-codegen-target
+# GO_MK_GENERATE_INPUTS := proto api
 # Optional go.work routing. If this repo vendors a module the proxy cannot build
 # on its own (a submodule whose C sources are absent from its module zip), set
 # GO_MK_WORKSPACE_USE to the workspace use-paths; go.mk materializes a gitignored

@@ -1,11 +1,11 @@
 // ci-changed reports whether a CI push touched anything the Go build or tests
 // depend on, so the reusable workflow can skip the gate work on an irrelevant
 // push without ever skipping the matrix jobs that publish required checks. The
-// answer comes from the Go toolchain (go list) plus build-config, submodule, and
-// workspace paths, never from a path glob, and every uncertain case fails safe
-// to "changed" so a wrong answer over-runs rather than wrongly skips. This file
-// owns the git/go process boundary and the GITHUB_OUTPUT write; the decision
-// itself is the pure decideChanged.
+// answer comes from the Go toolchain (go list -e) plus build-config, submodule,
+// workspace, and declared codegen-input paths, never from a path glob, and
+// every uncertain case fails safe to "changed" so a wrong answer over-runs
+// rather than wrongly skips. This file owns the git/go process boundary and the
+// GITHUB_OUTPUT write; the decision itself is the pure decideChanged.
 package main
 
 import (
@@ -25,17 +25,19 @@ const zeroSHA = "0000000000000000000000000000000000000000"
 // ciChangedConfig injects the git, go, and environment seams so the decision is
 // unit-testable without spawning git or the Go toolchain.
 type ciChangedConfig struct {
-	eventName     string
-	base          string
-	head          string
-	workspaceUse  string
-	outputPath    string
-	prefix        string
-	baseInHistory func(base string) bool
-	diffNames     func(base, head string) ([]string, error)
-	sourceFiles   func() ([]string, error)
-	submoduleDirs func() ([]string, error)
-	stdout        func(string)
+	eventName      string
+	base           string
+	head           string
+	workspaceUse   string
+	generate       string
+	generateInputs string
+	outputPath     string
+	prefix         string
+	baseInHistory  func(base string) bool
+	diffNames      func(base, head string) ([]string, error)
+	sourceFiles    func() ([]string, error)
+	submoduleDirs  func() ([]string, error)
+	stdout         func(string)
 }
 
 // ciChangeInputs holds everything the pure decision needs, all as repo-root
@@ -45,6 +47,7 @@ type ciChangeInputs struct {
 	sourceFiles   []string
 	submoduleDirs []string
 	workspaceDirs []string
+	generateDirs  []string
 }
 
 // goListPackage is the subset of `go list -json` fields that name files which
@@ -132,17 +135,19 @@ func runCIChanged() int {
 	}
 
 	config := ciChangedConfig{
-		eventName:     strings.TrimSpace(os.Getenv("GO_MK_EVENT_NAME")),
-		base:          strings.TrimSpace(os.Getenv("GO_MK_DIFF_BASE")),
-		head:          head,
-		workspaceUse:  os.Getenv("GO_MK_WORKSPACE_USE"),
-		outputPath:    outputPath,
-		prefix:        prefix,
-		baseInHistory: func(base string) bool { return gitIsAncestor(base, head) },
-		diffNames:     gitDiffNames,
-		sourceFiles:   func() ([]string, error) { return goListSourceFiles(repoRoot) },
-		submoduleDirs: func() ([]string, error) { return gitSubmoduleDirs(repoRoot) },
-		stdout:        writeStdout,
+		eventName:      strings.TrimSpace(os.Getenv("GO_MK_EVENT_NAME")),
+		base:           strings.TrimSpace(os.Getenv("GO_MK_DIFF_BASE")),
+		head:           head,
+		workspaceUse:   os.Getenv("GO_MK_WORKSPACE_USE"),
+		generate:       strings.TrimSpace(os.Getenv("GO_MK_GENERATE")),
+		generateInputs: os.Getenv("GO_MK_GENERATE_INPUTS"),
+		outputPath:     outputPath,
+		prefix:         prefix,
+		baseInHistory:  func(base string) bool { return gitIsAncestor(base, head) },
+		diffNames:      gitDiffNames,
+		sourceFiles:    func() ([]string, error) { return goListSourceFiles(repoRoot) },
+		submoduleDirs:  func() ([]string, error) { return gitSubmoduleDirs(repoRoot) },
+		stdout:         writeStdout,
 	}
 	return runCIChangedWith(config)
 }
@@ -172,6 +177,11 @@ func runCIChangedWith(config ciChangedConfig) int {
 	if len(changedPaths) == 0 {
 		return emitChanged(config.outputPath, config.stdout, false, "diff is empty; nothing to gate")
 	}
+	generateDirs := generateInputDirs(config.generateInputs)
+	if config.generate != "" && len(generateDirs) == 0 {
+		return emitChanged(config.outputPath, config.stdout, true,
+			"codegen declares no inputs; running all gates")
+	}
 	source, listErr := config.sourceFiles()
 	if listErr != nil {
 		slog.Warn("ci-changed go list failed; running all gates", slog.String("error", listErr.Error()))
@@ -187,6 +197,7 @@ func runCIChangedWith(config ciChangedConfig) int {
 		sourceFiles:   source,
 		submoduleDirs: submodules,
 		workspaceDirs: workspaceTriggerDirs(config.workspaceUse, config.prefix),
+		generateDirs:  generateDirs,
 	})
 	return emitChanged(config.outputPath, config.stdout, changed, reason)
 }
@@ -194,14 +205,11 @@ func runCIChangedWith(config ciChangedConfig) int {
 // decideChanged returns whether any changed path is a Go build input. It stops
 // at the first relevant path and reports it, so the summary names the trigger.
 //
-// Codegen inputs (GO_MK_GENERATE) are covered without a dedicated knob, because
-// every consumer's inputs already fall into a set this models: a submodule (the
-// tree-sitter grammar repos), a GO_MK_WORKSPACE_USE directory, or a committed
-// generated .go file that go list reports. The one shape it cannot see is a
-// plain tracked input whose generated output is gitignored (so the output never
-// appears in the diff and the input is not Go, build-config, submodule, or
-// workspace); such a repo should commit its generated code or keep the inputs in
-// a submodule/workspace path so the change is detected.
+// A codegen repo can declare repo-root input directories with
+// GO_MK_GENERATE_INPUTS so a docs-only push still skips cheaply while any change
+// beneath those dirs forces the gates. A codegen repo that sets GO_MK_GENERATE
+// but not GO_MK_GENERATE_INPUTS never reaches this function: the caller fails
+// safe to changed=true instead.
 func decideChanged(inputs ciChangeInputs) (bool, string) {
 	source := make(map[string]struct{}, len(inputs.sourceFiles))
 	for _, file := range inputs.sourceFiles {
@@ -222,6 +230,9 @@ func decideChanged(inputs ciChangeInputs) (bool, string) {
 		}
 		if underAnyDir(path, inputs.workspaceDirs) {
 			return true, "workspace input changed: " + path
+		}
+		if underAnyDir(path, inputs.generateDirs) {
+			return true, "declared codegen input changed: " + path
 		}
 	}
 	return false, "no Go-relevant changes"
@@ -277,6 +288,20 @@ func workspaceTriggerDirs(workspaceUse, prefix string) []string {
 			joined = base + "/" + field
 		}
 		dirs = append(dirs, filepath.ToSlash(filepath.Clean(joined)))
+	}
+	return dirs
+}
+
+// generateInputDirs converts GO_MK_GENERATE_INPUTS into repo-root directories
+// that should trigger gates. The entries are already repo-root relative, so the
+// parser only splits fields, drops ".", and normalizes separators.
+func generateInputDirs(generateInputs string) []string {
+	dirs := make([]string, 0)
+	for _, field := range strings.Fields(generateInputs) {
+		if field == "." || field == "" {
+			continue
+		}
+		dirs = append(dirs, filepath.ToSlash(filepath.Clean(field)))
 	}
 	return dirs
 }
@@ -361,11 +386,13 @@ func gitSubmoduleDirs(root string) ([]string, error) {
 	return dirs, nil
 }
 
-// loggedGoListOutput runs go list and returns its stdout. It spawns a process,
-// so it emits a boundary log.
+// loggedGoListOutput runs go list and returns its stdout. The -e flag keeps the
+// package stream going when a generated embed target is absent, so detection can
+// stay cheap and still see the package's .go files. It spawns a process, so it
+// emits a boundary log.
 func loggedGoListOutput() (string, error) {
 	slog.Info("ci-changed go list deps")
-	out, err := exec.Command("go", "list", "-deps", "-json", "./...").Output()
+	out, err := exec.Command("go", "list", "-e", "-deps", "-json", "./...").Output()
 	if err != nil {
 		return "", err
 	}
@@ -373,7 +400,7 @@ func loggedGoListOutput() (string, error) {
 }
 
 // goListSourceFiles returns the repo-root-relative files of every non-standard
-// package in the build and test graph, decoded from go list -deps -json. Files
+// package in the build and test graph, decoded from go list -e -deps -json. Files
 // outside the repo (module cache, GOROOT) are dropped because a push cannot
 // change them. It spawns a process, so it emits a boundary log.
 func goListSourceFiles(root string) ([]string, error) {
