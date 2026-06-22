@@ -16,7 +16,10 @@ func baseCIChangedConfig() ciChangedConfig {
 		eventName:     "push",
 		base:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		head:          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		defaultBranch: "main",
+		refName:       "main",
 		baseInHistory: func(string) bool { return true },
+		mergeBase:     func(_, _ string) (string, bool) { return "", false },
 		diffNames:     func(_, _ string) ([]string, error) { return nil, nil },
 		sourceFiles:   func() ([]string, error) { return nil, nil },
 		submoduleDirs: func() ([]string, error) { return nil, nil },
@@ -219,6 +222,70 @@ func TestRunCIChangedFailsSafeWhenBaseNotAncestor(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "not an ancestor") {
 		t.Fatalf("stdout = %q, want force-push note", stdout)
+	}
+}
+
+func TestRunCIChangedFeatureBranchUsesMergeBaseDiff(t *testing.T) {
+	config := baseCIChangedConfig()
+	config.base = "push-before"
+	config.refName = "feature"
+	config.mergeBase = func(defaultBranch, head string) (string, bool) {
+		if defaultBranch != "main" || head != config.head {
+			t.Fatalf("mergeBase(%q, %q), want main and %s", defaultBranch, head, config.head)
+		}
+		return "branch-merge-base", true
+	}
+	config.diffNames = func(base, head string) ([]string, error) {
+		if base != "branch-merge-base" || head != config.head {
+			t.Fatalf("diffNames(%q, %q), want branch-merge-base and %s", base, head, config.head)
+		}
+		return []string{"cmd/go-mk/main.go"}, nil
+	}
+	config.sourceFiles = func() ([]string, error) { return []string{"cmd/go-mk/main.go"}, nil }
+	_, _, output := runCIChangedCapture(t, config)
+	if !strings.Contains(output, "changed=true") {
+		t.Fatalf("output = %q, want changed=true", output)
+	}
+}
+
+func TestRunCIChangedTrunkPushUsesBeforeAfterDiff(t *testing.T) {
+	config := baseCIChangedConfig()
+	config.mergeBase = func(_, _ string) (string, bool) {
+		t.Fatal("mergeBase must not run for a trunk push")
+		return "", false
+	}
+	config.diffNames = func(base, head string) ([]string, error) {
+		if base != config.base || head != config.head {
+			t.Fatalf("diffNames(%q, %q), want %s and %s", base, head, config.base, config.head)
+		}
+		return []string{"cmd/go-mk/main.go"}, nil
+	}
+	config.sourceFiles = func() ([]string, error) { return []string{"cmd/go-mk/main.go"}, nil }
+	_, _, output := runCIChangedCapture(t, config)
+	if !strings.Contains(output, "changed=true") {
+		t.Fatalf("output = %q, want changed=true", output)
+	}
+}
+
+func TestRunCIChangedFailsSafeWhenMergeBaseMissing(t *testing.T) {
+	config := baseCIChangedConfig()
+	config.refName = "feature"
+	config.mergeBase = func(defaultBranch, head string) (string, bool) {
+		if defaultBranch != "main" || head != config.head {
+			t.Fatalf("mergeBase(%q, %q), want main and %s", defaultBranch, head, config.head)
+		}
+		return "", false
+	}
+	config.diffNames = func(_, _ string) ([]string, error) {
+		t.Fatal("diff must not run when merge-base cannot be resolved")
+		return nil, nil
+	}
+	_, stdout, output := runCIChangedCapture(t, config)
+	if !strings.Contains(output, "changed=true") {
+		t.Fatalf("output = %q, want changed=true", output)
+	}
+	if !strings.Contains(stdout, "cannot compute merge-base with main") {
+		t.Fatalf("stdout = %q, want merge-base fail-safe note", stdout)
 	}
 }
 
