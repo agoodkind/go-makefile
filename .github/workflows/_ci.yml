@@ -88,8 +88,9 @@ jobs:
       run: ${{ steps.decide.outputs.run }}
       changed: ${{ steps.detect.outputs.changed }}
     steps:
-      # fetch-depth 0 so the detector can diff against github.event.before, even
-      # across a merge commit or a several-commit push.
+      # fetch-depth 0 so the detector can diff against github.event.before on the
+      # default branch and compute merge-base against origin/<default> on feature
+      # branches.
       - uses: actions/checkout@v7
         with:
           submodules: false
@@ -106,7 +107,9 @@ jobs:
         env:
           GO_MK_DIFF_BASE: ${{ github.event.before }}
           GO_MK_DIFF_HEAD: ${{ github.sha }}
+          GO_MK_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GO_MK_EVENT_NAME: ${{ github.event_name }}
+          GO_MK_REF_NAME: ${{ github.ref_name }}
         run: |
           if ! make ci-changed; then
             echo "ci-changed detector failed; running all gates (fail-safe)" >&2

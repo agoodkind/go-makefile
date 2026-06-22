@@ -65,11 +65,14 @@ by one fetched file, `go.mk`.
   decides from `go list -e -deps -json ./...` (so `go:embed` payloads and cgo
   C sources count by construction, and a missing generated embed target does not
   force codegen first) plus the build-config, submodule, `GO_MK_WORKSPACE_USE`,
-  and declared `GO_MK_GENERATE_INPUTS` paths, diffed against
-  `github.event.before`. The quality matrix and build jobs still run and report
-  their named checks, so required status checks stay green; only their steps are
-  skipped. Detection fails safe to running every gate on any uncertainty (new
-  branch, force push, `go list` error, non-`push` event, or a codegen repo that
+  and declared `GO_MK_GENERATE_INPUTS` paths. On pushes to the default branch it
+  diffs `github.event.before..HEAD`; on feature-branch pushes it diffs from
+  `merge-base(origin/<default>, HEAD)` so every push re-evaluates the full branch
+  delta and cannot wrong-skip after earlier runs were cancelled. The quality
+  matrix and build jobs still run and report their named checks, so required
+  status checks stay green; only their steps are skipped. Detection fails safe to
+  running every gate on any uncertainty (new branch on trunk, force push,
+  `go list` error, merge-base failure, non-`push` event, or a codegen repo that
   sets `GO_MK_GENERATE` without `GO_MK_GENERATE_INPUTS`). Set
   `skip_unchanged: false` to always run the gates. A consumer's own Go job can
   ride the same signal with `needs: <reusable job>` and

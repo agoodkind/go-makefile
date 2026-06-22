@@ -28,12 +28,15 @@ type ciChangedConfig struct {
 	eventName      string
 	base           string
 	head           string
+	defaultBranch  string
+	refName        string
 	workspaceUse   string
 	generate       string
 	generateInputs string
 	outputPath     string
 	prefix         string
 	baseInHistory  func(base string) bool
+	mergeBase      func(defaultBranch, head string) (string, bool)
 	diffNames      func(base, head string) ([]string, error)
 	sourceFiles    func() ([]string, error)
 	submoduleDirs  func() ([]string, error)
@@ -138,12 +141,15 @@ func runCIChanged() int {
 		eventName:      strings.TrimSpace(os.Getenv("GO_MK_EVENT_NAME")),
 		base:           strings.TrimSpace(os.Getenv("GO_MK_DIFF_BASE")),
 		head:           head,
+		defaultBranch:  strings.TrimSpace(os.Getenv("GO_MK_DEFAULT_BRANCH")),
+		refName:        strings.TrimSpace(os.Getenv("GO_MK_REF_NAME")),
 		workspaceUse:   os.Getenv("GO_MK_WORKSPACE_USE"),
 		generate:       strings.TrimSpace(os.Getenv("GO_MK_GENERATE")),
 		generateInputs: os.Getenv("GO_MK_GENERATE_INPUTS"),
 		outputPath:     outputPath,
 		prefix:         prefix,
 		baseInHistory:  func(base string) bool { return gitIsAncestor(base, head) },
+		mergeBase:      gitMergeBase,
 		diffNames:      gitDiffNames,
 		sourceFiles:    func() ([]string, error) { return goListSourceFiles(repoRoot) },
 		submoduleDirs:  func() ([]string, error) { return gitSubmoduleDirs(repoRoot) },
@@ -161,15 +167,26 @@ func runCIChangedWith(config ciChangedConfig) int {
 		return emitChanged(config.outputPath, config.stdout, true,
 			"event "+config.eventName+" is not push; running all gates")
 	}
-	if config.base == "" || config.base == zeroSHA {
-		return emitChanged(config.outputPath, config.stdout, true,
-			"no base commit (new branch); running all gates")
+
+	base := config.base
+	if config.refName != "" && config.refName == config.defaultBranch {
+		if base == "" || base == zeroSHA {
+			return emitChanged(config.outputPath, config.stdout, true,
+				"no base commit (new branch); running all gates")
+		}
+		if !config.baseInHistory(base) {
+			return emitChanged(config.outputPath, config.stdout, true,
+				"base commit "+base+" is not an ancestor of head (force push or shallow clone); running all gates")
+		}
+	} else {
+		mergeBase, ok := config.mergeBase(config.defaultBranch, config.head)
+		if !ok {
+			return emitChanged(config.outputPath, config.stdout, true,
+				"cannot compute merge-base with "+displayDefaultBranch(config.defaultBranch)+"; running all gates")
+		}
+		base = mergeBase
 	}
-	if !config.baseInHistory(config.base) {
-		return emitChanged(config.outputPath, config.stdout, true,
-			"base commit "+config.base+" is not an ancestor of head (force push or shallow clone); running all gates")
-	}
-	changedPaths, diffErr := config.diffNames(config.base, config.head)
+	changedPaths, diffErr := config.diffNames(base, config.head)
 	if diffErr != nil {
 		slog.Warn("ci-changed git diff failed; running all gates", slog.String("error", diffErr.Error()))
 		return emitChanged(config.outputPath, config.stdout, true, "git diff failed; running all gates")
@@ -292,6 +309,13 @@ func workspaceTriggerDirs(workspaceUse, prefix string) []string {
 	return dirs
 }
 
+func displayDefaultBranch(defaultBranch string) string {
+	if defaultBranch == "" {
+		return "default branch"
+	}
+	return defaultBranch
+}
+
 // generateInputDirs converts GO_MK_GENERATE_INPUTS into repo-root directories
 // that should trigger gates. The entries are already repo-root relative, so the
 // parser only splits fields, drops ".", and normalizes separators.
@@ -354,6 +378,47 @@ func gitDiffNames(base, head string) ([]string, error) {
 		return nil, err
 	}
 	return splitNonEmptyLines(out), nil
+}
+
+// gitMergeBase returns the merge-base between HEAD and the default branch's
+// remote-tracking ref. If the first attempt fails, it fetches that one branch
+// once and retries before giving up.
+func gitMergeBase(defaultBranch, head string) (string, bool) {
+	defaultBranch = strings.TrimSpace(defaultBranch)
+	if defaultBranch == "" {
+		return "", false
+	}
+	defaultRef := "origin/" + defaultBranch
+	base, err := loggedGitOutput("ci-changed git merge-base", "merge-base", defaultRef, head)
+	if err == nil && base != "" {
+		return base, true
+	}
+	slog.Warn("ci-changed merge-base failed; fetching default branch and retrying",
+		slog.String("default_ref", defaultRef),
+		slog.String("head", head),
+		slog.String("error", errString(err)))
+	if _, fetchErr := loggedGitOutput("ci-changed git fetch default branch", "fetch", "--no-tags", "origin", defaultBranch); fetchErr != nil {
+		slog.Warn("ci-changed fetch default branch failed",
+			slog.String("default_ref", defaultRef),
+			slog.String("error", fetchErr.Error()))
+		return "", false
+	}
+	base, err = loggedGitOutput("ci-changed git merge-base", "merge-base", defaultRef, head)
+	if err != nil || base == "" {
+		slog.Warn("ci-changed merge-base retry failed",
+			slog.String("default_ref", defaultRef),
+			slog.String("head", head),
+			slog.String("error", errString(err)))
+		return "", false
+	}
+	return base, true
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // gitSubmoduleDirs reads the submodule paths from .gitmodules at the repo root.
