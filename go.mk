@@ -373,10 +373,9 @@ go-version-check: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" go-version-check
 
 # ci-changed reports whether a CI push touched anything the Go build depends on,
-# writing changed=<bool> to GITHUB_OUTPUT. It carries the same codegen/workspace
-# prerequisites as the gates (see GO_MK_PREREQS below) so go list resolves before
-# it runs. The reusable CI workflow reads its output to skip gate work on an
-# irrelevant push.
+# writing changed=<bool> to GITHUB_OUTPUT. It only runs the go-mk engine, which
+# uses `go list -e` plus declared trigger dirs and fails safe to changed=true on
+# uncertainty, so detection stays cheap and never runs codegen.
 ci-changed: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" ci-changed
 
@@ -470,6 +469,12 @@ smoke-fetch:
 # runs first without forcing the .PHONY engine targets to rebuild.
 GO_MK_GENERATE ?=
 
+# GO_MK_GENERATE_INPUTS: optional repo-relative directories whose changes force
+# ci-changed to run every gate for a codegen repo. Set this with
+# GO_MK_GENERATE to earn docs-only skips; leave it empty to fail safe to
+# always-run.
+GO_MK_GENERATE_INPUTS ?=
+
 # GO_MK_WORKSPACE_USE: opt-in go.work routing. A consumer sets this BEFORE
 # `include bootstrap.mk` to the use-paths of a workspace whose modules the
 # proxy cannot build on their own (for example a submodule-vendored module
@@ -482,6 +487,8 @@ GO_MK_WORKSPACE_USE ?=
 
 # Exported so the ci-changed engine command treats the workspace use-paths (the
 # vendored modules whose inputs go list cannot see on their own) as relevant.
+export GO_MK_GENERATE
+export GO_MK_GENERATE_INPUTS
 export GO_MK_WORKSPACE_USE
 
 .PHONY: go-mk-workspace
@@ -507,10 +514,11 @@ endif
 # deliberately omitted: gofumpt/goimports and gocyclo are textual or AST-only,
 # they never compile or resolve packages, and they pass on a fresh runner
 # without generated sources or a go.work, so attaching the prerequisite would
-# only add cost.
+# only add cost. ci-changed is also omitted so detection stays cheap and never
+# runs codegen or go-mk-workspace.
 GO_MK_PREREQS := $(if $(strip $(GO_MK_WORKSPACE_USE)),go-mk-workspace) $(GO_MK_GENERATE)
 ifneq ($(strip $(GO_MK_PREREQS)),)
-build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test govulncheck ci-changed: | $(GO_MK_PREREQS)
+build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test govulncheck: | $(GO_MK_PREREQS)
 endif
 
 # Include opt-in modules at end so they see all go.mk definitions.

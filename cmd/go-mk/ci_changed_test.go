@@ -56,6 +56,14 @@ func TestDecideChanged(t *testing.T) {
 			changed: false,
 		},
 		{
+			name: "declared codegen input dir runs",
+			inputs: ciChangeInputs{
+				changedPaths: []string{"shim/build.sh"},
+				generateDirs: []string{"shim", "injector", "api"},
+			},
+			changed: true,
+		},
+		{
 			name: "go source in build graph runs",
 			inputs: ciChangeInputs{
 				changedPaths: []string{"cmd/go-mk/main.go"},
@@ -267,6 +275,53 @@ func TestRunCIChangedDocsOnlySkips(t *testing.T) {
 	}
 }
 
+func TestRunCIChangedFailsSafeWhenCodegenDeclaresNoInputs(t *testing.T) {
+	config := baseCIChangedConfig()
+	config.generate = "go-generated-prereqs"
+	config.diffNames = func(_, _ string) ([]string, error) {
+		return []string{"README.md"}, nil
+	}
+	config.sourceFiles = func() ([]string, error) {
+		t.Fatal("go list must not run when codegen declares no inputs")
+		return nil, nil
+	}
+	_, stdout, output := runCIChangedCapture(t, config)
+	if !strings.Contains(output, "changed=true") {
+		t.Fatalf("output = %q, want changed=true", output)
+	}
+	if !strings.Contains(stdout, "codegen declares no inputs") {
+		t.Fatalf("stdout = %q, want codegen fail-safe note", stdout)
+	}
+}
+
+func TestRunCIChangedDeclaredCodegenInputsSkipDocsOnly(t *testing.T) {
+	config := baseCIChangedConfig()
+	config.generate = "go-generated-prereqs"
+	config.generateInputs = "shim injector api"
+	config.diffNames = func(_, _ string) ([]string, error) {
+		return []string{"README.md"}, nil
+	}
+	config.sourceFiles = func() ([]string, error) { return []string{"cmd/go-mk/main.go"}, nil }
+	_, _, output := runCIChangedCapture(t, config)
+	if !strings.Contains(output, "changed=false") {
+		t.Fatalf("output = %q, want changed=false", output)
+	}
+}
+
+func TestRunCIChangedDeclaredCodegenInputRuns(t *testing.T) {
+	config := baseCIChangedConfig()
+	config.generate = "go-generated-prereqs"
+	config.generateInputs = "shim injector api"
+	config.diffNames = func(_, _ string) ([]string, error) {
+		return []string{"shim/build.sh"}, nil
+	}
+	config.sourceFiles = func() ([]string, error) { return []string{"cmd/go-mk/main.go"}, nil }
+	_, _, output := runCIChangedCapture(t, config)
+	if !strings.Contains(output, "changed=true") {
+		t.Fatalf("output = %q, want changed=true", output)
+	}
+}
+
 func TestRunCIChangedGoChangeRuns(t *testing.T) {
 	config := baseCIChangedConfig()
 	config.diffNames = func(_, _ string) ([]string, error) {
@@ -295,5 +350,12 @@ func TestWorkspaceTriggerDirsDropsDotAndAppliesPrefix(t *testing.T) {
 	dirs := workspaceTriggerDirs(". third_party/gksyntax", "dots/")
 	if len(dirs) != 1 || dirs[0] != "dots/third_party/gksyntax" {
 		t.Fatalf("dirs = %v, want [dots/third_party/gksyntax]", dirs)
+	}
+}
+
+func TestGenerateInputDirsDropsDotAndNormalizes(t *testing.T) {
+	dirs := generateInputDirs("./shim . api//v1")
+	if len(dirs) != 2 || dirs[0] != "shim" || dirs[1] != "api/v1" {
+		t.Fatalf("dirs = %v, want [shim api/v1]", dirs)
 	}
 }

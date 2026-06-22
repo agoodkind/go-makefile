@@ -92,29 +92,14 @@ jobs:
       # across a merge commit or a several-commit push.
       - uses: actions/checkout@v7
         with:
-          submodules: ${{ inputs.submodules }}
+          submodules: false
           fetch-depth: 0
-      - name: Install apt packages
-        if: inputs.apt_packages != ''
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ${{ inputs.apt_packages }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: ${{ inputs.go_version_file }}
-      - name: Install Go tool packages
-        if: inputs.go_tool_packages != ''
-        run: |
-          for go_tool_package in ${{ inputs.go_tool_packages }}; do
-            go install "${go_tool_package}"
-          done
-          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
-      - name: Run pre-make commands
-        if: inputs.pre_make_commands != ''
-        run: ${{ inputs.pre_make_commands }}
-      # make ci-changed runs codegen and go-mk-workspace first (GO_MK_PREREQS) so
-      # go list resolves, then writes changed=<bool> to GITHUB_OUTPUT. A non-zero
-      # exit (for example missing codegen tooling) fails safe to changed=true.
+      # make ci-changed runs only the cheap detector path. The engine uses
+      # `go list -e` plus declared trigger dirs, writes changed=<bool> to
+      # GITHUB_OUTPUT, and any uncertainty fails safe to changed=true.
       - name: Detect Go-relevant changes
         id: detect
         working-directory: ${{ inputs.working_directory }}

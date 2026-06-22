@@ -28,8 +28,13 @@ by one fetched file, `go.mk`.
   build, vet, test, govulncheck, and lint target the CI matrix calls, including
   the split legs `lint-golangci`, `lint-deadcode`, and `staticcheck-extra`, so a
   consumer never threads the prerequisite per leg. The textual legs `lint-format`
-  and `lint-gocyclo` are excluded because they never compile a package. Multiple
-  targets are space-separated; unset is a no-op.
+  and `lint-gocyclo` are excluded because they never compile a package. If that
+  repo wants cheap docs-only skips in reusable CI, set `GO_MK_GENERATE_INPUTS`
+  to the repo-relative input dirs whose changes should force the gates (for
+  example `shim injector api`). If `GO_MK_GENERATE` is set but
+  `GO_MK_GENERATE_INPUTS` is empty, `ci-changed` fails safe to `changed=true`
+  and always runs. Multiple targets or dirs are space-separated; unset is a
+  no-op.
 - Do not commit `go.work`; the bootstrap gitignores `go.work` and `go.work.sum`.
   When a repo vendors a module the proxy cannot build on its own (for example
   `gksyntax`, whose generated parser C and nested grammar submodules are not in
@@ -57,19 +62,18 @@ by one fetched file, `go.mk`.
   JWT for the current repository and run.
 - The reusable CI skips the quality and build work on a push that changes nothing
   the Go build or tests depend on. A `changes` job runs `go-mk ci-changed`, which
-  decides from `go list` (so `go:embed` payloads and cgo C sources count by
-  construction) plus the build-config, submodule, and `GO_MK_WORKSPACE_USE` paths,
-  diffed against `github.event.before`. The quality matrix and build jobs still
-  run and report their named checks, so required status checks stay green; only
-  their steps are skipped. Detection fails safe to running every gate on any
-  uncertainty (new branch, force push, `go list` error, non-`push` event). Set
+  decides from `go list -e -deps -json ./...` (so `go:embed` payloads and cgo
+  C sources count by construction, and a missing generated embed target does not
+  force codegen first) plus the build-config, submodule, `GO_MK_WORKSPACE_USE`,
+  and declared `GO_MK_GENERATE_INPUTS` paths, diffed against
+  `github.event.before`. The quality matrix and build jobs still run and report
+  their named checks, so required status checks stay green; only their steps are
+  skipped. Detection fails safe to running every gate on any uncertainty (new
+  branch, force push, `go list` error, non-`push` event, or a codegen repo that
+  sets `GO_MK_GENERATE` without `GO_MK_GENERATE_INPUTS`). Set
   `skip_unchanged: false` to always run the gates. A consumer's own Go job can
   ride the same signal with `needs: <reusable job>` and
-  `if: needs.<job>.outputs.changed == 'true'`. Codegen inputs are detected without
-  a dedicated knob as long as they live in a submodule or a `GO_MK_WORKSPACE_USE`
-  path, or the generated `.go` is committed; a repo whose generated output is
-  gitignored and whose inputs are plain tracked files should commit that output so
-  the change is seen.
+  `if: needs.<job>.outputs.changed == 'true'`.
 - Specifics live in source: `cmd/go-mk/bootstrap.go` (what bootstrap writes),
   `go.mk` (targets and their knobs), `golangci.yml` (lint config),
   `staticcheck/` (bundled analyzers), `.github/workflows/` (CI and release
