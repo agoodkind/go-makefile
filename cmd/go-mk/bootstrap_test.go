@@ -100,7 +100,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileExists(t, ciWorkflow)
 		assertFileContains(t, ciWorkflow, "branches: ['**']")
 		assertFileContains(t, ciWorkflow, "agoodkind/go-makefile/.github/workflows/_ci.yml@main")
-		assertTrackedFilesExist(t, repoDir)
+		assertBootstrapTrackedFilesAbsent(t, repoDir)
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "BINARY := bootstrap-probe")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk go-release.mk")
 		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "GO_MK_BOOTSTRAP_FETCHED := 1")
@@ -123,7 +123,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "LIBRARY := 1")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk")
 		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
-		assertTrackedFilesExist(t, repoDir)
+		assertBootstrapTrackedFilesAbsent(t, repoDir)
 		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
 	})
 
@@ -142,7 +142,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		}
 		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
 		assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
-		assertTrackedFilesExist(t, repoDir)
+		assertBootstrapTrackedFilesAbsent(t, repoDir)
 		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
 	})
 
@@ -228,7 +228,6 @@ func TestBootstrapScenarios(t *testing.T) {
 			yes:          true,
 		})
 
-		assertTrackedFilesExist(t, repoDir)
 		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
 		for _, trackedFile := range configuredBootstrapTrackedFiles() {
 			assertPathNotGitIgnored(t, repoDir, trackedFile)
@@ -308,10 +307,13 @@ func assertFileContains(t *testing.T, filePath string, expectedText string) {
 	}
 }
 
-func assertTrackedFilesExist(t *testing.T, repoDir string) {
+func assertBootstrapTrackedFilesAbsent(t *testing.T, repoDir string) {
 	t.Helper()
 	for _, trackedFile := range configuredBootstrapTrackedFiles() {
-		assertFileExists(t, filepath.Join(repoDir, trackedFile))
+		filePath := filepath.Join(repoDir, trackedFile)
+		if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+			t.Fatalf("stat %s = %v, want not exist", filePath, err)
+		}
 	}
 }
 

@@ -1,5 +1,5 @@
 # go-makefile notices, read by scripts/go-mk-notice.sh on a real build.
 # Format, tab-separated: id<TAB>directive<TAB>summary
 # directive is "-" for an announcement, or KEY=VALUE tokens for an auto-baseline
-# scope (GATE, LINTER, RULE, PATTERN). See scripts/go-mk-notice.sh for details.
-1	GATE=golangci LINTER=revive RULE=file-length-limit	Enabled the revive file-length-limit rule (max 1000 lines per file). Files already over the limit were auto-baselined into your golangci-lint baseline; review the diff and commit it. New files over 1000 lines will fail lint.
+# scope (INTRODUCED, GATE, LINTER, RULE, PATTERN). See cmd/go-mk/notice.go for details.
+1	INTRODUCED=2026-05-25T19:38:46-07:00 GATE=golangci LINTER=revive RULE=file-length-limit	Enabled the revive file-length-limit rule (max 1000 lines per file). Files already over the limit were auto-baselined into your golangci-lint baseline; review the diff and commit it. New files over 1000 lines will fail lint.

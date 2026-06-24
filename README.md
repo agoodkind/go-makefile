@@ -7,7 +7,7 @@ by one fetched file, `go.mk`.
 
 1. Run from the repo root:
    `curl -fsSL https://raw.githubusercontent.com/agoodkind/go-makefile/main/bootstrap.sh | bash -s -- --yes`
-2. Commit the generated or repaired `Makefile`, `bootstrap.mk`, `.github/workflows/ci.yml`, `.gitignore`, baseline files, and `.go-mk-applied-notices`.
+2. Commit the generated or repaired `Makefile`, `bootstrap.mk`, `.github/workflows/ci.yml`, and `.gitignore`.
 3. CI: bootstrap scaffolds `.github/workflows/ci.yml` when none exists, calling `uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main`. The reusable workflow grants `contents: read` and `id-token: write` to the build job so `make build` can verify GitHub Actions OIDC proof before skipping its inline build gate. The scaffolded workflow triggers on `push` to every branch (`branches: ['**']`) with a `concurrency` cancel group, so every branch runs CI exactly once with no duplicate `pull_request` run; same-repo PRs still show these checks because GitHub matches checks to the head commit SHA, and `'**'` excludes tags so releases are untouched. Bootstrap leaves an existing `ci.yml` unchanged, so a repo that customizes jobs (submodules, apt packages, extra jobs) keeps its workflow while still using this trigger block as the reference. A repo that accepts fork PRs can add a fork-guarded `pull_request` trigger.
 4. Releases: add a workflow that sets `uses: agoodkind/go-makefile/.github/workflows/_release.yml@main` with `permissions: contents: write` and `secrets: inherit`.
 5. Run `make help` to list targets. `make check` is the default.
@@ -53,9 +53,11 @@ by one fetched file, `go.mk`.
   project-specific tools alone; run `go mod tidy` afterward to prune their
   dependencies.
 - Lint gates diff tool findings against committed baseline files and fail only on
-  new findings. Bootstrap touches the baseline files and `.go-mk-applied-notices`,
-  and adds repo-local `.gitignore` allowlist rules so they stay tracked.
-  Changing a baseline requires the token gate.
+  new findings. Bootstrap adds repo-local `.gitignore` allowlist rules for future
+  baseline files and `.go-mk-applied-notices`, but it does not create them during
+  initial adoption. Commit `.go-mk-applied-notices` only after a notice run creates
+  it. Commit baseline files only after a baseline target creates them. Changing a
+  baseline requires the token gate.
 - Local `make build` runs `build-check` before compiling. The CI split is
   CI-only: the reusable workflow reports each quality gate separately, and the
   build job skips inline gates only after `go-mk` verifies a GitHub Actions OIDC

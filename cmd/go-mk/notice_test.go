@@ -6,16 +6,23 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+const testDirective = "INTRODUCED=2026-05-25T19:38:46-07:00 GATE=golangci LINTER=revive RULE=file-length-limit"
+
+var testIntroducedTime = time.Date(2026, 5, 25, 19, 38, 46, 0, time.FixedZone("PDT", -7*60*60))
 
 func TestRunNoticeRecordsDirectiveAsAppliedForFreshRepo(t *testing.T) {
 	root := t.TempDir()
 	chdir(t, root)
 	clearBaselineEnv(t)
+	stubNoticeAdoptionTime(t, time.Time{}, false)
+	forbidNoticeBaseline(t)
 
 	noticesPath := filepath.Join(root, "notices.txt")
 	notices := strings.Join([]string{
-		"1\tGATE=golangci LINTER=revive RULE=file-length-limit\tEnabled historical rule",
+		"1\t" + testDirective + "\tEnabled historical rule",
 		"2\t-\tAnnouncement-only notice",
 		"",
 	}, "\n")
@@ -62,9 +69,11 @@ func TestRunNoticeShowsDirectiveWhenFreshAppliedRecordFails(t *testing.T) {
 	root := t.TempDir()
 	chdir(t, root)
 	clearBaselineEnv(t)
+	stubNoticeAdoptionTime(t, time.Time{}, false)
+	forbidNoticeBaseline(t)
 
 	noticesPath := filepath.Join(root, "notices.txt")
-	notices := "1\tGATE=golangci LINTER=revive RULE=file-length-limit\tEnabled historical rule\n"
+	notices := "1\t" + testDirective + "\tEnabled historical rule\n"
 	if err := os.WriteFile(noticesPath, []byte(notices), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -96,9 +105,11 @@ func TestRunNoticeCreatesFreshAppliedNoticeParentDirectory(t *testing.T) {
 	root := t.TempDir()
 	chdir(t, root)
 	clearBaselineEnv(t)
+	stubNoticeAdoptionTime(t, time.Time{}, false)
+	forbidNoticeBaseline(t)
 
 	noticesPath := filepath.Join(root, "notices.txt")
-	notices := "1\tGATE=golangci LINTER=revive RULE=file-length-limit\tEnabled historical rule\n"
+	notices := "1\t" + testDirective + "\tEnabled historical rule\n"
 	if err := os.WriteFile(noticesPath, []byte(notices), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -125,23 +136,127 @@ func TestRunNoticeCreatesFreshAppliedNoticeParentDirectory(t *testing.T) {
 	}
 }
 
-func TestAnyConfiguredBaselineFileExistsDetectsDefaultBaseline(t *testing.T) {
+func TestRunNoticeIgnoresEmptyBaselineFilesWhenHistoryIsUnavailable(t *testing.T) {
+	root := t.TempDir()
+	chdir(t, root)
+	clearBaselineEnv(t)
+	stubNoticeAdoptionTime(t, time.Time{}, false)
+	forbidNoticeBaseline(t)
+
+	if err := os.WriteFile(".golangci-lint-baseline.txt", nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	noticesPath := filepath.Join(root, "notices.txt")
+	notices := "1\t" + testDirective + "\tEnabled historical rule\n"
+	if err := os.WriteFile(noticesPath, []byte(notices), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GO_MK_NOTICES_FILE", noticesPath)
+	t.Setenv("GO_MK_APPLIED_NOTICES", ".go-mk-applied-notices")
+
+	var status int
+	stderr := captureStderr(t, func() {
+		status = runNotice()
+	})
+	if status != 0 {
+		t.Fatalf("runNotice status = %d, want 0", status)
+	}
+	if strings.Contains(stderr, "auto-baselining") {
+		t.Fatalf("stderr = %q, want no auto-baseline output", stderr)
+	}
+	assertNoticeAppliedFile(t, ".go-mk-applied-notices", "1\n")
+	assertFileText(t, ".golangci-lint-baseline.txt", "")
+}
+
+func TestRunNoticeRecordsDirectiveWhenAdoptionIsAfterNotice(t *testing.T) {
+	root := t.TempDir()
+	chdir(t, root)
+	clearBaselineEnv(t)
+	stubNoticeAdoptionTime(t, testIntroducedTime.Add(time.Hour), true)
+	forbidNoticeBaseline(t)
+
+	if err := os.WriteFile(".golangci-lint-baseline.txt", []byte("# existing baseline\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	noticesPath := filepath.Join(root, "notices.txt")
+	notices := "1\t" + testDirective + "\tEnabled historical rule\n"
+	if err := os.WriteFile(noticesPath, []byte(notices), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GO_MK_NOTICES_FILE", noticesPath)
+	t.Setenv("GO_MK_APPLIED_NOTICES", ".go-mk-applied-notices")
+
+	var status int
+	stderr := captureStderr(t, func() {
+		status = runNotice()
+	})
+	if status != 0 {
+		t.Fatalf("runNotice status = %d, want 0", status)
+	}
+	if strings.Contains(stderr, "auto-baselining") {
+		t.Fatalf("stderr = %q, want no auto-baseline output", stderr)
+	}
+	assertNoticeAppliedFile(t, ".go-mk-applied-notices", "1\n")
+	assertFileText(t, ".golangci-lint-baseline.txt", "# existing baseline\n")
+}
+
+func TestRunNoticeAutoBaselinesWhenAdoptionIsBeforeNotice(t *testing.T) {
+	root := t.TempDir()
+	chdir(t, root)
+	clearBaselineEnv(t)
+	stubNoticeAdoptionTime(t, testIntroducedTime.Add(-time.Hour), true)
+	baselineCalls := recordNoticeBaselineCalls(t)
+
+	noticesPath := filepath.Join(root, "notices.txt")
+	notices := "1\t" + testDirective + "\tEnabled historical rule\n"
+	if err := os.WriteFile(noticesPath, []byte(notices), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GO_MK_NOTICES_FILE", noticesPath)
+	t.Setenv("GO_MK_APPLIED_NOTICES", ".go-mk-applied-notices")
+
+	var status int
+	stderr := captureStderr(t, func() {
+		status = runNotice()
+	})
+	if status != 0 {
+		t.Fatalf("runNotice status = %d, want 0", status)
+	}
+	if len(*baselineCalls) != 1 {
+		t.Fatalf("baseline call count = %d, want 1", len(*baselineCalls))
+	}
+	if (*baselineCalls)[0] != "auto-baseline-scope" {
+		t.Fatalf("baseline calls = %#v, want auto-baseline-scope", *baselineCalls)
+	}
+	if !strings.Contains(stderr, "auto-baselining existing findings") {
+		t.Fatalf("stderr = %q, want auto-baseline output", stderr)
+	}
+	assertNoticeAppliedFile(t, ".go-mk-applied-notices", "1\n")
+}
+
+func TestAnyConfiguredBaselineFileHasContentDetectsDefaultBaseline(t *testing.T) {
 	root := t.TempDir()
 	chdir(t, root)
 	clearBaselineEnv(t)
 
-	if anyConfiguredBaselineFileExists() {
-		t.Fatal("anyConfiguredBaselineFileExists = true before any baseline exists")
+	if anyConfiguredBaselineFileHasContent() {
+		t.Fatal("anyConfiguredBaselineFileHasContent = true before any baseline exists")
+	}
+	if err := os.WriteFile(".golangci-lint-baseline.txt", nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if anyConfiguredBaselineFileHasContent() {
+		t.Fatal("anyConfiguredBaselineFileHasContent = true after empty baseline exists")
 	}
 	if err := os.WriteFile(".golangci-lint-baseline.txt", []byte("# baseline\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !anyConfiguredBaselineFileExists() {
-		t.Fatal("anyConfiguredBaselineFileExists = false after default baseline exists")
+	if !anyConfiguredBaselineFileHasContent() {
+		t.Fatal("anyConfiguredBaselineFileHasContent = false after default baseline has content")
 	}
 }
 
-func TestAnyConfiguredBaselineFileExistsUsesCustomBaselinePaths(t *testing.T) {
+func TestAnyConfiguredBaselineFileHasContentUsesCustomBaselinePaths(t *testing.T) {
 	root := t.TempDir()
 	chdir(t, root)
 	t.Setenv("GOLANGCI_LINT_BASELINE", filepath.Join("custom", "golangci.txt"))
@@ -149,8 +264,8 @@ func TestAnyConfiguredBaselineFileExistsUsesCustomBaselinePaths(t *testing.T) {
 	t.Setenv("DEADCODE_BASELINE", filepath.Join("custom", "deadcode.txt"))
 	t.Setenv("STATICCHECK_EXTRA_BASELINE", filepath.Join("custom", "staticcheck.txt"))
 
-	if anyConfiguredBaselineFileExists() {
-		t.Fatal("anyConfiguredBaselineFileExists = true before custom baselines exist")
+	if anyConfiguredBaselineFileHasContent() {
+		t.Fatal("anyConfiguredBaselineFileHasContent = true before custom baselines exist")
 	}
 	if err := os.Mkdir("custom", 0o755); err != nil {
 		t.Fatal(err)
@@ -158,12 +273,12 @@ func TestAnyConfiguredBaselineFileExistsUsesCustomBaselinePaths(t *testing.T) {
 	if err := os.WriteFile(filepath.Join("custom", "staticcheck.txt"), []byte("# baseline\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !anyConfiguredBaselineFileExists() {
-		t.Fatal("anyConfiguredBaselineFileExists = false after custom baseline exists")
+	if !anyConfiguredBaselineFileHasContent() {
+		t.Fatal("anyConfiguredBaselineFileHasContent = false after custom baseline has content")
 	}
 }
 
-func TestAnyConfiguredBaselineFileExistsTreatsStatErrorsAsExisting(t *testing.T) {
+func TestAnyConfiguredBaselineFileHasContentTreatsStatErrorsAsExisting(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root can bypass directory permissions")
 	}
@@ -189,8 +304,62 @@ func TestAnyConfiguredBaselineFileExistsTreatsStatErrorsAsExisting(t *testing.T)
 	}
 	t.Setenv("GOLANGCI_LINT_BASELINE", baselinePath)
 
-	if !anyConfiguredBaselineFileExists() {
-		t.Fatal("anyConfiguredBaselineFileExists = false for unreadable baseline path")
+	if !anyConfiguredBaselineFileHasContent() {
+		t.Fatal("anyConfiguredBaselineFileHasContent = false for unreadable baseline path")
+	}
+}
+
+func stubNoticeAdoptionTime(t *testing.T, adoptionTime time.Time, ok bool) {
+	t.Helper()
+	previous := noticeAdoptionTimeFunc
+	noticeAdoptionTimeFunc = func() (time.Time, bool) {
+		return adoptionTime, ok
+	}
+	t.Cleanup(func() {
+		noticeAdoptionTimeFunc = previous
+	})
+}
+
+func forbidNoticeBaseline(t *testing.T) {
+	t.Helper()
+	previous := runNoticeBaselineFunc
+	runNoticeBaselineFunc = func(args []string) int {
+		t.Fatalf("runNoticeBaselineFunc called with %#v", args)
+		return 1
+	}
+	t.Cleanup(func() {
+		runNoticeBaselineFunc = previous
+	})
+}
+
+func recordNoticeBaselineCalls(t *testing.T) *[]string {
+	t.Helper()
+	calls := []string{}
+	previous := runNoticeBaselineFunc
+	runNoticeBaselineFunc = func(args []string) int {
+		if os.Getenv("LINTER") != "revive" {
+			t.Fatalf("LINTER = %q, want revive", os.Getenv("LINTER"))
+		}
+		if os.Getenv("RULE") != "file-length-limit" {
+			t.Fatalf("RULE = %q, want file-length-limit", os.Getenv("RULE"))
+		}
+		calls = append(calls, strings.Join(args, " "))
+		return 0
+	}
+	t.Cleanup(func() {
+		runNoticeBaselineFunc = previous
+	})
+	return &calls
+}
+
+func assertNoticeAppliedFile(t *testing.T, filePath string, expected string) {
+	t.Helper()
+	applied, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("read applied notices: %v", err)
+	}
+	if string(applied) != expected {
+		t.Fatalf("applied notices = %q, want %q", string(applied), expected)
 	}
 }
 
