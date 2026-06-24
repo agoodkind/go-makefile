@@ -77,14 +77,20 @@ func runNotice() int {
 			continue
 		}
 		directiveNotice := record.directive != "" && record.directive != "-"
+		directive := noticeDirective{}
+		autoBaselineNotice := false
+		if directiveNotice {
+			directive = parseNoticeDirective(record.directive)
+			autoBaselineNotice = shouldAutoBaselineDirective(directive)
+		}
 		if directiveNotice && !applied[record.id] {
-			if shouldAutoBaselineNotice(record) {
-				runNoticeAutoBaseline(record, appliedFile, applied)
+			if autoBaselineNotice {
+				runNoticeAutoBaseline(record, directive, appliedFile, applied)
 			} else {
 				recordFreshNoticeApplied(record, appliedFile, applied)
 			}
 		}
-		if numericID > lastSeen && !(directiveNotice && applied[record.id]) {
+		if numericID > lastSeen && !(directiveNotice && !autoBaselineNotice && applied[record.id]) {
 			writeStderr("go-makefile notice #" + record.id + ": " + record.summary + "\n")
 		}
 		if numericID > maxSeen {
@@ -99,10 +105,9 @@ func runNotice() int {
 	return 0
 }
 
-// shouldAutoBaselineNotice reports whether this repo had adopted go-makefile
+// shouldAutoBaselineDirective reports whether this repo had adopted go-makefile
 // before a directive notice shipped.
-func shouldAutoBaselineNotice(record noticeFields) bool {
-	directive := parseNoticeDirective(record.directive)
+func shouldAutoBaselineDirective(directive noticeDirective) bool {
 	if directive.introduced.IsZero() {
 		return anyConfiguredBaselineFileHasContent()
 	}
@@ -114,7 +119,7 @@ func shouldAutoBaselineNotice(record noticeFields) bool {
 }
 
 // anyConfiguredBaselineFileHasContent reports whether any configured baseline
-// file contains content. Empty files created during initial bootstrap should not
+// file is non-empty. Empty files created during initial bootstrap should not
 // make a consumer look historical when git history is unavailable.
 func anyConfiguredBaselineFileHasContent() bool {
 	for _, baselineFile := range configuredBaselineFiles() {
@@ -128,11 +133,11 @@ func anyConfiguredBaselineFileHasContent() bool {
 // baselineFileHasContent treats unreadable paths as historical so notice
 // handling does not silently skip a needed baseline update on uncertainty.
 func baselineFileHasContent(path string) bool {
-	contents, err := os.ReadFile(path)
+	info, err := os.Stat(path)
 	if err != nil {
 		return !os.IsNotExist(err)
 	}
-	return strings.TrimSpace(string(contents)) != ""
+	return info.Size() > 0
 }
 
 func detectNoticeAdoptionTime() (time.Time, bool) {
@@ -244,8 +249,7 @@ func recordFreshNoticeApplied(record noticeFields, appliedFile string, applied m
 // scope tokens, refuses any gate other than golangci, runs the in-process
 // baseline auto-baseline-scope updater with the scope env set, records the id on
 // success, and reports failure without aborting the build.
-func runNoticeAutoBaseline(record noticeFields, appliedFile string, applied map[string]bool) {
-	directive := parseNoticeDirective(record.directive)
+func runNoticeAutoBaseline(record noticeFields, directive noticeDirective, appliedFile string, applied map[string]bool) {
 	if directive.gate != "golangci" {
 		writeStderr("go-makefile notice #" + record.id + ": unsupported auto-baseline gate '" + directive.gate + "'; skipping\n")
 		return
