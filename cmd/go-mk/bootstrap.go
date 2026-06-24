@@ -109,7 +109,7 @@ func runBootstrap(options bootstrapOptions) error {
 	if err != nil {
 		return err
 	}
-	trackedFiles := bootstrapManagedTrackedFiles(options.stderr)
+	futureTrackedFiles := bootstrapManagedTrackedFiles(options.stderr)
 	printBootstrapSummary(options.stdout, modulePath, context)
 	if err := reconcileMakefile(context, options.stdout, options.stderr); err != nil {
 		return err
@@ -120,11 +120,8 @@ func runBootstrap(options bootstrapOptions) error {
 	if err := reconcileCIWorkflow(options.stdout); err != nil {
 		return err
 	}
-	if err := reconcileTrackedFiles(trackedFiles, options.stdout); err != nil {
-		return err
-	}
 	warnIfLocalGolangCI(options.stderr)
-	if err := reconcileGitignore(trackedFiles, options.stdout); err != nil {
+	if err := reconcileGitignore(futureTrackedFiles, options.stdout); err != nil {
 		return err
 	}
 	if err := reconcileGoModTools(options.stdout); err != nil {
@@ -551,26 +548,6 @@ func sanitizeBootstrapManagedPath(filePath string) (string, bool) {
 	return normalizedPath, true
 }
 
-func reconcileTrackedFiles(trackedFiles []string, stdout io.Writer) error {
-	slog.Info("bootstrap reconcile tracked files", slog.Int("files", len(trackedFiles)))
-	for _, trackedFile := range trackedFiles {
-		if fileExists(trackedFile) {
-			continue
-		}
-		parentDirectory := filepath.Dir(trackedFile)
-		if parentDirectory != "." {
-			if err := os.MkdirAll(parentDirectory, 0o755); err != nil {
-				return err
-			}
-		}
-		if err := os.WriteFile(trackedFile, nil, 0o644); err != nil {
-			return err
-		}
-		fmt.Fprintf(stdout, "created %s (commit this file)\n", trackedFile)
-	}
-	return nil
-}
-
 func warnIfLocalGolangCI(stderr io.Writer) {
 	slog.Info("bootstrap inspect golangci config")
 	if fileExists(".golangci.yml") {
@@ -759,7 +736,8 @@ func printBootstrapDone(writer io.Writer) {
 	fmt.Fprintln(writer, "  make lint    just the full lint chain")
 	fmt.Fprintln(writer, "  make fmt     apply gofumpt + goimports")
 	fmt.Fprintln(writer)
-	fmt.Fprintln(writer, "Commit Makefile, bootstrap.mk, .github/workflows/ci.yml, .gitignore, the baseline files, and .go-mk-applied-notices.")
+	fmt.Fprintln(writer, "Commit Makefile, bootstrap.mk, .github/workflows/ci.yml, and .gitignore.")
+	fmt.Fprintln(writer, "Commit baseline files or .go-mk-applied-notices only after a baseline or notice run creates them.")
 	fmt.Fprintln(writer, "Run 'make help' for the full target list, including per-linter sub-targets")
 	fmt.Fprintln(writer, "and baseline-refresh targets. Do not add project-local lint, deadcode, audit,")
 	fmt.Fprintln(writer, "or staticcheck targets; doing so splits enforcement and lets agents bypass")

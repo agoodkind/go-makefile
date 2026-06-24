@@ -9,11 +9,13 @@
 package main
 
 import (
+	"bufio"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // noticeFields holds the parsed columns of one notices.txt record, mirroring the
@@ -28,10 +30,22 @@ type noticeFields struct {
 // directive, mirroring the GATE/LINTER/RULE/PATTERN case arm in the shell
 // notice_run_auto_baseline. Gate defaults to golangci, the only supported gate.
 type noticeDirective struct {
-	gate    string
-	linter  string
-	rule    string
-	pattern string
+	gate       string
+	linter     string
+	rule       string
+	pattern    string
+	introduced time.Time
+}
+
+var (
+	noticeAdoptionTimeFunc = detectNoticeAdoptionTime
+	runNoticeBaselineFunc  = runBaseline
+)
+
+var noticeAdoptionSentinelPaths = []string{
+	"bootstrap.mk",
+	"go.mk",
+	".go-mk-applied-notices",
 }
 
 // runNotice is the notice subcommand, mirroring scripts/go-mk-notice.sh. It
@@ -57,22 +71,26 @@ func runNotice() int {
 	if err != nil {
 		return 0
 	}
-	freshRepo := !anyConfiguredBaselineFileExists()
 	for _, record := range records {
 		numericID, ok := atoiNotice(record.id)
 		if !ok {
 			continue
 		}
 		directiveNotice := record.directive != "" && record.directive != "-"
+		directive := noticeDirective{}
+		autoBaselineNotice := false
+		if directiveNotice {
+			directive = parseNoticeDirective(record.directive)
+			autoBaselineNotice = shouldAutoBaselineDirective(directive)
+		}
 		if directiveNotice && !applied[record.id] {
-			if freshRepo {
-				recordFreshNoticeApplied(record, appliedFile, applied)
+			if autoBaselineNotice {
+				runNoticeAutoBaseline(record, directive, appliedFile, applied)
 			} else {
-				runNoticeAutoBaseline(record, appliedFile, applied)
+				recordFreshNoticeApplied(record, appliedFile, applied)
 			}
 		}
-		freshNoticeApplied := freshRepo && directiveNotice && applied[record.id]
-		if numericID > lastSeen && !freshNoticeApplied {
+		if numericID > lastSeen && !(directiveNotice && !autoBaselineNotice && applied[record.id]) {
 			writeStderr("go-makefile notice #" + record.id + ": " + record.summary + "\n")
 		}
 		if numericID > maxSeen {
@@ -87,25 +105,61 @@ func runNotice() int {
 	return 0
 }
 
-// anyConfiguredBaselineFileExists reports whether any configured baseline file
-// is present. When none exists, directive notices belong to initial adoption
-// and should not trigger historical auto-baseline work.
-func anyConfiguredBaselineFileExists() bool {
+// shouldAutoBaselineDirective reports whether this repo had adopted go-makefile
+// before a directive notice shipped.
+func shouldAutoBaselineDirective(directive noticeDirective) bool {
+	if directive.introduced.IsZero() {
+		return anyConfiguredBaselineFileHasContent()
+	}
+	adoptionTime, ok := noticeAdoptionTimeFunc()
+	if !ok {
+		return anyConfiguredBaselineFileHasContent()
+	}
+	return adoptionTime.Before(directive.introduced)
+}
+
+// anyConfiguredBaselineFileHasContent reports whether any configured baseline
+// file is non-empty. Empty files created during initial bootstrap should not
+// make a consumer look historical when git history is unavailable.
+func anyConfiguredBaselineFileHasContent() bool {
 	for _, baselineFile := range configuredBaselineFiles() {
-		if baselineFileExists(baselineFile) {
+		if baselineFileHasContent(baselineFile) {
 			return true
 		}
 	}
 	return false
 }
 
-// baselineFileExists treats stat failures other than "not found" as present so
-// an unreadable baseline path does not make notice handling look like adoption.
-func baselineFileExists(path string) bool {
-	if _, err := os.Stat(path); err != nil {
+// baselineFileHasContent treats unreadable paths as historical so notice
+// handling does not silently skip a needed baseline update on uncertainty.
+func baselineFileHasContent(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
 		return !os.IsNotExist(err)
 	}
-	return true
+	return info.Size() > 0
+}
+
+func detectNoticeAdoptionTime() (time.Time, bool) {
+	args := []string{"log", "--diff-filter=A", "--format=%cI", "--reverse", "--"}
+	args = append(args, noticeAdoptionSentinelPaths...)
+	output, err := loggedGitOutput("notice git adoption", args...)
+	if err != nil {
+		return time.Time{}, false
+	}
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		value := strings.TrimSpace(scanner.Text())
+		if value == "" {
+			continue
+		}
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			continue
+		}
+		return parsed, true
+	}
+	return time.Time{}, false
 }
 
 // readNoticeRecords reads the notices file into records, skipping blank lines
@@ -195,8 +249,7 @@ func recordFreshNoticeApplied(record noticeFields, appliedFile string, applied m
 // scope tokens, refuses any gate other than golangci, runs the in-process
 // baseline auto-baseline-scope updater with the scope env set, records the id on
 // success, and reports failure without aborting the build.
-func runNoticeAutoBaseline(record noticeFields, appliedFile string, applied map[string]bool) {
-	directive := parseNoticeDirective(record.directive)
+func runNoticeAutoBaseline(record noticeFields, directive noticeDirective, appliedFile string, applied map[string]bool) {
 	if directive.gate != "golangci" {
 		writeStderr("go-makefile notice #" + record.id + ": unsupported auto-baseline gate '" + directive.gate + "'; skipping\n")
 		return
@@ -212,7 +265,7 @@ func runNoticeAutoBaseline(record noticeFields, appliedFile string, applied map[
 	_ = os.Setenv("RULE", directive.rule)
 	_ = os.Setenv("GOLANGCI_LINT_BASELINE_SCOPE_PATTERN", directive.pattern)
 
-	code := runBaseline([]string{string(componentAutoScope)})
+	code := runNoticeBaselineFunc([]string{string(componentAutoScope)})
 
 	restoreEnv("LINTER", previousLinter, hadLinter)
 	restoreEnv("RULE", previousRule, hadRule)
@@ -245,6 +298,11 @@ func parseNoticeDirective(directive string) noticeDirective {
 			parsed.rule = strings.TrimPrefix(token, "RULE=")
 		case strings.HasPrefix(token, "PATTERN="):
 			parsed.pattern = strings.TrimPrefix(token, "PATTERN=")
+		case strings.HasPrefix(token, "INTRODUCED="):
+			introduced, err := time.Parse(time.RFC3339, strings.TrimPrefix(token, "INTRODUCED="))
+			if err == nil {
+				parsed.introduced = introduced
+			}
 		}
 	}
 	return parsed
