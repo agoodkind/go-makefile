@@ -155,7 +155,7 @@ jobs:
         run: make go-mk-cache-manifest
       - name: Prepare generated submodules
         if: steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
-        run: git submodule update --init --recursive
+        run: git submodule update --init
       - name: Build go-mk cache manifest
         id: go-mk-cache
         if: steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true'
