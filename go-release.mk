@@ -8,6 +8,8 @@
 #   BINARY, CMD, VPKG, GKLOG_VPKG   build identity and version stamping
 #   RELEASE_PLATFORMS               os/arch list (default darwin+linux, amd64+arm64)
 #   RELEASE_ENTITLEMENTS            optional entitlements XML for darwin signing
+#   REQUIRE_DARWIN_CODESIGN         fail darwin release builds when signing
+#                                   material is absent
 #   DIST_DIR                        output directory (default dist)
 #
 # Credentials are read by quill from QUILL_SIGN_P12, QUILL_SIGN_PASSWORD,
@@ -18,6 +20,7 @@
 
 RELEASE_PLATFORMS    ?= darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 RELEASE_ENTITLEMENTS ?=
+REQUIRE_DARWIN_CODESIGN ?=
 
 export BINARY
 export CMD
@@ -26,6 +29,7 @@ export GKLOG_VPKG
 export DIST_DIR
 export RELEASE_PLATFORMS
 export RELEASE_ENTITLEMENTS
+export REQUIRE_DARWIN_CODESIGN
 
 release: | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" release

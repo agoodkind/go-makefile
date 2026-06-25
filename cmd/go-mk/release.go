@@ -32,18 +32,19 @@ const defaultReleasePlatforms = "darwin/amd64 darwin/arm64 linux/amd64 linux/arm
 // releaseConfig is the resolved release input, read once from the environment
 // that the make layer exports (BINARY, CMD, VPKG, GKLOG_VPKG, RELEASE_*).
 type releaseConfig struct {
-	binary       string
-	mainPkg      string
-	versionPkg   string
-	gklogPkg     string
-	entitlements string
-	platforms    []string
-	distDir      string
-	tag          string
-	shortSHA     string
-	targetSHA    string
-	buildTime    string
-	prerelease   bool
+	binary                string
+	mainPkg               string
+	versionPkg            string
+	gklogPkg              string
+	entitlements          string
+	requireDarwinCodesign bool
+	platforms             []string
+	distDir               string
+	tag                   string
+	shortSHA              string
+	targetSHA             string
+	buildTime             string
+	prerelease            bool
 }
 
 // runRelease loads the release configuration and runs the requested stage. The
@@ -209,19 +210,31 @@ func loadReleaseConfig() (releaseConfig, error) {
 	}
 
 	return releaseConfig{
-		binary:       binary,
-		mainPkg:      mainPkg,
-		versionPkg:   strings.TrimSpace(os.Getenv("VPKG")),
-		gklogPkg:     strings.TrimSpace(os.Getenv("GKLOG_VPKG")),
-		entitlements: strings.TrimSpace(os.Getenv("RELEASE_ENTITLEMENTS")),
-		platforms:    strings.Fields(platformsText),
-		distDir:      distDir,
-		tag:          tag,
-		shortSHA:     shortSHA,
-		targetSHA:    targetSHA,
-		buildTime:    now.Format("2006-01-02T15:04:05Z"),
-		prerelease:   !stable,
+		binary:                binary,
+		mainPkg:               mainPkg,
+		versionPkg:            strings.TrimSpace(os.Getenv("VPKG")),
+		gklogPkg:              strings.TrimSpace(os.Getenv("GKLOG_VPKG")),
+		entitlements:          strings.TrimSpace(os.Getenv("RELEASE_ENTITLEMENTS")),
+		requireDarwinCodesign: envTruthy(os.Getenv("REQUIRE_DARWIN_CODESIGN")),
+		platforms:             strings.Fields(platformsText),
+		distDir:               distDir,
+		tag:                   tag,
+		shortSHA:              shortSHA,
+		targetSHA:             targetSHA,
+		buildTime:             now.Format("2006-01-02T15:04:05Z"),
+		prerelease:            !stable,
 	}, nil
+}
+
+func envTruthy(value string) bool {
+	truthyValues := map[string]struct{}{
+		"1":    {},
+		"true": {},
+		"yes":  {},
+		"on":   {},
+	}
+	_, ok := truthyValues[strings.ToLower(strings.TrimSpace(value))]
+	return ok
 }
 
 // isStableRef reports whether the triggering git ref is a stable release: a
@@ -345,15 +358,14 @@ func hasDarwinPlatform(platforms []string) bool {
 // skipped when no signing material is present so forks and dry runs still
 // build. quill reads its credentials from the QUILL_* environment variables.
 func signDarwinBinaries(cfg releaseConfig) error {
-	if strings.TrimSpace(os.Getenv("QUILL_SIGN_P12")) == "" {
-		slog.Info("release skip signing", slog.String("reason", "QUILL_SIGN_P12 unset"))
+	if !hasDarwinPlatform(cfg.platforms) {
 		return nil
 	}
-	// Resolve quill only when this runner actually built a darwin binary. A
-	// linux build job in the matrix carries the signing secret in its
-	// environment but has no darwin platform and no quill installed, so
-	// resolving quill there would fail a build that has nothing to sign.
-	if !hasDarwinPlatform(cfg.platforms) {
+	if strings.TrimSpace(os.Getenv("QUILL_SIGN_P12")) == "" {
+		if cfg.requireDarwinCodesign {
+			return fmt.Errorf("release: darwin signing required but QUILL_SIGN_P12 is unset")
+		}
+		slog.Info("release skip signing", slog.String("reason", "QUILL_SIGN_P12 unset"))
 		return nil
 	}
 	quill, err := resolveQuill()
