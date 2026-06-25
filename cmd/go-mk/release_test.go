@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestIsStableRef(t *testing.T) {
 	cases := []struct {
@@ -71,4 +74,74 @@ func TestSignDarwinBinariesSkipsWhenNoDarwinTargets(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("signDarwinBinaries() error = %v, want nil", err)
 	}
+}
+
+func TestSignAndNotarizeDarwinBinaryRetriesThenSucceeds(t *testing.T) {
+	originalRunProcess := releaseRunProcess
+	originalSleep := releaseSleep
+	originalAttempts := darwinSignAttempts
+	originalDelay := darwinSignRetryInterval
+	t.Cleanup(func() {
+		releaseRunProcess = originalRunProcess
+		releaseSleep = originalSleep
+		darwinSignAttempts = originalAttempts
+		darwinSignRetryInterval = originalDelay
+	})
+
+	callCount := 0
+	releaseRunProcess = func(_ string, _ []string, _ []string) error {
+		callCount++
+		if callCount < 3 {
+			return errStubRetry
+		}
+		return nil
+	}
+	releaseSleep = func(_ time.Duration) {}
+	darwinSignAttempts = 3
+	darwinSignRetryInterval = 0
+
+	if err := signAndNotarizeDarwinBinary("quill", "dist/agent-gate", ""); err != nil {
+		t.Fatalf("signAndNotarizeDarwinBinary() error = %v, want nil", err)
+	}
+	if callCount != 3 {
+		t.Fatalf("callCount = %d, want 3", callCount)
+	}
+}
+
+func TestSignAndNotarizeDarwinBinaryReturnsLastError(t *testing.T) {
+	originalRunProcess := releaseRunProcess
+	originalSleep := releaseSleep
+	originalAttempts := darwinSignAttempts
+	originalDelay := darwinSignRetryInterval
+	t.Cleanup(func() {
+		releaseRunProcess = originalRunProcess
+		releaseSleep = originalSleep
+		darwinSignAttempts = originalAttempts
+		darwinSignRetryInterval = originalDelay
+	})
+
+	callCount := 0
+	releaseRunProcess = func(_ string, _ []string, _ []string) error {
+		callCount++
+		return errStubRetry
+	}
+	releaseSleep = func(_ time.Duration) {}
+	darwinSignAttempts = 2
+	darwinSignRetryInterval = 0
+
+	err := signAndNotarizeDarwinBinary("quill", "dist/agent-gate", "")
+	if err != errStubRetry {
+		t.Fatalf("signAndNotarizeDarwinBinary() error = %v, want %v", err, errStubRetry)
+	}
+	if callCount != 2 {
+		t.Fatalf("callCount = %d, want 2", callCount)
+	}
+}
+
+var errStubRetry = sentinelRetryError("retry me")
+
+type sentinelRetryError string
+
+func (e sentinelRetryError) Error() string {
+	return string(e)
 }
