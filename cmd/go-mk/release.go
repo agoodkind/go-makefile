@@ -29,6 +29,11 @@ import (
 // unset. CGO is disabled, so darwin binaries cross-compile from any host.
 const defaultReleasePlatforms = "darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
 
+const (
+	defaultDarwinSignAttempts = 3
+	defaultDarwinRetryDelay   = 10 * time.Second
+)
+
 // releaseConfig is the resolved release input, read once from the environment
 // that the make layer exports (BINARY, CMD, VPKG, GKLOG_VPKG, RELEASE_*).
 type releaseConfig struct {
@@ -46,6 +51,13 @@ type releaseConfig struct {
 	buildTime             string
 	prerelease            bool
 }
+
+var (
+	releaseRunProcess       = runProcess
+	releaseSleep            = time.Sleep
+	darwinSignAttempts      = defaultDarwinSignAttempts
+	darwinSignRetryInterval = defaultDarwinRetryDelay
+)
 
 // runRelease loads the release configuration and runs the requested stage. The
 // matrix workflow drives three stages: tag computes one shared tag, build runs
@@ -378,15 +390,38 @@ func signDarwinBinaries(cfg releaseConfig) error {
 			continue
 		}
 		bin := filepath.Join(cfg.distDir, fmt.Sprintf("%s_%s_%s", cfg.binary, osName, arch), cfg.binary)
-		args := []string{"sign-and-notarize", bin, "-vv"}
-		if cfg.entitlements != "" {
-			args = append(args, "--entitlements", cfg.entitlements)
-		}
-		if err := runProcess(quill, args, nil); err != nil {
+		if err := signAndNotarizeDarwinBinary(quill, bin, cfg.entitlements); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func signAndNotarizeDarwinBinary(quill string, bin string, entitlements string) error {
+	args := []string{"sign-and-notarize", bin, "-vv"}
+	if entitlements != "" {
+		args = append(args, "--entitlements", entitlements)
+	}
+	var lastErr error
+	for attempt := 1; attempt <= darwinSignAttempts; attempt++ {
+		err := releaseRunProcess(quill, args, nil)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if attempt == darwinSignAttempts {
+			break
+		}
+		slog.Warn(
+			"release darwin sign-and-notarize failed; retrying",
+			slog.Int("attempt", attempt),
+			slog.Int("max_attempts", darwinSignAttempts),
+			slog.String("bin", bin),
+			slog.Any("err", err),
+		)
+		releaseSleep(darwinSignRetryInterval)
+	}
+	return lastErr
 }
 
 // resolveQuill returns the quill executable path, preferring PATH and falling
