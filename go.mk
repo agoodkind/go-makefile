@@ -5,7 +5,7 @@
 	lint-deadcode lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new staticcheck-extra-bin \
 	baseline baseline-bin baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
-	go-mk-sync update-go-mk smoke-fetch go-mk-notice go-version-check go-mk-bin ci-changed
+	go-mk-sync update-go-mk smoke-fetch go-mk-notice go-version-check go-mk-bin ci-changed go-mk-cache-manifest
 
 GO_MK_URL       := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
 GO_MK_CACHE     := $(HOME)/.cache/go-makefile/go.mk
@@ -75,6 +75,7 @@ endef
 GO_MK_SCRIPT_FILES := \
 	scripts/go-mk-fetch-one.sh \
 	scripts/go-mk-bin.sh \
+	scripts/go-mk-cache-manifest.sh \
 	scripts/go-mk-sync.sh \
 	notices.txt
 
@@ -379,6 +380,9 @@ go-version-check: go-mk-bin
 ci-changed: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" ci-changed
 
+go-mk-cache-manifest:
+	@bash "$(GO_MK_HELPER_DIR)/go-mk-cache-manifest.sh"
+
 lint-deadcode: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" lint-deadcode
 
@@ -475,6 +479,12 @@ GO_MK_GENERATE ?=
 # always-run.
 GO_MK_GENERATE_INPUTS ?=
 
+# GO_MK_GENERATE_OUTPUTS: optional repo-relative generated paths that the
+# reusable GitHub workflows may restore and save. These paths are the cache
+# payload only; they are not freshness inputs. Use only ignored generated files,
+# not tracked sources that checkout already owns.
+GO_MK_GENERATE_OUTPUTS ?=
+
 # GO_MK_WORKSPACE_USE: opt-in go.work routing. A consumer sets this BEFORE
 # `include bootstrap.mk` to the use-paths of a workspace whose modules the
 # proxy cannot build on their own (for example a submodule-vendored module
@@ -489,6 +499,7 @@ GO_MK_WORKSPACE_USE ?=
 # vendored modules whose inputs go list cannot see on their own) as relevant.
 export GO_MK_GENERATE
 export GO_MK_GENERATE_INPUTS
+export GO_MK_GENERATE_OUTPUTS
 export GO_MK_WORKSPACE_USE
 
 .PHONY: go-mk-workspace
