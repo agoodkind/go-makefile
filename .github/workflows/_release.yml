@@ -37,6 +37,11 @@ on:
         required: false
         type: string
         default: "v0.7.1"
+      require_darwin_codesign:
+        description: Fail darwin release builds when signing material is absent.
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: release
@@ -81,6 +86,10 @@ jobs:
             goarch: arm64
             runner: macos-14
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -108,12 +117,17 @@ jobs:
           RELEASE_TAG: ${{ needs.tag.outputs.tag }}
           RELEASE_PLATFORMS: ${{ matrix.goos }}/${{ matrix.goarch }}
           CGO_ENABLED: ${{ inputs.cgo && '1' || '0' }}
+          REQUIRE_DARWIN_CODESIGN: ${{ inputs.require_darwin_codesign && '1' || '' }}
           QUILL_SIGN_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
           QUILL_SIGN_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
           QUILL_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
           QUILL_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
           QUILL_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
         run: make release
+      - name: Attest archives
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/*.tar.gz
       - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -126,6 +140,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -145,3 +161,7 @@ jobs:
           RELEASE_STAGE: publish
           RELEASE_TAG: ${{ needs.tag.outputs.tag }}
         run: make release
+      - name: Attest checksums
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/checksums.txt
