@@ -227,7 +227,7 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
       - name: Prepare generated submodules
         if: needs.changes.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
-        run: git submodule update --init --recursive
+        run: git submodule update --init
         working-directory: ${{ inputs.working_directory }}
       - name: Build go-mk cache manifest
         id: go-mk-cache
@@ -325,7 +325,7 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
       - name: Prepare generated submodules
         if: needs.changes.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
-        run: git submodule update --init --recursive
+        run: git submodule update --init
         working-directory: ${{ inputs.working_directory }}
       - name: Build go-mk cache manifest
         id: go-mk-cache
