@@ -128,7 +128,7 @@ jobs:
       - name: Restore ccache
         id: ccache-restore
         if: inputs.cgo
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/.ccache
           key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}
@@ -163,14 +163,14 @@ jobs:
       - name: Restore generated outputs
         id: generated-cache-restore
         if: steps.go-mk-cache.outputs.generated_cache_enabled == 'true'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
           key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
       - name: Restore quill
         id: quill-cache
         if: runner.os == 'macOS'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/go/bin/quill
           key: quill-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ inputs.quill_version }}
@@ -200,19 +200,19 @@ jobs:
         run: ccache --show-stats || true
       - name: Save generated outputs
         if: steps.go-mk-cache.outputs.generated_cache_enabled == 'true' && steps.generated-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
           key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
       - name: Save ccache
         if: inputs.cgo && steps.ccache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ~/.ccache
           key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}
       - name: Save quill
         if: runner.os == 'macOS' && steps.quill-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ~/go/bin/quill
           key: quill-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ inputs.quill_version }}
