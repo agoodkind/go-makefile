@@ -183,7 +183,7 @@ jobs:
         with:
           submodules: ${{ inputs.submodules }}
       - name: Install apt packages
-        if: needs.changes.outputs.run == 'true' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y ${{ inputs.apt_packages }}
@@ -197,12 +197,12 @@ jobs:
             ${{ inputs.working_directory }}/go.work
             ${{ inputs.working_directory }}/go.work.sum
       - name: Install ccache
-        if: needs.changes.outputs.run == 'true' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y ccache
       - name: Restore ccache
-        if: needs.changes.outputs.run == 'true' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         uses: actions/cache/restore@v4
         with:
           path: ~/.ccache
@@ -210,7 +210,7 @@ jobs:
           restore-keys: |
             ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-
       - name: Configure ccache
-        if: needs.changes.outputs.run == 'true' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: |
           {
             echo "CCACHE_DIR=${HOME}/.ccache"
@@ -261,7 +261,7 @@ jobs:
         run: ${{ matrix.command }}
         working-directory: ${{ inputs.working_directory }}
       - name: Show ccache stats
-        if: needs.changes.outputs.run == 'true' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: ccache --show-stats || true
 
   build:
@@ -280,7 +280,7 @@ jobs:
         with:
           submodules: ${{ inputs.submodules }}
       - name: Install apt packages
-        if: needs.changes.outputs.run == 'true' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y ${{ inputs.apt_packages }}
@@ -294,13 +294,13 @@ jobs:
             ${{ inputs.working_directory }}/go.work
             ${{ inputs.working_directory }}/go.work.sum
       - name: Install ccache
-        if: needs.changes.outputs.run == 'true' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y ccache
       - name: Restore ccache
         id: ccache-restore
-        if: needs.changes.outputs.run == 'true' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         uses: actions/cache/restore@v4
         with:
           path: ~/.ccache
@@ -308,7 +308,7 @@ jobs:
           restore-keys: |
             ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-
       - name: Configure ccache
-        if: needs.changes.outputs.run == 'true' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: |
           {
             echo "CCACHE_DIR=${HOME}/.ccache"
@@ -353,7 +353,7 @@ jobs:
         run: make build
         working-directory: ${{ inputs.working_directory }}
       - name: Show ccache stats
-        if: needs.changes.outputs.run == 'true' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: ccache --show-stats || true
       - name: Save generated outputs
         if: needs.changes.outputs.run == 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true' && steps.generated-cache-restore.outputs.cache-hit != 'true'
@@ -362,7 +362,7 @@ jobs:
           path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
           key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
       - name: Save ccache
-        if: needs.changes.outputs.run == 'true' && inputs.apt_packages != '' && steps.ccache-restore.outputs.cache-hit != 'true'
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != '' && steps.ccache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ~/.ccache

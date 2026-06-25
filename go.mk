@@ -215,6 +215,9 @@ GO_MK_INSTALL      ?= goodkind.io/go-makefile/cmd/go-mk@main
 GO_MK_BIN_RESOLVED := $(if $(strip $(GO_MK_BIN)),$(GO_MK_BIN),$(CURDIR)/.make/go-mk)
 
 export GO_MK_ROOT := $(CURDIR)
+export GO_MK_SELF
+export GO_MK_SELF_DIR
+export GO_MK_DEV_DIR
 export GO_MK_HELPER_DIR
 export GO_MK_NOTICES_FILE
 export GO_MK_SCRIPT_FILES

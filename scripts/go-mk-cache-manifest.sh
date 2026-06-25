@@ -135,6 +135,17 @@ append_file_hash() {
     shasum -a 256 "${path}" | awk '{print $1}' >> "${manifest_file}"
 }
 
+append_candidate_path() {
+    local path_list_file="$1"
+    local path="$2"
+
+    if [[ -z "${path}" || ! -f "${path}" ]]; then
+        return
+    fi
+
+    printf '%s\n' "${path}" >> "${path_list_file}"
+}
+
 append_tracked_hashes() {
     local manifest_file="$1"
     local path_list_file="$2"
@@ -160,6 +171,29 @@ collect_tracked_inputs() {
         fi
         git ls-files -- "${input}" >> "${path_list_file}" 2>/dev/null || true
     done < <(normalize_fields "${GO_MK_GENERATE_INPUTS:-}")
+}
+
+append_go_mk_implementation_hashes() {
+    local manifest_file="$1"
+    local path_list_file
+    local script_file
+
+    path_list_file="$(new_temp_file)"
+
+    append_candidate_path "${path_list_file}" "${GO_MK_SELF:-}"
+    append_candidate_path "${path_list_file}" ".make/go.mk"
+
+    for script_file in ${GO_MK_SCRIPT_FILES:-}; do
+        append_candidate_path "${path_list_file}" ".make/${script_file}"
+        if [[ -n "${GO_MK_DEV_DIR:-}" ]]; then
+            append_candidate_path "${path_list_file}" "${GO_MK_DEV_DIR}/${script_file}"
+        fi
+        if [[ -n "${GO_MK_SELF_DIR:-}" ]]; then
+            append_candidate_path "${path_list_file}" "${GO_MK_SELF_DIR}/${script_file}"
+        fi
+    done
+
+    append_tracked_hashes "${manifest_file}" "${path_list_file}"
 }
 
 append_submodule_status() {
@@ -190,6 +224,8 @@ build_manifest() {
         printf 'generate_outputs_end\n'
         printf 'workspace_use\t%s\n' "${GO_MK_WORKSPACE_USE:-}"
         printf 'tree_sitter_abi\t%s\n' "${TREE_SITTER_ABI:-}"
+        printf 'go_mk_api_repo\t%s\n' "${GO_MK_API_REPO:-}"
+        printf 'go_mk_api_ref\t%s\n' "${GO_MK_API_REF:-}"
         while IFS= read -r output_path; do
             if [[ -n "${output_path}" ]]; then
                 printf 'output_path\t%s\n' "${output_path}"
@@ -226,6 +262,7 @@ main() {
     build_manifest "${manifest_file}" "${output_paths}"
     collect_tracked_inputs "${paths_file}"
     append_tracked_hashes "${manifest_file}" "${paths_file}"
+    append_go_mk_implementation_hashes "${manifest_file}"
     generated_cache_key="$(shasum -a 256 "${manifest_file}" | awk '{print $1}')"
 
     write_output "generated_cache_enabled" "${generated_cache_enabled}"
