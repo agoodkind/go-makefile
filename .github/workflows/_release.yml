@@ -61,6 +61,11 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache-dependency-path: |
+            go.mod
+            go.sum
+            go.work
+            go.work.sum
       - id: tag
         env:
           RELEASE_STAGE: tag
@@ -103,11 +108,77 @@ jobs:
       - name: Install brew packages
         if: runner.os == 'macOS' && inputs.brew_packages != ''
         run: brew install ${{ inputs.brew_packages }}
+      - name: Install ccache on Linux
+        if: runner.os == 'Linux' && inputs.cgo
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ccache
+      - name: Install ccache on macOS
+        if: runner.os == 'macOS' && inputs.cgo
+        run: brew install ccache
       - uses: actions/setup-go@v6
+        id: setup-go
         with:
           go-version-file: go.mod
-      - name: Install quill
+          cache-dependency-path: |
+            go.mod
+            go.sum
+            go.work
+            go.work.sum
+      - name: Restore ccache
+        id: ccache-restore
+        if: inputs.cgo
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-
+      - name: Configure ccache
+        if: inputs.cgo
+        run: |
+          {
+            echo "CCACHE_DIR=${HOME}/.ccache"
+            echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}"
+            echo "CCACHE_COMPILERCHECK=content"
+            echo "CCACHE_NOHASHDIR=true"
+            if [ "${{ runner.os }}" = "macOS" ]; then
+              echo "CC=ccache clang"
+              echo "CXX=ccache clang++"
+            else
+              echo "CC=ccache gcc"
+              echo "CXX=ccache g++"
+            fi
+          } >> "${GITHUB_ENV}"
+      - name: Inspect go-mk cache manifest
+        id: go-mk-cache-prep
+        run: make go-mk-cache-manifest
+      - name: Prepare generated submodules
+        if: steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
+        run: git submodule update --init --recursive
+      - name: Build go-mk cache manifest
+        id: go-mk-cache
+        if: steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true'
+        run: make go-mk-cache-manifest
+      - name: Restore generated outputs
+        id: generated-cache-restore
+        if: steps.go-mk-cache.outputs.generated_cache_enabled == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
+          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
+      - name: Restore quill
+        id: quill-cache
         if: runner.os == 'macOS'
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/go/bin/quill
+          key: quill-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ inputs.quill_version }}
+      - name: Add Go bin to PATH
+        if: runner.os == 'macOS'
+        run: echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+      - name: Install quill
+        if: runner.os == 'macOS' && steps.quill-cache.outputs.cache-hit != 'true'
         env:
           GOFLAGS: ""
         run: go install github.com/anchore/quill/cmd/quill@${{ inputs.quill_version }}
@@ -124,6 +195,27 @@ jobs:
           QUILL_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
           QUILL_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
         run: make release
+      - name: Show ccache stats
+        if: inputs.cgo
+        run: ccache --show-stats || true
+      - name: Save generated outputs
+        if: steps.go-mk-cache.outputs.generated_cache_enabled == 'true' && steps.generated-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
+          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
+      - name: Save ccache
+        if: inputs.cgo && steps.ccache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}
+      - name: Save quill
+        if: runner.os == 'macOS' && steps.quill-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/go/bin/quill
+          key: quill-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ inputs.quill_version }}
       - name: Attest archives
         uses: actions/attest@v4
         with:
@@ -156,6 +248,11 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache-dependency-path: |
+            go.mod
+            go.sum
+            go.work
+            go.work.sum
       - name: Publish
         env:
           RELEASE_STAGE: publish

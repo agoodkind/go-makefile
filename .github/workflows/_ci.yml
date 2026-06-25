@@ -98,6 +98,11 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: ${{ inputs.go_version_file }}
+          cache-dependency-path: |
+            ${{ inputs.go_version_file }}
+            ${{ inputs.working_directory }}/go.sum
+            ${{ inputs.working_directory }}/go.work
+            ${{ inputs.working_directory }}/go.work.sum
       # make ci-changed runs only the cheap detector path. The engine uses
       # `go list -e` plus declared trigger dirs, writes changed=<bool> to
       # GITHUB_OUTPUT, and any uncertainty fails safe to changed=true.
@@ -178,7 +183,7 @@ jobs:
         with:
           submodules: ${{ inputs.submodules }}
       - name: Install apt packages
-        if: needs.changes.outputs.run == 'true' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y ${{ inputs.apt_packages }}
@@ -186,6 +191,56 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: ${{ inputs.go_version_file }}
+          cache-dependency-path: |
+            ${{ inputs.go_version_file }}
+            ${{ inputs.working_directory }}/go.sum
+            ${{ inputs.working_directory }}/go.work
+            ${{ inputs.working_directory }}/go.work.sum
+      - name: Install ccache
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ccache
+      - name: Restore ccache
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-
+      - name: Configure ccache
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        run: |
+          {
+            echo "CCACHE_DIR=${HOME}/.ccache"
+            echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}"
+            echo "CCACHE_COMPILERCHECK=content"
+            echo "CCACHE_NOHASHDIR=true"
+            echo "CC=ccache gcc"
+            echo "CXX=ccache g++"
+          } >> "${GITHUB_ENV}"
+      - name: Inspect go-mk cache manifest
+        id: go-mk-cache-prep
+        if: needs.changes.outputs.run == 'true'
+        run: make go-mk-cache-manifest
+        working-directory: ${{ inputs.working_directory }}
+      - name: Prepare generated submodules
+        if: needs.changes.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
+        run: git submodule update --init --recursive
+        working-directory: ${{ inputs.working_directory }}
+      - name: Build go-mk cache manifest
+        id: go-mk-cache
+        if: needs.changes.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true'
+        run: make go-mk-cache-manifest
+        working-directory: ${{ inputs.working_directory }}
+      - name: Restore generated outputs
+        id: generated-cache-restore
+        if: needs.changes.outputs.run == 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
+          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
       - name: Install Go tool packages
         if: needs.changes.outputs.run == 'true' && inputs.go_tool_packages != ''
         run: |
@@ -205,6 +260,9 @@ jobs:
       - if: needs.changes.outputs.run == 'true'
         run: ${{ matrix.command }}
         working-directory: ${{ inputs.working_directory }}
+      - name: Show ccache stats
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        run: ccache --show-stats || true
 
   build:
     name: Build
@@ -222,7 +280,7 @@ jobs:
         with:
           submodules: ${{ inputs.submodules }}
       - name: Install apt packages
-        if: needs.changes.outputs.run == 'true' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y ${{ inputs.apt_packages }}
@@ -230,6 +288,57 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: ${{ inputs.go_version_file }}
+          cache-dependency-path: |
+            ${{ inputs.go_version_file }}
+            ${{ inputs.working_directory }}/go.sum
+            ${{ inputs.working_directory }}/go.work
+            ${{ inputs.working_directory }}/go.work.sum
+      - name: Install ccache
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ccache
+      - name: Restore ccache
+        id: ccache-restore
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-
+      - name: Configure ccache
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        run: |
+          {
+            echo "CCACHE_DIR=${HOME}/.ccache"
+            echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}"
+            echo "CCACHE_COMPILERCHECK=content"
+            echo "CCACHE_NOHASHDIR=true"
+            echo "CC=ccache gcc"
+            echo "CXX=ccache g++"
+          } >> "${GITHUB_ENV}"
+      - name: Inspect go-mk cache manifest
+        id: go-mk-cache-prep
+        if: needs.changes.outputs.run == 'true'
+        run: make go-mk-cache-manifest
+        working-directory: ${{ inputs.working_directory }}
+      - name: Prepare generated submodules
+        if: needs.changes.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
+        run: git submodule update --init --recursive
+        working-directory: ${{ inputs.working_directory }}
+      - name: Build go-mk cache manifest
+        id: go-mk-cache
+        if: needs.changes.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true'
+        run: make go-mk-cache-manifest
+        working-directory: ${{ inputs.working_directory }}
+      - name: Restore generated outputs
+        id: generated-cache-restore
+        if: needs.changes.outputs.run == 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
+          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
       - name: Install Go tool packages
         if: needs.changes.outputs.run == 'true' && inputs.go_tool_packages != ''
         run: |
@@ -243,3 +352,18 @@ jobs:
       - if: needs.changes.outputs.run == 'true'
         run: make build
         working-directory: ${{ inputs.working_directory }}
+      - name: Show ccache stats
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        run: ccache --show-stats || true
+      - name: Save generated outputs
+        if: needs.changes.outputs.run == 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true' && steps.generated-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
+          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
+      - name: Save ccache
+        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != '' && steps.ccache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}

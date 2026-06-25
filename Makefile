@@ -26,6 +26,7 @@ STATIC_LINT_ARGS += $(STATICCHECK_EXTRA_LOCAL_ARGS)
 # for both the root and static sub-makes, so engine changes are exercised before
 # push and neither sub-make resolves @main over the network.
 GO_MK_LOCAL_ARGS := \
+	GO_MK_DEV_DIR="$(CURDIR)" \
 	GO_MK_BUILD_REPO="$(CURDIR)" \
 	GO_MK_BUILD_PKG=./cmd/go-mk
 ROOT_LINT_ARGS  += $(GO_MK_LOCAL_ARGS)
@@ -36,7 +37,7 @@ STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
 
 .DEFAULT_GOAL := check
 
-.PHONY: build check lint fmt vet test govulncheck go-version-check build-check ci-changed \
+.PHONY: build check lint fmt vet test govulncheck go-version-check build-check ci-changed go-mk-cache-manifest \
         lint-tools lint-golangci lint-files lint-diff lint-format lint-gocyclo lint-deadcode staticcheck-extra \
         lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
         lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new \
@@ -173,6 +174,9 @@ go-version-check:
 # single invocation decides for the whole checkout.
 ci-changed:
 	$(ROOT_GO_MK) ci-changed
+
+go-mk-cache-manifest:
+	$(ROOT_GO_MK) go-mk-cache-manifest
 
 baseline:
 	$(ROOT_GO_MK) baseline
