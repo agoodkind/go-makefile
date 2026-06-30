@@ -92,6 +92,7 @@ func buildCheckChecks() []check {
 	checks := vetChecks()
 	checks = append(checks, gateChecks()...)
 	checks = append(checks, check{name: "govulncheck", run: runGovulncheckStep})
+	checks = append(checks, check{name: "cgo-stub", run: runCgoStubCheckStep})
 	return checks
 }
 
