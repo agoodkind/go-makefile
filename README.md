@@ -36,15 +36,12 @@ by one fetched file, `go.mk`.
   and always runs. Multiple targets or dirs are space-separated; unset is a
   no-op.
 - Do not commit `go.work`; the bootstrap gitignores `go.work` and `go.work.sum`.
-  When a repo vendors a module the proxy cannot build on its own (for example
-  `gksyntax`, whose generated parser C and nested grammar submodules are not in
-  the module zip), set `GO_MK_WORKSPACE_USE` to the workspace use-paths (for
-  example `. third_party/gksyntax`) before `include bootstrap.mk`. go.mk
-  materializes a gitignored `go.work` from those paths before every build, lint,
-  vet, test, and govulncheck target, so fresh checkouts and CI route the module
-  without a committed `go.work`. A committed go.mod `replace` is not an option
-  here because gomoddirectives rejects local replacements. An existing `go.work`
-  is left untouched, so a developer override survives.
+  When a repo depends on a module the proxy cannot build on its own (for example
+  `gksyntax`), set `GO_MK_WORKSPACE_USE` to the workspace use-paths (for example
+  `. third_party/gksyntax`) before `include bootstrap.mk`, and go.mk generates a
+  gitignored `go.work` from those paths before each build. See
+  [docs/workspace/routing.md](docs/workspace/routing.md) for the policy and the
+  reasons behind it.
 - Do not pin the lint tools (golangci-lint, gocyclo, deadcode, govulncheck,
   gofumpt, goimports, staticcheck-extra) with a go.mod `tool` directive; go.mk
   installs them itself with versions it controls via the `*_INSTALL` variables,
