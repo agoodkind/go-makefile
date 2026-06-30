@@ -112,7 +112,11 @@ jobs:
             cc: oa64-clang
             cxx: oa64-clang++
     runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.container }}
+    # Map form with an expression image is the attested pattern for a per-matrix
+    # container: darwin entries resolve to the goreleaser-cross image, and the
+    # linux entries resolve to an empty image so the job runs on the host runner.
+    container:
+      image: ${{ matrix.container }}
     permissions:
       contents: read
       id-token: write

@@ -27,8 +27,8 @@ import (
 
 // defaultReleasePlatforms is the os/arch matrix built when RELEASE_PLATFORMS is
 // unset. A pure-Go build cross-compiles every target from any host; a darwin
-// CGO build cross-compiles on Linux with a darwin CC/CXX supplied by the
-// release workflow.
+// CGO build needs a darwin toolchain, either native macOS clang or a cross
+// CC/CXX supplied through the build environment.
 const defaultReleasePlatforms = "darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
 
 const (
