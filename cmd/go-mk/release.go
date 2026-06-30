@@ -308,12 +308,18 @@ func pushReleaseTag(cfg releaseConfig) error {
 	return runProcess("git", []string{"push", "origin", cfg.tag}, nil)
 }
 
-// buildPlatform compiles one os/arch target with CGO disabled and the stamped
-// ldflags, writing the binary under dist/<binary>_<os>_<arch>/<binary>.
+// buildPlatform compiles one os/arch target with the stamped ldflags, writing
+// the binary under dist/<binary>_<os>_<arch>/<binary>. When a consumer declared
+// GO_MK_CGO_DEPS it first provisions that target's cgo dependencies and threads
+// the per-target pkg-config directory into the build environment.
 func buildPlatform(cfg releaseConfig, platform string) error {
 	osName, arch, ok := strings.Cut(platform, "/")
 	if !ok {
 		return fmt.Errorf("release: malformed platform %q (want os/arch)", platform)
+	}
+	pkgConfigDir, err := provisionCgoDeps(osName, arch)
+	if err != nil {
+		return err
 	}
 	outDir := filepath.Join(cfg.distDir, fmt.Sprintf("%s_%s_%s", cfg.binary, osName, arch))
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
@@ -321,8 +327,62 @@ func buildPlatform(cfg releaseConfig, platform string) error {
 	}
 	outPath := filepath.Join(outDir, cfg.binary)
 	args := []string{"build", "-trimpath", "-ldflags", releaseLdflags(cfg), "-o", outPath, cfg.mainPkg}
-	env := []string{"CGO_ENABLED=" + cgoEnabledValue(), "GOOS=" + osName, "GOARCH=" + arch}
+	env := buildPlatformEnv(osName, arch, pkgConfigDir, os.Getenv("PKG_CONFIG_PATH"))
 	return runProcess("go", args, env)
+}
+
+// cgoDepsTarget is the make target that provisions the external C libraries a
+// consumer declares through GO_MK_CGO_DEPS.
+const cgoDepsTarget = "go-mk-cgo-deps"
+
+// cgoPrefixForTarget returns the absolute per-target install prefix for
+// provisioned cgo dependencies, keyed by os/arch so a darwin cross build and a
+// linux native build never share artifacts. It mirrors the GO_MK_CGO_PREFIX
+// default in go.mk and is the single source of truth the make hook is given.
+func cgoPrefixForTarget(workDir, osName, arch string) string {
+	return filepath.Join(workDir, ".make", "cgo", osName+"-"+arch)
+}
+
+// provisionCgoDeps runs the make cgo-deps hook for one build target and returns
+// the pkg-config directory under that target's prefix. An empty GO_MK_CGO_DEPS is
+// a complete no-op: it starts no process and returns an empty path, so the build
+// environment is left unchanged.
+func provisionCgoDeps(osName, arch string) (string, error) {
+	if strings.TrimSpace(os.Getenv("GO_MK_CGO_DEPS")) == "" {
+		return "", nil
+	}
+	workDir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	prefix := cgoPrefixForTarget(workDir, osName, arch)
+	slog.Info("release provision cgo deps", slog.String("goos", osName), slog.String("goarch", arch))
+	env := []string{
+		"GO_MK_TARGET_GOOS=" + osName,
+		"GO_MK_TARGET_GOARCH=" + arch,
+		"GO_MK_CGO_PREFIX=" + prefix,
+	}
+	if err := releaseRunProcess("make", []string{cgoDepsTarget}, env); err != nil {
+		return "", err
+	}
+	return filepath.Join(prefix, "lib", "pkgconfig"), nil
+}
+
+// buildPlatformEnv returns the environment for a `go build` of one os/arch
+// target. When pkgConfigDir is non-empty it prepends that per-target pkg-config
+// directory to any inherited PKG_CONFIG_PATH so a consumer's `#cgo pkg-config`
+// resolves a provisioned cgo dependency. An empty pkgConfigDir leaves
+// PKG_CONFIG_PATH untouched, which keeps a pure-Go release byte-identical.
+func buildPlatformEnv(osName, arch, pkgConfigDir, inheritedPkgConfigPath string) []string {
+	env := []string{"CGO_ENABLED=" + cgoEnabledValue(), "GOOS=" + osName, "GOARCH=" + arch}
+	if pkgConfigDir == "" {
+		return env
+	}
+	pkgConfigPath := pkgConfigDir
+	if strings.TrimSpace(inheritedPkgConfigPath) != "" {
+		pkgConfigPath = pkgConfigDir + string(os.PathListSeparator) + inheritedPkgConfigPath
+	}
+	return append(env, "PKG_CONFIG_PATH="+pkgConfigPath)
 }
 
 // cgoEnabledValue returns the CGO_ENABLED value for release builds, defaulting
