@@ -1,30 +1,39 @@
 name: Release
 
-# Reusable, fully open-source Go release primitive. Each platform builds on its
-# own native runner, so a cgo consumer whose system libraries cannot be
-# cross-compiled (libpcre2, sqlite, tree-sitter, and the like) still builds
-# correctly; darwin binaries are signed and notarized with anchore/quill
-# (Apache-2.0). All build, sign, archive, checksum, tag, and publish logic lives
-# in the go-mk `release` command, driven one stage per job: tag computes a single
-# shared tag, build runs per native runner, and publish collects every uploaded
-# archive into one GitHub release. Build identity, version package, and
-# entitlements come from the consumer's Makefile. Signing is skipped
-# automatically when the signing secret is absent.
+# Reusable, fully open-source Go release primitive. Linux targets build natively
+# on Ubuntu; darwin targets cross-compile on Ubuntu inside the goreleaser-cross
+# image (Apache-2.0 osxcross plus the macOS SDK), which puts the
+# o64-clang/oa64-clang cross compilers on PATH so a cgo consumer still links its
+# C dependencies for darwin. The matrix sets CC and CXX per darwin arch; go build
+# honours them and the go-mk release command forwards the environment. darwin
+# binaries are signed and notarized with anchore/quill (Apache-2.0) from the
+# Linux job, and release archives are attested. All build, sign, archive,
+# checksum, tag, and publish logic lives in the go-mk `release` command, driven
+# one stage per job: tag computes a single shared tag, build runs per target, and
+# publish collects every uploaded archive into one GitHub release. Build
+# identity, version package, and entitlements come from the consumer's Makefile.
+# Signing is skipped automatically when the signing secret is absent. A consumer
+# prepares its own darwin target dependencies through the setup_commands hook, so
+# this workflow never names a specific library.
 
 on:
   workflow_call:
     inputs:
       cgo:
-        description: Build with CGO_ENABLED=1 on the native runners.
+        description: Build with CGO_ENABLED=1.
         required: false
         type: boolean
         default: false
       apt_packages:
-        description: Space-separated apt packages to install on the Linux build runners.
+        description: Space-separated apt packages to install for linux target builds.
         required: false
         type: string
-      brew_packages:
-        description: Space-separated Homebrew packages to install on the macOS build runners.
+      setup_commands:
+        description: >-
+          Shell commands run before the build on every build job, with GOOS and
+          GOARCH in the environment. Use this to prepare target-specific cgo
+          dependencies, for example building or pointing pkg-config at a darwin
+          build of a native library.
         required: false
         type: string
       submodules:
@@ -81,16 +90,33 @@ jobs:
           - goos: linux
             goarch: amd64
             runner: ubuntu-24.04
+            container: ""
+            cc: ""
+            cxx: ""
           - goos: linux
             goarch: arm64
             runner: ubuntu-24.04-arm
+            container: ""
+            cc: ""
+            cxx: ""
           - goos: darwin
             goarch: amd64
-            runner: macos-15-intel
+            runner: ubuntu-24.04
+            container: "ghcr.io/goreleaser/goreleaser-cross:v1.26.3"
+            cc: o64-clang
+            cxx: o64-clang++
           - goos: darwin
             goarch: arm64
-            runner: macos-14
+            runner: ubuntu-24.04
+            container: "ghcr.io/goreleaser/goreleaser-cross:v1.26.3"
+            cc: oa64-clang
+            cxx: oa64-clang++
     runs-on: ${{ matrix.runner }}
+    # Map form with an expression image is the attested pattern for a per-matrix
+    # container: darwin entries resolve to the goreleaser-cross image, and the
+    # linux entries resolve to an empty image so the job runs on the host runner.
+    container:
+      image: ${{ matrix.container }}
     permissions:
       contents: read
       id-token: write
@@ -101,21 +127,15 @@ jobs:
           fetch-depth: 0
           submodules: ${{ inputs.submodules }}
       - name: Install apt packages
-        if: runner.os == 'Linux' && inputs.apt_packages != ''
+        if: matrix.goos == 'linux' && inputs.apt_packages != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y ${{ inputs.apt_packages }}
-      - name: Install brew packages
-        if: runner.os == 'macOS' && inputs.brew_packages != ''
-        run: brew install ${{ inputs.brew_packages }}
       - name: Install ccache on Linux
-        if: runner.os == 'Linux' && inputs.cgo
+        if: matrix.goos == 'linux' && inputs.cgo
         run: |
           sudo apt-get update
           sudo apt-get install -y ccache
-      - name: Install ccache on macOS
-        if: runner.os == 'macOS' && inputs.cgo
-        run: brew install ccache
       - uses: actions/setup-go@v6
         id: setup-go
         with:
@@ -127,7 +147,7 @@ jobs:
             go.work.sum
       - name: Restore ccache
         id: ccache-restore
-        if: inputs.cgo
+        if: matrix.goos == 'linux' && inputs.cgo
         uses: actions/cache/restore@v6
         with:
           path: ~/.ccache
@@ -135,20 +155,22 @@ jobs:
           restore-keys: |
             ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-
       - name: Configure ccache
-        if: inputs.cgo
+        if: matrix.goos == 'linux' && inputs.cgo
         run: |
           {
             echo "CCACHE_DIR=${HOME}/.ccache"
             echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}"
             echo "CCACHE_COMPILERCHECK=content"
             echo "CCACHE_NOHASHDIR=true"
-            if [ "${{ runner.os }}" = "macOS" ]; then
-              echo "CC=ccache clang"
-              echo "CXX=ccache clang++"
-            else
-              echo "CC=ccache gcc"
-              echo "CXX=ccache g++"
-            fi
+            echo "CC=ccache gcc"
+            echo "CXX=ccache g++"
+          } >> "${GITHUB_ENV}"
+      - name: Configure darwin cross compiler
+        if: matrix.goos == 'darwin' && inputs.cgo
+        run: |
+          {
+            echo "CC=${{ matrix.cc }}"
+            echo "CXX=${{ matrix.cxx }}"
           } >> "${GITHUB_ENV}"
       - name: Inspect go-mk cache manifest
         id: go-mk-cache-prep
@@ -169,19 +191,25 @@ jobs:
           key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
       - name: Restore quill
         id: quill-cache
-        if: runner.os == 'macOS'
+        if: matrix.goos == 'darwin'
         uses: actions/cache/restore@v6
         with:
           path: ~/go/bin/quill
           key: quill-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ inputs.quill_version }}
       - name: Add Go bin to PATH
-        if: runner.os == 'macOS'
+        if: matrix.goos == 'darwin'
         run: echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
       - name: Install quill
-        if: runner.os == 'macOS' && steps.quill-cache.outputs.cache-hit != 'true'
+        if: matrix.goos == 'darwin' && steps.quill-cache.outputs.cache-hit != 'true'
         env:
           GOFLAGS: ""
         run: go install github.com/anchore/quill/cmd/quill@${{ inputs.quill_version }}
+      - name: Run setup commands
+        if: inputs.setup_commands != ''
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: ${{ inputs.setup_commands }}
       - name: Build
         env:
           RELEASE_STAGE: build
@@ -196,7 +224,7 @@ jobs:
           QUILL_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
         run: make release
       - name: Show ccache stats
-        if: inputs.cgo
+        if: matrix.goos == 'linux' && inputs.cgo
         run: ccache --show-stats || true
       - name: Save generated outputs
         if: steps.go-mk-cache.outputs.generated_cache_enabled == 'true' && steps.generated-cache-restore.outputs.cache-hit != 'true'
@@ -205,13 +233,13 @@ jobs:
           path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
           key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
       - name: Save ccache
-        if: inputs.cgo && steps.ccache-restore.outputs.cache-hit != 'true'
+        if: matrix.goos == 'linux' && inputs.cgo && steps.ccache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ~/.ccache
           key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}
       - name: Save quill
-        if: runner.os == 'macOS' && steps.quill-cache.outputs.cache-hit != 'true'
+        if: matrix.goos == 'darwin' && steps.quill-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ~/go/bin/quill
