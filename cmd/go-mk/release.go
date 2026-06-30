@@ -1,6 +1,6 @@
-// release orchestration for go-mk. It cross-compiles the binary for each
-// configured platform with CGO disabled, signs and notarizes the darwin
-// binaries with anchore/quill (invoked as a process), writes tar.gz archives
+// release orchestration for go-mk. It builds the binary for each configured
+// platform, signs and notarizes the darwin binaries with anchore/quill
+// (invoked as a process), writes tar.gz archives
 // and a sha256 checksums file with the standard library, pushes a release tag,
 // and publishes a GitHub release with gh. It replaces the previous GoReleaser
 // plus shell pipeline so the whole release flow lives in one Go command with no
@@ -26,7 +26,9 @@ import (
 )
 
 // defaultReleasePlatforms is the os/arch matrix built when RELEASE_PLATFORMS is
-// unset. CGO is disabled, so darwin binaries cross-compile from any host.
+// unset. A pure-Go build cross-compiles every target from any host; a darwin
+// CGO build cross-compiles on Linux with a darwin CC/CXX supplied by the
+// release workflow.
 const defaultReleasePlatforms = "darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
 
 const (
@@ -61,7 +63,7 @@ var (
 
 // runRelease loads the release configuration and runs the requested stage. The
 // matrix workflow drives three stages: tag computes one shared tag, build runs
-// per native runner (one platform, cgo honoured, darwin signed), and publish
+// per target (one platform, cgo honoured, darwin signed), and publish
 // collects every uploaded archive into the GitHub release. An unset stage keeps
 // the single-runner all-in-one pipeline for a pure-Go consumer that does not
 // need the matrix. It returns the process exit code.
@@ -114,9 +116,10 @@ func emitReleaseTag(cfg releaseConfig) error {
 }
 
 // buildStage builds, signs, and archives the configured platforms without
-// pushing a tag or publishing. Each native runner sets RELEASE_PLATFORMS to its
-// own os/arch, so this builds one platform with the runner's toolchain; cgo is
-// honoured through CGO_ENABLED and the system libraries the workflow installed.
+// pushing a tag or publishing. Each build job sets RELEASE_PLATFORMS to its own
+// os/arch, so this builds one platform; cgo is honoured through CGO_ENABLED, and
+// for a darwin cross build the workflow supplies the darwin CC/CXX in the
+// environment.
 func buildStage(cfg releaseConfig) error {
 	if err := os.MkdirAll(cfg.distDir, 0o755); err != nil {
 		return err
@@ -215,8 +218,8 @@ func loadReleaseConfig() (releaseConfig, error) {
 		tag = refName
 	}
 	// The matrix tag job computes the timestamp tag once and threads it to every
-	// build and publish job through RELEASE_TAG so each native runner agrees on
-	// one tag; a stable v-tag is already identical across runners.
+	// build and publish job through RELEASE_TAG so each build job agrees on one
+	// tag; a stable v-tag is already identical across jobs.
 	if forced := strings.TrimSpace(os.Getenv("RELEASE_TAG")); forced != "" {
 		tag = forced
 	}
@@ -302,8 +305,9 @@ func pushReleaseTag(cfg releaseConfig) error {
 	return runProcess("git", []string{"push", "origin", cfg.tag}, nil)
 }
 
-// buildPlatform compiles one os/arch target with CGO disabled and the stamped
-// ldflags, writing the binary under dist/<binary>_<os>_<arch>/<binary>.
+// buildPlatform compiles one os/arch target with the stamped ldflags, writing
+// the binary under dist/<binary>_<os>_<arch>/<binary>. CGO_ENABLED, and any CC
+// and CXX set for a cross build, pass through from the environment.
 func buildPlatform(cfg releaseConfig, platform string) error {
 	osName, arch, ok := strings.Cut(platform, "/")
 	if !ok {
@@ -321,9 +325,9 @@ func buildPlatform(cfg releaseConfig, platform string) error {
 
 // cgoEnabledValue returns the CGO_ENABLED value for release builds, defaulting
 // to "0" so a pure-Go consumer keeps reproducible cross-compiles. A consumer
-// with a cgo dependency sets CGO_ENABLED=1 in the build job, where the native
-// runner and the system libraries the workflow installed make cgo compilation
-// possible.
+// with a cgo dependency sets CGO_ENABLED=1 in the build job; the linux target
+// builds natively, and the darwin target cross-compiles with the darwin CC/CXX
+// the workflow supplies in the environment.
 func cgoEnabledValue() string {
 	if value := strings.TrimSpace(os.Getenv("CGO_ENABLED")); value != "" {
 		return value
