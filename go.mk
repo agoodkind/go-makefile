@@ -505,6 +505,46 @@ export GO_MK_GENERATE_INPUTS
 export GO_MK_GENERATE_OUTPUTS
 export GO_MK_WORKSPACE_USE
 
+# GO_MK_CGO_DEPS: opt-in, space-separated list of external C library dependency
+# names a consumer links through cgo. A consumer sets this BEFORE
+# `include bootstrap.mk` and, for each <dep>, defines a target go-mk-cgo-dep-<dep>
+# that builds the library into GO_MK_CGO_PREFIX and installs a pkg-config .pc file
+# under $(GO_MK_CGO_PREFIX)/lib/pkgconfig. go-makefile names no specific library;
+# only the consumer does. Empty (the default) is a complete no-op: go-mk-cgo-deps
+# is never invoked and the build environment is unchanged.
+GO_MK_CGO_DEPS ?=
+
+# GO_MK_TARGET_GOOS / GO_MK_TARGET_GOARCH: the os/arch currently being built. The
+# release command sets these per platform so a consumer's go-mk-cgo-dep-<dep>
+# target provisions the right library for a darwin cross build or a linux native
+# build. They are empty for a plain host build.
+GO_MK_TARGET_GOOS   ?=
+GO_MK_TARGET_GOARCH ?=
+
+# GO_MK_CGO_PREFIX: absolute per-target install prefix, keyed by os/arch so a
+# darwin cross build and a linux native build never share artifacts. The release
+# command overrides this with the same path it adds to PKG_CONFIG_PATH for
+# `go build`; the default keeps a direct `make go-mk-cgo-deps` self-consistent.
+GO_MK_CGO_PREFIX ?= $(CURDIR)/.make/cgo/$(GO_MK_TARGET_GOOS)-$(GO_MK_TARGET_GOARCH)
+
+export GO_MK_CGO_DEPS
+
+# go-mk-cgo-deps runs each consumer go-mk-cgo-dep-<dep> target with a per-target
+# environment: GO_MK_TARGET_GOOS/GOARCH name the build target, GO_MK_CGO_PREFIX is
+# the install prefix, and PKG_CONFIG_PATH is prepended with the prefix's pkgconfig
+# directory so the just-built .pc files resolve first. CC and CXX pass through
+# unchanged from the environment (the release workflow sets them for a darwin
+# cross build; a native build may leave them unset). The exports are
+# target-specific, so they reach the prerequisite go-mk-cgo-dep-<dep> targets
+# without altering any other recipe's environment.
+.PHONY: go-mk-cgo-deps
+go-mk-cgo-deps: export GO_MK_TARGET_GOOS   := $(GO_MK_TARGET_GOOS)
+go-mk-cgo-deps: export GO_MK_TARGET_GOARCH := $(GO_MK_TARGET_GOARCH)
+go-mk-cgo-deps: export GO_MK_CGO_PREFIX    := $(GO_MK_CGO_PREFIX)
+go-mk-cgo-deps: export PKG_CONFIG_PATH      := $(GO_MK_CGO_PREFIX)/lib/pkgconfig$(if $(strip $(PKG_CONFIG_PATH)),:$(PKG_CONFIG_PATH))
+go-mk-cgo-deps: $(foreach d,$(GO_MK_CGO_DEPS),go-mk-cgo-dep-$(d))
+	@:
+
 .PHONY: go-mk-workspace
 go-mk-workspace:
 	@if [ -n "$(strip $(GO_MK_WORKSPACE_USE))" ] && [ ! -f go.work ]; then \
