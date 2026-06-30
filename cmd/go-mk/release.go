@@ -121,6 +121,9 @@ func buildStage(cfg releaseConfig) error {
 	if err := os.MkdirAll(cfg.distDir, 0o755); err != nil {
 		return err
 	}
+	if err := checkCgoStub(); err != nil {
+		return err
+	}
 	for _, platform := range cfg.platforms {
 		if err := buildPlatform(cfg, platform); err != nil {
 			return err
@@ -259,6 +262,9 @@ func isStableRef(gitRef, refName string) bool {
 // executeRelease runs the ordered release steps and stops on the first error.
 func executeRelease(cfg releaseConfig) error {
 	if err := os.MkdirAll(cfg.distDir, 0o755); err != nil {
+		return err
+	}
+	if err := checkCgoStub(); err != nil {
 		return err
 	}
 	if err := pushReleaseTag(cfg); err != nil {
