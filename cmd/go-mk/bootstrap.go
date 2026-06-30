@@ -554,11 +554,16 @@ func reconcileReleaseWorkflow(stdout io.Writer) error {
 
 // repairReleasePermissions performs a surgical, formatting-preserving edit of a
 // release caller: it finds the job whose uses line references the reusable
-// release workflow, locates that job's permissions child block, and inserts any
-// missing required permission key at the block's key indentation. A job with no
-// permissions block gets one inserted after its uses line at the job-child
-// indentation. Every other byte is left identical. The second return value
-// reports whether any key was inserted.
+// release workflow, locates that job's permissions key, and repairs the
+// block-form permissions mapping by inserting any missing required key and
+// rewriting any present required key whose value is not the required grant. A
+// job with no permissions key gets a block inserted after its uses line at the
+// job-child indentation. A job that already declares permissions in the scalar
+// form (for example permissions: write-all) or the inline-map form (for example
+// permissions: { contents: write }) is left untouched, since a scalar grant such
+// as write-all already covers every scope and surgically editing a non-block
+// form risks corrupting the mapping. Every other byte is left identical. The
+// second return value reports whether any key was inserted or rewritten.
 func repairReleasePermissions(content string) (string, bool) {
 	lineEnding := "\n"
 	if strings.Contains(content, "\r\n") {
@@ -579,6 +584,9 @@ func repairReleasePermissions(content string) (string, bool) {
 	permissionsIndex := permissionsLineIndex(lines, jobHeaderIndex+1, jobEnd, usesIndent)
 	if permissionsIndex < 0 {
 		return insertReleasePermissionsBlock(lines, usesIndex, usesIndent, usesIndent-jobIndent, lineEnding), true
+	}
+	if !isBlockFormPermissions(lines[permissionsIndex]) {
+		return content, false
 	}
 	return insertMissingReleasePermissions(lines, permissionsIndex, jobEnd, usesIndent, lineEnding)
 }
@@ -619,11 +627,24 @@ func jobBodyEndIndex(lines []string, fromIndex int, jobIndent int) int {
 
 func permissionsLineIndex(lines []string, startIndex int, endIndex int, jobChildIndent int) int {
 	for index := startIndex; index < endIndex; index++ {
-		if leadingSpaceCount(lines[index]) == jobChildIndent && strings.TrimSpace(lines[index]) == "permissions:" {
+		if leadingSpaceCount(lines[index]) != jobChildIndent {
+			continue
+		}
+		key, _, found := strings.Cut(strings.TrimSpace(lines[index]), ":")
+		if found && strings.TrimSpace(key) == "permissions" {
 			return index
 		}
 	}
 	return -1
+}
+
+// isBlockFormPermissions reports whether a permissions key line is the block
+// form (permissions: with no inline value), as opposed to the scalar form
+// (permissions: write-all) or the inline-map form (permissions: { ... }). Only
+// the block form is safe to repair in place by adding or rewriting child keys.
+func isBlockFormPermissions(line string) bool {
+	_, value, _ := strings.Cut(strings.TrimSpace(line), ":")
+	return strings.TrimSpace(value) == ""
 }
 
 func insertReleasePermissionsBlock(lines []string, usesIndex int, jobChildIndent int, indentStep int, lineEnding string) string {
@@ -640,7 +661,7 @@ func insertReleasePermissionsBlock(lines []string, usesIndex int, jobChildIndent
 }
 
 func insertMissingReleasePermissions(lines []string, permissionsIndex int, jobEnd int, jobChildIndent int, lineEnding string) (string, bool) {
-	present := map[string]bool{}
+	presentIndex := map[string]int{}
 	childIndent := -1
 	lastChildIndex := permissionsIndex
 	for index := permissionsIndex + 1; index < jobEnd; index++ {
@@ -655,26 +676,39 @@ func insertMissingReleasePermissions(lines []string, permissionsIndex int, jobEn
 			childIndent = indent
 		}
 		key, _, _ := strings.Cut(strings.TrimSpace(lines[index]), ":")
-		present[strings.TrimSpace(key)] = true
+		presentIndex[strings.TrimSpace(key)] = index
 		lastChildIndex = index
 	}
 	if childIndent < 0 {
 		childIndent = jobChildIndent + 2
 	}
+	updated := append([]string(nil), lines...)
+	changed := false
+	for _, permission := range requiredReleasePermissions {
+		index, ok := presentIndex[permission.key]
+		if !ok {
+			continue
+		}
+		corrected := strings.Repeat(" ", leadingSpaceCount(updated[index])) + permission.key + ": " + permission.value
+		if updated[index] != corrected {
+			updated[index] = corrected
+			changed = true
+		}
+	}
 	insertions := make([]string, 0, len(requiredReleasePermissions))
 	for _, permission := range requiredReleasePermissions {
-		if !present[permission.key] {
+		if _, ok := presentIndex[permission.key]; !ok {
 			insertions = append(insertions, strings.Repeat(" ", childIndent)+permission.key+": "+permission.value)
 		}
 	}
 	if len(insertions) == 0 {
-		return strings.Join(lines, lineEnding), false
+		return strings.Join(updated, lineEnding), changed
 	}
-	updated := make([]string, 0, len(lines)+len(insertions))
-	updated = append(updated, lines[:lastChildIndex+1]...)
-	updated = append(updated, insertions...)
-	updated = append(updated, lines[lastChildIndex+1:]...)
-	return strings.Join(updated, lineEnding), true
+	result := make([]string, 0, len(updated)+len(insertions))
+	result = append(result, updated[:lastChildIndex+1]...)
+	result = append(result, insertions...)
+	result = append(result, updated[lastChildIndex+1:]...)
+	return strings.Join(result, lineEnding), true
 }
 
 func leadingSpaceCount(line string) int {

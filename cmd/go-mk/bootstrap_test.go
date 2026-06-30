@@ -366,6 +366,107 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 
 		assertFileText(t, releaseWorkflow, custom)
 	})
+
+	t.Run("scalar write-all permissions is left untouched", func(t *testing.T) {
+		repoDir := t.TempDir()
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+		scalar := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions: write-all\n" +
+			"    secrets: inherit\n"
+		writeBootstrapTestFile(t, releaseWorkflow, scalar)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		// A second permissions key would be invalid YAML, so the caller stays byte-identical.
+		assertFileText(t, releaseWorkflow, scalar)
+		if strings.Count(mustReadFile(t, releaseWorkflow), "permissions") != 1 {
+			t.Fatalf("scalar caller gained a duplicate permissions key\ncontents:\n%s", mustReadFile(t, releaseWorkflow))
+		}
+
+		var secondStdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+		}
+		assertFileText(t, releaseWorkflow, scalar)
+	})
+
+	t.Run("inline-map permissions is left untouched", func(t *testing.T) {
+		repoDir := t.TempDir()
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+		inline := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions: { contents: write }\n" +
+			"    secrets: inherit\n"
+		writeBootstrapTestFile(t, releaseWorkflow, inline)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		assertFileText(t, releaseWorkflow, inline)
+		if strings.Count(mustReadFile(t, releaseWorkflow), "permissions") != 1 {
+			t.Fatalf("inline-map caller gained a duplicate permissions key\ncontents:\n%s", mustReadFile(t, releaseWorkflow))
+		}
+
+		var secondStdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+		}
+		assertFileText(t, releaseWorkflow, inline)
+	})
+
+	t.Run("wrong-value block permission is upgraded", func(t *testing.T) {
+		repoDir := t.TempDir()
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+		wrongValue := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"    secrets: inherit\n"
+		writeBootstrapTestFile(t, releaseWorkflow, wrongValue)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		expected := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: write\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    secrets: inherit\n"
+		if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
+			t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+
+		// Idempotent: the corrected caller stays byte-identical on a second run.
+		var secondStdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+		}
+		assertFileText(t, releaseWorkflow, expected)
+	})
 }
 
 func runBootstrapForTest(t *testing.T, options bootstrapOptions) {
