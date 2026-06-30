@@ -1,9 +1,8 @@
-# go-release.mk: opt-in release target. The whole pipeline (build each platform,
-# anchore/quill sign + notarize for darwin, tar.gz with sha256 checksums, tag
-# push, GitHub release) lives in the go-mk binary `release` command, so there is
-# no shell script. This module wires the target and exports the inputs the
-# command reads. The reusable workflow builds darwin on Linux, so a darwin CGO
-# build picks up the cross CC/CXX from the environment.
+# go-release.mk: opt-in release target. The whole pipeline (cross-compile with
+# CGO disabled, anchore/quill sign + notarize for darwin, tar.gz with sha256
+# checksums, tag push, GitHub release) lives in the go-mk binary `release`
+# command, so there is no shell script. This module wires the target and exports
+# the inputs the command reads.
 #
 # Inputs (from go-build.mk and the project Makefile):
 #   BINARY, CMD, VPKG, GKLOG_VPKG   build identity and version stamping
