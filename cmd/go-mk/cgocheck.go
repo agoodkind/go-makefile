@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -87,8 +88,21 @@ func cgoRequiringPackages(targets []string) ([]string, error) {
 		slog.Error("cgo-stub go list failed", slog.Any("err", wrapped))
 		return nil, wrapped
 	}
+	packages, err := decodeGoListPackages(&out)
+	if err != nil {
+		return nil, err
+	}
+	return filterCgoRequiringPackages(packages, cgoOptionalAllowlist()), nil
+}
+
+// decodeGoListPackages decodes the stream of JSON objects that `go list -json`
+// writes. The output is concatenated top-level objects, not an array, and a
+// json.Decoder ranges over that stream with More: each Decode reads one object
+// and More reports whether another object follows. It returns the decoded
+// packages or a wrapped error on malformed output.
+func decodeGoListPackages(reader io.Reader) ([]cgoListPackage, error) {
 	packages := make([]cgoListPackage, 0, 64)
-	decoder := json.NewDecoder(&out)
+	decoder := json.NewDecoder(reader)
 	for decoder.More() {
 		var pkg cgoListPackage
 		if err := decoder.Decode(&pkg); err != nil {
@@ -98,7 +112,7 @@ func cgoRequiringPackages(targets []string) ([]string, error) {
 		}
 		packages = append(packages, pkg)
 	}
-	return filterCgoRequiringPackages(packages, cgoOptionalAllowlist()), nil
+	return packages, nil
 }
 
 // checkCgoStub fails when the build is configured with cgo disabled while the

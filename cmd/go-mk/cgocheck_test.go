@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -66,6 +67,35 @@ func TestFilterCgoRequiringPackages(t *testing.T) {
 	want := []string{"github.com/mattn/go-sqlite3"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("filterCgoRequiringPackages() = %v, want %v", got, want)
+	}
+}
+
+func TestDecodeGoListPackages(t *testing.T) {
+	// go list -json emits concatenated top-level objects, not an array.
+	stream := `{"ImportPath":"net","Standard":true,"CgoFiles":["cgo_unix.go"]}
+{"ImportPath":"github.com/mattn/go-sqlite3","Standard":false,"CgoFiles":["sqlite3.go"]}
+{"ImportPath":"example.com/pure","Standard":false}`
+	packages, err := decodeGoListPackages(strings.NewReader(stream))
+	if err != nil {
+		t.Fatalf("decodeGoListPackages returned error: %v", err)
+	}
+	if len(packages) != 3 {
+		t.Fatalf("decoded %d packages, want 3 (the More loop must not stop early)", len(packages))
+	}
+	got := filterCgoRequiringPackages(packages, nil)
+	want := []string{"github.com/mattn/go-sqlite3"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("filter over decoded stream = %v, want %v", got, want)
+	}
+}
+
+func TestDecodeGoListPackagesEmpty(t *testing.T) {
+	packages, err := decodeGoListPackages(strings.NewReader(""))
+	if err != nil {
+		t.Fatalf("decodeGoListPackages(empty) returned error: %v", err)
+	}
+	if len(packages) != 0 {
+		t.Fatalf("decoded %d packages from empty stream, want 0", len(packages))
 	}
 }
 
