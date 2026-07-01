@@ -158,10 +158,14 @@ jobs:
           } >> "${GITHUB_ENV}"
       - name: Configure darwin cross compilers
         if: matrix.goos == 'darwin' && inputs.cgo
+        # Pass the cross compiler under dedicated GO_MK_CC / GO_MK_CXX rather than
+        # the global CC / CXX, so go-mk applies it only to the target build and
+        # its cgo-dep provisioning. Host-tool builds in this job (the go-mk binary
+        # and quill) then compile with the container's host compiler.
         run: |
           {
-            echo "CC=${{ matrix.cc }}"
-            echo "CXX=${{ matrix.cxx }}"
+            echo "GO_MK_CC=${{ matrix.cc }}"
+            echo "GO_MK_CXX=${{ matrix.cxx }}"
           } >> "${GITHUB_ENV}"
       - name: Inspect go-mk cache manifest
         id: go-mk-cache-prep
@@ -192,14 +196,8 @@ jobs:
         run: echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
       - name: Install quill
         if: matrix.goos == 'darwin' && steps.quill-cache.outputs.cache-hit != 'true'
-        # quill is a host tool, so it must build with the host compiler. The
-        # darwin cross CC/CXX set for the target build would otherwise compile
-        # quill's Linux cgo with the darwin cross compiler and fail; empty here
-        # makes go fall back to the host default compiler for this step only.
         env:
           GOFLAGS: ""
-          CC: ""
-          CXX: ""
         run: go install github.com/anchore/quill/cmd/quill@${{ inputs.quill_version }}
       - name: Build
         env:
