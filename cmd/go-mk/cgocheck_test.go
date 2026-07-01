@@ -1,7 +1,10 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -103,5 +106,36 @@ func TestCheckCgoStubNoopWhenCgoEnabled(t *testing.T) {
 	t.Setenv("CGO_ENABLED", "1")
 	if err := checkCgoStub(); err != nil {
 		t.Fatalf("checkCgoStub() with cgo on should be a no-op, got %v", err)
+	}
+}
+
+// TestCgoRequiringPackagesIgnoresStderrDownloadNoise guards the cold-cache fix:
+// a stub `go` writes "go: downloading ..." progress to stderr while emitting the
+// JSON package stream to stdout, mimicking a fresh release runner. Decoding must
+// read stdout alone, so merging stdout and stderr back into one buffer would
+// reintroduce the decode failure and fail this test.
+func TestCgoRequiringPackagesIgnoresStderrDownloadNoise(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("stub go is a POSIX shell script")
+	}
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "go")
+	script := "#!/bin/sh\n" +
+		"echo 'go: downloading github.com/mattn/go-sqlite3 v1.14.0' 1>&2\n" +
+		"echo 'go: downloading example.com/pure v1.0.0' 1>&2\n" +
+		`printf '%s\n' '{"ImportPath":"github.com/mattn/go-sqlite3","Standard":false,"CgoFiles":["sqlite3.go"]}'` + "\n" +
+		`printf '%s\n' '{"ImportPath":"example.com/pure","Standard":false}'` + "\n"
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+		t.Fatalf("write stub go: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	got, err := cgoRequiringPackages([]string{"./..."})
+	if err != nil {
+		t.Fatalf("cgoRequiringPackages returned error (stderr noise must not corrupt the JSON decode): %v", err)
+	}
+	want := []string{"github.com/mattn/go-sqlite3"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("cgoRequiringPackages() = %v, want %v", got, want)
 	}
 }
