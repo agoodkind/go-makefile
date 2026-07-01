@@ -139,17 +139,31 @@ jobs:
       # the bodyless go-mk-release-configured probe target. `make -n` reports
       # whether that target exists without running anything: it exits 0 when the
       # target is defined and fails with "No rule to make target" when it is
-      # not. The release-smoke job below keys off this output, so release
-      # rehearsal is automatic for every releasing consumer and free for
-      # everyone else, with no consumer-facing input.
+      # not. Only that specific failure means "release not configured"; any
+      # other make error (a broken Makefile, a failed include) fails safe to
+      # configured=true, so a damaged release setup surfaces as a failing smoke
+      # run instead of being silently skipped. The release-smoke job below keys
+      # off this output, so release rehearsal is automatic for every releasing
+      # consumer and free for everyone else, with no consumer-facing input.
       - name: Detect release configuration
         id: release-detect
         working-directory: ${{ inputs.working_directory }}
         run: |
-          if make -n go-mk-release-configured >/dev/null 2>&1; then
+          probe_status=0
+          probe_output=$(make -n go-mk-release-configured 2>&1) || probe_status=$?
+          if [ "${probe_status}" -eq 0 ]; then
             echo "configured=true" >> "${GITHUB_OUTPUT}"
           else
-            echo "configured=false" >> "${GITHUB_OUTPUT}"
+            case "${probe_output}" in
+              *"No rule to make target"*)
+                echo "configured=false" >> "${GITHUB_OUTPUT}"
+                ;;
+              *)
+                echo "release probe errored; assuming a release is configured (fail-safe)" >&2
+                printf '%s\n' "${probe_output}" >&2
+                echo "configured=true" >> "${GITHUB_OUTPUT}"
+                ;;
+            esac
           fi
 
   quality:
