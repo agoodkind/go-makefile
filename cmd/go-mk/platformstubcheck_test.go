@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -52,6 +53,32 @@ func TestFlagPlatformSplitPackages(t *testing.T) {
 	want := []string{"mod/cbm"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("flagPlatformSplitPackages() = %v, want %v", got, want)
+	}
+}
+
+func TestPlatformListEnvOverridesStalePlatform(t *testing.T) {
+	// A parent environment that already pins GOOS/GOARCH/CGO_ENABLED must be
+	// overridden, not duplicated, so every platform's go list resolves for its
+	// own target and a real split is not hidden.
+	base := []string{"PATH=/usr/bin", "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0"}
+	env := platformListEnv(base, "darwin", "arm64")
+	want := map[string]string{"GOOS": "darwin", "GOARCH": "arm64", "CGO_ENABLED": "1"}
+	for key, value := range want {
+		prefix := key + "="
+		count := 0
+		var got string
+		for _, entry := range env {
+			if strings.HasPrefix(entry, prefix) {
+				count++
+				got = entry[len(prefix):]
+			}
+		}
+		if count != 1 {
+			t.Fatalf("%s appears %d times, want exactly 1 (no duplicates): %v", key, count, env)
+		}
+		if got != value {
+			t.Fatalf("%s = %q, want %q", key, got, value)
+		}
 	}
 }
 

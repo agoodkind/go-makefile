@@ -58,13 +58,25 @@ func platformStubAllowlist() map[string]bool {
 	return allow
 }
 
+// platformListEnv returns base with CGO_ENABLED, GOOS, and GOARCH overridden for
+// the target. It replaces any existing entry rather than appending, so a
+// caller-set or matrix-inherited GOOS/GOARCH in the parent environment cannot
+// win and make every list resolve for the same platform, which would hide a real
+// split.
+func platformListEnv(base []string, goos, goarch string) []string {
+	env := setEnvVar(base, "CGO_ENABLED", "1")
+	env = setEnvVar(env, "GOOS", goos)
+	env = setEnvVar(env, "GOARCH", goarch)
+	return env
+}
+
 // firstPartyPackages lists the consumer's own packages for one os/arch with cgo
 // enabled so cgo files are visible, using ./... so the dependency graph is never
 // read, and -e so a package that fails to build still reports its files.
 func firstPartyPackages(goos, goarch string) ([]platformListPackage, error) {
 	slog.Info("platform-stub run go list", slog.String("goos", goos), slog.String("goarch", goarch))
 	cmd := exec.Command("go", "list", "-e", "-json", "./...")
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=1", "GOOS="+goos, "GOARCH="+goarch)
+	cmd.Env = platformListEnv(os.Environ(), goos, goarch)
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
