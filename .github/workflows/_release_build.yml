@@ -58,21 +58,6 @@ on:
         required: false
         type: boolean
         default: false
-    # Only the Apple signing and notary secrets are accepted, so a caller
-    # cannot leak anything else into this workflow. Every secret is optional:
-    # the release workflow maps them through for real signed builds, and the CI
-    # smoke passes none, which makes the go-mk release command skip signing.
-    secrets:
-      APPLE_DEVELOPER_ID_P12_BASE64:
-        required: false
-      APPLE_DEVELOPER_ID_P12_PASSWORD:
-        required: false
-      APPLE_NOTARY_KEY_BASE64:
-        required: false
-      APPLE_NOTARY_KEY_ID:
-        required: false
-      APPLE_NOTARY_ISSUER_ID:
-        required: false
 
 jobs:
   build:
