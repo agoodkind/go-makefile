@@ -85,14 +85,17 @@ func runOneGate(gateName string, runner func() int) (report.StepResult, int) {
 }
 
 // buildCheckChecks lists the build-check units in order: vet, every gate in
-// LINT_GATES, then govulncheck. vet and the gates fan out per declared platform
-// when GO_MK_PLATFORMS is set; govulncheck runs once on the host because the
-// vulnerability database is platform-independent.
+// LINT_GATES, govulncheck, then the cgo-stub and platform-stub checks. vet and
+// the gates fan out per declared platform when GO_MK_PLATFORMS is set;
+// govulncheck runs once on the host because the vulnerability database is
+// platform-independent, and the stub checks run once because they compare across
+// platforms themselves.
 func buildCheckChecks() []check {
 	checks := vetChecks()
 	checks = append(checks, gateChecks()...)
 	checks = append(checks, check{name: "govulncheck", run: runGovulncheckStep})
 	checks = append(checks, check{name: "cgo-stub", run: runCgoStubCheckStep})
+	checks = append(checks, check{name: "platform-stub", run: runPlatformStubCheckStep})
 	return checks
 }
 
