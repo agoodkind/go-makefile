@@ -1,0 +1,231 @@
+name: Release Build
+
+# Reusable single-source release build. This workflow owns the one true
+# definition of building the release targets: the four-platform matrix, the
+# darwin cross toolchain in the goreleaser-cross container, the generated-output
+# cache flow with nested submodule preparation, ccache, quill installation, and
+# the `make release` build stage. The release workflow (_release.yml) calls it
+# for real releases, and the CI workflow (_ci.yml) calls it in smoke mode to
+# rehearse the identical build on every relevant push, so the release path and
+# its CI rehearsal can never drift apart. Smoke mode skips quill installation
+# and the artifact upload, and a smoke caller passes no signing secrets, so the
+# go-mk release command skips signing and every artifact dies with the runner.
+
+on:
+  workflow_call:
+    inputs:
+      cgo:
+        description: Build with CGO_ENABLED=1.
+        required: false
+        type: boolean
+        default: false
+      apt_packages:
+        description: Space-separated apt packages to install on the Linux build runners.
+        required: false
+        type: string
+        default: ""
+      submodules:
+        description: Submodule checkout mode passed straight to actions/checkout.
+        required: false
+        type: string
+        default: "false"
+      quill_version:
+        description: Pinned anchore/quill version to install for darwin signing.
+        required: false
+        type: string
+        default: "v0.7.1"
+      require_darwin_codesign:
+        description: Fail darwin release builds when signing material is absent.
+        required: false
+        type: boolean
+        default: false
+      release_tag:
+        description: >-
+          Tag threaded through every build job for consistent version stamping.
+          An empty value lets each build derive its own prerelease tag, which is
+          acceptable when the archives are thrown away, as they are in smoke
+          mode.
+        required: false
+        type: string
+        default: ""
+      smoke:
+        description: >-
+          Build-only rehearsal mode for CI. The build runs exactly as a real
+          release build does, but quill is never installed and the archives are
+          not uploaded, so nothing persists after the runner exits. A smoke
+          caller also passes no secrets, which makes the go-mk release command
+          skip darwin signing on its own.
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    strategy:
+      fail-fast: false
+      # Every target builds on Ubuntu. The two darwin targets cross-compile inside
+      # the goreleaser-cross container with the osxcross cc/cxx; the two linux
+      # targets carry no container key, so the scalar container expression below is
+      # empty for them and the job runs on the host runner.
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-24.04
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-24.04-arm
+          - goos: darwin
+            goarch: amd64
+            runner: ubuntu-24.04
+            container: "ghcr.io/goreleaser/goreleaser-cross:v1.26.3"
+            cc: o64-clang
+            cxx: o64-clang++
+          - goos: darwin
+            goarch: arm64
+            runner: ubuntu-24.04
+            container: "ghcr.io/goreleaser/goreleaser-cross:v1.26.3"
+            cc: oa64-clang
+            cxx: oa64-clang++
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    # The build needs only repository read access. Artifact attestation happens
+    # in the release workflow's publish job, which keeps this workflow callable
+    # from CI contexts whose token carries no attestation permissions.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: ${{ inputs.submodules }}
+      # Inside the darwin cross container the job runs as root while the checkout
+      # is owned by the runner user, so git refuses later submodule and stamp
+      # commands with "detected dubious ownership". Trust every workspace path so
+      # the top repo and any nested submodules are usable. Host runners skip this.
+      - name: Trust workspace for git in container
+        if: matrix.container != ''
+        run: git config --global --add safe.directory '*'
+      - name: Install apt packages
+        if: matrix.goos == 'linux' && inputs.apt_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ inputs.apt_packages }}
+      - name: Install ccache on Linux
+        if: matrix.goos == 'linux' && inputs.cgo
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ccache
+      - uses: actions/setup-go@v6
+        id: setup-go
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.mod
+            go.sum
+            go.work
+            go.work.sum
+      - name: Restore ccache
+        id: ccache-restore
+        if: matrix.goos == 'linux' && inputs.cgo
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-
+      - name: Configure ccache
+        if: matrix.goos == 'linux' && inputs.cgo
+        run: |
+          {
+            echo "CCACHE_DIR=${HOME}/.ccache"
+            echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}"
+            echo "CCACHE_COMPILERCHECK=content"
+            echo "CCACHE_NOHASHDIR=true"
+            echo "CC=ccache gcc"
+            echo "CXX=ccache g++"
+          } >> "${GITHUB_ENV}"
+      - name: Configure darwin cross compilers
+        if: matrix.goos == 'darwin' && inputs.cgo
+        # Pass the cross compiler under dedicated GO_MK_CC / GO_MK_CXX rather than
+        # the global CC / CXX, so go-mk applies it only to the target build and
+        # its cgo-dep provisioning. Host-tool builds in this job (the go-mk binary
+        # and quill) then compile with the container's host compiler.
+        run: |
+          {
+            echo "GO_MK_CC=${{ matrix.cc }}"
+            echo "GO_MK_CXX=${{ matrix.cxx }}"
+          } >> "${GITHUB_ENV}"
+      - name: Inspect go-mk cache manifest
+        id: go-mk-cache-prep
+        run: make go-mk-cache-manifest
+      - name: Prepare generated submodules
+        if: steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
+        run: make go-mk-prepare-submodules
+      - name: Build go-mk cache manifest
+        id: go-mk-cache
+        if: steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true'
+        run: make go-mk-cache-manifest
+      - name: Restore generated outputs
+        id: generated-cache-restore
+        if: steps.go-mk-cache.outputs.generated_cache_enabled == 'true'
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
+          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
+      - name: Restore quill
+        id: quill-cache
+        if: matrix.goos == 'darwin' && !inputs.smoke
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/go/bin/quill
+          key: quill-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ inputs.quill_version }}
+      - name: Add Go bin to PATH
+        if: matrix.goos == 'darwin' && !inputs.smoke
+        run: echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+      - name: Install quill
+        if: matrix.goos == 'darwin' && !inputs.smoke && steps.quill-cache.outputs.cache-hit != 'true'
+        env:
+          GOFLAGS: ""
+        run: go install github.com/anchore/quill/cmd/quill@${{ inputs.quill_version }}
+      - name: Build
+        env:
+          RELEASE_STAGE: build
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_PLATFORMS: ${{ matrix.goos }}/${{ matrix.goarch }}
+          CGO_ENABLED: ${{ inputs.cgo && '1' || '0' }}
+          REQUIRE_DARWIN_CODESIGN: ${{ inputs.require_darwin_codesign && '1' || '' }}
+          QUILL_SIGN_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          QUILL_SIGN_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          QUILL_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          QUILL_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          QUILL_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: make release
+      - name: Show ccache stats
+        if: matrix.goos == 'linux' && inputs.cgo
+        run: ccache --show-stats || true
+      - name: Save generated outputs
+        if: steps.go-mk-cache.outputs.generated_cache_enabled == 'true' && steps.generated-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
+          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
+      - name: Save ccache
+        if: matrix.goos == 'linux' && inputs.cgo && steps.ccache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}
+      - name: Save quill
+        if: matrix.goos == 'darwin' && !inputs.smoke && steps.quill-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/go/bin/quill
+          key: quill-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ inputs.quill_version }}
+      - uses: actions/upload-artifact@v7
+        if: ${{ !inputs.smoke }}
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
