@@ -80,11 +80,16 @@ func cgoRequiringPackages(targets []string) ([]string, error) {
 	args := append([]string{"list", "-e", "-deps", "-json"}, targets...)
 	cmd := exec.Command("go", args...)
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=1")
-	var out bytes.Buffer
+	// Keep stdout and stderr separate: `go list` writes the JSON package stream
+	// to stdout, but "go: downloading ..." progress and any diagnostics go to
+	// stderr. Merging them corrupts the JSON decode when the module cache is cold
+	// (a fresh release runner), so decode stdout alone and report stderr only on
+	// failure.
+	var out, errOut bytes.Buffer
 	cmd.Stdout = &out
-	cmd.Stderr = &out
+	cmd.Stderr = &errOut
 	if err := cmd.Run(); err != nil {
-		wrapped := fmt.Errorf("cgo-stub: go list failed: %w: %s", err, strings.TrimSpace(out.String()))
+		wrapped := fmt.Errorf("cgo-stub: go list failed: %w: %s", err, strings.TrimSpace(errOut.String()))
 		slog.Error("cgo-stub go list failed", slog.Any("err", wrapped))
 		return nil, wrapped
 	}
