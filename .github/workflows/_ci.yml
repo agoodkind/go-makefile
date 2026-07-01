@@ -135,11 +135,13 @@ jobs:
           else
             echo "run=false" >> "${GITHUB_OUTPUT}"
           fi
-      # A consumer opts into a release by including go-release.mk, which defines
-      # the bodyless go-mk-release-configured target. `make -n` reports whether
-      # the target exists without running it: exit 0 when present, nonzero "No
-      # rule to make target" when absent. This is how release-smoke decides
-      # whether to run without any consumer-facing input.
+      # A consumer opts into releasing by including go-release.mk, which defines
+      # the bodyless go-mk-release-configured probe target. `make -n` reports
+      # whether that target exists without running anything: it exits 0 when the
+      # target is defined and fails with "No rule to make target" when it is
+      # not. The release-smoke job below keys off this output, so release
+      # rehearsal is automatic for every releasing consumer and free for
+      # everyone else, with no consumer-facing input.
       - name: Detect release configuration
         id: release-detect
         working-directory: ${{ inputs.working_directory }}
@@ -383,155 +385,25 @@ jobs:
           path: ~/.ccache
           key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}
 
+  # Automatic release rehearsal. Every push that changes Go-relevant files in a
+  # release-configured consumer re-runs the shared release build workflow (the
+  # same _release_build.yml that _release.yml calls for real releases) in smoke
+  # mode, across the same four platforms, so a broken release path fails CI
+  # instead of the next real release. A consumer with no release configured
+  # skips this as one instant check, because the job-level condition below stops
+  # the nested workflow before it starts. No secrets are passed, so signing is
+  # skipped inside the release command and nothing is uploaded or published.
+  # cgo is always on here: a pure-Go consumer compiles no C either way, and a
+  # cgo consumer gets its darwin cross toolchain and GO_MK_CGO_DEPS provisioning
+  # exercised. Consumers using a working_directory other than the repository
+  # root cannot release today, so the rehearsal is skipped for them as well.
   release-smoke:
-    name: Release Smoke / ${{ matrix.goos }}/${{ matrix.goarch }}
-    # Automatic, not opt-in: every consumer gets this job, but it only runs the
-    # real build when go-mk-release-configured exists (the consumer includes
-    # go-release.mk) and something relevant changed; a repo with no release
-    # configured gets one cheap skipped check with no runner or container cost,
-    # because the job-level `if:` below prevents the matrix from expanding at
-    # all. It reuses the exact same `make release` (RELEASE_STAGE=build) build
-    # path a real release runs, across the same four release platforms, so a
-    # green run here proves the release build itself would succeed. It never
-    # signs, tags, or publishes; no Apple secrets are read, so a fork or PR run
-    # exercises the darwin cross-compile, cgo dependency, and generated-cache
-    # paths without needing any credentials.
+    name: Release Smoke
     needs: changes
-    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.release_configured == 'true'
-    timeout-minutes: ${{ inputs.timeout_minutes }}
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      # Mirrors _release.yml's build matrix exactly, including the goreleaser-cross
-      # image tag, so the smoke exercises the same darwin cross toolchain a real
-      # release uses.
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            runner: ubuntu-24.04
-          - goos: linux
-            goarch: arm64
-            runner: ubuntu-24.04-arm
-          - goos: darwin
-            goarch: amd64
-            runner: ubuntu-24.04
-            container: "ghcr.io/goreleaser/goreleaser-cross:v1.26.3"
-            cc: o64-clang
-            cxx: o64-clang++
-          - goos: darwin
-            goarch: arm64
-            runner: ubuntu-24.04
-            container: "ghcr.io/goreleaser/goreleaser-cross:v1.26.3"
-            cc: oa64-clang
-            cxx: oa64-clang++
-    runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.container }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: ${{ inputs.submodules }}
-      # Inside the darwin cross container the job runs as root while the
-      # checkout is owned by the runner user; see _release.yml for the same fix.
-      - name: Trust workspace for git in container
-        if: matrix.container != ''
-        run: git config --global --add safe.directory '*'
-      - name: Install apt packages
-        if: matrix.goos == 'linux' && inputs.apt_packages != ''
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ${{ inputs.apt_packages }}
-      - name: Install ccache on Linux
-        if: matrix.goos == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ccache
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: ${{ inputs.go_version_file }}
-          cache-dependency-path: |
-            ${{ inputs.go_version_file }}
-            ${{ inputs.working_directory }}/go.sum
-            ${{ inputs.working_directory }}/go.work
-            ${{ inputs.working_directory }}/go.work.sum
-      - name: Restore ccache
-        id: ccache-restore
-        if: matrix.goos == 'linux'
-        uses: actions/cache/restore@v6
-        with:
-          path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}
-          restore-keys: |
-            ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-
-      - name: Configure ccache
-        if: matrix.goos == 'linux'
-        run: |
-          {
-            echo "CCACHE_DIR=${HOME}/.ccache"
-            echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}"
-            echo "CCACHE_COMPILERCHECK=content"
-            echo "CCACHE_NOHASHDIR=true"
-            echo "CC=ccache gcc"
-            echo "CXX=ccache g++"
-          } >> "${GITHUB_ENV}"
-      - name: Configure darwin cross compilers
-        if: matrix.goos == 'darwin'
-        # Dedicated GO_MK_CC/GO_MK_CXX, not global CC/CXX, so go-mk applies the
-        # cross compiler only to the target build and its cgo-dep provisioning;
-        # see _release.yml for the incident this avoids (a leaked global CC
-        # miscompiling the go-mk binary itself inside the container).
-        run: |
-          {
-            echo "GO_MK_CC=${{ matrix.cc }}"
-            echo "GO_MK_CXX=${{ matrix.cxx }}"
-          } >> "${GITHUB_ENV}"
-      - name: Inspect go-mk cache manifest
-        id: go-mk-cache-prep
-        run: make go-mk-cache-manifest
-        working-directory: ${{ inputs.working_directory }}
-      - name: Prepare generated submodules
-        if: steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
-        run: make go-mk-prepare-submodules
-        working-directory: ${{ inputs.working_directory }}
-      - name: Build go-mk cache manifest
-        id: go-mk-cache
-        if: steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true'
-        run: make go-mk-cache-manifest
-        working-directory: ${{ inputs.working_directory }}
-      - name: Restore generated outputs
-        id: generated-cache-restore
-        if: steps.go-mk-cache.outputs.generated_cache_enabled == 'true'
-        uses: actions/cache/restore@v6
-        with:
-          path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
-          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
-      # No RELEASE_TAG, QUILL_*, or REQUIRE_DARWIN_CODESIGN: stage=build never
-      # tags or publishes, and signDarwinBinaries skips cleanly with no quill
-      # install needed when QUILL_SIGN_P12 is unset. CGO_ENABLED is always "1"
-      # so a cgo consumer's darwin cross-compile and GO_MK_CGO_DEPS provisioning
-      # are exercised; a pure-Go consumer has no cgo files, so this is a no-op
-      # for it.
-      - name: Build (release smoke)
-        env:
-          RELEASE_STAGE: build
-          RELEASE_PLATFORMS: ${{ matrix.goos }}/${{ matrix.goarch }}
-          CGO_ENABLED: "1"
-          DIST_DIR: ${{ runner.temp }}/go-mk-release-smoke
-        run: make release
-        working-directory: ${{ inputs.working_directory }}
-      - name: Show ccache stats
-        if: matrix.goos == 'linux'
-        run: ccache --show-stats || true
-      - name: Save generated outputs
-        if: steps.go-mk-cache.outputs.generated_cache_enabled == 'true' && steps.generated-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
-          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
-      - name: Save ccache
-        if: matrix.goos == 'linux' && steps.ccache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}
+    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.release_configured == 'true' && inputs.working_directory == '.'
+    uses: agoodkind/go-makefile/.github/workflows/_release_build.yml@main
+    with:
+      smoke: true
+      cgo: true
+      apt_packages: ${{ inputs.apt_packages }}
+      submodules: ${{ inputs.submodules }}
