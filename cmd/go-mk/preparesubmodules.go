@@ -18,22 +18,19 @@ import (
 	"strings"
 )
 
-// submoduleInit names one submodule to initialize. Parent is the repo-relative
-// directory git runs in ("" is the repo root). Path is the submodule path
-// relative to Parent.
-type submoduleInit struct {
-	Parent string
-	Path   string
-}
-
-// submoduleInitPlan returns the ordered, de-duplicated submodule initializations
-// needed so every output path's containing submodules exist. It walks the
-// submodule nesting for each output: at each level it finds the declared
-// submodule whose path prefixes the remaining output suffix, records it, and
-// descends. listSubmodules(dir) returns the submodule paths in <dir>/.gitmodules
-// relative to dir. Parents are always emitted before their children.
-func submoduleInitPlan(outputs []string, listSubmodules func(dir string) ([]string, error)) ([]submoduleInit, error) {
-	plan := make([]submoduleInit, 0, len(outputs))
+// prepareSubmodulesForOutputs initializes, top-down, the submodules that each
+// output path descends through. It interleaves discovery and init: a nested
+// .gitmodules is only readable after its parent submodule is checked out, so the
+// walk initializes each submodule before descending to read the next level. A
+// submodule that holds no declared output is never matched, so it is never
+// initialized. listSubmodules(dir) returns the submodule paths in
+// <dir>/.gitmodules relative to dir; initSubmodule(parent, submodulePath)
+// initializes <submodulePath> under <parent> ("" is the repo root).
+func prepareSubmodulesForOutputs(
+	outputs []string,
+	listSubmodules func(dir string) ([]string, error),
+	initSubmodule func(parent, submodulePath string) error,
+) error {
 	seen := map[string]bool{}
 	for _, output := range outputs {
 		remaining := path.Clean(strings.TrimSpace(output))
@@ -44,7 +41,7 @@ func submoduleInitPlan(outputs []string, listSubmodules func(dir string) ([]stri
 		for {
 			subs, err := listSubmodules(parent)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			match := longestSubmodulePrefix(subs, remaining)
 			if match == "" {
@@ -53,13 +50,15 @@ func submoduleInitPlan(outputs []string, listSubmodules func(dir string) ([]stri
 			full := path.Join(parent, match)
 			if !seen[full] {
 				seen[full] = true
-				plan = append(plan, submoduleInit{Parent: parent, Path: match})
+				if err := initSubmodule(parent, match); err != nil {
+					return err
+				}
 			}
 			parent = full
 			remaining = strings.TrimPrefix(remaining[len(match):], "/")
 		}
 	}
-	return plan, nil
+	return nil
 }
 
 // longestSubmodulePrefix returns the submodule path (from subs) that is a
@@ -80,7 +79,8 @@ func longestSubmodulePrefix(subs []string, target string) string {
 
 // gitListSubmodules returns the submodule paths declared in <dir>/.gitmodules,
 // each relative to dir. A missing .gitmodules yields an empty slice, since a
-// level with no nested submodules is normal.
+// level with no nested submodules (or a not-yet-initialized submodule) is
+// normal.
 func gitListSubmodules(dir string) ([]string, error) {
 	file, err := os.Open(filepath.Join(dir, ".gitmodules"))
 	if err != nil {
@@ -115,6 +115,26 @@ func gitListSubmodules(dir string) ([]string, error) {
 	return paths, nil
 }
 
+// gitInitSubmodule initializes submodulePath under parent, running git in parent
+// ("" is the repo root) so a nested submodule initializes inside its already
+// checked-out parent. It inherits the workflow environment for git auth.
+func gitInitSubmodule(parent, submodulePath string) error {
+	args := []string{}
+	if parent != "" {
+		args = append(args, "-C", parent)
+	}
+	args = append(args, "submodule", "update", "--init", "--", submodulePath)
+	if err := runProcess("git", args, nil); err != nil {
+		wrapped := fmt.Errorf("prepare-generated-submodules: init %q under %q: %w", submodulePath, parent, err)
+		slog.Error("prepare-generated-submodules init failed",
+			slog.String("parent", parent),
+			slog.String("path", submodulePath),
+			slog.Any("err", wrapped))
+		return wrapped
+	}
+	return nil
+}
+
 // runPrepareGeneratedSubmodules initializes the submodules that contain the
 // consumer's declared GO_MK_GENERATE_OUTPUTS, so a later generated-cache restore
 // lands its files in initialized working trees. It is a no-op when no outputs
@@ -124,25 +144,6 @@ func runPrepareGeneratedSubmodules() error {
 	if len(outputs) == 0 {
 		return nil
 	}
-	plan, err := submoduleInitPlan(outputs, gitListSubmodules)
-	if err != nil {
-		slog.Error("prepare-generated-submodules plan failed", slog.Any("err", err))
-		return err
-	}
-	slog.Info("prepare-generated-submodules", slog.Int("submodules", len(plan)))
-	for _, entry := range plan {
-		args := []string{}
-		if entry.Parent != "" {
-			args = append(args, "-C", entry.Parent)
-		}
-		args = append(args, "submodule", "update", "--init", "--", entry.Path)
-		if err := runProcess("git", args, nil); err != nil {
-			slog.Error("prepare-generated-submodules init failed",
-				slog.String("parent", entry.Parent),
-				slog.String("path", entry.Path),
-				slog.Any("err", err))
-			return fmt.Errorf("prepare-generated-submodules: init %q under %q: %w", entry.Path, entry.Parent, err)
-		}
-	}
-	return nil
+	slog.Info("prepare-generated-submodules", slog.Int("outputs", len(outputs)))
+	return prepareSubmodulesForOutputs(outputs, gitListSubmodules, gitInitSubmodule)
 }
