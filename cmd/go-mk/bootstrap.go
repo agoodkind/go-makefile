@@ -20,7 +20,7 @@ import (
 	"golang.org/x/term"
 )
 
-//go:embed bootstrap_assets/bootstrap.mk bootstrap_assets/Makefile.tmpl bootstrap_assets/ci.yml
+//go:embed bootstrap_assets/bootstrap.mk bootstrap_assets/Makefile.tmpl bootstrap_assets/ci.yml bootstrap_assets/release.yml
 var bootstrapAssetFS embed.FS
 
 const (
@@ -29,6 +29,9 @@ const (
 	bootstrapMkAssetPath       = "bootstrap_assets/bootstrap.mk"
 	ciWorkflowAssetPath        = "bootstrap_assets/ci.yml"
 	ciWorkflowPath             = ".github/workflows/ci.yml"
+	releaseWorkflowAssetPath   = "bootstrap_assets/release.yml"
+	releaseWorkflowPath        = ".github/workflows/release.yml"
+	releaseReusableWorkflowRef = "agoodkind/go-makefile/.github/workflows/_release.yml"
 	generatedMakefileFirstLine = "# `make help` is the canonical source of truth for every target this repo"
 )
 
@@ -118,6 +121,9 @@ func runBootstrap(options bootstrapOptions) error {
 		return err
 	}
 	if err := reconcileCIWorkflow(options.stdout); err != nil {
+		return err
+	}
+	if err := reconcileReleaseWorkflow(options.stdout); err != nil {
 		return err
 	}
 	warnIfLocalGolangCI(options.stderr)
@@ -487,6 +493,238 @@ func reconcileCIWorkflow(stdout io.Writer) error {
 	}
 	fmt.Fprintln(stdout, "created .github/workflows/ci.yml")
 	return nil
+}
+
+// requiredReleasePermissions are the permission keys the reusable release
+// workflow's attestation steps need. Consumers that granted only contents:write
+// failed at startup because the id-token and attestations grants were missing,
+// so bootstrap repairs the release caller to grant all three.
+var requiredReleasePermissions = []struct {
+	key   string
+	value string
+}{
+	{"contents", "write"},
+	{"id-token", "write"},
+	{"attestations", "write"},
+}
+
+// reconcileReleaseWorkflow owns the consumer's release caller so the
+// release-permissions drift cannot recur. When no release.yml exists it
+// scaffolds the canonical caller for every repo. When a release.yml already
+// calls the go-makefile reusable release workflow it repairs the release job's
+// permissions block in place, adding any missing required key while preserving
+// the uses line, the with inputs, secrets: inherit, comments, and formatting. A
+// release.yml that does not reference the reusable workflow is left untouched,
+// matching the custom-workflow rule for ci.yml.
+func reconcileReleaseWorkflow(stdout io.Writer) error {
+	slog.Info("bootstrap reconcile release workflow")
+	if !fileExists(releaseWorkflowPath) {
+		contents, err := bootstrapAssetFS.ReadFile(releaseWorkflowAssetPath)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(releaseWorkflowPath), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(releaseWorkflowPath, contents, 0o644); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "created .github/workflows/release.yml")
+		return nil
+	}
+	existing, err := os.ReadFile(releaseWorkflowPath)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(existing), releaseReusableWorkflowRef) {
+		fmt.Fprintln(stdout, "skipping .github/workflows/release.yml (exists; leaving consumer workflow unchanged)")
+		return nil
+	}
+	repaired, changed := repairReleasePermissions(string(existing))
+	if !changed {
+		fmt.Fprintln(stdout, "skipping .github/workflows/release.yml (already current)")
+		return nil
+	}
+	if err := os.WriteFile(releaseWorkflowPath, []byte(repaired), 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintln(stdout, "updated .github/workflows/release.yml")
+	return nil
+}
+
+// repairReleasePermissions performs a surgical, formatting-preserving edit of a
+// release caller: it finds the job whose uses line references the reusable
+// release workflow, locates that job's permissions key, and repairs the
+// block-form permissions mapping by inserting any missing required key and
+// rewriting any present required key whose value is not the required grant. A
+// job with no permissions key gets a block inserted after its uses line at the
+// job-child indentation. A job that already declares permissions in the scalar
+// form (for example permissions: write-all) or the inline-map form (for example
+// permissions: { contents: write }) is left untouched, since a scalar grant such
+// as write-all already covers every scope and surgically editing a non-block
+// form risks corrupting the mapping. Every other byte is left identical. The
+// second return value reports whether any key was inserted or rewritten.
+func repairReleasePermissions(content string) (string, bool) {
+	lineEnding := "\n"
+	if strings.Contains(content, "\r\n") {
+		lineEnding = "\r\n"
+	}
+	lines := strings.Split(content, lineEnding)
+	usesIndex := releaseUsesLineIndex(lines)
+	if usesIndex < 0 {
+		return content, false
+	}
+	usesIndent := leadingSpaceCount(lines[usesIndex])
+	jobHeaderIndex := jobHeaderIndexAbove(lines, usesIndex, usesIndent)
+	if jobHeaderIndex < 0 {
+		return content, false
+	}
+	jobIndent := leadingSpaceCount(lines[jobHeaderIndex])
+	jobEnd := jobBodyEndIndex(lines, usesIndex, jobIndent)
+	permissionsIndex := permissionsLineIndex(lines, jobHeaderIndex+1, jobEnd, usesIndent)
+	if permissionsIndex < 0 {
+		return insertReleasePermissionsBlock(lines, usesIndex, usesIndent, usesIndent-jobIndent, lineEnding), true
+	}
+	if !isBlockFormPermissions(lines[permissionsIndex]) {
+		return content, false
+	}
+	return insertMissingReleasePermissions(lines, permissionsIndex, jobEnd, usesIndent, lineEnding)
+}
+
+func releaseUsesLineIndex(lines []string) int {
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "uses:") && strings.Contains(trimmed, releaseReusableWorkflowRef) {
+			return index
+		}
+	}
+	return -1
+}
+
+func jobHeaderIndexAbove(lines []string, fromIndex int, childIndent int) int {
+	for index := fromIndex - 1; index >= 0; index-- {
+		if isBlankOrCommentLine(lines[index]) {
+			continue
+		}
+		if leadingSpaceCount(lines[index]) < childIndent {
+			return index
+		}
+	}
+	return -1
+}
+
+func jobBodyEndIndex(lines []string, fromIndex int, jobIndent int) int {
+	for index := fromIndex + 1; index < len(lines); index++ {
+		if isBlankOrCommentLine(lines[index]) {
+			continue
+		}
+		if leadingSpaceCount(lines[index]) <= jobIndent {
+			return index
+		}
+	}
+	return len(lines)
+}
+
+func permissionsLineIndex(lines []string, startIndex int, endIndex int, jobChildIndent int) int {
+	for index := startIndex; index < endIndex; index++ {
+		if leadingSpaceCount(lines[index]) != jobChildIndent {
+			continue
+		}
+		key, _, found := strings.Cut(strings.TrimSpace(lines[index]), ":")
+		if found && strings.TrimSpace(key) == "permissions" {
+			return index
+		}
+	}
+	return -1
+}
+
+// isBlockFormPermissions reports whether a permissions key line is the block
+// form (permissions: with no inline value), as opposed to the scalar form
+// (permissions: write-all) or the inline-map form (permissions: { ... }). Only
+// the block form is safe to repair in place by adding or rewriting child keys.
+func isBlockFormPermissions(line string) bool {
+	_, value, _ := strings.Cut(strings.TrimSpace(line), ":")
+	return strings.TrimSpace(value) == ""
+}
+
+func insertReleasePermissionsBlock(lines []string, usesIndex int, jobChildIndent int, indentStep int, lineEnding string) string {
+	childIndent := jobChildIndent + indentStep
+	block := []string{strings.Repeat(" ", jobChildIndent) + "permissions:"}
+	for _, permission := range requiredReleasePermissions {
+		block = append(block, strings.Repeat(" ", childIndent)+permission.key+": "+permission.value)
+	}
+	updated := make([]string, 0, len(lines)+len(block))
+	updated = append(updated, lines[:usesIndex+1]...)
+	updated = append(updated, block...)
+	updated = append(updated, lines[usesIndex+1:]...)
+	return strings.Join(updated, lineEnding)
+}
+
+func insertMissingReleasePermissions(lines []string, permissionsIndex int, jobEnd int, jobChildIndent int, lineEnding string) (string, bool) {
+	presentIndex := map[string]int{}
+	childIndent := -1
+	lastChildIndex := permissionsIndex
+	for index := permissionsIndex + 1; index < jobEnd; index++ {
+		if isBlankOrCommentLine(lines[index]) {
+			continue
+		}
+		indent := leadingSpaceCount(lines[index])
+		if indent <= jobChildIndent {
+			break
+		}
+		if childIndent < 0 {
+			childIndent = indent
+		}
+		key, _, _ := strings.Cut(strings.TrimSpace(lines[index]), ":")
+		presentIndex[strings.TrimSpace(key)] = index
+		lastChildIndex = index
+	}
+	if childIndent < 0 {
+		childIndent = jobChildIndent + 2
+	}
+	updated := append([]string(nil), lines...)
+	changed := false
+	for _, permission := range requiredReleasePermissions {
+		index, ok := presentIndex[permission.key]
+		if !ok {
+			continue
+		}
+		corrected := strings.Repeat(" ", leadingSpaceCount(updated[index])) + permission.key + ": " + permission.value
+		if updated[index] != corrected {
+			updated[index] = corrected
+			changed = true
+		}
+	}
+	insertions := make([]string, 0, len(requiredReleasePermissions))
+	for _, permission := range requiredReleasePermissions {
+		if _, ok := presentIndex[permission.key]; !ok {
+			insertions = append(insertions, strings.Repeat(" ", childIndent)+permission.key+": "+permission.value)
+		}
+	}
+	if len(insertions) == 0 {
+		return strings.Join(updated, lineEnding), changed
+	}
+	result := make([]string, 0, len(updated)+len(insertions))
+	result = append(result, updated[:lastChildIndex+1]...)
+	result = append(result, insertions...)
+	result = append(result, updated[lastChildIndex+1:]...)
+	return strings.Join(result, lineEnding), true
+}
+
+func leadingSpaceCount(line string) int {
+	count := 0
+	for _, character := range line {
+		if character != ' ' {
+			break
+		}
+		count++
+	}
+	return count
+}
+
+func isBlankOrCommentLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return trimmed == "" || strings.HasPrefix(trimmed, "#")
 }
 
 func configuredBaselineFiles() []string {

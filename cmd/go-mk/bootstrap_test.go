@@ -100,6 +100,11 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileExists(t, ciWorkflow)
 		assertFileContains(t, ciWorkflow, "branches: ['**']")
 		assertFileContains(t, ciWorkflow, "agoodkind/go-makefile/.github/workflows/_ci.yml@main")
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		assertFileExists(t, releaseWorkflow)
+		assertFileContains(t, releaseWorkflow, "agoodkind/go-makefile/.github/workflows/_release.yml@main")
+		assertFileContains(t, releaseWorkflow, "id-token: write")
+		assertFileContains(t, releaseWorkflow, "attestations: write")
 		assertBootstrapTrackedFilesAbsent(t, repoDir)
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "BINARY := bootstrap-probe")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk go-release.mk")
@@ -158,10 +163,12 @@ func TestBootstrapScenarios(t *testing.T) {
 		})
 
 		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
 		beforeMakefile := mustReadFile(t, filepath.Join(repoDir, "Makefile"))
 		beforeBootstrap := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk"))
 		beforeGitignore := mustReadFile(t, filepath.Join(repoDir, ".gitignore"))
 		beforeCIWorkflow := mustReadFile(t, ciWorkflow)
+		beforeReleaseWorkflow := mustReadFile(t, releaseWorkflow)
 
 		runBootstrapForTest(t, bootstrapOptions{
 			modulePath:  "goodkind.io/rerun",
@@ -173,6 +180,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileText(t, filepath.Join(repoDir, "bootstrap.mk"), beforeBootstrap)
 		assertFileText(t, filepath.Join(repoDir, ".gitignore"), beforeGitignore)
 		assertFileText(t, ciWorkflow, beforeCIWorkflow)
+		assertFileText(t, releaseWorkflow, beforeReleaseWorkflow)
 	})
 
 	t.Run("custom ci.yml is preserved", func(t *testing.T) {
@@ -232,6 +240,232 @@ func TestBootstrapScenarios(t *testing.T) {
 		for _, trackedFile := range configuredBootstrapTrackedFiles() {
 			assertPathNotGitIgnored(t, repoDir, trackedFile)
 		}
+	})
+}
+
+func TestReconcileReleaseWorkflow(t *testing.T) {
+	t.Run("scaffolds when absent", func(t *testing.T) {
+		repoDir := t.TempDir()
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		assertFileExists(t, releaseWorkflow)
+		assertFileContains(t, releaseWorkflow, "agoodkind/go-makefile/.github/workflows/_release.yml@main")
+		assertFileContains(t, releaseWorkflow, "contents: write")
+		assertFileContains(t, releaseWorkflow, "id-token: write")
+		assertFileContains(t, releaseWorkflow, "attestations: write")
+		assertFileContains(t, releaseWorkflow, "secrets: inherit")
+
+		before := mustReadFile(t, releaseWorkflow)
+		var secondStdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+		}
+		assertFileText(t, releaseWorkflow, before)
+	})
+
+	t.Run("repairs missing permissions in place", func(t *testing.T) {
+		repoDir := t.TempDir()
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+		drifted := "name: Release\n\n" +
+			"on:\n" +
+			"  push:\n" +
+			"    tags: ['v*']\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: write\n" +
+			"    with:\n" +
+			"      cgo: true\n" +
+			"    secrets: inherit\n"
+		writeBootstrapTestFile(t, releaseWorkflow, drifted)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		repaired := mustReadFile(t, releaseWorkflow)
+		expected := "name: Release\n\n" +
+			"on:\n" +
+			"  push:\n" +
+			"    tags: ['v*']\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: write\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    with:\n" +
+			"      cgo: true\n" +
+			"    secrets: inherit\n"
+		if repaired != expected {
+			t.Fatalf("repaired release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+
+		// Idempotent: a second run leaves the repaired file byte-identical.
+		var secondStdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+		}
+		assertFileText(t, releaseWorkflow, expected)
+	})
+
+	t.Run("adds permissions block when job has none", func(t *testing.T) {
+		repoDir := t.TempDir()
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+		withoutPermissions := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    secrets: inherit\n"
+		writeBootstrapTestFile(t, releaseWorkflow, withoutPermissions)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		expected := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: write\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    secrets: inherit\n"
+		if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
+			t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+	})
+
+	t.Run("custom release.yml is preserved", func(t *testing.T) {
+		repoDir := t.TempDir()
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+		custom := "name: Release\non:\n  push:\n    tags: ['v*']\njobs:\n  release:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo release\n"
+		writeBootstrapTestFile(t, releaseWorkflow, custom)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		assertFileText(t, releaseWorkflow, custom)
+	})
+
+	t.Run("scalar write-all permissions is left untouched", func(t *testing.T) {
+		repoDir := t.TempDir()
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+		scalar := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions: write-all\n" +
+			"    secrets: inherit\n"
+		writeBootstrapTestFile(t, releaseWorkflow, scalar)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		// A second permissions key would be invalid YAML, so the caller stays byte-identical.
+		assertFileText(t, releaseWorkflow, scalar)
+		if strings.Count(mustReadFile(t, releaseWorkflow), "permissions") != 1 {
+			t.Fatalf("scalar caller gained a duplicate permissions key\ncontents:\n%s", mustReadFile(t, releaseWorkflow))
+		}
+
+		var secondStdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+		}
+		assertFileText(t, releaseWorkflow, scalar)
+	})
+
+	t.Run("inline-map permissions is left untouched", func(t *testing.T) {
+		repoDir := t.TempDir()
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+		inline := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions: { contents: write }\n" +
+			"    secrets: inherit\n"
+		writeBootstrapTestFile(t, releaseWorkflow, inline)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		assertFileText(t, releaseWorkflow, inline)
+		if strings.Count(mustReadFile(t, releaseWorkflow), "permissions") != 1 {
+			t.Fatalf("inline-map caller gained a duplicate permissions key\ncontents:\n%s", mustReadFile(t, releaseWorkflow))
+		}
+
+		var secondStdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+		}
+		assertFileText(t, releaseWorkflow, inline)
+	})
+
+	t.Run("wrong-value block permission is upgraded", func(t *testing.T) {
+		repoDir := t.TempDir()
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+		wrongValue := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"    secrets: inherit\n"
+		writeBootstrapTestFile(t, releaseWorkflow, wrongValue)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		expected := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: write\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    secrets: inherit\n"
+		if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
+			t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+
+		// Idempotent: the corrected caller stays byte-identical on a second run.
+		var secondStdout bytes.Buffer
+		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+		}
+		assertFileText(t, releaseWorkflow, expected)
 	})
 }
 
