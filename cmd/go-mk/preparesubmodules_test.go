@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -71,5 +73,33 @@ func TestSubmoduleInitPlanNoSubmodules(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("plan = %v, want empty", got)
+	}
+}
+
+func TestGitListSubmodulesParsesPaths(t *testing.T) {
+	dir := t.TempDir()
+	content := "" +
+		"[submodule \"a\"]\n\tpath = third_party/gksyntax\n\turl = https://github.com/x/gksyntax\n" +
+		"[submodule \"b\"]\n\tpath = vendor/other\n\turl = https://github.com/x/other\n"
+	if err := os.WriteFile(filepath.Join(dir, ".gitmodules"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := gitListSubmodules(dir)
+	if err != nil {
+		t.Fatalf("gitListSubmodules error: %v", err)
+	}
+	want := []string{"third_party/gksyntax", "vendor/other"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("gitListSubmodules() = %v, want %v", got, want)
+	}
+}
+
+func TestGitListSubmodulesMissingFileIsEmpty(t *testing.T) {
+	got, err := gitListSubmodules(t.TempDir())
+	if err != nil {
+		t.Fatalf("expected no error for missing .gitmodules, got %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got %v, want empty", got)
 	}
 }
