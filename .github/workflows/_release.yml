@@ -110,6 +110,13 @@ jobs:
         with:
           fetch-depth: 0
           submodules: ${{ inputs.submodules }}
+      # Inside the darwin cross container the job runs as root while the checkout
+      # is owned by the runner user, so git refuses later submodule and stamp
+      # commands with "detected dubious ownership". Trust every workspace path so
+      # the top repo and any nested submodules are usable. Host runners skip this.
+      - name: Trust workspace for git in container
+        if: matrix.container != ''
+        run: git config --global --add safe.directory '*'
       - name: Install apt packages
         if: matrix.goos == 'linux' && inputs.apt_packages != ''
         run: |
