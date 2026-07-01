@@ -16,7 +16,7 @@
 # QUILL_NOTARY_KEY, QUILL_NOTARY_KEY_ID, QUILL_NOTARY_ISSUER. Signing is skipped
 # when QUILL_SIGN_P12 is empty, so snapshot builds need no credentials.
 
-.PHONY: release
+.PHONY: release go-mk-release-configured
 
 RELEASE_PLATFORMS    ?= darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 RELEASE_ENTITLEMENTS ?=
@@ -33,6 +33,13 @@ export REQUIRE_DARWIN_CODESIGN
 
 release: | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" release
+
+# go-mk-release-configured is a bodyless probe target. Its only purpose is to
+# exist when this file is included, so the reusable CI workflow can detect
+# "does this consumer release at all" with `make -n go-mk-release-configured`
+# (exit 0 when the target exists, nonzero "No rule to make target" otherwise)
+# and gate the release-smoke job on it. It never runs a recipe.
+go-mk-release-configured:
 
 # GO_MK_PREREQS (see go.mk): codegen and go.work routing. Release cross-compiles
 # the module, so it needs generated parsers/proto and go.work first. Empty
