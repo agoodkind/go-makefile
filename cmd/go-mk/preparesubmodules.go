@@ -136,7 +136,7 @@ func runPrepareGeneratedSubmodules() error {
 			args = append(args, "-C", entry.Parent)
 		}
 		args = append(args, "submodule", "update", "--init", "--", entry.Path)
-		if err := runProcess("git", args, os.Environ()); err != nil {
+		if err := runProcess("git", args, nil); err != nil {
 			slog.Error("prepare-generated-submodules init failed",
 				slog.String("parent", entry.Parent),
 				slog.String("path", entry.Path),
