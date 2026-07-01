@@ -362,19 +362,42 @@ func provisionCgoDeps(osName, arch string) (string, error) {
 		"GO_MK_TARGET_GOARCH=" + arch,
 		"GO_MK_CGO_PREFIX=" + prefix,
 	}
+	// The dep build (for example a static darwin pcre2) needs the same cross
+	// compiler as the target build, supplied per-target rather than globally.
+	env = append(env, crossCompilerEnv()...)
 	if err := releaseRunProcess("make", []string{cgoDepsTarget}, env); err != nil {
 		return "", err
 	}
 	return filepath.Join(prefix, "lib", "pkgconfig"), nil
 }
 
+// crossCompilerEnv returns the CC/CXX the workflow supplies for a cross build
+// through GO_MK_CC and GO_MK_CXX. A darwin cross build sets them to the osxcross
+// compiler; a native build leaves them empty and inherits the host toolchain.
+// They are kept out of the global environment on purpose, so a host-tool build
+// in the same job (the go-mk binary itself, quill) is never compiled with the
+// target's cross compiler; only the target build and its cgo-dep provisioning
+// receive them.
+func crossCompilerEnv() []string {
+	env := make([]string, 0, 2)
+	if cc := strings.TrimSpace(os.Getenv("GO_MK_CC")); cc != "" {
+		env = append(env, "CC="+cc)
+	}
+	if cxx := strings.TrimSpace(os.Getenv("GO_MK_CXX")); cxx != "" {
+		env = append(env, "CXX="+cxx)
+	}
+	return env
+}
+
 // buildPlatformEnv returns the environment for a `go build` of one os/arch
-// target. When pkgConfigDir is non-empty it prepends that per-target pkg-config
-// directory to any inherited PKG_CONFIG_PATH so a consumer's `#cgo pkg-config`
-// resolves a provisioned cgo dependency. An empty pkgConfigDir leaves
-// PKG_CONFIG_PATH untouched, which keeps a pure-Go release byte-identical.
+// target. It applies the cross compiler for a cross build, and when pkgConfigDir
+// is non-empty it prepends that per-target pkg-config directory to any inherited
+// PKG_CONFIG_PATH so a consumer's `#cgo pkg-config` resolves a provisioned cgo
+// dependency. An empty pkgConfigDir and no cross compiler leave the environment
+// untouched, which keeps a pure-Go release byte-identical.
 func buildPlatformEnv(osName, arch, pkgConfigDir, inheritedPkgConfigPath string) []string {
 	env := []string{"CGO_ENABLED=" + cgoEnabledValue(), "GOOS=" + osName, "GOARCH=" + arch}
+	env = append(env, crossCompilerEnv()...)
 	if pkgConfigDir == "" {
 		return env
 	}
