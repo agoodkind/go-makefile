@@ -87,7 +87,6 @@ jobs:
     outputs:
       run: ${{ steps.decide.outputs.run }}
       changed: ${{ steps.detect.outputs.changed }}
-      release_configured: ${{ steps.release-detect.outputs.configured }}
     steps:
       # fetch-depth 0 so the detector can diff against github.event.before on the
       # default branch and compute merge-base against origin/<default> on feature
@@ -134,36 +133,6 @@ jobs:
             echo "run=true" >> "${GITHUB_OUTPUT}"
           else
             echo "run=false" >> "${GITHUB_OUTPUT}"
-          fi
-      # A consumer opts into releasing by including go-release.mk, which defines
-      # the bodyless go-mk-release-configured probe target. `make -n` reports
-      # whether that target exists without running anything: it exits 0 when the
-      # target is defined and fails with "No rule to make target" when it is
-      # not. Only that specific failure means "release not configured"; any
-      # other make error (a broken Makefile, a failed include) fails safe to
-      # configured=true, so a damaged release setup surfaces as a failing smoke
-      # run instead of being silently skipped. The release-smoke job below keys
-      # off this output, so release rehearsal is automatic for every releasing
-      # consumer and free for everyone else, with no consumer-facing input.
-      - name: Detect release configuration
-        id: release-detect
-        working-directory: ${{ inputs.working_directory }}
-        run: |
-          probe_status=0
-          probe_output=$(make -n go-mk-release-configured 2>&1) || probe_status=$?
-          if [ "${probe_status}" -eq 0 ]; then
-            echo "configured=true" >> "${GITHUB_OUTPUT}"
-          else
-            case "${probe_output}" in
-              *"No rule to make target"*)
-                echo "configured=false" >> "${GITHUB_OUTPUT}"
-                ;;
-              *)
-                echo "release probe errored; assuming a release is configured (fail-safe)" >&2
-                printf '%s\n' "${probe_output}" >&2
-                echo "configured=true" >> "${GITHUB_OUTPUT}"
-                ;;
-            esac
           fi
 
   quality:
@@ -398,26 +367,3 @@ jobs:
         with:
           path: ~/.ccache
           key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}
-
-  # Automatic release rehearsal. Every push that changes Go-relevant files in a
-  # release-configured consumer re-runs the shared release build workflow (the
-  # same _release_build.yml that _release.yml calls for real releases) in smoke
-  # mode, across the same four platforms, so a broken release path fails CI
-  # instead of the next real release. A consumer with no release configured
-  # skips this as one instant check, because the job-level condition below stops
-  # the nested workflow before it starts. No secrets are passed, so signing is
-  # skipped inside the release command and nothing is uploaded or published.
-  # cgo is always on here: a pure-Go consumer compiles no C either way, and a
-  # cgo consumer gets its darwin cross toolchain and GO_MK_CGO_DEPS provisioning
-  # exercised. Consumers using a working_directory other than the repository
-  # root cannot release today, so the rehearsal is skipped for them as well.
-  release-smoke:
-    name: Release Smoke
-    needs: changes
-    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.release_configured == 'true' && (inputs.working_directory == '.' || inputs.working_directory == './')
-    uses: agoodkind/go-makefile/.github/workflows/_release_build.yml@main
-    with:
-      smoke: true
-      cgo: true
-      apt_packages: ${{ inputs.apt_packages }}
-      submodules: ${{ inputs.submodules }}
