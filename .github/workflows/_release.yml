@@ -78,7 +78,15 @@ jobs:
     name: Build
     needs: tag
     uses: agoodkind/go-makefile/.github/workflows/_release_build.yml@main
-    secrets: inherit
+    # Only the Apple signing and notary secrets flow into the build workflow;
+    # an explicit mapping keeps every other secret the consumer inherited to
+    # this workflow out of the nested one.
+    secrets:
+      APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+      APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+      APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+      APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+      APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
     with:
       cgo: ${{ inputs.cgo }}
       apt_packages: ${{ inputs.apt_packages }}

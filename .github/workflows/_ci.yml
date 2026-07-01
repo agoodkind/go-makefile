@@ -414,7 +414,7 @@ jobs:
   release-smoke:
     name: Release Smoke
     needs: changes
-    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.release_configured == 'true' && inputs.working_directory == '.'
+    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.release_configured == 'true' && (inputs.working_directory == '.' || inputs.working_directory == './')
     uses: agoodkind/go-makefile/.github/workflows/_release_build.yml@main
     with:
       smoke: true
