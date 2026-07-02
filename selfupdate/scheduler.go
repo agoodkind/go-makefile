@@ -51,13 +51,25 @@ func runSchedulerLoop(ctx context.Context, hooks SchedulerHooks, log *slog.Logge
 			return
 		case <-timer.C:
 		}
-		if err := runScheduledUpdate(ctx, hooks, log); err != nil {
-			log.WarnContext(ctx, "scheduled update failed", "err", err)
-			continue
-		}
-		state, err := LoadState(resolveOptions(schedulerOptions(hooks)).StatePath)
-		if err == nil && state.LastResult == "applied" {
-			schedulerStopForRelaunch(hooks)
+		stop := func() (stop bool) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					log.ErrorContext(ctx, "scheduled update panic", "err", recovered)
+					stop = false
+				}
+			}()
+			if err := runScheduledUpdate(ctx, hooks, log); err != nil {
+				log.WarnContext(ctx, "scheduled update failed", "err", err)
+				return false
+			}
+			state, err := LoadState(resolveOptions(schedulerOptions(hooks)).StatePath)
+			if err == nil && state.LastResult == "applied" {
+				schedulerStopForRelaunch(hooks)
+				return true
+			}
+			return false
+		}()
+		if stop {
 			return
 		}
 	}
