@@ -299,14 +299,24 @@ jobs:
     name: Build
     # The host build serves repos without a release configuration. Releasing
     # repos build through the Release Build job instead. This job still always
-    # runs so its named Build check reports.
-    needs: changes
+    # runs so its named Build check reports, and on a releasing repo its first
+    # step fails when the Release Build failed, so the required Build check
+    # reflects the real build result without any ruleset change. A skipped
+    # Release Build (an irrelevant push or a fork pull request) keeps this
+    # check green because nothing was supposed to build.
+    needs: [changes, release-build]
+    if: ${{ !cancelled() }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
       contents: read
       id-token: write
     steps:
+      - name: Require release build success
+        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases == 'true' && (needs.release-build.result == 'failure' || needs.release-build.result == 'cancelled')
+        run: |
+          echo "Release Build did not succeed (result: ${{ needs.release-build.result }})." >&2
+          exit 1
       - if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true'
         uses: actions/checkout@v7
         with:
