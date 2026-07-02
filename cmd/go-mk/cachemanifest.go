@@ -33,6 +33,9 @@ var cacheManifestOutputNames = []string{
 	"generated_cache_paths",
 	"generated_cache_key",
 	"generated_cache_warnings",
+	"cgo_cache_enabled",
+	"cgo_cache_paths",
+	"cgo_cache_key",
 }
 
 type cacheManifestConfig struct {
@@ -53,6 +56,9 @@ type cacheManifestResult struct {
 	paths              string
 	key                string
 	warnings           string
+	cgoEnabled         string
+	cgoPaths           string
+	cgoKey             string
 }
 
 func runCacheManifest() int {
@@ -89,12 +95,28 @@ func runCacheManifestWith(config cacheManifestConfig) int {
 		return 1
 	}
 	keyBytes := sha256.Sum256([]byte(manifest))
+	cgoEnabled := cgoCacheManifestEnabled(config)
+	cgoPaths := ""
+	cgoKey := ""
+	if cgoEnabled == "true" {
+		cgoPaths = cgoCacheManifestPath(config)
+		cgoManifest, cgoManifestErr := buildCgoCacheManifest(config, cgoPaths)
+		if cgoManifestErr != nil {
+			config.stderr("go-mk-cache-manifest: " + cgoManifestErr.Error() + "\n")
+			return 1
+		}
+		cgoKeyBytes := sha256.Sum256([]byte(cgoManifest))
+		cgoKey = hex.EncodeToString(cgoKeyBytes[:])
+	}
 	result := cacheManifestResult{
 		enabled:            enabled,
 		requiresSubmodules: requiresSubmodules,
 		paths:              outputPaths,
 		key:                hex.EncodeToString(keyBytes[:]),
 		warnings:           strings.Join(warnings, "\n"),
+		cgoEnabled:         cgoEnabled,
+		cgoPaths:           cgoPaths,
+		cgoKey:             cgoKey,
 	}
 
 	if outputErr := writeCacheManifestGitHubOutputs(config.getenv("GITHUB_OUTPUT"), result); outputErr != nil {
@@ -209,6 +231,165 @@ func buildCacheManifest(config cacheManifestConfig, outputPaths string) (string,
 		builder.WriteString("\n")
 	}
 	return builder.String(), nil
+}
+
+func cgoCacheManifestEnabled(config cacheManifestConfig) string {
+	if strings.TrimSpace(config.getenv("GO_MK_CGO_DEPS")) == "" {
+		return "false"
+	}
+	if strings.TrimSpace(config.getenv("GO_MK_TARGET_GOOS")) == "" {
+		return "false"
+	}
+	if strings.TrimSpace(config.getenv("GO_MK_TARGET_GOARCH")) == "" {
+		return "false"
+	}
+	return "true"
+}
+
+func cgoCacheManifestPath(config cacheManifestConfig) string {
+	goos := strings.TrimSpace(config.getenv("GO_MK_TARGET_GOOS"))
+	goarch := strings.TrimSpace(config.getenv("GO_MK_TARGET_GOARCH"))
+	if goos == "" || goarch == "" {
+		return ""
+	}
+	return filepath.ToSlash(filepath.Join(".make", "cgo", goos+"-"+goarch))
+}
+
+func buildCgoCacheManifest(config cacheManifestConfig, cgoPaths string) (string, error) {
+	var builder strings.Builder
+	builder.WriteString("repo_prefix\t")
+	builder.WriteString(cacheManifestRepoPrefix())
+	builder.WriteString("\n")
+	builder.WriteString("cgo_deps\t")
+	builder.WriteString(strings.Join(normalizeCacheManifestFields(config.getenv("GO_MK_CGO_DEPS")), " "))
+	builder.WriteString("\n")
+	builder.WriteString("cgo_versions\t")
+	builder.WriteString(strings.Join(normalizeCacheManifestFields(config.getenv("GO_MK_CGO_CACHE_VERSIONS")), " "))
+	builder.WriteString("\n")
+	builder.WriteString("target_goos\t")
+	builder.WriteString(strings.TrimSpace(config.getenv("GO_MK_TARGET_GOOS")))
+	builder.WriteString("\n")
+	builder.WriteString("target_goarch\t")
+	builder.WriteString(strings.TrimSpace(config.getenv("GO_MK_TARGET_GOARCH")))
+	builder.WriteString("\n")
+	builder.WriteString("cgo_cache_path\t")
+	builder.WriteString(cgoPaths)
+	builder.WriteString("\n")
+
+	compilerCommand := resolvedCgoCacheCompiler(config)
+	builder.WriteString("compiler_command\t")
+	builder.WriteString(compilerCommand)
+	builder.WriteString("\n")
+	compiler := cgoCacheCompilerFingerprint(compilerCommand)
+	if compiler.available {
+		builder.WriteString("compiler_dumpmachine\t")
+		builder.WriteString(compiler.dumpMachine)
+		builder.WriteString("\n")
+		builder.WriteString("compiler_version\t")
+		builder.WriteString(compiler.versionLine)
+		builder.WriteString("\n")
+	} else {
+		builder.WriteString("compiler_unavailable\ttrue\n")
+	}
+	builder.WriteString("toolchain_id\t")
+	builder.WriteString(strings.TrimSpace(config.getenv("GO_MK_CGO_TOOLCHAIN_ID")))
+	builder.WriteString("\n")
+
+	for _, hash := range collectCgoCacheInputHashes(config) {
+		builder.WriteString("cgo_cache_input\t")
+		builder.WriteString(hash.path)
+		builder.WriteString("\t")
+		builder.WriteString(hash.digest)
+		builder.WriteString("\n")
+	}
+	makefileHashes, makefileErr := collectCgoCacheMakefileHashes()
+	if makefileErr != nil {
+		return "", makefileErr
+	}
+	for _, hash := range makefileHashes {
+		builder.WriteString("file\t")
+		builder.WriteString(hash.path)
+		builder.WriteString("\t")
+		builder.WriteString(hash.digest)
+		builder.WriteString("\n")
+	}
+	return builder.String(), nil
+}
+
+func resolvedCgoCacheCompiler(config cacheManifestConfig) string {
+	if compiler := strings.TrimSpace(config.getenv("GO_MK_CC")); compiler != "" {
+		return compiler
+	}
+	if compiler := strings.TrimSpace(config.getenv("CC")); compiler != "" {
+		return compiler
+	}
+	return "cc"
+}
+
+type cgoCacheCompilerMetadata struct {
+	dumpMachine string
+	versionLine string
+	available   bool
+}
+
+func cgoCacheCompilerFingerprint(compilerCommand string) cgoCacheCompilerMetadata {
+	dumpMachine, dumpErr := cgoCacheCompilerOutput(compilerCommand, "-dumpmachine")
+	versionOutput, versionErr := cgoCacheCompilerOutput(compilerCommand, "--version")
+	if dumpErr != nil || versionErr != nil {
+		return cgoCacheCompilerMetadata{}
+	}
+	versionLines := strings.Split(strings.TrimRight(versionOutput, "\n"), "\n")
+	versionLine := ""
+	if len(versionLines) > 0 {
+		versionLine = versionLines[0]
+	}
+	return cgoCacheCompilerMetadata{
+		dumpMachine: strings.TrimSpace(dumpMachine),
+		versionLine: strings.TrimSpace(versionLine),
+		available:   true,
+	}
+}
+
+func cgoCacheCompilerOutput(compilerCommand string, arg string) (string, error) {
+	slog.Info("cache-manifest cgo compiler probe", slog.String("arg", arg))
+	// Split the compiler command on whitespace and exec it directly rather than
+	// through a shell. A wrapped compiler such as "ccache oa64-clang" splits into
+	// the program and its leading argument, so the two-word form still works
+	// without concatenating the value into a `sh -c` string (which would be a
+	// shell-injection surface, even though the compiler command is trusted CI
+	// configuration).
+	fields := strings.Fields(compilerCommand)
+	if len(fields) == 0 {
+		return "", fmt.Errorf("empty compiler command")
+	}
+	args := append(append([]string{}, fields[1:]...), arg)
+	output, err := exec.Command(fields[0], args...).Output()
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
+}
+
+func collectCgoCacheInputHashes(config cacheManifestConfig) []cacheManifestFileHash {
+	inputs := cacheManifestSortedUnique(normalizeCacheManifestFields(config.getenv("GO_MK_CGO_CACHE_INPUTS")))
+	hashes := make([]cacheManifestFileHash, 0, len(inputs))
+	for _, input := range inputs {
+		fileHash, hashErr := cacheManifestHashFile(input)
+		if hashErr != nil {
+			hashes = append(hashes, cacheManifestFileHash{
+				path:   input,
+				digest: "missing",
+			})
+			continue
+		}
+		hashes = append(hashes, fileHash)
+	}
+	return hashes
+}
+
+func collectCgoCacheMakefileHashes() ([]cacheManifestFileHash, error) {
+	paths := cacheManifestGitLsFiles("Makefile", "*.mk")
+	return cacheManifestHashesForPaths(paths)
 }
 
 func normalizeCacheManifestFields(value string) []string {
@@ -452,6 +633,9 @@ func writeCacheManifestGitHubOutputs(path string, result cacheManifestResult) er
 		"generated_cache_paths":               result.paths,
 		"generated_cache_key":                 result.key,
 		"generated_cache_warnings":            result.warnings,
+		"cgo_cache_enabled":                   result.cgoEnabled,
+		"cgo_cache_paths":                     result.cgoPaths,
+		"cgo_cache_key":                       result.cgoKey,
 	}
 	delimiter, delimiterErr := cacheManifestOutputDelimiterFor(values)
 	if delimiterErr != nil {
