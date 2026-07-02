@@ -20,6 +20,11 @@ permissions:
 jobs:
   go:
     uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
+    # The reusable CI workflow runs the shared release build once per relevant
+    # push (checkout, OIDC, and attestation), and secrets: inherit forwards the
+    # signing material so that build is signed the same way a real release is.
     permissions:
       contents: read
       id-token: write
+      attestations: write
+    secrets: inherit
