@@ -600,6 +600,44 @@ func TestReconcileCIWorkflow(t *testing.T) {
 		assertFileText(t, ciWorkflow, current)
 	})
 
+	t.Run("comment under uses stays attached", func(t *testing.T) {
+		repoDir := t.TempDir()
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		mustMkdirAll(t, filepath.Dir(ciWorkflow))
+		commented := "name: CI\n\n" +
+			"jobs:\n" +
+			"  go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    # documents the reusable CI caller\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n"
+		writeBootstrapTestFile(t, ciWorkflow, commented)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileCIWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+		}
+
+		// secrets: inherit lands after the comment block, keeping the comment
+		// attached to the uses line it documents.
+		expected := "name: CI\n\n" +
+			"jobs:\n" +
+			"  go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    # documents the reusable CI caller\n" +
+			"    secrets: inherit\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n"
+		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+			t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+	})
+
 	t.Run("custom ci.yml is preserved", func(t *testing.T) {
 		repoDir := t.TempDir()
 		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")

@@ -796,11 +796,18 @@ func ensureSecretsInherit(content string, usesRef string) (string, bool) {
 			return content, false
 		}
 	}
+	// Insert after the uses line and any contiguous comment or blank lines that
+	// document it, so a comment block stays attached to uses rather than being
+	// split from it.
+	insertAt := usesIndex + 1
+	for insertAt < jobEnd && isBlankOrCommentLine(lines[insertAt]) {
+		insertAt++
+	}
 	secretsLine := strings.Repeat(" ", usesIndent) + "secrets: inherit"
 	updated := make([]string, 0, len(lines)+1)
-	updated = append(updated, lines[:usesIndex+1]...)
+	updated = append(updated, lines[:insertAt]...)
 	updated = append(updated, secretsLine)
-	updated = append(updated, lines[usesIndex+1:]...)
+	updated = append(updated, lines[insertAt:]...)
 	return strings.Join(updated, lineEnding), true
 }
 
