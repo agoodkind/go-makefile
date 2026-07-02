@@ -84,6 +84,8 @@ func TestBootstrapScenarios(t *testing.T) {
 	t.Run("new binary repo", func(t *testing.T) {
 		repoDir := filepath.Join(t.TempDir(), "binary")
 		mustMkdirAll(t, repoDir)
+		initGitRepo(t, repoDir)
+		setGitRemote(t, repoDir, "git@github.com:agoodkind/bootstrap-probe.git")
 		t.Chdir(repoDir)
 
 		runBootstrapForTest(t, bootstrapOptions{
@@ -95,6 +97,17 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileExists(t, filepath.Join(repoDir, "go.mod"))
 		assertFileExists(t, filepath.Join(repoDir, "Makefile"))
 		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
+		installScript := filepath.Join(repoDir, "install.sh")
+		assertFileExists(t, installScript)
+		assertFileMode(t, installScript, 0o755)
+		assertFileContains(t, installScript, `local repo="agoodkind/bootstrap-probe"`)
+		assertFileContains(t, installScript, `local binary="bootstrap-probe"`)
+		assertFileContains(t, installScript, "# BEGIN go-mk installer core (managed by go-mk bootstrap; do not edit)")
+		assertFileContains(t, installScript, "# END go-mk installer core")
+		assertFileContains(t, installScript, `--channel rolling|stable`)
+		assertFileContains(t, installScript, `gh attestation verify "$tarball" --repo "$repo" --signer-workflow agoodkind/go-makefile/.github/workflows/_release_build.yml`)
+		assertFileContains(t, installScript, "post_install() { :; }")
+		assertFileContains(t, installScript, `run_install "$@"`)
 		assertFileExists(t, filepath.Join(repoDir, ".gitignore"))
 		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
 		assertFileExists(t, ciWorkflow)
@@ -105,12 +118,14 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileContains(t, releaseWorkflow, "agoodkind/go-makefile/.github/workflows/_release.yml@main")
 		assertFileContains(t, releaseWorkflow, "id-token: write")
 		assertFileContains(t, releaseWorkflow, "attestations: write")
+		assertFileContains(t, releaseWorkflow, "      binary: bootstrap-probe")
 		assertBootstrapTrackedFilesAbsent(t, repoDir)
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "BINARY := bootstrap-probe")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk go-release.mk")
 		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "GO_MK_BOOTSTRAP_FETCHED := 1")
 		assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
 		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
+		assertBashSyntax(t, installScript)
 		runMakeHelp(t, repoDir, repoRoot)
 	})
 
@@ -128,6 +143,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "LIBRARY := 1")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk")
 		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
+		assertFileDoesNotExist(t, filepath.Join(repoDir, "install.sh"))
 		assertBootstrapTrackedFilesAbsent(t, repoDir)
 		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
 	})
@@ -154,6 +170,8 @@ func TestBootstrapScenarios(t *testing.T) {
 	t.Run("generated rerun is stable", func(t *testing.T) {
 		repoDir := filepath.Join(t.TempDir(), "rerun")
 		mustMkdirAll(t, repoDir)
+		initGitRepo(t, repoDir)
+		setGitRemote(t, repoDir, "git@github.com:agoodkind/rerun.git")
 		t.Chdir(repoDir)
 
 		runBootstrapForTest(t, bootstrapOptions{
@@ -167,6 +185,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		beforeMakefile := mustReadFile(t, filepath.Join(repoDir, "Makefile"))
 		beforeBootstrap := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk"))
 		beforeGitignore := mustReadFile(t, filepath.Join(repoDir, ".gitignore"))
+		beforeInstall := mustReadFile(t, filepath.Join(repoDir, "install.sh"))
 		beforeCIWorkflow := mustReadFile(t, ciWorkflow)
 		beforeReleaseWorkflow := mustReadFile(t, releaseWorkflow)
 
@@ -179,6 +198,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileText(t, filepath.Join(repoDir, "Makefile"), beforeMakefile)
 		assertFileText(t, filepath.Join(repoDir, "bootstrap.mk"), beforeBootstrap)
 		assertFileText(t, filepath.Join(repoDir, ".gitignore"), beforeGitignore)
+		assertFileText(t, filepath.Join(repoDir, "install.sh"), beforeInstall)
 		assertFileText(t, ciWorkflow, beforeCIWorkflow)
 		assertFileText(t, releaseWorkflow, beforeReleaseWorkflow)
 	})
@@ -243,13 +263,132 @@ func TestBootstrapScenarios(t *testing.T) {
 	})
 }
 
+func TestReconcileInstallScript(t *testing.T) {
+	const beginMarker = "# BEGIN go-mk installer core (managed by go-mk bootstrap; do not edit)"
+	const endMarker = "# END go-mk installer core"
+
+	t.Run("repairs managed region and preserves custom tail", func(t *testing.T) {
+		repoDir := t.TempDir()
+		mustMkdirAll(t, filepath.Join(repoDir, "cmd", "agent-gate"))
+		writeBootstrapTestGoMod(t, repoDir, "github.com/agoodkind/agent-gate")
+		installScript := filepath.Join(repoDir, "install.sh")
+		prefix := "#!/usr/bin/env bash\n# custom repo header\n"
+		tail := `
+# Repo customizations stay here.
+post_install() {
+    printf 'custom %s\n' "$1"
+}
+run_install "$@"
+`
+		drifted := prefix + beginMarker + "\nold_core() { :; }\n" + endMarker + tail
+		writeBootstrapTestFile(t, installScript, drifted)
+		t.Chdir(repoDir)
+
+		runBootstrapForTest(t, bootstrapOptions{yes: true})
+
+		repaired := mustReadFile(t, installScript)
+		if !strings.HasPrefix(repaired, prefix+beginMarker+"\n") {
+			t.Fatalf("custom prefix was not preserved\ncontents:\n%s", repaired)
+		}
+		if !strings.HasSuffix(repaired, endMarker+tail) {
+			t.Fatalf("custom tail was not preserved\ncontents:\n%s", repaired)
+		}
+		if strings.Contains(repaired, "old_core") {
+			t.Fatalf("old managed core was not replaced\ncontents:\n%s", repaired)
+		}
+		assertFileContains(t, installScript, `local binary="agent-gate"`)
+		assertFileContains(t, installScript, `local repo="agoodkind/agent-gate"`)
+		assertBashSyntax(t, installScript)
+	})
+
+	t.Run("leaves bespoke file unchanged with notice", func(t *testing.T) {
+		repoDir := t.TempDir()
+		mustMkdirAll(t, filepath.Join(repoDir, "cmd", "agent-gate"))
+		writeBootstrapTestGoMod(t, repoDir, "github.com/agoodkind/agent-gate")
+		installScript := filepath.Join(repoDir, "install.sh")
+		bespoke := "#!/usr/bin/env bash\nprintf 'bespoke\\n'\n"
+		writeBootstrapTestFile(t, installScript, bespoke)
+		t.Chdir(repoDir)
+
+		_, stderr := runBootstrapForTestOutput(t, bootstrapOptions{yes: true})
+
+		assertFileText(t, installScript, bespoke)
+		if !strings.Contains(stderr, "install.sh exists and appears customized; leaving it unchanged") {
+			t.Fatalf("missing bespoke install.sh notice\nstderr:\n%s", stderr)
+		}
+	})
+
+	t.Run("skips with warning when repo is underivable", func(t *testing.T) {
+		repoDir := t.TempDir()
+		mustMkdirAll(t, filepath.Join(repoDir, "cmd", "vanity-tool"))
+		writeBootstrapTestGoMod(t, repoDir, "goodkind.io/vanity-tool")
+		t.Chdir(repoDir)
+
+		_, stderr := runBootstrapForTestOutput(t, bootstrapOptions{yes: true})
+
+		if fileExists(filepath.Join(repoDir, "install.sh")) {
+			t.Fatal("install.sh was created despite an underivable GitHub repo")
+		}
+		if !strings.Contains(stderr, "could not derive a GitHub owner/repo") {
+			t.Fatalf("missing underivable-repo warning\nstderr:\n%s", stderr)
+		}
+	})
+
+	t.Run("skips unsafe binary value with warning", func(t *testing.T) {
+		repoDir := t.TempDir()
+		mustMkdirAll(t, filepath.Join(repoDir, "cmd", "safe"))
+		initGitRepo(t, repoDir)
+		setGitRemote(t, repoDir, "git@github.com:agoodkind/safe.git")
+		writeBootstrapTestGoMod(t, repoDir, "github.com/agoodkind/safe")
+		writeBootstrapTestFile(
+			t,
+			filepath.Join(repoDir, "Makefile"),
+			"# `make help` is the canonical source of truth for every target this repo exposes.\n"+
+				"BINARY := foo $(rm -rf /)\n"+
+				"CMD := ./cmd/safe\n"+
+				"GO_MK_MODULES := go-build.mk go-release.mk\n"+
+				"include bootstrap.mk\n",
+		)
+		t.Chdir(repoDir)
+
+		_, stderr := runBootstrapForTestOutput(t, bootstrapOptions{yes: true})
+
+		if fileExists(filepath.Join(repoDir, "install.sh")) {
+			t.Fatal("install.sh was created despite unsafe BINARY")
+		}
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		assertFileExists(t, releaseWorkflow)
+		if strings.Contains(mustReadFile(t, releaseWorkflow), "binary:") {
+			t.Fatalf("release workflow includes unsafe binary input\ncontents:\n%s", mustReadFile(t, releaseWorkflow))
+		}
+		if !strings.Contains(stderr, "unsafe BINARY") {
+			t.Fatalf("missing unsafe BINARY warning\nstderr:\n%s", stderr)
+		}
+	})
+}
+
+func TestInstallScriptTemplateRendersValidBash(t *testing.T) {
+	templatePath := filepath.Join(filepath.Dir(testFilePath(t)), "bootstrap_assets", "install.sh.tmpl")
+	templateBytes, err := os.ReadFile(templatePath)
+	if err != nil {
+		t.Fatalf("read %s: %v", templatePath, err)
+	}
+	rendered := renderBootstrapTemplateForTest(t, "install.sh.tmpl", string(templateBytes), bootstrapInstallScriptContext{
+		Repo:   "agoodkind/example",
+		Binary: "example",
+	})
+	scriptPath := filepath.Join(t.TempDir(), "install.sh")
+	writeBootstrapTestFile(t, scriptPath, rendered)
+	assertBashSyntax(t, scriptPath)
+}
+
 func TestReconcileReleaseWorkflow(t *testing.T) {
 	t.Run("scaffolds when absent", func(t *testing.T) {
 		repoDir := t.TempDir()
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
 			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
 		}
 
@@ -263,7 +402,27 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 
 		before := mustReadFile(t, releaseWorkflow)
 		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
+			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+		}
+		assertFileText(t, releaseWorkflow, before)
+	})
+
+	t.Run("scaffolds binary input when absent", func(t *testing.T) {
+		repoDir := t.TempDir()
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow("agent-gate", &stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		assertFileContains(t, releaseWorkflow, "    with:\n      binary: agent-gate\n")
+
+		before := mustReadFile(t, releaseWorkflow)
+		var secondStdout bytes.Buffer
+		if err := reconcileReleaseWorkflow("agent-gate", &secondStdout); err != nil {
 			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
 		}
 		assertFileText(t, releaseWorkflow, before)
@@ -289,7 +448,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
 			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
 		}
 
@@ -314,7 +473,53 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 
 		// Idempotent: a second run leaves the repaired file byte-identical.
 		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
+			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+		}
+		assertFileText(t, releaseWorkflow, expected)
+	})
+
+	t.Run("repairs missing binary input in place", func(t *testing.T) {
+		repoDir := t.TempDir()
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+		drifted := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: write\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    with:\n" +
+			"      cgo: true\n" +
+			"    secrets: inherit\n"
+		writeBootstrapTestFile(t, releaseWorkflow, drifted)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow("agent-gate", &stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		expected := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: write\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    with:\n" +
+			"      cgo: true\n" +
+			"      binary: agent-gate\n" +
+			"    secrets: inherit\n"
+		if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
+			t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+
+		var secondStdout bytes.Buffer
+		if err := reconcileReleaseWorkflow("agent-gate", &secondStdout); err != nil {
 			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
 		}
 		assertFileText(t, releaseWorkflow, expected)
@@ -333,7 +538,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
 			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
 		}
 
@@ -360,7 +565,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
 			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
 		}
 
@@ -381,7 +586,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
 			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
 		}
 
@@ -392,7 +597,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		}
 
 		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
 			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
 		}
 		assertFileText(t, releaseWorkflow, scalar)
@@ -412,7 +617,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
 			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
 		}
 
@@ -422,7 +627,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		}
 
 		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
 			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
 		}
 		assertFileText(t, releaseWorkflow, inline)
@@ -443,7 +648,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
 			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
 		}
 
@@ -462,10 +667,50 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 
 		// Idempotent: the corrected caller stays byte-identical on a second run.
 		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
 			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
 		}
 		assertFileText(t, releaseWorkflow, expected)
+	})
+
+	t.Run("nested with binary key is ignored", func(t *testing.T) {
+		repoDir := t.TempDir()
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+		nested := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    with:\n" +
+			"      metadata:\n" +
+			"        binary: nested\n" +
+			"      cgo: true\n" +
+			"    secrets: inherit\n"
+		writeBootstrapTestFile(t, releaseWorkflow, nested)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow("agent-gate", &stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		expected := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: write\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    with:\n" +
+			"      metadata:\n" +
+			"        binary: nested\n" +
+			"      cgo: true\n" +
+			"      binary: agent-gate\n" +
+			"    secrets: inherit\n"
+		if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
+			t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
 	})
 }
 
@@ -692,6 +937,14 @@ func TestReconcileCIWorkflow(t *testing.T) {
 
 func runBootstrapForTest(t *testing.T, options bootstrapOptions) {
 	t.Helper()
+	stdout, stderr := runBootstrapForTestOutput(t, options)
+	if t.Failed() {
+		t.Fatalf("bootstrap failed\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+}
+
+func runBootstrapForTestOutput(t *testing.T, options bootstrapOptions) (string, string) {
+	t.Helper()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	options.stdout = &stdout
@@ -699,6 +952,7 @@ func runBootstrapForTest(t *testing.T, options bootstrapOptions) {
 	if err := runBootstrap(options); err != nil {
 		t.Fatalf("runBootstrap returned error: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
 	}
+	return stdout.String(), stderr.String()
 }
 
 func runMakeHelp(t *testing.T, repoDir string, repoRoot string) {
@@ -719,6 +973,16 @@ func initGitRepo(t *testing.T, repoDir string) {
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git init failed: %v\noutput:\n%s", err, string(output))
+	}
+}
+
+func setGitRemote(t *testing.T, repoDir string, remoteURL string) {
+	t.Helper()
+	command := exec.Command("git", "remote", "add", "origin", remoteURL)
+	command.Dir = repoDir
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git remote add failed: %v\noutput:\n%s", err, string(output))
 	}
 }
 
@@ -754,12 +1018,49 @@ func assertFileExists(t *testing.T, filePath string) {
 	}
 }
 
+func assertFileDoesNotExist(t *testing.T, filePath string) {
+	t.Helper()
+	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+		t.Fatalf("stat %s = %v, want not exist", filePath, err)
+	}
+}
+
+func assertFileMode(t *testing.T, filePath string, expectedMode os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(filePath)
+	if err != nil {
+		t.Fatalf("stat %s: %v", filePath, err)
+	}
+	actualMode := info.Mode().Perm()
+	if actualMode != expectedMode {
+		t.Fatalf("%s mode = %o, want %o", filePath, actualMode, expectedMode)
+	}
+}
+
 func assertFileContains(t *testing.T, filePath string, expectedText string) {
 	t.Helper()
 	contents := mustReadFile(t, filePath)
 	if !strings.Contains(contents, expectedText) {
 		t.Fatalf("%s does not contain %q\ncontents:\n%s", filePath, expectedText, contents)
 	}
+}
+
+func assertBashSyntax(t *testing.T, scriptPath string) {
+	t.Helper()
+	command := exec.Command("bash", "-n", scriptPath)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("bash -n %s failed: %v\noutput:\n%s", scriptPath, err, string(output))
+	}
+}
+
+func renderBootstrapTemplateForTest(t *testing.T, name string, source string, data bootstrapInstallScriptContext) string {
+	t.Helper()
+	rendered, err := renderBootstrapTemplate(name, source, data)
+	if err != nil {
+		t.Fatalf("render %s: %v", name, err)
+	}
+	return rendered
 }
 
 func assertBootstrapTrackedFilesAbsent(t *testing.T, repoDir string) {
