@@ -502,7 +502,7 @@ func reconcileCIWorkflow(stdout io.Writer) error {
 		fmt.Fprintln(stdout, "skipping .github/workflows/ci.yml (exists; leaving consumer workflow unchanged)")
 		return nil
 	}
-	repaired, permsChanged := repairCallerPermissions(string(existing), ciReusableWorkflowRef, ciCallerBlockPermissions, ciCallerEnsurePermissions)
+	repaired, permsChanged := repairCallerPermissions(string(existing), ciReusableWorkflowRef, ciCallerPermissions)
 	repaired, secretsChanged := ensureSecretsInherit(repaired, ciReusableWorkflowRef)
 	if !permsChanged && !secretsChanged {
 		fmt.Fprintln(stdout, "skipping .github/workflows/ci.yml (already current)")
@@ -532,22 +532,14 @@ var requiredReleasePermissions = []workflowPermission{
 	{"attestations", "write"},
 }
 
-// ciCallerBlockPermissions is the full permissions block inserted when a CI
-// caller job declares none. The reusable CI workflow's release-build path checks
-// out the repo, mints an OIDC token, and writes build attestations, so a caller
-// with no permissions block needs all three grants for the signed build to work.
-var ciCallerBlockPermissions = []workflowPermission{
+// ciCallerPermissions are the permission keys the reusable CI workflow's
+// release-build path needs from its caller: repo read for checkout, an OIDC
+// token, and attestation write. A CI caller is purely the reusable-CI job, so
+// contents:read is the correct least-privilege grant, and repairing to these
+// exact values also ensures contents is present (a permissions block that omits
+// it would otherwise leave contents at none and break checkout).
+var ciCallerPermissions = []workflowPermission{
 	{"contents", "read"},
-	{"id-token", "write"},
-	{"attestations", "write"},
-}
-
-// ciCallerEnsurePermissions are the keys added to an existing CI caller
-// permissions block. contents is omitted on purpose so an existing grant is
-// never rewritten (a consumer that set contents:write for its own reason keeps
-// it); only the OIDC and attestation writes the signed build path needs are
-// ensured.
-var ciCallerEnsurePermissions = []workflowPermission{
 	{"id-token", "write"},
 	{"attestations", "write"},
 }
@@ -597,26 +589,24 @@ func reconcileReleaseWorkflow(stdout io.Writer) error {
 }
 
 // repairReleasePermissions repairs the release caller's permissions block using
-// the same required grant for both a freshly inserted block and an existing one.
+// the release workflow's required grant.
 func repairReleasePermissions(content string) (string, bool) {
-	return repairCallerPermissions(content, releaseReusableWorkflowRef, requiredReleasePermissions, requiredReleasePermissions)
+	return repairCallerPermissions(content, releaseReusableWorkflowRef, requiredReleasePermissions)
 }
 
 // repairCallerPermissions performs a surgical, formatting-preserving edit of a
 // reusable-workflow caller: it finds the job whose uses line references usesRef,
 // locates that job's permissions key, and repairs the block-form permissions
-// mapping by inserting any missing ensurePerms key and rewriting any present
-// ensurePerms key whose value is not the required grant. A job with no
-// permissions key gets a block inserted after its uses line carrying blockPerms
-// (which may include keys, such as contents, that ensurePerms omits so an
-// existing grant is never rewritten). A job that already declares permissions in
-// the scalar form (for example permissions: write-all) or the inline-map form
-// (for example permissions: { contents: write }) is left untouched, since a
-// scalar grant such as write-all already covers every scope and surgically
-// editing a non-block form risks corrupting the mapping. Every other byte is
-// left identical. The second return value reports whether any key was inserted
-// or rewritten.
-func repairCallerPermissions(content string, usesRef string, blockPerms []workflowPermission, ensurePerms []workflowPermission) (string, bool) {
+// mapping by inserting any missing permissions key and rewriting any present
+// permissions key whose value is not the required grant. A job with no
+// permissions key gets the whole block inserted after its uses line. A job that
+// already declares permissions in the scalar form (for example
+// permissions: write-all) or the inline-map form (for example
+// permissions: { contents: write }) is left untouched, since a scalar grant such
+// as write-all already covers every scope and surgically editing a non-block
+// form risks corrupting the mapping. Every other byte is left identical. The
+// second return value reports whether any key was inserted or rewritten.
+func repairCallerPermissions(content string, usesRef string, permissions []workflowPermission) (string, bool) {
 	lineEnding := "\n"
 	if strings.Contains(content, "\r\n") {
 		lineEnding = "\r\n"
@@ -635,12 +625,12 @@ func repairCallerPermissions(content string, usesRef string, blockPerms []workfl
 	jobEnd := jobBodyEndIndex(lines, usesIndex, jobIndent)
 	permissionsIndex := permissionsLineIndex(lines, jobHeaderIndex+1, jobEnd, usesIndent)
 	if permissionsIndex < 0 {
-		return insertPermissionsBlock(lines, usesIndex, usesIndent, usesIndent-jobIndent, lineEnding, blockPerms), true
+		return insertPermissionsBlock(lines, usesIndex, usesIndent, usesIndent-jobIndent, lineEnding, permissions), true
 	}
 	if !isBlockFormPermissions(lines[permissionsIndex]) {
 		return content, false
 	}
-	return insertMissingPermissions(lines, permissionsIndex, jobEnd, usesIndent, lineEnding, ensurePerms)
+	return insertMissingPermissions(lines, permissionsIndex, jobEnd, usesIndent, lineEnding, permissions)
 }
 
 func usesLineIndex(lines []string, usesRef string) int {

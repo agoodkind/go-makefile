@@ -575,6 +575,42 @@ func TestReconcileCIWorkflow(t *testing.T) {
 		}
 	})
 
+	t.Run("block missing contents gets contents read added", func(t *testing.T) {
+		repoDir := t.TempDir()
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		mustMkdirAll(t, filepath.Dir(ciWorkflow))
+		missingContents := "name: CI\n\n" +
+			"jobs:\n" +
+			"  go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    permissions:\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    secrets: inherit\n"
+		writeBootstrapTestFile(t, ciWorkflow, missingContents)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileCIWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+		}
+
+		// A permissions block that omits contents would leave contents at none
+		// and break checkout, so contents: read is appended.
+		expected := "name: CI\n\n" +
+			"jobs:\n" +
+			"  go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    permissions:\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"      contents: read\n" +
+			"    secrets: inherit\n"
+		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+			t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+	})
+
 	t.Run("already-current caller is untouched", func(t *testing.T) {
 		repoDir := t.TempDir()
 		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
