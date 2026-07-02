@@ -1,15 +1,12 @@
 name: Release Build
 
-# Reusable single-source release build. This workflow owns the one true
-# definition of building the release targets: the four-platform matrix, the
-# darwin cross toolchain in the goreleaser-cross container, the generated-output
-# cache flow with nested submodule preparation, ccache, quill installation, and
-# the `make release` build stage. The release workflow (_release.yml) calls it
-# for real releases, and the CI workflow (_ci.yml) calls it in smoke mode to
-# rehearse the identical build on every relevant push, so the release path and
-# its CI rehearsal can never drift apart. Smoke mode skips quill installation
-# and the artifact upload, and a smoke caller passes no signing secrets, so the
-# go-mk release command skips signing and every artifact dies with the runner.
+# This workflow is the single shared build component for releases.
+# The release workflow calls this component today.
+# CI will call this component in an upcoming change.
+# This component builds all four platforms.
+# It signs and notarizes when the Apple secrets are present.
+# It attests the archives and uploads the archives.
+# It never pushes tags or publishes a GitHub release.
 
 on:
   workflow_call:
@@ -42,22 +39,12 @@ on:
       release_tag:
         description: >-
           Tag threaded through every build job for consistent version stamping.
-          An empty value lets each build derive its own prerelease tag, which is
-          acceptable when the archives are thrown away, as they are in smoke
-          mode.
+          An empty value lets each build derive its own stamp tag internally
+          without touching git, which suits callers that never publish the
+          archives.
         required: false
         type: string
         default: ""
-      smoke:
-        description: >-
-          Build-only rehearsal mode for CI. The build runs exactly as a real
-          release build does, but quill is never installed and the archives are
-          not uploaded, so nothing persists after the runner exits. A smoke
-          caller also passes no secrets, which makes the go-mk release command
-          skip darwin signing on its own.
-        required: false
-        type: boolean
-        default: false
 
 jobs:
   build:
@@ -90,11 +77,6 @@ jobs:
             cxx: oa64-clang++
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
-    # The build needs only repository read access. Artifact attestation happens
-    # in the release workflow's publish job, which keeps this workflow callable
-    # from CI contexts whose token carries no attestation permissions.
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -176,16 +158,16 @@ jobs:
           key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
       - name: Restore quill
         id: quill-cache
-        if: matrix.goos == 'darwin' && !inputs.smoke
+        if: matrix.goos == 'darwin'
         uses: actions/cache/restore@v6
         with:
           path: ~/go/bin/quill
           key: quill-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ inputs.quill_version }}
       - name: Add Go bin to PATH
-        if: matrix.goos == 'darwin' && !inputs.smoke
+        if: matrix.goos == 'darwin'
         run: echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
       - name: Install quill
-        if: matrix.goos == 'darwin' && !inputs.smoke && steps.quill-cache.outputs.cache-hit != 'true'
+        if: matrix.goos == 'darwin' && steps.quill-cache.outputs.cache-hit != 'true'
         env:
           GOFLAGS: ""
         run: go install github.com/anchore/quill/cmd/quill@${{ inputs.quill_version }}
@@ -218,13 +200,16 @@ jobs:
           path: ~/.ccache
           key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}
       - name: Save quill
-        if: matrix.goos == 'darwin' && !inputs.smoke && steps.quill-cache.outputs.cache-hit != 'true'
+        if: matrix.goos == 'darwin' && steps.quill-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ~/go/bin/quill
           key: quill-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ inputs.quill_version }}
+      - name: Attest archives
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/*.tar.gz
       - uses: actions/upload-artifact@v7
-        if: ${{ !inputs.smoke }}
         with:
           name: release-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/*.tar.gz
