@@ -136,6 +136,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
           submodules: ${{ inputs.submodules }}
       - uses: actions/setup-go@v6
         with:
