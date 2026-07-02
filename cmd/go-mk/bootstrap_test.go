@@ -170,6 +170,8 @@ func TestBootstrapScenarios(t *testing.T) {
 	t.Run("generated rerun is stable", func(t *testing.T) {
 		repoDir := filepath.Join(t.TempDir(), "rerun")
 		mustMkdirAll(t, repoDir)
+		initGitRepo(t, repoDir)
+		setGitRemote(t, repoDir, "git@github.com:agoodkind/rerun.git")
 		t.Chdir(repoDir)
 
 		runBootstrapForTest(t, bootstrapOptions{
@@ -313,6 +315,22 @@ run_install "$@"
 		assertFileText(t, installScript, bespoke)
 		if !strings.Contains(stderr, "install.sh exists and appears customized; leaving it unchanged") {
 			t.Fatalf("missing bespoke install.sh notice\nstderr:\n%s", stderr)
+		}
+	})
+
+	t.Run("skips with warning when repo is underivable", func(t *testing.T) {
+		repoDir := t.TempDir()
+		mustMkdirAll(t, filepath.Join(repoDir, "cmd", "vanity-tool"))
+		writeBootstrapTestGoMod(t, repoDir, "goodkind.io/vanity-tool")
+		t.Chdir(repoDir)
+
+		_, stderr := runBootstrapForTestOutput(t, bootstrapOptions{yes: true})
+
+		if fileExists(filepath.Join(repoDir, "install.sh")) {
+			t.Fatal("install.sh was created despite an underivable GitHub repo")
+		}
+		if !strings.Contains(stderr, "could not derive a GitHub owner/repo") {
+			t.Fatalf("missing underivable-repo warning\nstderr:\n%s", stderr)
 		}
 	})
 }

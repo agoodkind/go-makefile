@@ -497,8 +497,13 @@ func reconcileInstallScript(
 	if binary == "" {
 		binary = context.Binary
 	}
+	repo := bootstrapInstallScriptRepo(modulePath)
+	if repo == "" {
+		fmt.Fprintln(stderr, "warning: could not derive a GitHub owner/repo from the git remote or module path; skipping install.sh")
+		return nil
+	}
 	rendered, err := renderInstallScript(bootstrapInstallScriptContext{
-		Repo:   bootstrapInstallScriptRepo(modulePath),
+		Repo:   repo,
 		Binary: binary,
 	})
 	if err != nil {
@@ -556,11 +561,7 @@ func bootstrapInstallScriptRepo(modulePath string) string {
 			}
 		}
 	}
-	repo := githubOwnerRepoFromPath(modulePath)
-	if repo != "" {
-		return repo
-	}
-	return modulePath
+	return githubOwnerRepoFromPath(modulePath)
 }
 
 func githubOwnerRepoFromPath(repoPath string) string {
