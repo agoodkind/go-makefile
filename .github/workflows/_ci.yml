@@ -87,6 +87,7 @@ jobs:
     outputs:
       run: ${{ steps.decide.outputs.run }}
       changed: ${{ steps.detect.outputs.changed }}
+      releases: ${{ steps.release-detect.outputs.releases }}
     steps:
       # fetch-depth 0 so the detector can diff against github.event.before on the
       # default branch and compute merge-base against origin/<default> on feature
@@ -134,14 +135,44 @@ jobs:
           else
             echo "run=false" >> "${GITHUB_OUTPUT}"
           fi
+      # A repo that releases has a release workflow file, and the release-build
+      # job below keys off this output.
+      - name: Detect release configuration
+        id: release-detect
+        run: |
+          if [ -f .github/workflows/release.yml ]; then
+            echo "releases=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "releases=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+  release-build:
+    name: Release Build
+    # This job is THE build for a releasing repo, and it uses the same
+    # component that the release workflow publishes. It runs once per push with
+    # real signing, notarization, and attestation whenever the repository's
+    # secrets are present. The cgo input is always on because a pure-Go consumer
+    # compiles no C either way. Fork pull requests are skipped because fork
+    # tokens carry no secrets or id-token. The nesting depth is consumer ci.yml,
+    # then _ci.yml, then _release_build.yml, which is three levels inside
+    # GitHub's cap.
+    needs: changes
+    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
+    uses: agoodkind/go-makefile/.github/workflows/_release_build.yml@main
+    secrets: inherit
+    with:
+      cgo: true
+      apt_packages: ${{ inputs.apt_packages }}
+      submodules: ${{ inputs.submodules }}
 
   quality:
     name: Quality / ${{ matrix.name }}
-    # The job always runs so the matrix expands and every named check (Quality /
-    # Vet, and so on) reports, which required status checks depend on. When the
-    # detector says nothing relevant changed, every step below is skipped and the
-    # job still succeeds, so the required check stays green without doing the work.
-    needs: changes
+    # Gates fan out after the single build completes and reuse its warm caches.
+    # A failed build short-circuits the gates while the skipped gate checks still
+    # report, and the failed Build or Release Build check is what blocks the
+    # merge.
+    needs: [changes, build, release-build]
+    if: ${{ !cancelled() && needs.build.result != 'failure' && needs.build.result != 'cancelled' && needs.release-build.result != 'failure' && needs.release-build.result != 'cancelled' }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
@@ -266,25 +297,36 @@ jobs:
 
   build:
     name: Build
-    # Same pattern as quality: the job always runs so the Build check reports;
-    # its steps are skipped when nothing relevant changed.
-    needs: changes
+    # The host build serves repos without a release configuration. Releasing
+    # repos build through the Release Build job instead. This job still always
+    # runs so its named Build check reports, and on a releasing repo its first
+    # step fails when the Release Build failed, so the required Build check
+    # reflects the real build result without any ruleset change. A skipped
+    # Release Build (an irrelevant push or a fork pull request) keeps this
+    # check green because nothing was supposed to build.
+    needs: [changes, release-build]
+    if: ${{ !cancelled() }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
       contents: read
       id-token: write
     steps:
-      - if: needs.changes.outputs.run == 'true'
+      - name: Require release build success
+        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases == 'true' && (needs.release-build.result == 'failure' || needs.release-build.result == 'cancelled')
+        run: |
+          echo "Release Build did not succeed (result: ${{ needs.release-build.result }})." >&2
+          exit 1
+      - if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true'
         uses: actions/checkout@v7
         with:
           submodules: ${{ inputs.submodules }}
       - name: Install apt packages
-        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y ${{ inputs.apt_packages }}
-      - if: needs.changes.outputs.run == 'true'
+      - if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true'
         uses: actions/setup-go@v6
         with:
           go-version-file: ${{ inputs.go_version_file }}
@@ -294,13 +336,13 @@ jobs:
             ${{ inputs.working_directory }}/go.work
             ${{ inputs.working_directory }}/go.work.sum
       - name: Install ccache
-        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y ccache
       - name: Restore ccache
         id: ccache-restore
-        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         uses: actions/cache/restore@v6
         with:
           path: ~/.ccache
@@ -308,7 +350,7 @@ jobs:
           restore-keys: |
             ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-
       - name: Configure ccache
-        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: |
           {
             echo "CCACHE_DIR=${HOME}/.ccache"
@@ -320,49 +362,49 @@ jobs:
           } >> "${GITHUB_ENV}"
       - name: Inspect go-mk cache manifest
         id: go-mk-cache-prep
-        if: needs.changes.outputs.run == 'true'
+        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true'
         run: make go-mk-cache-manifest
         working-directory: ${{ inputs.working_directory }}
       - name: Prepare generated submodules
-        if: needs.changes.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
+        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
         run: make go-mk-prepare-submodules
         working-directory: ${{ inputs.working_directory }}
       - name: Build go-mk cache manifest
         id: go-mk-cache
-        if: needs.changes.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true'
+        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true'
         run: make go-mk-cache-manifest
         working-directory: ${{ inputs.working_directory }}
       - name: Restore generated outputs
         id: generated-cache-restore
-        if: needs.changes.outputs.run == 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true'
+        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true'
         uses: actions/cache/restore@v6
         with:
           path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
           key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
       - name: Install Go tool packages
-        if: needs.changes.outputs.run == 'true' && inputs.go_tool_packages != ''
+        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && inputs.go_tool_packages != ''
         run: |
           for go_tool_package in ${{ inputs.go_tool_packages }}; do
             go install "${go_tool_package}"
           done
           echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
       - name: Run pre-make commands
-        if: needs.changes.outputs.run == 'true' && inputs.pre_make_commands != ''
+        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && inputs.pre_make_commands != ''
         run: ${{ inputs.pre_make_commands }}
-      - if: needs.changes.outputs.run == 'true'
+      - if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true'
         run: make build
         working-directory: ${{ inputs.working_directory }}
       - name: Show ccache stats
-        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: ccache --show-stats || true
       - name: Save generated outputs
-        if: needs.changes.outputs.run == 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true' && steps.generated-cache-restore.outputs.cache-hit != 'true'
+        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true' && steps.generated-cache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
           key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
       - name: Save ccache
-        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != '' && steps.ccache-restore.outputs.cache-hit != 'true'
+        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != '' && steps.ccache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ~/.ccache
