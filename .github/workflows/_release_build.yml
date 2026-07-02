@@ -39,9 +39,9 @@ on:
       release_tag:
         description: >-
           Tag threaded through every build job for consistent version stamping.
-          An empty value lets each build derive its own prerelease tag, which is
-          acceptable when the archives are thrown away, as they are in smoke
-          mode.
+          An empty value lets each build derive its own stamp tag internally
+          without touching git, which suits callers that never publish the
+          archives.
         required: false
         type: string
         default: ""
