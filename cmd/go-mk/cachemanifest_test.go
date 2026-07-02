@@ -194,6 +194,25 @@ func TestCacheManifestCgoKeyStableAndChangesWithInputFile(t *testing.T) {
 	}
 }
 
+func TestCgoCacheCompilerProbeRunsTwoWordCommand(t *testing.T) {
+	repoDir := t.TempDir()
+	fakeCompiler := writeFakeCacheManifestCompiler(t, repoDir)
+	writeFakeCcache(t, repoDir)
+	t.Setenv("PATH", repoDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	metadata := cgoCacheCompilerFingerprint("ccache " + fakeCompiler)
+
+	if !metadata.available {
+		t.Fatal("compiler probe did not resolve the ccache-wrapped compiler")
+	}
+	if metadata.dumpMachine != "arm64-apple-darwin" {
+		t.Fatalf("dumpMachine = %q, want arm64-apple-darwin", metadata.dumpMachine)
+	}
+	if metadata.versionLine != "fake cc 1.0" {
+		t.Fatalf("versionLine = %q, want fake cc 1.0", metadata.versionLine)
+	}
+}
+
 func TestCacheManifestKeyStable(t *testing.T) {
 	repoDir := cacheManifestTestRepo(t)
 	writeBootstrapTestFile(t, filepath.Join(repoDir, "Makefile"), "all:\n\t@true\n")
@@ -391,6 +410,19 @@ exit 2
 		t.Fatalf("write fake compiler: %v", err)
 	}
 	return compilerPath
+}
+
+func writeFakeCcache(t *testing.T, repoDir string) {
+	t.Helper()
+	ccachePath := filepath.Join(repoDir, "ccache")
+	script := `#!/usr/bin/env bash
+set -euo pipefail
+
+exec "$@"
+`
+	if err := os.WriteFile(ccachePath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake ccache: %v", err)
+	}
 }
 
 func parseGitHubOutputHeredocs(t *testing.T, output string) map[string]string {
