@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -53,6 +55,190 @@ func TestEnvTruthy(t *testing.T) {
 				t.Fatalf("envTruthy(%q) = %v, want %v", testCase.value, got, testCase.want)
 			}
 		})
+	}
+}
+
+func TestLoadReleaseConfigDefaultsToSingleBinary(t *testing.T) {
+	t.Setenv("BINARY", "agent-gate")
+	t.Setenv("CMD", "")
+	t.Setenv("RELEASE_BINS", "")
+	t.Setenv("RELEASE_PLATFORMS", "linux/amd64")
+
+	cfg, err := loadReleaseConfig()
+	if err != nil {
+		t.Fatalf("loadReleaseConfig() error: %v", err)
+	}
+	if cfg.binary != "agent-gate" {
+		t.Fatalf("binary = %q, want agent-gate", cfg.binary)
+	}
+	if cfg.mainPkg != "." {
+		t.Fatalf("mainPkg = %q, want .", cfg.mainPkg)
+	}
+	wantBinaries := []releaseBinary{{name: "agent-gate", mainPkg: "."}}
+	if !slices.Equal(cfg.binaries, wantBinaries) {
+		t.Fatalf("binaries = %#v, want %#v", cfg.binaries, wantBinaries)
+	}
+}
+
+func TestLoadReleaseConfigParsesReleaseBins(t *testing.T) {
+	t.Setenv("BINARY", "agent-gate")
+	t.Setenv("CMD", "./cmd/agent-gate")
+	t.Setenv("RELEASE_BINS", "agent-gate:./cmd/agent-gate agentctl:./cmd/agentctl")
+	t.Setenv("RELEASE_PLATFORMS", "linux/amd64")
+
+	cfg, err := loadReleaseConfig()
+	if err != nil {
+		t.Fatalf("loadReleaseConfig() error: %v", err)
+	}
+	wantBinaries := []releaseBinary{
+		{name: "agent-gate", mainPkg: "./cmd/agent-gate"},
+		{name: "agentctl", mainPkg: "./cmd/agentctl"},
+	}
+	if !slices.Equal(cfg.binaries, wantBinaries) {
+		t.Fatalf("binaries = %#v, want %#v", cfg.binaries, wantBinaries)
+	}
+	if cfg.binary != "agent-gate" || cfg.mainPkg != "./cmd/agent-gate" {
+		t.Fatalf("primary = %s %s, want agent-gate ./cmd/agent-gate", cfg.binary, cfg.mainPkg)
+	}
+}
+
+func TestLoadReleaseConfigRejectsMalformedReleaseBins(t *testing.T) {
+	t.Setenv("BINARY", "agent-gate")
+	t.Setenv("CMD", "./cmd/agent-gate")
+	t.Setenv("RELEASE_BINS", "agent-gate:./cmd/agent-gate malformed")
+
+	_, err := loadReleaseConfig()
+	if err == nil {
+		t.Fatal("loadReleaseConfig() error = nil, want malformed RELEASE_BINS error")
+	}
+	if !strings.Contains(err.Error(), `release: malformed RELEASE_BINS entry "malformed"`) {
+		t.Fatalf("loadReleaseConfig() error = %v", err)
+	}
+}
+
+func TestArchivePlatformsWritesOneArchivePerBinaryAndPlatform(t *testing.T) {
+	workDir := t.TempDir()
+	t.Chdir(workDir)
+	distDir := "dist"
+	binaries := []releaseBinary{
+		{name: "agent-gate", mainPkg: "./cmd/agent-gate"},
+		{name: "agentctl", mainPkg: "./cmd/agentctl"},
+	}
+	platforms := []string{"darwin/arm64", "linux/amd64"}
+	for _, binary := range binaries {
+		for _, platform := range platforms {
+			osName, arch, ok := strings.Cut(platform, "/")
+			if !ok {
+				t.Fatalf("bad test platform %q", platform)
+			}
+			outDir := filepath.Join(distDir, binary.name+"_"+osName+"_"+arch)
+			if err := os.MkdirAll(outDir, 0o755); err != nil {
+				t.Fatalf("mkdir %s: %v", outDir, err)
+			}
+			outPath := filepath.Join(outDir, binary.name)
+			if err := os.WriteFile(outPath, []byte(binary.name), 0o755); err != nil {
+				t.Fatalf("write %s: %v", outPath, err)
+			}
+		}
+	}
+
+	archives, err := archivePlatforms(releaseConfig{
+		binary:    "agent-gate",
+		binaries:  binaries,
+		platforms: platforms,
+		distDir:   distDir,
+	})
+	if err != nil {
+		t.Fatalf("archivePlatforms() error: %v", err)
+	}
+	wantArchives := []string{
+		filepath.Join(distDir, "agent-gate_darwin_arm64.tar.gz"),
+		filepath.Join(distDir, "agentctl_darwin_arm64.tar.gz"),
+		filepath.Join(distDir, "agent-gate_linux_amd64.tar.gz"),
+		filepath.Join(distDir, "agentctl_linux_amd64.tar.gz"),
+	}
+	if !slices.Equal(archives, wantArchives) {
+		t.Fatalf("archives = %#v, want %#v", archives, wantArchives)
+	}
+	for _, archive := range wantArchives {
+		if _, err := os.Stat(archive); err != nil {
+			t.Fatalf("stat %s: %v", archive, err)
+		}
+	}
+}
+
+func TestReleaseLdflagsStampsGklogVersion(t *testing.T) {
+	flags := releaseLdflags(releaseConfig{
+		gklogPkg:  "goodkind.io/gklog/version",
+		tag:       "v1.2.3",
+		shortSHA:  "abc1234",
+		buildTime: "2026-07-02T00:00:00Z",
+	})
+	if !strings.Contains(flags, "-X goodkind.io/gklog/version.Version=v1.2.3") {
+		t.Fatalf("releaseLdflags() = %q, want gklog Version stamp", flags)
+	}
+}
+
+func TestGoBuildMkStampsGklogVersionForLocalBuilds(t *testing.T) {
+	makeBin, err := exec.LookPath("make")
+	if err != nil {
+		t.Skip("make not available")
+	}
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("repo root: %v", err)
+	}
+	workDir := t.TempDir()
+	makefile := "BINARY := demo\n" +
+		"CMD := ./cmd/demo\n" +
+		"GKLOG_VPKG := goodkind.io/gklog/version\n" +
+		"include " + filepath.Join(repoRoot, "go-build.mk") + "\n\n" +
+		"print-ldflags:\n" +
+		"\t@printf '%s\\n' '$(GO_BUILD_LDFLAGS)'\n"
+	if err := os.WriteFile(filepath.Join(workDir, "Makefile"), []byte(makefile), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+	cmd := exec.Command(makeBin, "print-ldflags")
+	cmd.Dir = workDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("make print-ldflags failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "-X goodkind.io/gklog/version.Version=dev") {
+		t.Fatalf("GO_BUILD_LDFLAGS = %q, want gklog Version=dev", output)
+	}
+}
+
+func TestGoReleaseMkExportsReleaseBins(t *testing.T) {
+	makeBin, err := exec.LookPath("make")
+	if err != nil {
+		t.Skip("make not available")
+	}
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("repo root: %v", err)
+	}
+	workDir := t.TempDir()
+	makefile := fmt.Sprintf(`BINARY := demo
+CMD := ./cmd/demo
+RELEASE_BINS := demo:./cmd/demo helper:./cmd/helper
+include %s
+
+print-release-bins:
+	@printf '%%s\n' "$$RELEASE_BINS"
+`, filepath.Join(repoRoot, "go-release.mk"))
+	if err := os.WriteFile(filepath.Join(workDir, "Makefile"), []byte(makefile), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+	cmd := exec.Command(makeBin, "print-release-bins")
+	cmd.Dir = workDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("make print-release-bins failed: %v\n%s", err, output)
+	}
+	want := "demo:./cmd/demo helper:./cmd/helper\n"
+	if string(output) != want {
+		t.Fatalf("RELEASE_BINS in recipe = %q, want %q", output, want)
 	}
 }
 

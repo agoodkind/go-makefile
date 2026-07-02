@@ -73,6 +73,11 @@ INSTALL_BIN := $(INSTALL_DIR)/$(BINARY)
 # declare nothing. The go-mk install/build/uninstall commands read this.
 INSTALL_BINS ?=
 
+# Release binaries beyond the primary BINARY, declared as space-separated
+# name:cmd pairs. Empty means the single BINARY:CMD. The release command reads
+# this when a repo ships more than one binary in the same GitHub release.
+RELEASE_BINS ?=
+
 # Version metadata derived from git. Single canonical scheme across all repos.
 GIT_COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 GIT_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -99,6 +104,7 @@ endif
 
 ifneq ($(strip $(GKLOG_VPKG)),)
 GO_BUILD_LDFLAGS += \
+	-X $(GKLOG_VPKG).Version=$(GIT_VERSION) \
 	-X $(GKLOG_VPKG).Commit=$(GIT_COMMIT) \
 	-X $(GKLOG_VPKG).Dirty=$(GIT_DIRTY) \
 	-X $(GKLOG_VPKG).BuildTime=$(BUILD_TIME) \
@@ -137,6 +143,7 @@ export GKLOG_VPKG
 export DIST_DIR
 export INSTALL_DIR
 export INSTALL_BINS
+export RELEASE_BINS
 export GO_BUILD_TAGS
 export GO_BUILD_LDFLAGS
 export GO_BUILD_EXTRA_FLAGS
