@@ -333,6 +333,38 @@ run_install "$@"
 			t.Fatalf("missing underivable-repo warning\nstderr:\n%s", stderr)
 		}
 	})
+
+	t.Run("skips unsafe binary value with warning", func(t *testing.T) {
+		repoDir := t.TempDir()
+		mustMkdirAll(t, filepath.Join(repoDir, "cmd", "safe"))
+		initGitRepo(t, repoDir)
+		setGitRemote(t, repoDir, "git@github.com:agoodkind/safe.git")
+		writeBootstrapTestGoMod(t, repoDir, "github.com/agoodkind/safe")
+		writeBootstrapTestFile(
+			t,
+			filepath.Join(repoDir, "Makefile"),
+			"# `make help` is the canonical source of truth for every target this repo exposes.\n"+
+				"BINARY := foo $(rm -rf /)\n"+
+				"CMD := ./cmd/safe\n"+
+				"GO_MK_MODULES := go-build.mk go-release.mk\n"+
+				"include bootstrap.mk\n",
+		)
+		t.Chdir(repoDir)
+
+		_, stderr := runBootstrapForTestOutput(t, bootstrapOptions{yes: true})
+
+		if fileExists(filepath.Join(repoDir, "install.sh")) {
+			t.Fatal("install.sh was created despite unsafe BINARY")
+		}
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		assertFileExists(t, releaseWorkflow)
+		if strings.Contains(mustReadFile(t, releaseWorkflow), "binary:") {
+			t.Fatalf("release workflow includes unsafe binary input\ncontents:\n%s", mustReadFile(t, releaseWorkflow))
+		}
+		if !strings.Contains(stderr, "unsafe BINARY") {
+			t.Fatalf("missing unsafe BINARY warning\nstderr:\n%s", stderr)
+		}
+	})
 }
 
 func TestInstallScriptTemplateRendersValidBash(t *testing.T) {
@@ -639,6 +671,46 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
 		}
 		assertFileText(t, releaseWorkflow, expected)
+	})
+
+	t.Run("nested with binary key is ignored", func(t *testing.T) {
+		repoDir := t.TempDir()
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+		nested := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    with:\n" +
+			"      metadata:\n" +
+			"        binary: nested\n" +
+			"      cgo: true\n" +
+			"    secrets: inherit\n"
+		writeBootstrapTestFile(t, releaseWorkflow, nested)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow("agent-gate", &stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		expected := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: write\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    with:\n" +
+			"      metadata:\n" +
+			"        binary: nested\n" +
+			"      cgo: true\n" +
+			"      binary: agent-gate\n" +
+			"    secrets: inherit\n"
+		if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
+			t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
 	})
 }
 

@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
 
@@ -22,6 +23,8 @@ import (
 
 //go:embed bootstrap_assets/bootstrap.mk bootstrap_assets/Makefile.tmpl bootstrap_assets/ci.yml bootstrap_assets/release.yml bootstrap_assets/install.sh.tmpl
 var bootstrapAssetFS embed.FS
+
+var bootstrapBinaryNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 const (
 	defaultBootstrapVanityRoot = "goodkind.io"
@@ -122,6 +125,13 @@ func runBootstrap(options bootstrapOptions) error {
 	if err != nil {
 		return err
 	}
+	releaseBinary := releaseWorkflowBinary(context)
+	renderInstallScript := true
+	if releaseBinary != "" && !isSafeBootstrapBinaryName(releaseBinary) {
+		fmt.Fprintf(options.stderr, "warning: unsafe BINARY %q; skipping install.sh and release workflow binary input\n", releaseBinary)
+		releaseBinary = ""
+		renderInstallScript = false
+	}
 	futureTrackedFiles := bootstrapManagedTrackedFiles(options.stderr)
 	printBootstrapSummary(options.stdout, modulePath, context)
 	if err := reconcileMakefile(context, options.stdout, options.stderr); err != nil {
@@ -133,12 +143,13 @@ func runBootstrap(options bootstrapOptions) error {
 	if err := reconcileCIWorkflow(options.stdout); err != nil {
 		return err
 	}
-	releaseBinary := releaseWorkflowBinary(context)
 	if err := reconcileReleaseWorkflow(releaseBinary, options.stdout); err != nil {
 		return err
 	}
-	if err := reconcileInstallScript(modulePath, context, releaseBinary, options.stdout, options.stderr); err != nil {
-		return err
+	if renderInstallScript {
+		if err := reconcileInstallScript(modulePath, context, releaseBinary, options.stdout, options.stderr); err != nil {
+			return err
+		}
 	}
 	warnIfLocalGolangCI(options.stderr)
 	if err := reconcileGitignore(futureTrackedFiles, options.stdout); err != nil {
@@ -480,6 +491,10 @@ func releaseWorkflowBinary(context bootstrapContext) string {
 		return binary
 	}
 	return context.Binary
+}
+
+func isSafeBootstrapBinaryName(binary string) bool {
+	return bootstrapBinaryNamePattern.MatchString(binary)
 }
 
 func reconcileInstallScript(
@@ -963,7 +978,7 @@ func insertOrUpdateBlockEntry(
 	value string,
 ) (string, bool) {
 	childIndent := -1
-	lastChildIndex := blockIndex
+	insertAt := blockIndex + 1
 	for index := blockIndex + 1; index < jobEnd; index++ {
 		if isBlankOrCommentLine(lines[index]) {
 			continue
@@ -975,6 +990,10 @@ func insertOrUpdateBlockEntry(
 		if childIndent < 0 {
 			childIndent = indent
 		}
+		insertAt = index + 1
+		if indent != childIndent {
+			continue
+		}
 		childKey, _, _ := strings.Cut(strings.TrimSpace(lines[index]), ":")
 		if strings.TrimSpace(childKey) == key {
 			updated := append([]string(nil), lines...)
@@ -985,16 +1004,15 @@ func insertOrUpdateBlockEntry(
 			updated[index] = corrected
 			return strings.Join(updated, lineEnding), true
 		}
-		lastChildIndex = index
 	}
 	if childIndent < 0 {
 		childIndent = parentIndent + 2
 	}
 	entry := strings.Repeat(" ", childIndent) + key + ": " + value
 	updated := make([]string, 0, len(lines)+1)
-	updated = append(updated, lines[:lastChildIndex+1]...)
+	updated = append(updated, lines[:insertAt]...)
 	updated = append(updated, entry)
-	updated = append(updated, lines[lastChildIndex+1:]...)
+	updated = append(updated, lines[insertAt:]...)
 	return strings.Join(updated, lineEnding), true
 }
 
