@@ -380,6 +380,9 @@ func TestInstallScriptTemplateRendersValidBash(t *testing.T) {
 	scriptPath := filepath.Join(t.TempDir(), "install.sh")
 	writeBootstrapTestFile(t, scriptPath, rendered)
 	assertBashSyntax(t, scriptPath)
+	if !strings.Contains(rendered, `RESOLVED_TAG="$tag"`) {
+		t.Fatalf("rendered installer missing RESOLVED_TAG assignment\n%s", rendered)
+	}
 }
 
 func TestReconcileReleaseWorkflow(t *testing.T) {
