@@ -172,7 +172,7 @@ jobs:
     # report, and the failed Build or Release Build check is what blocks the
     # merge.
     needs: [changes, build, release-build]
-    if: ${{ !cancelled() && needs.build.result != 'failure' && needs.release-build.result != 'failure' }}
+    if: ${{ !cancelled() && needs.build.result != 'failure' && needs.build.result != 'cancelled' && needs.release-build.result != 'failure' && needs.release-build.result != 'cancelled' }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
