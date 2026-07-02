@@ -31,9 +31,11 @@ const logDir = ".make/logs"
 const runSentinel = ".make/logs/.run"
 
 // headerlessCommands are auxiliary subcommands that run as make prerequisites
-// and are not a user-facing run, so they do not print the run header. notice
-// prints third-party license notices ahead of build, lint, and build-check.
-var headerlessCommands = map[string]bool{"notice": true}
+// and are not user-facing runs, so they do not print the run header.
+var headerlessCommands = map[string]bool{
+	"cache-manifest": true,
+	"notice":         true,
+}
 
 // headerless reports whether this invocation is an auxiliary subcommand that
 // should not print the run header. It reads the first non-flag argument as the

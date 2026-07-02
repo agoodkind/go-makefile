@@ -75,7 +75,6 @@ endef
 GO_MK_SCRIPT_FILES := \
 	scripts/go-mk-fetch-one.sh \
 	scripts/go-mk-bin.sh \
-	scripts/go-mk-cache-manifest.sh \
 	scripts/go-mk-sync.sh \
 	notices.txt
 
@@ -383,8 +382,8 @@ go-version-check: go-mk-bin
 ci-changed: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" ci-changed
 
-go-mk-cache-manifest:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-cache-manifest.sh"
+go-mk-cache-manifest: go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" cache-manifest
 
 go-mk-prepare-submodules: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" prepare-generated-submodules
