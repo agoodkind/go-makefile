@@ -230,15 +230,25 @@ print-release-bins:
 	if err := os.WriteFile(filepath.Join(workDir, "Makefile"), []byte(makefile), 0o644); err != nil {
 		t.Fatalf("write Makefile: %v", err)
 	}
-	cmd := exec.Command(makeBin, "print-release-bins")
+	cmd := exec.Command(makeBin, "--no-print-directory", "print-release-bins")
 	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("make print-release-bins failed: %v\n%s", err, output)
 	}
-	want := "demo:./cmd/demo helper:./cmd/helper\n"
-	if string(output) != want {
-		t.Fatalf("RELEASE_BINS in recipe = %q, want %q", output, want)
+	// GNU make prints "Entering/Leaving directory" lines under recursion even
+	// with --no-print-directory in some versions, so assert the RELEASE_BINS
+	// value appears on its own line rather than exact-matching the whole output.
+	want := "demo:./cmd/demo helper:./cmd/helper"
+	found := false
+	for _, line := range strings.Split(string(output), "\n") {
+		if line == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("RELEASE_BINS line %q not found in recipe output %q", want, output)
 	}
 }
 
