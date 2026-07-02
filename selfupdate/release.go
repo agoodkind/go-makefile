@@ -105,8 +105,9 @@ func fetchReleaseList(ctx context.Context, options Options, repo string) ([]rele
 	return releases, nil
 }
 
-// VerifyReleaseAssets downloads every <binary>_<os>_<arch>.tar.gz asset of the
-// release tagged tag and verifies its checksum and GitHub attestations.
+// VerifyReleaseAssets downloads every archive asset of the release tagged tag
+// and verifies its checksum and GitHub attestations. It also requires the named
+// binary to be present so a misconfigured caller fails loudly.
 func VerifyReleaseAssets(ctx context.Context, options Options, tag string) error {
 	resolvedOptions := resolveOptions(options)
 	if err := validateReleaseVerificationInput(resolvedOptions.Config, tag); err != nil {
@@ -116,10 +117,10 @@ func VerifyReleaseAssets(ctx context.Context, options Options, tag string) error
 	if err != nil {
 		return err
 	}
-	assets := releaseVerificationAssets(latest.Assets, resolvedOptions.Config.Binary)
-	if len(assets) == 0 {
+	if !releaseHasNamedBinaryAssets(latest.Assets, resolvedOptions.Config.Binary) {
 		return fmt.Errorf("no release assets matched %s_*.tar.gz in %s", resolvedOptions.Config.Binary, tag)
 	}
+	assets := releaseVerificationAssets(latest.Assets)
 	if err := os.MkdirAll(resolvedOptions.CacheDir, 0o700); err != nil {
 		resolvedOptions.Log.WarnContext(ctx, "release verification cache dir create failed", "path", resolvedOptions.CacheDir, "err", err)
 		return fmt.Errorf("create release verification cache dir: %w", err)
@@ -189,19 +190,28 @@ func fetchReleaseByTag(ctx context.Context, options Options, tag string) (releas
 	return tagged, nil
 }
 
-func releaseVerificationAssets(assets []releaseAsset, binary string) []releaseAsset {
+func releaseVerificationAssets(assets []releaseAsset) []releaseAsset {
 	matches := []releaseAsset{}
-	prefix := binary + "_"
 	for _, asset := range assets {
-		if !strings.HasPrefix(asset.Name, prefix) {
-			continue
-		}
 		if !strings.HasSuffix(asset.Name, ".tar.gz") {
 			continue
 		}
 		matches = append(matches, asset)
 	}
 	return matches
+}
+
+func releaseHasNamedBinaryAssets(assets []releaseAsset, binary string) bool {
+	prefix := binary + "_"
+	for _, asset := range assets {
+		if !strings.HasPrefix(asset.Name, prefix) {
+			continue
+		}
+		if strings.HasSuffix(asset.Name, ".tar.gz") {
+			return true
+		}
+	}
+	return false
 }
 
 func selectArchiveAsset(assets []releaseAsset, binary string) (releaseAsset, error) {
