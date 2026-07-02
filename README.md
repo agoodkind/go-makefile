@@ -42,6 +42,12 @@ by one fetched file, `go.mk`.
   gitignored `go.work` from those paths before each build. See
   [docs/workspace/routing.md](docs/workspace/routing.md) for the policy and the
   reasons behind it.
+- Repos that link external C libraries through cgo set `GO_MK_CGO_DEPS` to the
+  dependency names before `include bootstrap.mk` and define one
+  `go-mk-cgo-dep-<dep>` target per name. go.mk provisions the libraries before
+  every compile-bearing target, exports `PKG_CONFIG_PATH`, and resolves the
+  cross toolchain into `CC`/`CXX` per build target. See
+  [docs/cgo/overview.md](docs/cgo/overview.md) for the contract.
 - Do not pin the lint tools (golangci-lint, gocyclo, deadcode, govulncheck,
   gofumpt, goimports, staticcheck-extra) with a go.mod `tool` directive; go.mk
   installs them itself with versions it controls via the `*_INSTALL` variables,
