@@ -128,6 +128,19 @@ jobs:
             echo "CC=ccache gcc"
             echo "CXX=ccache g++"
           } >> "${GITHUB_ENV}"
+      - name: Declare cgo build target
+        if: inputs.cgo
+        # Publish the per-job target tuple so a consumer's make-layer
+        # go-mk-cgo-deps prerequisite sees a target os/arch that agrees with the
+        # cross compiler below and provisions into the same per-target prefix
+        # the go-mk release engine uses, instead of falling back to the host
+        # tuple (a darwin cross job would otherwise localize Mach-O objects
+        # with the linux toolchain).
+        run: |
+          {
+            echo "GO_MK_TARGET_GOOS=${{ matrix.goos }}"
+            echo "GO_MK_TARGET_GOARCH=${{ matrix.goarch }}"
+          } >> "${GITHUB_ENV}"
       - name: Configure darwin cross compilers
         if: matrix.goos == 'darwin' && inputs.cgo
         # Pass the cross compiler under dedicated GO_MK_CC / GO_MK_CXX rather than
