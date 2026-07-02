@@ -469,6 +469,227 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 	})
 }
 
+func TestReconcileCIWorkflow(t *testing.T) {
+	t.Run("scaffolds when absent with signing grants", func(t *testing.T) {
+		repoDir := t.TempDir()
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileCIWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+		}
+
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		assertFileExists(t, ciWorkflow)
+		assertFileContains(t, ciWorkflow, "agoodkind/go-makefile/.github/workflows/_ci.yml@main")
+		assertFileContains(t, ciWorkflow, "attestations: write")
+		assertFileContains(t, ciWorkflow, "secrets: inherit")
+
+		before := mustReadFile(t, ciWorkflow)
+		var secondStdout bytes.Buffer
+		if err := reconcileCIWorkflow(&secondStdout); err != nil {
+			t.Fatalf("second reconcileCIWorkflow returned error: %v", err)
+		}
+		assertFileText(t, ciWorkflow, before)
+	})
+
+	t.Run("repairs missing grants in place", func(t *testing.T) {
+		repoDir := t.TempDir()
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		mustMkdirAll(t, filepath.Dir(ciWorkflow))
+		drifted := "name: CI\n\n" +
+			"on:\n" +
+			"  push:\n" +
+			"    branches: ['**']\n\n" +
+			"jobs:\n" +
+			"  go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"      id-token: write\n" +
+			"    with:\n" +
+			"      apt_packages: libpcre2-dev\n"
+		writeBootstrapTestFile(t, ciWorkflow, drifted)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileCIWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+		}
+
+		// attestations is appended to the permissions block; secrets: inherit is
+		// inserted right after the uses line. contents: read is never rewritten.
+		expected := "name: CI\n\n" +
+			"on:\n" +
+			"  push:\n" +
+			"    branches: ['**']\n\n" +
+			"jobs:\n" +
+			"  go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    secrets: inherit\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    with:\n" +
+			"      apt_packages: libpcre2-dev\n"
+		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+			t.Fatalf("repaired ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+
+		// Idempotent: a second run leaves the repaired file byte-identical.
+		var secondStdout bytes.Buffer
+		if err := reconcileCIWorkflow(&secondStdout); err != nil {
+			t.Fatalf("second reconcileCIWorkflow returned error: %v", err)
+		}
+		assertFileText(t, ciWorkflow, expected)
+	})
+
+	t.Run("adds permissions block and secrets when job has none", func(t *testing.T) {
+		repoDir := t.TempDir()
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		mustMkdirAll(t, filepath.Dir(ciWorkflow))
+		withoutGrants := "name: CI\n\n" +
+			"jobs:\n" +
+			"  go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n"
+		writeBootstrapTestFile(t, ciWorkflow, withoutGrants)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileCIWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+		}
+
+		expected := "name: CI\n\n" +
+			"jobs:\n" +
+			"  go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    secrets: inherit\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n"
+		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+			t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+	})
+
+	t.Run("block missing contents gets contents read added", func(t *testing.T) {
+		repoDir := t.TempDir()
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		mustMkdirAll(t, filepath.Dir(ciWorkflow))
+		missingContents := "name: CI\n\n" +
+			"jobs:\n" +
+			"  go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    permissions:\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    secrets: inherit\n"
+		writeBootstrapTestFile(t, ciWorkflow, missingContents)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileCIWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+		}
+
+		// A permissions block that omits contents would leave contents at none
+		// and break checkout, so contents: read is appended.
+		expected := "name: CI\n\n" +
+			"jobs:\n" +
+			"  go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    permissions:\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"      contents: read\n" +
+			"    secrets: inherit\n"
+		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+			t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+	})
+
+	t.Run("already-current caller is untouched", func(t *testing.T) {
+		repoDir := t.TempDir()
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		mustMkdirAll(t, filepath.Dir(ciWorkflow))
+		current := "name: CI\n\n" +
+			"jobs:\n" +
+			"  go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    secrets: inherit\n" +
+			"    with:\n" +
+			"      apt_packages: libpcre2-dev\n"
+		writeBootstrapTestFile(t, ciWorkflow, current)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileCIWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+		}
+		assertFileText(t, ciWorkflow, current)
+	})
+
+	t.Run("comment under uses stays attached", func(t *testing.T) {
+		repoDir := t.TempDir()
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		mustMkdirAll(t, filepath.Dir(ciWorkflow))
+		commented := "name: CI\n\n" +
+			"jobs:\n" +
+			"  go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    # documents the reusable CI caller\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n"
+		writeBootstrapTestFile(t, ciWorkflow, commented)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileCIWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+		}
+
+		// secrets: inherit lands after the comment block, keeping the comment
+		// attached to the uses line it documents.
+		expected := "name: CI\n\n" +
+			"jobs:\n" +
+			"  go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    # documents the reusable CI caller\n" +
+			"    secrets: inherit\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n"
+		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+			t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+	})
+
+	t.Run("custom ci.yml is preserved", func(t *testing.T) {
+		repoDir := t.TempDir()
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		mustMkdirAll(t, filepath.Dir(ciWorkflow))
+		custom := "name: CI\non:\n  push:\n    branches: ['**']\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo test\n"
+		writeBootstrapTestFile(t, ciWorkflow, custom)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileCIWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+		}
+		assertFileText(t, ciWorkflow, custom)
+	})
+}
+
 func runBootstrapForTest(t *testing.T, options bootstrapOptions) {
 	t.Helper()
 	var stdout bytes.Buffer

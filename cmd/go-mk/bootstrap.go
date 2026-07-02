@@ -32,6 +32,7 @@ const (
 	releaseWorkflowAssetPath   = "bootstrap_assets/release.yml"
 	releaseWorkflowPath        = ".github/workflows/release.yml"
 	releaseReusableWorkflowRef = "agoodkind/go-makefile/.github/workflows/_release.yml"
+	ciReusableWorkflowRef      = "agoodkind/go-makefile/.github/workflows/_ci.yml"
 	generatedMakefileFirstLine = "# `make help` is the canonical source of truth for every target this repo"
 )
 
@@ -469,41 +470,76 @@ func reconcileBootstrapMk(stdout io.Writer) error {
 	return nil
 }
 
-// reconcileCIWorkflow writes the canonical consumer CI workflow when none
-// exists, so fresh scaffolds inherit the push-on-every-branch trigger instead
-// of hand-rolling it. An existing workflow is left untouched: consumers
-// customize jobs (submodules, apt packages, extra jobs), so bootstrap never
-// overwrites it and only the trigger block in the asset is the canonical
-// reference for an existing file.
+// reconcileCIWorkflow owns the consumer's CI caller so the CI-permissions drift
+// cannot recur. When no ci.yml exists it scaffolds the canonical caller. When a
+// ci.yml already calls the go-makefile reusable CI workflow it repairs the caller
+// job's permissions block in place (adding id-token and attestations write for
+// the reusable release-build path) and adds secrets: inherit so the signing
+// secrets reach that build, while preserving the uses line, with inputs,
+// comments, and formatting. A ci.yml that does not reference the reusable
+// workflow is left untouched, matching the custom-workflow rule for release.yml.
 func reconcileCIWorkflow(stdout io.Writer) error {
 	slog.Info("bootstrap reconcile ci workflow")
-	if fileExists(ciWorkflowPath) {
-		fmt.Fprintln(stdout, "skipping .github/workflows/ci.yml (exists; leaving consumer workflow unchanged)")
+	if !fileExists(ciWorkflowPath) {
+		contents, err := bootstrapAssetFS.ReadFile(ciWorkflowAssetPath)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(ciWorkflowPath), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(ciWorkflowPath, contents, 0o644); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "created .github/workflows/ci.yml")
 		return nil
 	}
-	contents, err := bootstrapAssetFS.ReadFile(ciWorkflowAssetPath)
+	existing, err := os.ReadFile(ciWorkflowPath)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(ciWorkflowPath), 0o755); err != nil {
+	if !strings.Contains(string(existing), ciReusableWorkflowRef) {
+		fmt.Fprintln(stdout, "skipping .github/workflows/ci.yml (exists; leaving consumer workflow unchanged)")
+		return nil
+	}
+	repaired, permsChanged := repairCallerPermissions(string(existing), ciReusableWorkflowRef, ciCallerPermissions)
+	repaired, secretsChanged := ensureSecretsInherit(repaired, ciReusableWorkflowRef)
+	if !permsChanged && !secretsChanged {
+		fmt.Fprintln(stdout, "skipping .github/workflows/ci.yml (already current)")
+		return nil
+	}
+	if err := os.WriteFile(ciWorkflowPath, []byte(repaired), 0o644); err != nil {
 		return err
 	}
-	if err := os.WriteFile(ciWorkflowPath, contents, 0o644); err != nil {
-		return err
-	}
-	fmt.Fprintln(stdout, "created .github/workflows/ci.yml")
+	fmt.Fprintln(stdout, "updated .github/workflows/ci.yml")
 	return nil
+}
+
+// workflowPermission is a single permissions-block entry (a scope key and its
+// grant), used to insert or repair a reusable-workflow caller's permissions.
+type workflowPermission struct {
+	key   string
+	value string
 }
 
 // requiredReleasePermissions are the permission keys the reusable release
 // workflow's attestation steps need. Consumers that granted only contents:write
 // failed at startup because the id-token and attestations grants were missing,
 // so bootstrap repairs the release caller to grant all three.
-var requiredReleasePermissions = []struct {
-	key   string
-	value string
-}{
+var requiredReleasePermissions = []workflowPermission{
 	{"contents", "write"},
+	{"id-token", "write"},
+	{"attestations", "write"},
+}
+
+// ciCallerPermissions are the permission keys the reusable CI workflow's
+// release-build path needs from its caller: repo read for checkout, an OIDC
+// token, and attestation write. A CI caller is purely the reusable-CI job, so
+// contents:read is the correct least-privilege grant, and repairing to these
+// exact values also ensures contents is present (a permissions block that omits
+// it would otherwise leave contents at none and break checkout).
+var ciCallerPermissions = []workflowPermission{
+	{"contents", "read"},
 	{"id-token", "write"},
 	{"attestations", "write"},
 }
@@ -552,25 +588,31 @@ func reconcileReleaseWorkflow(stdout io.Writer) error {
 	return nil
 }
 
-// repairReleasePermissions performs a surgical, formatting-preserving edit of a
-// release caller: it finds the job whose uses line references the reusable
-// release workflow, locates that job's permissions key, and repairs the
-// block-form permissions mapping by inserting any missing required key and
-// rewriting any present required key whose value is not the required grant. A
-// job with no permissions key gets a block inserted after its uses line at the
-// job-child indentation. A job that already declares permissions in the scalar
-// form (for example permissions: write-all) or the inline-map form (for example
+// repairReleasePermissions repairs the release caller's permissions block using
+// the release workflow's required grant.
+func repairReleasePermissions(content string) (string, bool) {
+	return repairCallerPermissions(content, releaseReusableWorkflowRef, requiredReleasePermissions)
+}
+
+// repairCallerPermissions performs a surgical, formatting-preserving edit of a
+// reusable-workflow caller: it finds the job whose uses line references usesRef,
+// locates that job's permissions key, and repairs the block-form permissions
+// mapping by inserting any missing permissions key and rewriting any present
+// permissions key whose value is not the required grant. A job with no
+// permissions key gets the whole block inserted after its uses line. A job that
+// already declares permissions in the scalar form (for example
+// permissions: write-all) or the inline-map form (for example
 // permissions: { contents: write }) is left untouched, since a scalar grant such
 // as write-all already covers every scope and surgically editing a non-block
 // form risks corrupting the mapping. Every other byte is left identical. The
 // second return value reports whether any key was inserted or rewritten.
-func repairReleasePermissions(content string) (string, bool) {
+func repairCallerPermissions(content string, usesRef string, permissions []workflowPermission) (string, bool) {
 	lineEnding := "\n"
 	if strings.Contains(content, "\r\n") {
 		lineEnding = "\r\n"
 	}
 	lines := strings.Split(content, lineEnding)
-	usesIndex := releaseUsesLineIndex(lines)
+	usesIndex := usesLineIndex(lines, usesRef)
 	if usesIndex < 0 {
 		return content, false
 	}
@@ -583,18 +625,18 @@ func repairReleasePermissions(content string) (string, bool) {
 	jobEnd := jobBodyEndIndex(lines, usesIndex, jobIndent)
 	permissionsIndex := permissionsLineIndex(lines, jobHeaderIndex+1, jobEnd, usesIndent)
 	if permissionsIndex < 0 {
-		return insertReleasePermissionsBlock(lines, usesIndex, usesIndent, usesIndent-jobIndent, lineEnding), true
+		return insertPermissionsBlock(lines, usesIndex, usesIndent, usesIndent-jobIndent, lineEnding, permissions), true
 	}
 	if !isBlockFormPermissions(lines[permissionsIndex]) {
 		return content, false
 	}
-	return insertMissingReleasePermissions(lines, permissionsIndex, jobEnd, usesIndent, lineEnding)
+	return insertMissingPermissions(lines, permissionsIndex, jobEnd, usesIndent, lineEnding, permissions)
 }
 
-func releaseUsesLineIndex(lines []string) int {
+func usesLineIndex(lines []string, usesRef string) int {
 	for index, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "uses:") && strings.Contains(trimmed, releaseReusableWorkflowRef) {
+		if strings.HasPrefix(trimmed, "uses:") && strings.Contains(trimmed, usesRef) {
 			return index
 		}
 	}
@@ -647,10 +689,10 @@ func isBlockFormPermissions(line string) bool {
 	return strings.TrimSpace(value) == ""
 }
 
-func insertReleasePermissionsBlock(lines []string, usesIndex int, jobChildIndent int, indentStep int, lineEnding string) string {
+func insertPermissionsBlock(lines []string, usesIndex int, jobChildIndent int, indentStep int, lineEnding string, permissions []workflowPermission) string {
 	childIndent := jobChildIndent + indentStep
 	block := []string{strings.Repeat(" ", jobChildIndent) + "permissions:"}
-	for _, permission := range requiredReleasePermissions {
+	for _, permission := range permissions {
 		block = append(block, strings.Repeat(" ", childIndent)+permission.key+": "+permission.value)
 	}
 	updated := make([]string, 0, len(lines)+len(block))
@@ -660,7 +702,7 @@ func insertReleasePermissionsBlock(lines []string, usesIndex int, jobChildIndent
 	return strings.Join(updated, lineEnding)
 }
 
-func insertMissingReleasePermissions(lines []string, permissionsIndex int, jobEnd int, jobChildIndent int, lineEnding string) (string, bool) {
+func insertMissingPermissions(lines []string, permissionsIndex int, jobEnd int, jobChildIndent int, lineEnding string, permissions []workflowPermission) (string, bool) {
 	presentIndex := map[string]int{}
 	childIndent := -1
 	lastChildIndex := permissionsIndex
@@ -684,7 +726,7 @@ func insertMissingReleasePermissions(lines []string, permissionsIndex int, jobEn
 	}
 	updated := append([]string(nil), lines...)
 	changed := false
-	for _, permission := range requiredReleasePermissions {
+	for _, permission := range permissions {
 		index, ok := presentIndex[permission.key]
 		if !ok {
 			continue
@@ -695,8 +737,8 @@ func insertMissingReleasePermissions(lines []string, permissionsIndex int, jobEn
 			changed = true
 		}
 	}
-	insertions := make([]string, 0, len(requiredReleasePermissions))
-	for _, permission := range requiredReleasePermissions {
+	insertions := make([]string, 0, len(permissions))
+	for _, permission := range permissions {
 		if _, ok := presentIndex[permission.key]; !ok {
 			insertions = append(insertions, strings.Repeat(" ", childIndent)+permission.key+": "+permission.value)
 		}
@@ -709,6 +751,54 @@ func insertMissingReleasePermissions(lines []string, permissionsIndex int, jobEn
 	result = append(result, insertions...)
 	result = append(result, updated[lastChildIndex+1:]...)
 	return strings.Join(result, lineEnding), true
+}
+
+// ensureSecretsInherit adds a job-level `secrets: inherit` to the reusable-CI
+// caller job so the consumer's signing secrets reach the reusable workflow's
+// release-build path. It finds the job whose uses line references usesRef and, if
+// that job body has no `secrets:` key at the job-child indentation, inserts
+// `secrets: inherit` right after the uses line. A job that already declares a
+// `secrets:` key (inherit or an explicit mapping) is left untouched. The second
+// return value reports whether the line was inserted.
+func ensureSecretsInherit(content string, usesRef string) (string, bool) {
+	lineEnding := "\n"
+	if strings.Contains(content, "\r\n") {
+		lineEnding = "\r\n"
+	}
+	lines := strings.Split(content, lineEnding)
+	usesIndex := usesLineIndex(lines, usesRef)
+	if usesIndex < 0 {
+		return content, false
+	}
+	usesIndent := leadingSpaceCount(lines[usesIndex])
+	jobHeaderIndex := jobHeaderIndexAbove(lines, usesIndex, usesIndent)
+	if jobHeaderIndex < 0 {
+		return content, false
+	}
+	jobIndent := leadingSpaceCount(lines[jobHeaderIndex])
+	jobEnd := jobBodyEndIndex(lines, usesIndex, jobIndent)
+	for index := jobHeaderIndex + 1; index < jobEnd; index++ {
+		if leadingSpaceCount(lines[index]) != usesIndent {
+			continue
+		}
+		key, _, found := strings.Cut(strings.TrimSpace(lines[index]), ":")
+		if found && strings.TrimSpace(key) == "secrets" {
+			return content, false
+		}
+	}
+	// Insert after the uses line and any contiguous comment or blank lines that
+	// document it, so a comment block stays attached to uses rather than being
+	// split from it.
+	insertAt := usesIndex + 1
+	for insertAt < jobEnd && isBlankOrCommentLine(lines[insertAt]) {
+		insertAt++
+	}
+	secretsLine := strings.Repeat(" ", usesIndent) + "secrets: inherit"
+	updated := make([]string, 0, len(lines)+1)
+	updated = append(updated, lines[:insertAt]...)
+	updated = append(updated, secretsLine)
+	updated = append(updated, lines[insertAt:]...)
+	return strings.Join(updated, lineEnding), true
 }
 
 func leadingSpaceCount(line string) int {
