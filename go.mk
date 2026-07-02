@@ -528,9 +528,24 @@ GO_MK_TARGET_GOARCH ?=
 # darwin cross build and a linux native build never share artifacts. The release
 # command overrides this with the same path it adds to PKG_CONFIG_PATH for
 # `go build`; the default keeps a direct `make go-mk-cgo-deps` self-consistent.
-GO_MK_CGO_PREFIX ?= $(CURDIR)/.make/cgo/$(GO_MK_TARGET_GOOS)-$(GO_MK_TARGET_GOARCH)
+# An empty target tuple (a plain host build) falls back to the os/arch that
+# `go build` targets by default (go env GOOS/GOARCH, the host unless the caller
+# exports an override), so host artifacts land under .make/cgo/<goos>-<goarch>
+# instead of .make/cgo/-. The fallback is all-or-nothing: a half-set tuple keys
+# the prefix verbatim, so the misconfiguration stays visible instead of
+# silently mixing a declared os with a host arch.
+GO_MK_CGO_PREFIX ?= $(CURDIR)/.make/cgo/$(if $(strip $(GO_MK_TARGET_GOOS)$(GO_MK_TARGET_GOARCH)),$(GO_MK_TARGET_GOOS)-$(GO_MK_TARGET_GOARCH),$(GO_MK_HOST_GOOS)-$(GO_MK_HOST_GOARCH))
 
 export GO_MK_CGO_DEPS
+
+.PHONY: go-mk-cgo-deps
+ifneq ($(strip $(GO_MK_CGO_DEPS)),)
+
+# The fallback os/arch (go env GOOS/GOARCH) resolve once per parse, and only for
+# a cgo consumer, so a consumer without declared cgo deps pays no `go env` shell
+# cost at parse time.
+GO_MK_HOST_GOOS   := $(shell go env GOOS)
+GO_MK_HOST_GOARCH := $(shell go env GOARCH)
 
 # go-mk-cgo-deps runs each consumer go-mk-cgo-dep-<dep> target with a per-target
 # environment: GO_MK_TARGET_GOOS/GOARCH name the build target, GO_MK_CGO_PREFIX is
@@ -544,7 +559,6 @@ export GO_MK_CGO_DEPS
 # through unchanged (a linux job's multi-word `ccache gcc`, a native build's
 # host default). The exports are target-specific, so they reach the prerequisite
 # go-mk-cgo-dep-<dep> targets without altering any other recipe's environment.
-.PHONY: go-mk-cgo-deps
 go-mk-cgo-deps: export GO_MK_TARGET_GOOS   := $(GO_MK_TARGET_GOOS)
 go-mk-cgo-deps: export GO_MK_TARGET_GOARCH := $(GO_MK_TARGET_GOARCH)
 go-mk-cgo-deps: export GO_MK_CGO_PREFIX    := $(GO_MK_CGO_PREFIX)
@@ -557,6 +571,22 @@ go-mk-cgo-deps: export CXX := $(GO_MK_CXX)
 endif
 go-mk-cgo-deps: $(foreach d,$(GO_MK_CGO_DEPS),go-mk-cgo-dep-$(d))
 	@:
+
+# A cgo consumer's host gates (vet, lint, test) type-check the cgo package, so
+# the provisioned .pc files must resolve for every compile-bearing target, not
+# only inside the go-mk-cgo-deps recipe environment. This export sits after the
+# target-specific PKG_CONFIG_PATH export above, which captured the original
+# value, so a dep recipe sees the prefix prepended exactly once.
+export PKG_CONFIG_PATH := $(GO_MK_CGO_PREFIX)/lib/pkgconfig$(if $(strip $(PKG_CONFIG_PATH)),:$(PKG_CONFIG_PATH))
+
+else
+
+# Without declared cgo deps the hook is an explicit no-op, so a direct
+# `make go-mk-cgo-deps` still succeeds and the build environment is unchanged.
+go-mk-cgo-deps:
+	@:
+
+endif
 
 .PHONY: go-mk-workspace
 go-mk-workspace:
@@ -582,8 +612,11 @@ endif
 # they never compile or resolve packages, and they pass on a fresh runner
 # without generated sources or a go.work, so attaching the prerequisite would
 # only add cost. ci-changed is also omitted so detection stays cheap and never
-# runs codegen or go-mk-workspace.
-GO_MK_PREREQS := $(if $(strip $(GO_MK_WORKSPACE_USE)),go-mk-workspace) $(GO_MK_GENERATE)
+# runs codegen or go-mk-workspace. A declared GO_MK_CGO_DEPS adds go-mk-cgo-deps
+# so the C libraries exist before any target compiles the cgo package; a dep
+# recipe that needs generated inputs first declares its own ordering
+# (go-mk-cgo-dep-x: | $(GO_MK_GENERATE)).
+GO_MK_PREREQS := $(if $(strip $(GO_MK_WORKSPACE_USE)),go-mk-workspace) $(GO_MK_GENERATE) $(if $(strip $(GO_MK_CGO_DEPS)),go-mk-cgo-deps)
 ifneq ($(strip $(GO_MK_PREREQS)),)
 build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test govulncheck: | $(GO_MK_PREREQS)
 endif

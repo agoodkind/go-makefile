@@ -338,7 +338,9 @@ const cgoDepsTarget = "go-mk-cgo-deps"
 // cgoPrefixForTarget returns the absolute per-target install prefix for
 // provisioned cgo dependencies, keyed by os/arch so a darwin cross build and a
 // linux native build never share artifacts. It mirrors the GO_MK_CGO_PREFIX
-// default in go.mk and is the single source of truth the make hook is given.
+// default in go.mk (whose empty-tuple case falls back to the host os/arch;
+// this function always receives an explicit tuple) and is the single source of
+// truth the make hook is given.
 func cgoPrefixForTarget(workDir, osName, arch string) string {
 	return filepath.Join(workDir, ".make", "cgo", osName+"-"+arch)
 }
