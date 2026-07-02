@@ -535,16 +535,26 @@ export GO_MK_CGO_DEPS
 # go-mk-cgo-deps runs each consumer go-mk-cgo-dep-<dep> target with a per-target
 # environment: GO_MK_TARGET_GOOS/GOARCH name the build target, GO_MK_CGO_PREFIX is
 # the install prefix, and PKG_CONFIG_PATH is prepended with the prefix's pkgconfig
-# directory so the just-built .pc files resolve first. CC and CXX pass through
-# unchanged from the environment (the release workflow sets them for a darwin
-# cross build; a native build may leave them unset). The exports are
-# target-specific, so they reach the prerequisite go-mk-cgo-dep-<dep> targets
-# without altering any other recipe's environment.
+# directory so the just-built .pc files resolve first. The cross toolchain
+# arrives as GO_MK_CC / GO_MK_CXX (the release workflow publishes them job-wide
+# for a darwin cross build); this hook resolves them into CC / CXX so a dep
+# recipe compiles with the target's compiler no matter which entry point invoked
+# it: the release engine, a consumer's order-only prerequisite, or a direct
+# `make go-mk-cgo-deps`. When GO_MK_CC / GO_MK_CXX are unset, CC and CXX pass
+# through unchanged (a linux job's multi-word `ccache gcc`, a native build's
+# host default). The exports are target-specific, so they reach the prerequisite
+# go-mk-cgo-dep-<dep> targets without altering any other recipe's environment.
 .PHONY: go-mk-cgo-deps
 go-mk-cgo-deps: export GO_MK_TARGET_GOOS   := $(GO_MK_TARGET_GOOS)
 go-mk-cgo-deps: export GO_MK_TARGET_GOARCH := $(GO_MK_TARGET_GOARCH)
 go-mk-cgo-deps: export GO_MK_CGO_PREFIX    := $(GO_MK_CGO_PREFIX)
 go-mk-cgo-deps: export PKG_CONFIG_PATH      := $(GO_MK_CGO_PREFIX)/lib/pkgconfig$(if $(strip $(PKG_CONFIG_PATH)),:$(PKG_CONFIG_PATH))
+ifneq ($(strip $(GO_MK_CC)),)
+go-mk-cgo-deps: export CC := $(GO_MK_CC)
+endif
+ifneq ($(strip $(GO_MK_CXX)),)
+go-mk-cgo-deps: export CXX := $(GO_MK_CXX)
+endif
 go-mk-cgo-deps: $(foreach d,$(GO_MK_CGO_DEPS),go-mk-cgo-dep-$(d))
 	@:
 
