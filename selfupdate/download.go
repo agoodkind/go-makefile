@@ -91,7 +91,7 @@ func verifyChecksum(ctx context.Context, options Options, latest release, asset 
 		return err
 	}
 	if !strings.EqualFold(want, got) {
-		return fmt.Errorf("checksum mismatch for %s", asset.Name)
+		return fmt.Errorf("checksum mismatch for %s: expected %s, got %s", asset.Name, want, got)
 	}
 	return nil
 }

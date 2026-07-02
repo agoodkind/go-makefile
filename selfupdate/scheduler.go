@@ -128,6 +128,7 @@ func runScheduledUpdate(ctx context.Context, hooks SchedulerHooks, log *slog.Log
 		}
 		return nil
 	default:
+		log.WarnContext(ctx, "scheduled update skipped for unknown mode", "mode", schedulerMode(hooks))
 		return nil
 	}
 }
