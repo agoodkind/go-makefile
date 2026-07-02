@@ -124,7 +124,7 @@ func runBootstrap(options bootstrapOptions) error {
 	if err := reconcileCIWorkflow(options.stdout); err != nil {
 		return err
 	}
-	if err := reconcileReleaseWorkflow(options.stdout); err != nil {
+	if err := reconcileReleaseWorkflow(releaseWorkflowBinary(context), options.stdout); err != nil {
 		return err
 	}
 	warnIfLocalGolangCI(options.stderr)
@@ -442,6 +442,40 @@ func isGeneratedAssignment(line string) bool {
 	}
 }
 
+func releaseWorkflowBinary(context bootstrapContext) string {
+	if binary, ok := readMakefileAssignment("Makefile", "BINARY"); ok {
+		return binary
+	}
+	return context.Binary
+}
+
+func readMakefileAssignment(filePath string, key string) (string, bool) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", false
+	}
+	defer func() { _ = file.Close() }()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		name, value, ok := strings.Cut(line, ":=")
+		if !ok {
+			name, value, ok = strings.Cut(line, "=")
+		}
+		if !ok || strings.TrimSpace(name) != key {
+			continue
+		}
+		return strings.TrimSpace(value), true
+	}
+	if err := scanner.Err(); err != nil {
+		return "", false
+	}
+	return "", false
+}
+
 func reconcileBootstrapMk(stdout io.Writer) error {
 	slog.Info("bootstrap reconcile bootstrap.mk")
 	contents, err := bootstrapAssetFS.ReadFile(bootstrapMkAssetPath)
@@ -546,23 +580,26 @@ var ciCallerPermissions = []workflowPermission{
 
 // reconcileReleaseWorkflow owns the consumer's release caller so the
 // release-permissions drift cannot recur. When no release.yml exists it
-// scaffolds the canonical caller for every repo. When a release.yml already
-// calls the go-makefile reusable release workflow it repairs the release job's
-// permissions block in place, adding any missing required key while preserving
-// the uses line, the with inputs, secrets: inherit, comments, and formatting. A
-// release.yml that does not reference the reusable workflow is left untouched,
-// matching the custom-workflow rule for ci.yml.
-func reconcileReleaseWorkflow(stdout io.Writer) error {
+// scaffolds the canonical caller for every repo. When releaseBinary is known,
+// it also writes the binary input used by post-publish release verification.
+// When a release.yml already calls the go-makefile reusable release workflow it
+// repairs the release job's permissions block in place, adding any missing
+// required key while preserving the uses line, the with inputs, secrets:
+// inherit, comments, and formatting. A release.yml that does not reference the
+// reusable workflow is left untouched, matching the custom-workflow rule for
+// ci.yml.
+func reconcileReleaseWorkflow(releaseBinary string, stdout io.Writer) error {
 	slog.Info("bootstrap reconcile release workflow")
 	if !fileExists(releaseWorkflowPath) {
 		contents, err := bootstrapAssetFS.ReadFile(releaseWorkflowAssetPath)
 		if err != nil {
 			return err
 		}
+		rendered, _ := repairReleaseBinaryInput(string(contents), releaseBinary)
 		if err := os.MkdirAll(filepath.Dir(releaseWorkflowPath), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(releaseWorkflowPath, contents, 0o644); err != nil {
+		if err := os.WriteFile(releaseWorkflowPath, []byte(rendered), 0o644); err != nil {
 			return err
 		}
 		fmt.Fprintln(stdout, "created .github/workflows/release.yml")
@@ -576,8 +613,9 @@ func reconcileReleaseWorkflow(stdout io.Writer) error {
 		fmt.Fprintln(stdout, "skipping .github/workflows/release.yml (exists; leaving consumer workflow unchanged)")
 		return nil
 	}
-	repaired, changed := repairReleasePermissions(string(existing))
-	if !changed {
+	repaired, permissionsChanged := repairReleasePermissions(string(existing))
+	repaired, binaryChanged := repairReleaseBinaryInput(repaired, releaseBinary)
+	if !permissionsChanged && !binaryChanged {
 		fmt.Fprintln(stdout, "skipping .github/workflows/release.yml (already current)")
 		return nil
 	}
@@ -592,6 +630,52 @@ func reconcileReleaseWorkflow(stdout io.Writer) error {
 // the release workflow's required grant.
 func repairReleasePermissions(content string) (string, bool) {
 	return repairCallerPermissions(content, releaseReusableWorkflowRef, requiredReleasePermissions)
+}
+
+func repairReleaseBinaryInput(content string, releaseBinary string) (string, bool) {
+	releaseBinary = strings.TrimSpace(releaseBinary)
+	if releaseBinary == "" {
+		return content, false
+	}
+	lineEnding := "\n"
+	if strings.Contains(content, "\r\n") {
+		lineEnding = "\r\n"
+	}
+	lines := strings.Split(content, lineEnding)
+	usesIndex := usesLineIndex(lines, releaseReusableWorkflowRef)
+	if usesIndex < 0 {
+		return content, false
+	}
+	usesIndent := leadingSpaceCount(lines[usesIndex])
+	jobHeaderIndex := jobHeaderIndexAbove(lines, usesIndex, usesIndent)
+	if jobHeaderIndex < 0 {
+		return content, false
+	}
+	jobIndent := leadingSpaceCount(lines[jobHeaderIndex])
+	jobEnd := jobBodyEndIndex(lines, usesIndex, jobIndent)
+	withIndex := jobChildKeyLineIndex(lines, jobHeaderIndex+1, jobEnd, usesIndent, "with")
+	if withIndex >= 0 {
+		if !isBlockFormKey(lines[withIndex]) {
+			return content, false
+		}
+		return insertOrUpdateBlockEntry(lines, withIndex, jobEnd, usesIndent, lineEnding, "binary", releaseBinary)
+	}
+	insertAt := usesIndex + 1
+	permissionsIndex := jobChildKeyLineIndex(lines, jobHeaderIndex+1, jobEnd, usesIndent, "permissions")
+	if permissionsIndex >= 0 && isBlockFormPermissions(lines[permissionsIndex]) {
+		insertAt = blockEndIndex(lines, permissionsIndex, jobEnd, usesIndent)
+	}
+	indentStep := usesIndent - jobIndent
+	childIndent := usesIndent + indentStep
+	block := []string{
+		strings.Repeat(" ", usesIndent) + "with:",
+		strings.Repeat(" ", childIndent) + "binary: " + releaseBinary,
+	}
+	updated := make([]string, 0, len(lines)+len(block))
+	updated = append(updated, lines[:insertAt]...)
+	updated = append(updated, block...)
+	updated = append(updated, lines[insertAt:]...)
+	return strings.Join(updated, lineEnding), true
 }
 
 // repairCallerPermissions performs a surgical, formatting-preserving edit of a
@@ -668,12 +752,16 @@ func jobBodyEndIndex(lines []string, fromIndex int, jobIndent int) int {
 }
 
 func permissionsLineIndex(lines []string, startIndex int, endIndex int, jobChildIndent int) int {
+	return jobChildKeyLineIndex(lines, startIndex, endIndex, jobChildIndent, "permissions")
+}
+
+func jobChildKeyLineIndex(lines []string, startIndex int, endIndex int, jobChildIndent int, wantKey string) int {
 	for index := startIndex; index < endIndex; index++ {
 		if leadingSpaceCount(lines[index]) != jobChildIndent {
 			continue
 		}
 		key, _, found := strings.Cut(strings.TrimSpace(lines[index]), ":")
-		if found && strings.TrimSpace(key) == "permissions" {
+		if found && strings.TrimSpace(key) == wantKey {
 			return index
 		}
 	}
@@ -685,8 +773,72 @@ func permissionsLineIndex(lines []string, startIndex int, endIndex int, jobChild
 // (permissions: write-all) or the inline-map form (permissions: { ... }). Only
 // the block form is safe to repair in place by adding or rewriting child keys.
 func isBlockFormPermissions(line string) bool {
+	return isBlockFormKey(line)
+}
+
+func isBlockFormKey(line string) bool {
 	_, value, _ := strings.Cut(strings.TrimSpace(line), ":")
 	return strings.TrimSpace(value) == ""
+}
+
+func blockEndIndex(lines []string, blockIndex int, jobEnd int, parentIndent int) int {
+	index := blockIndex + 1
+	for index < jobEnd {
+		if isBlankOrCommentLine(lines[index]) {
+			index++
+			continue
+		}
+		if leadingSpaceCount(lines[index]) <= parentIndent {
+			break
+		}
+		index++
+	}
+	return index
+}
+
+func insertOrUpdateBlockEntry(
+	lines []string,
+	blockIndex int,
+	jobEnd int,
+	parentIndent int,
+	lineEnding string,
+	key string,
+	value string,
+) (string, bool) {
+	childIndent := -1
+	lastChildIndex := blockIndex
+	for index := blockIndex + 1; index < jobEnd; index++ {
+		if isBlankOrCommentLine(lines[index]) {
+			continue
+		}
+		indent := leadingSpaceCount(lines[index])
+		if indent <= parentIndent {
+			break
+		}
+		if childIndent < 0 {
+			childIndent = indent
+		}
+		childKey, _, _ := strings.Cut(strings.TrimSpace(lines[index]), ":")
+		if strings.TrimSpace(childKey) == key {
+			updated := append([]string(nil), lines...)
+			corrected := strings.Repeat(" ", indent) + key + ": " + value
+			if updated[index] == corrected {
+				return strings.Join(updated, lineEnding), false
+			}
+			updated[index] = corrected
+			return strings.Join(updated, lineEnding), true
+		}
+		lastChildIndex = index
+	}
+	if childIndent < 0 {
+		childIndent = parentIndent + 2
+	}
+	entry := strings.Repeat(" ", childIndent) + key + ": " + value
+	updated := make([]string, 0, len(lines)+1)
+	updated = append(updated, lines[:lastChildIndex+1]...)
+	updated = append(updated, entry)
+	updated = append(updated, lines[lastChildIndex+1:]...)
+	return strings.Join(updated, lineEnding), true
 }
 
 func insertPermissionsBlock(lines []string, usesIndex int, jobChildIndent int, indentStep int, lineEnding string, permissions []workflowPermission) string {

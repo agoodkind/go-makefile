@@ -105,6 +105,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileContains(t, releaseWorkflow, "agoodkind/go-makefile/.github/workflows/_release.yml@main")
 		assertFileContains(t, releaseWorkflow, "id-token: write")
 		assertFileContains(t, releaseWorkflow, "attestations: write")
+		assertFileContains(t, releaseWorkflow, "      binary: bootstrap-probe")
 		assertBootstrapTrackedFilesAbsent(t, repoDir)
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "BINARY := bootstrap-probe")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk go-release.mk")
@@ -249,7 +250,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
 			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
 		}
 
@@ -263,7 +264,27 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 
 		before := mustReadFile(t, releaseWorkflow)
 		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
+			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+		}
+		assertFileText(t, releaseWorkflow, before)
+	})
+
+	t.Run("scaffolds binary input when absent", func(t *testing.T) {
+		repoDir := t.TempDir()
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow("agent-gate", &stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		assertFileContains(t, releaseWorkflow, "    with:\n      binary: agent-gate\n")
+
+		before := mustReadFile(t, releaseWorkflow)
+		var secondStdout bytes.Buffer
+		if err := reconcileReleaseWorkflow("agent-gate", &secondStdout); err != nil {
 			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
 		}
 		assertFileText(t, releaseWorkflow, before)
@@ -289,7 +310,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
 			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
 		}
 
@@ -314,7 +335,53 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 
 		// Idempotent: a second run leaves the repaired file byte-identical.
 		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
+			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+		}
+		assertFileText(t, releaseWorkflow, expected)
+	})
+
+	t.Run("repairs missing binary input in place", func(t *testing.T) {
+		repoDir := t.TempDir()
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+		drifted := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: write\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    with:\n" +
+			"      cgo: true\n" +
+			"    secrets: inherit\n"
+		writeBootstrapTestFile(t, releaseWorkflow, drifted)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow("agent-gate", &stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		expected := "name: Release\n\n" +
+			"jobs:\n" +
+			"  release:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: write\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    with:\n" +
+			"      cgo: true\n" +
+			"      binary: agent-gate\n" +
+			"    secrets: inherit\n"
+		if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
+			t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+
+		var secondStdout bytes.Buffer
+		if err := reconcileReleaseWorkflow("agent-gate", &secondStdout); err != nil {
 			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
 		}
 		assertFileText(t, releaseWorkflow, expected)
@@ -333,7 +400,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
 			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
 		}
 
@@ -360,7 +427,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
 			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
 		}
 
@@ -381,7 +448,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
 			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
 		}
 
@@ -392,7 +459,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		}
 
 		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
 			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
 		}
 		assertFileText(t, releaseWorkflow, scalar)
@@ -412,7 +479,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
 			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
 		}
 
@@ -422,7 +489,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		}
 
 		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
 			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
 		}
 		assertFileText(t, releaseWorkflow, inline)
@@ -443,7 +510,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&stdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
 			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
 		}
 
@@ -462,7 +529,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 
 		// Idempotent: the corrected caller stays byte-identical on a second run.
 		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow(&secondStdout); err != nil {
+		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
 			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
 		}
 		assertFileText(t, releaseWorkflow, expected)

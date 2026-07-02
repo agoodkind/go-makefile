@@ -42,7 +42,7 @@ SELFUPDATE_GO_MK := $(MAKE) -C selfupdate -f ../$(GO_MK) $(SELFUPDATE_LINT_ARGS)
 
 .DEFAULT_GOAL := check
 
-.PHONY: build check lint fmt vet test govulncheck go-version-check build-check ci-changed go-mk-cache-manifest \
+.PHONY: build release check lint fmt vet test govulncheck go-version-check build-check ci-changed go-mk-cache-manifest \
         lint-tools lint-golangci lint-files lint-diff lint-format lint-gocyclo lint-deadcode staticcheck-extra \
         lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
         lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new \
@@ -57,6 +57,9 @@ build:
 	$(ROOT_GO_MK) build
 	$(STATIC_GO_MK) build
 	$(SELFUPDATE_GO_MK) build
+
+release:
+	$(ROOT_GO_MK) GO_MK_MODULES=go-release.mk BINARY=go-mk CMD=./cmd/go-mk release
 
 build-check:
 	$(ROOT_GO_MK) build-check

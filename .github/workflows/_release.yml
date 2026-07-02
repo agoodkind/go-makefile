@@ -41,6 +41,11 @@ on:
         required: false
         type: boolean
         default: false
+      binary:
+        description: Binary asset prefix to verify after publish.
+        required: false
+        type: string
+        default: ""
 
 concurrency:
   group: release
@@ -117,3 +122,43 @@ jobs:
         uses: actions/attest@v4
         with:
           subject-path: dist/checksums.txt
+
+  verify:
+    name: Verify
+    needs: [tag, publish]
+    if: inputs.binary != ''
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      GOPROXY: direct
+      GOPRIVATE: goodkind.io/go-makefile
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: ${{ inputs.submodules }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.mod
+            go.sum
+            go.work
+            go.work.sum
+      - name: Verify release assets
+        env:
+          RELEASE_BINARY: ${{ inputs.binary }}
+          RELEASE_TAG: ${{ needs.tag.outputs.tag }}
+        run: |
+          attempt=1
+          while [ "${attempt}" -le 5 ]; do
+            if go run goodkind.io/go-makefile/selfupdate/cmd/verify-release@main --repo "${GITHUB_REPOSITORY}" --tag "${RELEASE_TAG}" --binary "${RELEASE_BINARY}"; then
+              exit 0
+            fi
+            if [ "${attempt}" -eq 5 ]; then
+              break
+            fi
+            sleep 30
+            attempt=$((attempt + 1))
+          done
+          exit 1
