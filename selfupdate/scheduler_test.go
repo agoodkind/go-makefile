@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -30,10 +31,9 @@ func TestRunSchedulerRecoversPanicPerIteration(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	secondCall := make(chan struct{})
-	callCount := 0
+	var callCount atomic.Int32
 	updateFetchLatestRelease = func(_ context.Context, _ Options) (release, error) {
-		callCount++
-		if callCount == 1 {
+		if callCount.Add(1) == 1 {
 			panic("scheduled check panic")
 		}
 		cancel()
@@ -72,9 +72,9 @@ func TestRunSchedulerRecoversPanicPerIteration(t *testing.T) {
 	select {
 	case <-secondCall:
 	case <-schedulerDone:
-		t.Fatalf("RunScheduler exited after panic; update calls = %d, want second iteration", callCount)
+		t.Fatalf("RunScheduler exited after panic; update calls = %d, want second iteration", callCount.Load())
 	case <-time.After(2 * time.Second):
-		t.Fatalf("timed out waiting for second scheduler iteration; update calls = %d", callCount)
+		t.Fatalf("timed out waiting for second scheduler iteration; update calls = %d", callCount.Load())
 	}
 	select {
 	case <-schedulerDone:
