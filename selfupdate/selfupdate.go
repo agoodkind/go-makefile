@@ -44,6 +44,7 @@ type Config struct {
 	SignerWorkflowURI string
 	APIBaseURL        string
 	APIBaseURLEnv     string
+	AuthToken         string
 	ValidateArgs      []string
 	ValidateMatch     string
 }

@@ -253,7 +253,7 @@ func fetchAttestations(ctx context.Context, options Options, repo string, digest
 	}
 	requestURL := releaseAPIBaseURL(options.Config) + "/repos/" + owner + "/" + name + "/attestations/" + digestQualifier + "?" + query.Encode()
 	var response githubAttestationsResponse
-	if err := fetchGitHubJSON(ctx, options.Client, requestURL, func(decoder *json.Decoder) error {
+	if err := fetchGitHubJSON(ctx, options, requestURL, func(decoder *json.Decoder) error {
 		return decoder.Decode(&response)
 	}); err != nil {
 		return nil, err
@@ -271,7 +271,7 @@ func resolveReleaseTagCommitSHA(ctx context.Context, options Options, repo strin
 	}
 	requestURL := releaseAPIBaseURL(options.Config) + "/repos/" + owner + "/" + name + "/git/ref/tags/" + url.PathEscape(tag)
 	var ref githubGitRefResponse
-	if err := fetchGitHubJSON(ctx, options.Client, requestURL, func(decoder *json.Decoder) error {
+	if err := fetchGitHubJSON(ctx, options, requestURL, func(decoder *json.Decoder) error {
 		return decoder.Decode(&ref)
 	}); err != nil {
 		slog.WarnContext(ctx, "update release tag ref fetch failed", "repo", repo, "tag", tag, "err", err)
@@ -288,7 +288,7 @@ func resolveReleaseTagCommitSHA(ctx context.Context, options Options, repo strin
 			return "", fmt.Errorf("tag %s object URL missing", tag)
 		}
 		var annotated githubAnnotatedTagResponse
-		if err := fetchGitHubJSON(ctx, options.Client, ref.Object.URL, func(decoder *json.Decoder) error {
+		if err := fetchGitHubJSON(ctx, options, ref.Object.URL, func(decoder *json.Decoder) error {
 			return decoder.Decode(&annotated)
 		}); err != nil {
 			slog.WarnContext(ctx, "update annotated tag fetch failed", "repo", repo, "tag", tag, "err", err)
@@ -303,14 +303,14 @@ func resolveReleaseTagCommitSHA(ctx context.Context, options Options, repo strin
 	}
 }
 
-func fetchGitHubJSON(ctx context.Context, client *http.Client, requestURL string, decode func(*json.Decoder) error) error {
+func fetchGitHubJSON(ctx context.Context, options Options, requestURL string, decode func(*json.Decoder) error) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		slog.WarnContext(ctx, "update GitHub request build failed", "url", requestURL, "err", err)
 		return fmt.Errorf("build GitHub request: %w", err)
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := client.Do(req)
+	applyGitHubAPIHeaders(req, options.Config)
+	resp, err := options.Client.Do(req)
 	if err != nil {
 		slog.WarnContext(ctx, "update GitHub request failed", "url", requestURL, "err", err)
 		return fmt.Errorf("request GitHub API: %w", err)

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -51,7 +53,7 @@ func fetchLatestRelease(ctx context.Context, options Options) (release, error) {
 		log.WarnContext(ctx, "update latest release request build failed", "repo", repo, "err", err)
 		return release{}, fmt.Errorf("build latest release request: %w", err)
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
+	applyGitHubAPIHeaders(req, options.Config)
 	resp, err := options.Client.Do(req)
 	if err != nil {
 		log.WarnContext(ctx, "update latest release request failed", "repo", repo, "err", err)
@@ -84,7 +86,7 @@ func fetchReleaseList(ctx context.Context, options Options, repo string) ([]rele
 		log.WarnContext(ctx, "update release list request build failed", "repo", repo, "err", err)
 		return nil, fmt.Errorf("build release list request: %w", err)
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
+	applyGitHubAPIHeaders(req, options.Config)
 	resp, err := options.Client.Do(req)
 	if err != nil {
 		log.WarnContext(ctx, "update release list request failed", "repo", repo, "err", err)
@@ -104,6 +106,105 @@ func fetchReleaseList(ctx context.Context, options Options, repo string) ([]rele
 	return releases, nil
 }
 
+// VerifyReleaseAssets downloads every <binary>_<os>_<arch>.tar.gz asset of the
+// release tagged tag and verifies its checksum and GitHub attestations.
+func VerifyReleaseAssets(ctx context.Context, options Options, tag string) error {
+	resolvedOptions := resolveOptions(options)
+	if err := validateReleaseVerificationInput(resolvedOptions.Config, tag); err != nil {
+		return err
+	}
+	latest, err := fetchReleaseByTag(ctx, resolvedOptions, tag)
+	if err != nil {
+		return err
+	}
+	assets := releaseVerificationAssets(latest.Assets, resolvedOptions.Config.Binary)
+	if len(assets) == 0 {
+		return fmt.Errorf("no release assets matched %s_*.tar.gz in %s", resolvedOptions.Config.Binary, tag)
+	}
+	if err := os.MkdirAll(resolvedOptions.CacheDir, 0o700); err != nil {
+		resolvedOptions.Log.WarnContext(ctx, "release verification cache dir create failed", "path", resolvedOptions.CacheDir, "err", err)
+		return fmt.Errorf("create release verification cache dir: %w", err)
+	}
+	for _, asset := range assets {
+		if asset.BrowserDownloadURL == "" {
+			return fmt.Errorf("release asset %s has no download URL", asset.Name)
+		}
+		archivePath := filepath.Join(resolvedOptions.CacheDir, asset.Name)
+		if err := updateDownloadFile(ctx, resolvedOptions.Client, asset.BrowserDownloadURL, archivePath); err != nil {
+			return err
+		}
+		if err := updateVerifyChecksum(ctx, resolvedOptions, latest, asset, archivePath); err != nil {
+			return err
+		}
+		if err := updateVerifyGitHubAttestations(ctx, resolvedOptions, latest, asset, archivePath); err != nil {
+			return err
+		}
+		logVerifiedReleaseAsset(ctx, resolvedOptions, latest, asset)
+	}
+	return nil
+}
+
+func logVerifiedReleaseAsset(ctx context.Context, options Options, latest release, asset releaseAsset) {
+	options.Log.InfoContext(ctx, "release asset verified", "asset", asset.Name, "tag", latest.TagName)
+}
+
+func validateReleaseVerificationInput(cfg Config, tag string) error {
+	if strings.TrimSpace(cfg.Repo) == "" {
+		return fmt.Errorf("update repo is required")
+	}
+	if strings.TrimSpace(cfg.Binary) == "" {
+		return fmt.Errorf("update binary is required")
+	}
+	if strings.TrimSpace(tag) == "" {
+		return fmt.Errorf("release tag is required")
+	}
+	return nil
+}
+
+func fetchReleaseByTag(ctx context.Context, options Options, tag string) (release, error) {
+	log := options.Log
+	repo := options.Config.Repo
+	requestURL := releaseAPIBaseURL(options.Config) + "/repos/" + repo + "/releases/tags/" + url.PathEscape(tag)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		log.WarnContext(ctx, "update tagged release request build failed", "repo", repo, "tag", tag, "err", err)
+		return release{}, fmt.Errorf("build tagged release request: %w", err)
+	}
+	applyGitHubAPIHeaders(req, options.Config)
+	resp, err := options.Client.Do(req)
+	if err != nil {
+		log.WarnContext(ctx, "update tagged release request failed", "repo", repo, "tag", tag, "err", err)
+		return release{}, fmt.Errorf("query tagged release: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		err := fmt.Errorf("query tagged release: HTTP %d", resp.StatusCode)
+		log.WarnContext(ctx, "update tagged release status failed", "repo", repo, "tag", tag, "status_code", resp.StatusCode, "err", err)
+		return release{}, err
+	}
+	var tagged release
+	if err := json.NewDecoder(resp.Body).Decode(&tagged); err != nil {
+		log.WarnContext(ctx, "update tagged release decode failed", "repo", repo, "tag", tag, "err", err)
+		return release{}, fmt.Errorf("decode tagged release: %w", err)
+	}
+	return tagged, nil
+}
+
+func releaseVerificationAssets(assets []releaseAsset, binary string) []releaseAsset {
+	matches := []releaseAsset{}
+	prefix := binary + "_"
+	for _, asset := range assets {
+		if !strings.HasPrefix(asset.Name, prefix) {
+			continue
+		}
+		if !strings.HasSuffix(asset.Name, ".tar.gz") {
+			continue
+		}
+		matches = append(matches, asset)
+	}
+	return matches
+}
+
 func selectArchiveAsset(assets []releaseAsset, binary string) (releaseAsset, error) {
 	name := fmt.Sprintf("%s_%s_%s.tar.gz", binary, runtime.GOOS, runtime.GOARCH)
 	for _, asset := range assets {
@@ -121,6 +222,13 @@ func findAsset(assets []releaseAsset, name string) (releaseAsset, bool) {
 		}
 	}
 	return releaseAsset{Name: "", BrowserDownloadURL: "", Digest: ""}, false
+}
+
+func applyGitHubAPIHeaders(req *http.Request, cfg Config) {
+	req.Header.Set("Accept", "application/vnd.github+json")
+	if token := strings.TrimSpace(cfg.AuthToken); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 }
 
 func releaseAPIBaseURL(cfg Config) string {

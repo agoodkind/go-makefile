@@ -2,7 +2,12 @@ package selfupdate
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -57,6 +62,157 @@ func TestChecksumFromFile(t *testing.T) {
 	}
 	if got != "abc123" {
 		t.Fatalf("checksumFromFile() = %q, want %q", got, "abc123")
+	}
+}
+
+func TestVerifyReleaseAssetsDownloadsAndVerifiesMatchingArchives(t *testing.T) {
+	originalVerifyGitHubAttestations := updateVerifyGitHubAttestations
+	originalExtractCandidate := updateExtractCandidate
+	originalValidateCandidate := updateValidateCandidate
+	t.Cleanup(func() {
+		updateVerifyGitHubAttestations = originalVerifyGitHubAttestations
+		updateExtractCandidate = originalExtractCandidate
+		updateValidateCandidate = originalValidateCandidate
+	})
+
+	darwinAssetName := "agent-gate_darwin_amd64.tar.gz"
+	linuxAssetName := "agent-gate_linux_arm64.tar.gz"
+	darwinArchive := []byte("darwin archive")
+	linuxArchive := []byte("linux archive")
+	checksums := fmt.Sprintf(
+		"%s  %s\n%s  %s\n",
+		testSHA256Hex(darwinArchive),
+		darwinAssetName,
+		testSHA256Hex(linuxArchive),
+		linuxAssetName,
+	)
+	verifiedAttestations := []string{}
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/repos/agoodkind/agent-gate/releases/tags/v1.2.3":
+			if got := request.Header.Get("Authorization"); got != "Bearer test-token" {
+				t.Errorf("Authorization = %q, want bearer token on API request", got)
+			}
+			response := release{
+				TagName: "v1.2.3",
+				Assets: []releaseAsset{
+					{
+						Name:               darwinAssetName,
+						BrowserDownloadURL: server.URL + "/downloads/" + darwinAssetName,
+					},
+					{
+						Name:               linuxAssetName,
+						BrowserDownloadURL: server.URL + "/downloads/" + linuxAssetName,
+					},
+					{
+						Name:               "checksums.txt",
+						BrowserDownloadURL: server.URL + "/downloads/checksums.txt",
+					},
+					{
+						Name:               "agent-gate-notes.txt",
+						BrowserDownloadURL: server.URL + "/downloads/notes.txt",
+					},
+				},
+			}
+			if err := json.NewEncoder(writer).Encode(response); err != nil {
+				t.Errorf("encode response: %v", err)
+			}
+		case "/downloads/" + darwinAssetName:
+			if got := request.Header.Get("Authorization"); got != "" {
+				t.Errorf("Authorization = %q, want no token on asset download", got)
+			}
+			_, _ = writer.Write(darwinArchive)
+		case "/downloads/" + linuxAssetName:
+			if got := request.Header.Get("Authorization"); got != "" {
+				t.Errorf("Authorization = %q, want no token on asset download", got)
+			}
+			_, _ = writer.Write(linuxArchive)
+		case "/downloads/checksums.txt":
+			if got := request.Header.Get("Authorization"); got != "" {
+				t.Errorf("Authorization = %q, want no token on checksum download", got)
+			}
+			_, _ = writer.Write([]byte(checksums))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	updateVerifyGitHubAttestations = func(_ context.Context, _ Options, _ release, asset releaseAsset, _ string) error {
+		verifiedAttestations = append(verifiedAttestations, asset.Name)
+		return nil
+	}
+	updateExtractCandidate = func(_ string, _ string) (string, func(), error) {
+		t.Fatal("updateExtractCandidate() should not run during release verification")
+		return "", func() {}, nil
+	}
+	updateValidateCandidate = func(_ context.Context, _ Config, _ string) error {
+		t.Fatal("updateValidateCandidate() should not run during release verification")
+		return nil
+	}
+
+	cacheDir := t.TempDir()
+	options := Options{
+		Config: Config{
+			Repo:       "agoodkind/agent-gate",
+			Binary:     "agent-gate",
+			APIBaseURL: server.URL,
+			AuthToken:  "test-token",
+		},
+		Client:   server.Client(),
+		CacheDir: cacheDir,
+	}
+
+	err := VerifyReleaseAssets(context.Background(), options, "v1.2.3")
+	if err != nil {
+		t.Fatalf("VerifyReleaseAssets() error: %v", err)
+	}
+	if strings.Join(verifiedAttestations, ",") != darwinAssetName+","+linuxAssetName {
+		t.Fatalf("verified attestations = %#v", verifiedAttestations)
+	}
+	assertFileBytes(t, filepath.Join(cacheDir, darwinAssetName), darwinArchive)
+	assertFileBytes(t, filepath.Join(cacheDir, linuxAssetName), linuxArchive)
+}
+
+func TestVerifyReleaseAssetsRequiresMatchingArchives(t *testing.T) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/repos/agoodkind/agent-gate/releases/tags/v1.2.3" {
+			http.NotFound(writer, request)
+			return
+		}
+		response := release{
+			TagName: "v1.2.3",
+			Assets: []releaseAsset{
+				{
+					Name:               "checksums.txt",
+					BrowserDownloadURL: server.URL + "/downloads/checksums.txt",
+				},
+			},
+		}
+		if err := json.NewEncoder(writer).Encode(response); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	options := Options{
+		Config: Config{
+			Repo:       "agoodkind/agent-gate",
+			Binary:     "agent-gate",
+			APIBaseURL: server.URL,
+		},
+		Client:   server.Client(),
+		CacheDir: t.TempDir(),
+	}
+
+	err := VerifyReleaseAssets(context.Background(), options, "v1.2.3")
+	if err == nil {
+		t.Fatal("VerifyReleaseAssets() error = nil, want missing archive error")
+	}
+	if !strings.Contains(err.Error(), "no release assets matched") {
+		t.Fatalf("VerifyReleaseAssets() error = %v", err)
 	}
 }
 
@@ -342,5 +498,21 @@ func TestApplyCurrentPreservesAppliedTag(t *testing.T) {
 	}
 	if state.AppliedTag != "202606250437-78-1cff09c" {
 		t.Fatalf("AppliedTag = %q", state.AppliedTag)
+	}
+}
+
+func testSHA256Hex(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
+}
+
+func assertFileBytes(t *testing.T, path string, expected []byte) {
+	t.Helper()
+	actual, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error: %v", path, err)
+	}
+	if string(actual) != string(expected) {
+		t.Fatalf("ReadFile(%q) = %q, want %q", path, actual, expected)
 	}
 }
