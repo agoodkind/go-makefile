@@ -163,7 +163,7 @@ func applyLatest(ctx context.Context, options Options, result *ApplyResult) erro
 		options.Log.WarnContext(ctx, "update apply cache dir create failed", "path", cacheDir, "err", err)
 		return fmt.Errorf("create update cache dir: %w", err)
 	}
-	archivePath := filepath.Join(cacheDir, asset.Name)
+	archivePath := filepath.Join(cacheDir, filepath.Base(asset.Name))
 	if err := updateDownloadFile(ctx, options.Client, asset.BrowserDownloadURL, archivePath); err != nil {
 		return err
 	}

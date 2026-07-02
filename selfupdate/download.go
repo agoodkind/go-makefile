@@ -36,12 +36,12 @@ func downloadFile(ctx context.Context, client *http.Client, url string, path str
 		slog.WarnContext(ctx, "update download size rejected", "url", url, "content_length", resp.ContentLength, "err", err)
 		return err
 	}
-	tmpPath := path + ".tmp"
-	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	out, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
-		slog.WarnContext(ctx, "update download temp open failed", "path", tmpPath, "err", err)
+		slog.WarnContext(ctx, "update download temp open failed", "path", path, "err", err)
 		return fmt.Errorf("open download temp: %w", err)
 	}
+	tmpPath := out.Name()
 	limitedReader := io.LimitReader(resp.Body, maxDownloadedAssetBytes+1)
 	written, copyErr := io.Copy(out, limitedReader)
 	closeErr := out.Close()

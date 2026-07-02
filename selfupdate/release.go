@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -79,7 +78,7 @@ func fetchLatestRelease(ctx context.Context, options Options) (release, error) {
 }
 
 func fetchReleaseList(ctx context.Context, options Options, repo string) ([]release, error) {
-	log := slog.Default()
+	log := options.Log
 	url := releaseAPIBaseURL(options.Config) + "/repos/" + repo + "/releases"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -129,7 +128,7 @@ func VerifyReleaseAssets(ctx context.Context, options Options, tag string) error
 		if asset.BrowserDownloadURL == "" {
 			return fmt.Errorf("release asset %s has no download URL", asset.Name)
 		}
-		archivePath := filepath.Join(resolvedOptions.CacheDir, asset.Name)
+		archivePath := filepath.Join(resolvedOptions.CacheDir, filepath.Base(asset.Name))
 		if err := updateDownloadFile(ctx, resolvedOptions.Client, asset.BrowserDownloadURL, archivePath); err != nil {
 			return err
 		}

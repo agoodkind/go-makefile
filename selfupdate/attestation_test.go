@@ -214,6 +214,16 @@ func TestValidateBuildProvenanceRejectsMissingCertificateSummary(t *testing.T) {
 	}
 }
 
+func TestSplitRepositoryRejectsExtraSegments(t *testing.T) {
+	_, _, err := splitRepository("agoodkind/agent-gate/extra")
+	if err == nil {
+		t.Fatal("splitRepository() error = nil, want extra segment rejection")
+	}
+	if !strings.Contains(err.Error(), "owner/name") {
+		t.Fatalf("splitRepository() error = %v", err)
+	}
+}
+
 func TestVerifyDarwinCodeSignatureRejectsUnsignedCandidate(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("Darwin-only codesign test")

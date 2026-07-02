@@ -328,11 +328,11 @@ func fetchGitHubJSON(ctx context.Context, options Options, requestURL string, de
 }
 
 func splitRepository(repo string) (string, string, error) {
-	owner, name, ok := strings.Cut(repo, "/")
-	if !ok || owner == "" || name == "" {
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", fmt.Errorf("repository %q must be owner/name", repo)
 	}
-	return owner, name, nil
+	return parts[0], parts[1], nil
 }
 
 func validateReleaseAttestation(result *sigverify.VerificationResult, repo string, tag string, assetName string, digestHex string) error {

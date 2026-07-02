@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 )
 
@@ -87,6 +86,11 @@ func extractCandidate(archivePath string, binary string) (string, func(), error)
 
 func validateCandidate(ctx context.Context, cfg Config, candidatePath string) error {
 	slog.InfoContext(ctx, "update validate candidate", "path", candidatePath)
+	if runtime.GOOS == "darwin" {
+		if err := verifyDarwinCodeSignature(ctx, candidatePath); err != nil {
+			return err
+		}
+	}
 	validateArgs := cfg.validateArgs()
 	cmd := exec.CommandContext(ctx, candidatePath, validateArgs...)
 	output, err := cmd.CombinedOutput()
@@ -99,11 +103,6 @@ func validateCandidate(ctx context.Context, cfg Config, candidatePath string) er
 		err := fmt.Errorf("candidate version output did not include %s", validateMatch)
 		slog.WarnContext(ctx, "update candidate version output invalid", "path", candidatePath, "err", err)
 		return err
-	}
-	if runtime.GOOS == "darwin" {
-		if err := verifyDarwinCodeSignature(ctx, candidatePath); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -126,18 +125,23 @@ func replaceBinary(candidatePath string, installPath string) error {
 		return err
 	}
 	targetDir := filepath.Dir(installPath)
-	tmpPrefix := "." + filepath.Base(installPath) + "-update-"
-	tmpPath := filepath.Join(targetDir, tmpPrefix+strconv.FormatInt(timeNow().UnixNano(), 10))
 	in, err := os.Open(candidatePath)
 	if err != nil {
 		slog.Warn("update candidate open failed", "path", candidatePath, "err", err)
 		return fmt.Errorf("open candidate: %w", err)
 	}
 	defer func() { _ = in.Close() }()
-	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	out, err := os.CreateTemp(targetDir, "."+filepath.Base(installPath)+"-update-*")
 	if err != nil {
-		slog.Warn("update install temp create failed", "path", tmpPath, "err", err)
+		slog.Warn("update install temp create failed", "dir", targetDir, "err", err)
 		return fmt.Errorf("create install temp: %w", err)
+	}
+	tmpPath := out.Name()
+	if err := out.Chmod(0o755); err != nil {
+		_ = out.Close()
+		_ = os.Remove(tmpPath)
+		slog.Warn("update install temp chmod failed", "path", tmpPath, "err", err)
+		return fmt.Errorf("chmod install temp: %w", err)
 	}
 	_, copyErr := io.Copy(out, in)
 	closeErr := out.Close()

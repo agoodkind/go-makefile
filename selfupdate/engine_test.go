@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -213,6 +214,89 @@ func TestVerifyReleaseAssetsRequiresMatchingArchives(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no release assets matched") {
 		t.Fatalf("VerifyReleaseAssets() error = %v", err)
+	}
+}
+
+func TestVerifyReleaseAssetsKeepsDownloadsInsideCacheDir(t *testing.T) {
+	originalVerifyGitHubAttestations := updateVerifyGitHubAttestations
+	t.Cleanup(func() {
+		updateVerifyGitHubAttestations = originalVerifyGitHubAttestations
+	})
+
+	archive := []byte("archive")
+	assetName := "agent-gate_/../../evil.tar.gz"
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/repos/agoodkind/agent-gate/releases/tags/v1.2.3":
+			response := release{
+				TagName: "v1.2.3",
+				Assets: []releaseAsset{
+					{
+						Name:               assetName,
+						BrowserDownloadURL: server.URL + "/downloads/evil.tar.gz",
+						Digest:             "sha256:" + testSHA256Hex(archive),
+					},
+				},
+			}
+			if err := json.NewEncoder(writer).Encode(response); err != nil {
+				t.Errorf("encode response: %v", err)
+			}
+		case "/downloads/evil.tar.gz":
+			_, _ = writer.Write(archive)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	updateVerifyGitHubAttestations = func(_ context.Context, _ Options, _ release, _ releaseAsset, _ string) error {
+		return nil
+	}
+
+	parentDir := t.TempDir()
+	cacheDir := filepath.Join(parentDir, "cache")
+	options := Options{
+		Config: Config{
+			Repo:       "agoodkind/agent-gate",
+			Binary:     "agent-gate",
+			APIBaseURL: server.URL,
+		},
+		Client:   server.Client(),
+		CacheDir: cacheDir,
+	}
+
+	err := VerifyReleaseAssets(context.Background(), options, "v1.2.3")
+	if err != nil {
+		t.Fatalf("VerifyReleaseAssets() error: %v", err)
+	}
+	assertFileBytes(t, filepath.Join(cacheDir, "evil.tar.gz"), archive)
+	if _, statErr := os.Stat(filepath.Join(parentDir, "evil.tar.gz")); !os.IsNotExist(statErr) {
+		t.Fatalf("download escaped cache dir; stat outside path = %v", statErr)
+	}
+}
+
+func TestFetchReleaseListUsesOptionsLogger(t *testing.T) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		http.Error(writer, "failure", http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+
+	var logOutput strings.Builder
+	options := Options{
+		Config: Config{
+			APIBaseURL: server.URL,
+		},
+		Client: server.Client(),
+		Log:    slog.New(slog.NewTextHandler(&logOutput, nil)),
+	}
+
+	_, err := fetchReleaseList(context.Background(), options, "agoodkind/agent-gate")
+	if err == nil {
+		t.Fatal("fetchReleaseList() error = nil, want status error")
+	}
+	if !strings.Contains(logOutput.String(), "update release list status failed") {
+		t.Fatalf("options logger output = %q, want release list status log", logOutput.String())
 	}
 }
 
