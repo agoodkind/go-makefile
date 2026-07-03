@@ -99,6 +99,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ccache
+      - name: Ensure ccache in darwin cross container
+        if: matrix.goos == 'darwin' && inputs.cgo
+        run: |
+          if ! command -v ccache >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y --no-install-recommends ccache
+          fi
+          ccache --version
       - uses: actions/setup-go@v6
         id: setup-go
         with:
@@ -117,6 +125,17 @@ jobs:
           key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}
           restore-keys: |
             ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-
+      - name: Restore darwin ccache
+        id: darwin-ccache-restore
+        if: matrix.goos == 'darwin' && inputs.cgo
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.ccache
+          # Keep this tag segment aligned if the goreleaser-cross image becomes parameterized.
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-
+            ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-
       - name: Configure ccache
         if: matrix.goos == 'linux' && inputs.cgo
         run: |
@@ -148,10 +167,16 @@ jobs:
         # its cgo-dep provisioning. Host-tool builds in this job (the go-mk binary
         # and quill) then compile with the container's host compiler.
         run: |
+          mkdir -p "${HOME}/.ccache"
           {
-            echo "GO_MK_CC=${{ matrix.cc }}"
-            echo "GO_MK_CXX=${{ matrix.cxx }}"
+            echo "CCACHE_DIR=${HOME}/.ccache"
+            echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}"
+            echo "CCACHE_COMPILERCHECK=content"
+            echo "CCACHE_NOHASHDIR=true"
+            echo "GO_MK_CC=ccache ${{ matrix.cc }}"
+            echo "GO_MK_CXX=ccache ${{ matrix.cxx }}"
           } >> "${GITHUB_ENV}"
+          CCACHE_DIR="${HOME}/.ccache" ccache --zero-stats
       - name: Inspect go-mk cache manifest
         id: go-mk-cache-prep
         run: make go-mk-cache-manifest
@@ -160,7 +185,11 @@ jobs:
         run: make go-mk-prepare-submodules
       - name: Build go-mk cache manifest
         id: go-mk-cache
-        if: steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true'
+        if: steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true' || inputs.cgo
+        env:
+          GO_MK_TARGET_GOOS: ${{ matrix.goos }}
+          GO_MK_TARGET_GOARCH: ${{ matrix.goarch }}
+          GO_MK_CGO_TOOLCHAIN_ID: ${{ matrix.container || format('{0}-{1}', runner.os, runner.arch) }}
         run: make go-mk-cache-manifest
       - name: Restore generated outputs
         id: generated-cache-restore
@@ -169,6 +198,13 @@ jobs:
         with:
           path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
           key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
+      - name: Restore cgo deps
+        id: cgo-cache-restore
+        if: steps.go-mk-cache.outputs.cgo_cache_enabled == 'true'
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.go-mk-cache.outputs.cgo_cache_paths }}
+          key: go-mk-cgo-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.cgo_cache_key }}
       - name: Restore quill
         id: quill-cache
         if: matrix.goos == 'darwin'
@@ -190,6 +226,8 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
           RELEASE_PLATFORMS: ${{ matrix.goos }}/${{ matrix.goarch }}
           CGO_ENABLED: ${{ inputs.cgo && '1' || '0' }}
+          GO_MK_CGO_CACHE_KEY: ${{ steps.go-mk-cache.outputs.cgo_cache_key }}
+          GO_MK_CGO_CACHE_HIT: ${{ steps.cgo-cache-restore.outputs.cache-hit }}
           REQUIRE_DARWIN_CODESIGN: ${{ inputs.require_darwin_codesign && '1' || '' }}
           QUILL_SIGN_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
           QUILL_SIGN_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
@@ -198,7 +236,7 @@ jobs:
           QUILL_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
         run: make release
       - name: Show ccache stats
-        if: matrix.goos == 'linux' && inputs.cgo
+        if: inputs.cgo
         run: ccache --show-stats || true
       - name: Save generated outputs
         if: steps.go-mk-cache.outputs.generated_cache_enabled == 'true' && steps.generated-cache-restore.outputs.cache-hit != 'true'
@@ -206,12 +244,24 @@ jobs:
         with:
           path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
           key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
+      - name: Save cgo deps
+        if: steps.go-mk-cache.outputs.cgo_cache_enabled == 'true' && steps.cgo-cache-restore.outputs.cache-hit != 'true' && hashFiles(format('{0}/**', steps.go-mk-cache.outputs.cgo_cache_paths)) != ''
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.go-mk-cache.outputs.cgo_cache_paths }}
+          key: go-mk-cgo-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.cgo_cache_key }}
       - name: Save ccache
         if: matrix.goos == 'linux' && inputs.cgo && steps.ccache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ~/.ccache
           key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}
+      - name: Save darwin ccache
+        if: matrix.goos == 'darwin' && inputs.cgo && steps.darwin-ccache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Save quill
         if: matrix.goos == 'darwin' && steps.quill-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6

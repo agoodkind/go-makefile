@@ -24,6 +24,12 @@ go.mk resolves `GO_MK_CC` / `GO_MK_CXX` into `CC` / `CXX` at the hook, so a dep 
 
 `GO_MK_CGO_PREFIX` keys the install prefix by os/arch so a darwin cross build and a linux native build never share artifacts. An empty target tuple (a plain host build) falls back to the os/arch that `go build` targets by default.
 
+## Caching provisioned dependencies
+
+The release build caches each target's `GO_MK_CGO_PREFIX` so a warm run skips the dependency build. The `go-mk cache-manifest` command in [cmd/go-mk/cachemanifest.go](../../cmd/go-mk/cachemanifest.go) emits a per-target `cgo_cache_key`, and [\_release_build.yml](../../.github/workflows/_release_build.yml) restores and saves the prefix under that exact key. On a cache hit `provisionCgoDeps` in [cmd/go-mk/release.go](../../cmd/go-mk/release.go) reads a stamp file in the prefix and skips `make go-mk-cgo-deps`.
+
+A consumer strengthens the key with two optional variables set before `include bootstrap.mk`. `GO_MK_CGO_CACHE_VERSIONS` lists `dep=version` pairs so a version bump invalidates the cache, for example `GO_MK_CGO_CACHE_VERSIONS := pcre2=10.45`. `GO_MK_CGO_CACHE_INPUTS` lists the recipe's build-script paths so editing a script invalidates the cache. Both default to empty, which leaves the key based on the dep list, the target tuple, the resolved compiler, and the tracked Makefile and `.mk` files.
+
 ## Sources of truth
 
 The hermetic fixture tests in [cmd/go-mk/releasecgohook_test.go](../../cmd/go-mk/releasecgohook_test.go) enforce the environment contract: the compiler resolution the recipe observes and the prerequisite fold-in. [cmd/go-mk/release_test.go](../../cmd/go-mk/release_test.go) enforces the release engine's provisioning environment and the no-op guarantee for consumers without declared deps.

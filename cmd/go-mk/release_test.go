@@ -489,6 +489,262 @@ func TestProvisionCgoDepsRunsHookAndComposesEnv(t *testing.T) {
 	}
 }
 
+func TestProvisionCgoDepsSkipsWarmCache(t *testing.T) {
+	t.Setenv("GO_MK_CGO_DEPS", "demolib")
+	t.Setenv("GO_MK_CGO_CACHE_HIT", "true")
+	t.Setenv("GO_MK_CGO_CACHE_KEY", "cache-key-1")
+	t.Chdir(t.TempDir())
+
+	workDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd error = %v", err)
+	}
+	prefix := cgoPrefixForTarget(workDir, "darwin", "arm64")
+	pkgConfigDir := filepath.Join(prefix, "lib", "pkgconfig")
+	if err := os.MkdirAll(pkgConfigDir, 0o755); err != nil {
+		t.Fatalf("mkdir pkg-config dir: %v", err)
+	}
+	stampPath := filepath.Join(prefix, ".go-mk-cgo-cache-key")
+	if err := os.WriteFile(stampPath, []byte("cache-key-1"), 0o644); err != nil {
+		t.Fatalf("write stamp: %v", err)
+	}
+
+	originalRunProcess := releaseRunProcess
+	t.Cleanup(func() { releaseRunProcess = originalRunProcess })
+	called := false
+	releaseRunProcess = func(_ string, _ []string, _ []string) error {
+		called = true
+		return nil
+	}
+
+	dir, err := provisionCgoDeps("darwin", "arm64")
+	if err != nil {
+		t.Fatalf("provisionCgoDeps error = %v, want nil", err)
+	}
+	if dir != pkgConfigDir {
+		t.Fatalf("provisionCgoDeps dir = %q, want %q", dir, pkgConfigDir)
+	}
+	if called {
+		t.Fatal("provisionCgoDeps ran make on a warm cgo cache, want skip")
+	}
+}
+
+func TestProvisionCgoDepsSkipsWarmCacheWithTrailingNewlineStamp(t *testing.T) {
+	t.Setenv("GO_MK_CGO_DEPS", "demolib")
+	t.Setenv("GO_MK_CGO_CACHE_HIT", "true")
+	t.Setenv("GO_MK_CGO_CACHE_KEY", "cache-key-1")
+	t.Chdir(t.TempDir())
+
+	workDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd error = %v", err)
+	}
+	prefix := cgoPrefixForTarget(workDir, "darwin", "arm64")
+	pkgConfigDir := filepath.Join(prefix, "lib", "pkgconfig")
+	if err := os.MkdirAll(pkgConfigDir, 0o755); err != nil {
+		t.Fatalf("mkdir pkg-config dir: %v", err)
+	}
+	stampPath := filepath.Join(prefix, ".go-mk-cgo-cache-key")
+	if err := os.WriteFile(stampPath, []byte("cache-key-1\n"), 0o644); err != nil {
+		t.Fatalf("write stamp: %v", err)
+	}
+
+	originalRunProcess := releaseRunProcess
+	t.Cleanup(func() { releaseRunProcess = originalRunProcess })
+	called := false
+	releaseRunProcess = func(_ string, _ []string, _ []string) error {
+		called = true
+		return nil
+	}
+
+	if _, err := provisionCgoDeps("darwin", "arm64"); err != nil {
+		t.Fatalf("provisionCgoDeps error = %v, want nil", err)
+	}
+	if called {
+		t.Fatal("provisionCgoDeps rebuilt on a stamp that only differs by a trailing newline, want skip")
+	}
+}
+
+func TestProvisionCgoDepsRunsWhenWarmCacheConditionFails(t *testing.T) {
+	testCases := []struct {
+		name             string
+		cacheHit         string
+		cacheKey         string
+		stampValue       string
+		createStamp      bool
+		createPkgConfig  bool
+		wantStampContent string
+	}{
+		{
+			name:             "cache_hit_is_false",
+			cacheHit:         "false",
+			cacheKey:         "cache-key-1",
+			stampValue:       "cache-key-1",
+			createStamp:      true,
+			createPkgConfig:  true,
+			wantStampContent: "cache-key-1",
+		},
+		{
+			name:             "cache_key_is_empty",
+			cacheHit:         "true",
+			cacheKey:         "",
+			stampValue:       "",
+			createStamp:      true,
+			createPkgConfig:  true,
+			wantStampContent: "",
+		},
+		{
+			name:             "stamp_is_missing",
+			cacheHit:         "true",
+			cacheKey:         "cache-key-1",
+			createPkgConfig:  true,
+			wantStampContent: "cache-key-1",
+		},
+		{
+			name:             "stamp_mismatches",
+			cacheHit:         "true",
+			cacheKey:         "cache-key-1",
+			stampValue:       "other-key",
+			createStamp:      true,
+			createPkgConfig:  true,
+			wantStampContent: "cache-key-1",
+		},
+		{
+			name:             "pkg_config_dir_is_missing",
+			cacheHit:         "true",
+			cacheKey:         "cache-key-1",
+			stampValue:       "cache-key-1",
+			createStamp:      true,
+			wantStampContent: "cache-key-1",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("GO_MK_CGO_DEPS", "demolib")
+			t.Setenv("GO_MK_CGO_CACHE_HIT", testCase.cacheHit)
+			t.Setenv("GO_MK_CGO_CACHE_KEY", testCase.cacheKey)
+			t.Chdir(t.TempDir())
+
+			workDir, err := os.Getwd()
+			if err != nil {
+				t.Fatalf("Getwd error = %v", err)
+			}
+			prefix := cgoPrefixForTarget(workDir, "darwin", "arm64")
+			pkgConfigDir := filepath.Join(prefix, "lib", "pkgconfig")
+			if testCase.createPkgConfig {
+				if err := os.MkdirAll(pkgConfigDir, 0o755); err != nil {
+					t.Fatalf("mkdir pkg-config dir: %v", err)
+				}
+			} else {
+				if err := os.MkdirAll(prefix, 0o755); err != nil {
+					t.Fatalf("mkdir prefix: %v", err)
+				}
+			}
+			stampPath := filepath.Join(prefix, ".go-mk-cgo-cache-key")
+			if testCase.createStamp {
+				if err := os.MkdirAll(prefix, 0o755); err != nil {
+					t.Fatalf("mkdir prefix: %v", err)
+				}
+				if err := os.WriteFile(stampPath, []byte(testCase.stampValue), 0o644); err != nil {
+					t.Fatalf("write stamp: %v", err)
+				}
+			}
+
+			originalRunProcess := releaseRunProcess
+			t.Cleanup(func() { releaseRunProcess = originalRunProcess })
+			callCount := 0
+			releaseRunProcess = func(_ string, _ []string, _ []string) error {
+				callCount++
+				if err := os.MkdirAll(pkgConfigDir, 0o755); err != nil {
+					t.Fatalf("mkdir pkg-config dir in hook: %v", err)
+				}
+				return nil
+			}
+
+			dir, err := provisionCgoDeps("darwin", "arm64")
+			if err != nil {
+				t.Fatalf("provisionCgoDeps error = %v, want nil", err)
+			}
+			if dir != pkgConfigDir {
+				t.Fatalf("provisionCgoDeps dir = %q, want %q", dir, pkgConfigDir)
+			}
+			if callCount != 1 {
+				t.Fatalf("releaseRunProcess call count = %d, want 1", callCount)
+			}
+			gotStamp, err := os.ReadFile(stampPath)
+			if testCase.cacheKey == "" {
+				if err != nil {
+					t.Fatalf("read existing stamp: %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("read stamp: %v", err)
+			}
+			if string(gotStamp) != testCase.wantStampContent {
+				t.Fatalf("stamp content = %q, want %q", string(gotStamp), testCase.wantStampContent)
+			}
+		})
+	}
+}
+
+func TestProvisionCgoDepsWritesStampAfterSuccess(t *testing.T) {
+	t.Setenv("GO_MK_CGO_DEPS", "demolib")
+	t.Setenv("GO_MK_CGO_CACHE_KEY", "cache-key-1")
+	t.Chdir(t.TempDir())
+
+	workDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd error = %v", err)
+	}
+	prefix := cgoPrefixForTarget(workDir, "linux", "amd64")
+	pkgConfigDir := filepath.Join(prefix, "lib", "pkgconfig")
+
+	originalRunProcess := releaseRunProcess
+	t.Cleanup(func() { releaseRunProcess = originalRunProcess })
+	releaseRunProcess = func(_ string, _ []string, _ []string) error {
+		return os.MkdirAll(pkgConfigDir, 0o755)
+	}
+
+	if _, err := provisionCgoDeps("linux", "amd64"); err != nil {
+		t.Fatalf("provisionCgoDeps error = %v, want nil", err)
+	}
+	stampPath := filepath.Join(prefix, ".go-mk-cgo-cache-key")
+	gotStamp, err := os.ReadFile(stampPath)
+	if err != nil {
+		t.Fatalf("read stamp: %v", err)
+	}
+	if string(gotStamp) != "cache-key-1" {
+		t.Fatalf("stamp content = %q, want cache-key-1", string(gotStamp))
+	}
+}
+
+func TestProvisionCgoDepsDoesNotWriteStampWhenKeyIsEmpty(t *testing.T) {
+	t.Setenv("GO_MK_CGO_DEPS", "demolib")
+	t.Setenv("GO_MK_CGO_CACHE_KEY", "")
+	t.Chdir(t.TempDir())
+
+	workDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd error = %v", err)
+	}
+	prefix := cgoPrefixForTarget(workDir, "linux", "amd64")
+	pkgConfigDir := filepath.Join(prefix, "lib", "pkgconfig")
+
+	originalRunProcess := releaseRunProcess
+	t.Cleanup(func() { releaseRunProcess = originalRunProcess })
+	releaseRunProcess = func(_ string, _ []string, _ []string) error {
+		return os.MkdirAll(pkgConfigDir, 0o755)
+	}
+
+	if _, err := provisionCgoDeps("linux", "amd64"); err != nil {
+		t.Fatalf("provisionCgoDeps error = %v, want nil", err)
+	}
+	stampPath := filepath.Join(prefix, ".go-mk-cgo-cache-key")
+	if _, err := os.Stat(stampPath); !os.IsNotExist(err) {
+		t.Fatalf("stamp stat error = %v, want missing stamp", err)
+	}
+}
+
 // TestGoMkCgoDepsHookProvisionsConsumerTarget runs the real go.mk go-mk-cgo-deps
 // target against a hermetic fixture consumer (no network: GO_MK_DEV_DIR plus
 // GO_MK_SKIP_FETCH), proving the loop runs a consumer go-mk-cgo-dep-<dep> target
