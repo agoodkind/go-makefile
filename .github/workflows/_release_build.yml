@@ -3,7 +3,9 @@ name: Release Build
 # This workflow is the single shared build component for releases.
 # The release workflow calls this component today.
 # CI will call this component in an upcoming change.
-# This component builds all four platforms.
+# This component builds the platforms the `platforms` input names (default all
+# four). darwin targets cross-compile on Ubuntu by default, or build natively
+# on the macOS runner named by the `darwin_runner` input.
 # It signs and notarizes when the Apple secrets are present.
 # It attests the archives and uploads the archives.
 # It never pushes tags or publishes a GitHub release.

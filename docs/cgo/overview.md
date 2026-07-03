@@ -14,7 +14,7 @@ The hook runs from two entry points, and both provide the same environment contr
 
 The release engine provisions each platform before its `go build`: `provisionCgoDeps` in [cmd/go-mk/release.go](../../cmd/go-mk/release.go) runs `make go-mk-cgo-deps` with the target tuple, the per-target prefix, and the resolved compiler.
 
-The make layer runs the same hook as an order-only prerequisite of build, vet, lint, test, install, and release, through `GO_MK_PREREQS` in [go.mk](../../go.mk). The hook's target-specific exports supply the tuple, the prefix, `PKG_CONFIG_PATH`, and the compiler there as well.
+The make layer runs the same hook as an order-only prerequisite of build, vet, lint, test, install, and the compile-bearing release stages, through `GO_MK_PREREQS` in [go.mk](../../go.mk). The release target attaches the hook only when the stage compiles (the build stage, or the stage-less all-in-one pipeline); the tag and publish stages skip it, so a consumer whose prerequisites need platform-specific tools still tags and publishes from any runner (see [go-release.mk](../../go-release.mk)). The hook's target-specific exports supply the tuple, the prefix, `PKG_CONFIG_PATH`, and the compiler there as well.
 
 ## How the toolchain flows
 
