@@ -45,36 +45,86 @@ on:
         required: false
         type: string
         default: ""
+      platforms:
+        description: >-
+          Space-separated os/arch targets to build. Defaults to all four
+          release platforms. A macOS-only consumer restricts this to the two
+          darwin targets.
+        required: false
+        type: string
+        default: "darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
+      darwin_runner:
+        description: >-
+          GitHub-hosted macOS runner label for the darwin targets. Empty keeps
+          the default path: darwin cross-compiles on Ubuntu inside the
+          goreleaser-cross container. Set (for example to macos-26) when the
+          repo's generated prerequisites need native macOS tools such as
+          xcrun, lipo, or swiftc; the darwin jobs then build natively with the
+          runner's toolchain and no container.
+        required: false
+        type: string
+        default: ""
 
 jobs:
+  plan:
+    name: Plan matrix
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+          DARWIN_RUNNER: ${{ inputs.darwin_runner }}
+        # Emit one matrix row per requested platform. linux rows run natively
+        # per-arch. darwin rows either cross-compile in the goreleaser-cross
+        # container (default) or run natively on the requested macOS runner;
+        # only cross rows carry cc/cxx, which the cross-specific steps key on.
+        run: |
+          rows='[]'
+          for platform in ${PLATFORMS}; do
+            goos="${platform%%/*}"
+            goarch="${platform##*/}"
+            case "${goos}/${goarch}" in
+              linux/amd64)
+                row='{"goos":"linux","goarch":"amd64","runner":"ubuntu-24.04","container":"","cc":"","cxx":""}'
+                ;;
+              linux/arm64)
+                row='{"goos":"linux","goarch":"arm64","runner":"ubuntu-24.04-arm","container":"","cc":"","cxx":""}'
+                ;;
+              darwin/amd64)
+                if [ -n "${DARWIN_RUNNER}" ]; then
+                  row=$(jq -nc --arg r "${DARWIN_RUNNER}" '{goos:"darwin",goarch:"amd64",runner:$r,container:"",cc:"",cxx:""}')
+                else
+                  row='{"goos":"darwin","goarch":"amd64","runner":"ubuntu-24.04","container":"ghcr.io/goreleaser/goreleaser-cross:v1.26.3","cc":"o64-clang","cxx":"o64-clang++"}'
+                fi
+                ;;
+              darwin/arm64)
+                if [ -n "${DARWIN_RUNNER}" ]; then
+                  row=$(jq -nc --arg r "${DARWIN_RUNNER}" '{goos:"darwin",goarch:"arm64",runner:$r,container:"",cc:"",cxx:""}')
+                else
+                  row='{"goos":"darwin","goarch":"arm64","runner":"ubuntu-24.04","container":"ghcr.io/goreleaser/goreleaser-cross:v1.26.3","cc":"oa64-clang","cxx":"oa64-clang++"}'
+                fi
+                ;;
+              *)
+                echo "unsupported platform: ${platform}" >&2
+                exit 1
+                ;;
+            esac
+            rows=$(jq -c --argjson row "${row}" '. + [$row]' <<<"${rows}")
+          done
+          if [ "$(jq 'length' <<<"${rows}")" = "0" ]; then
+            echo "platforms resolved to an empty matrix" >&2
+            exit 1
+          fi
+          echo "matrix=$(jq -c '{include: .}' <<<"${rows}")" >> "${GITHUB_OUTPUT}"
+
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: plan
     strategy:
       fail-fast: false
-      # Every target builds on Ubuntu. The two darwin targets cross-compile inside
-      # the goreleaser-cross container with the osxcross cc/cxx; the two linux
-      # targets carry no container key, so the scalar container expression below is
-      # empty for them and the job runs on the host runner.
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            runner: ubuntu-24.04
-          - goos: linux
-            goarch: arm64
-            runner: ubuntu-24.04-arm
-          - goos: darwin
-            goarch: amd64
-            runner: ubuntu-24.04
-            container: "ghcr.io/goreleaser/goreleaser-cross:v1.26.3"
-            cc: o64-clang
-            cxx: o64-clang++
-          - goos: darwin
-            goarch: arm64
-            runner: ubuntu-24.04
-            container: "ghcr.io/goreleaser/goreleaser-cross:v1.26.3"
-            cc: oa64-clang
-            cxx: oa64-clang++
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
     steps:
@@ -100,7 +150,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ccache
       - name: Ensure ccache in darwin cross container
-        if: matrix.goos == 'darwin' && inputs.cgo
+        if: matrix.container != '' && inputs.cgo
         run: |
           if ! command -v ccache >/dev/null 2>&1; then
             apt-get update
@@ -127,7 +177,7 @@ jobs:
             ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-
       - name: Restore darwin ccache
         id: darwin-ccache-restore
-        if: matrix.goos == 'darwin' && inputs.cgo
+        if: matrix.cc != '' && inputs.cgo
         uses: actions/cache/restore@v6
         with:
           path: ~/.ccache
@@ -161,7 +211,7 @@ jobs:
             echo "GO_MK_TARGET_GOARCH=${{ matrix.goarch }}"
           } >> "${GITHUB_ENV}"
       - name: Configure darwin cross compilers
-        if: matrix.goos == 'darwin' && inputs.cgo
+        if: matrix.cc != '' && inputs.cgo
         # Pass the cross compiler under dedicated GO_MK_CC / GO_MK_CXX rather than
         # the global CC / CXX, so go-mk applies it only to the target build and
         # its cgo-dep provisioning. Host-tool builds in this job (the go-mk binary
@@ -270,7 +320,7 @@ jobs:
           path: ~/.ccache
           key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}
       - name: Save darwin ccache
-        if: matrix.goos == 'darwin' && inputs.cgo && steps.darwin-ccache-restore.outputs.cache-hit != 'true'
+        if: matrix.cc != '' && inputs.cgo && steps.darwin-ccache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ~/.ccache

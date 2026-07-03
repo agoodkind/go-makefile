@@ -46,6 +46,20 @@ on:
         required: false
         type: string
         default: ""
+      platforms:
+        description: >-
+          Space-separated os/arch targets to build, passed to the shared build
+          component. Defaults to all four release platforms.
+        required: false
+        type: string
+        default: "darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
+      darwin_runner:
+        description: >-
+          macOS runner label for native darwin builds, passed to the shared
+          build component. Empty keeps the Ubuntu cross-compile default.
+        required: false
+        type: string
+        default: ""
 
 concurrency:
   group: release
@@ -89,6 +103,8 @@ jobs:
       quill_version: ${{ inputs.quill_version }}
       require_darwin_codesign: ${{ inputs.require_darwin_codesign }}
       release_tag: ${{ needs.tag.outputs.tag }}
+      platforms: ${{ inputs.platforms }}
+      darwin_runner: ${{ inputs.darwin_runner }}
 
   publish:
     name: Publish
