@@ -79,9 +79,11 @@ func verifyChecksum(ctx context.Context, options Options, latest release, asset 
 		// Cache checksums.txt once per release: a multi-binary release verifies
 		// many archives, so re-downloading the shared checksums file per asset
 		// would scale network requests as O(archives). The cache file is keyed
-		// by release tag because CacheDir is stable per binary, so an unkeyed
-		// file left by an earlier release would poison a later verification.
-		checksumsPath := filepath.Join(options.CacheDir, "checksums-"+sanitizeCacheFileComponent(latest.TagName)+".txt")
+		// by repo and release tag because CacheDir is stable per binary name,
+		// so an unkeyed file left by an earlier release (or another repo whose
+		// binary shares this name) would poison a later verification.
+		cacheKey := sanitizeCacheFileComponent(options.Config.Repo) + "-" + sanitizeCacheFileComponent(latest.TagName)
+		checksumsPath := filepath.Join(options.CacheDir, "checksums-"+cacheKey+".txt")
 		if _, statErr := os.Stat(checksumsPath); statErr != nil {
 			if err := downloadFile(ctx, options.Client, checksums.BrowserDownloadURL, checksumsPath); err != nil {
 				return err

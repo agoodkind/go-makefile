@@ -361,10 +361,11 @@ func pushReleaseTag(cfg releaseConfig) error {
 	return runProcess("git", []string{"push", "origin", cfg.tag}, nil)
 }
 
-// buildPlatform compiles one os/arch target with the stamped ldflags, writing
-// the binary under dist/<binary>_<os>_<arch>/<binary>. When a consumer declared
-// GO_MK_CGO_DEPS it first provisions that target's cgo dependencies and threads
-// the per-target pkg-config directory into the build environment.
+// buildPlatform compiles every configured release binary for one os/arch
+// target with the stamped ldflags, writing each under
+// dist/<name>_<os>_<arch>/<name>. When a consumer declared GO_MK_CGO_DEPS it
+// first provisions that target's cgo dependencies once and threads the
+// per-target pkg-config directory into every binary's build environment.
 func buildPlatform(cfg releaseConfig, platform string) error {
 	osName, arch, ok := strings.Cut(platform, "/")
 	if !ok {
@@ -649,8 +650,9 @@ func resolveQuill() (string, error) {
 	return candidate, nil
 }
 
-// archivePlatforms writes one tar.gz per built platform containing the binary
-// and a README.md when present, returning the archive paths.
+// archivePlatforms writes one tar.gz per built (binary, platform) pair, each
+// containing that single binary and a README.md when present, returning the
+// archive paths.
 func archivePlatforms(cfg releaseConfig) ([]string, error) {
 	readme := ""
 	if _, err := os.Stat("README.md"); err == nil {
