@@ -69,6 +69,22 @@ on:
         required: false
         type: boolean
         default: true
+      release_platforms:
+        description: >-
+          Space-separated os/arch targets for the release-build gate, passed to
+          the shared build component. Defaults to all four release platforms.
+          Set this to match the consumer's release.yml platforms value.
+        required: false
+        type: string
+        default: "darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
+      darwin_runner:
+        description: >-
+          macOS runner label for native darwin release-build jobs, passed to
+          the shared build component. Empty keeps the Ubuntu cross-compile
+          default. Set this to match the consumer's release.yml darwin_runner.
+        required: false
+        type: string
+        default: ""
     outputs:
       changed:
         description: >-
@@ -164,6 +180,8 @@ jobs:
       cgo: true
       apt_packages: ${{ inputs.apt_packages }}
       submodules: ${{ inputs.submodules }}
+      platforms: ${{ inputs.release_platforms }}
+      darwin_runner: ${{ inputs.darwin_runner }}
 
   quality:
     name: Quality / ${{ matrix.name }}
