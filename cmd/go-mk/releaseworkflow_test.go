@@ -11,7 +11,7 @@ func TestReleaseBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
 	workflow := readReleaseBuildWorkflow(t)
 
 	ensure := releaseBuildWorkflowStep(t, workflow, "Ensure ccache in darwin cross container")
-	requireWorkflowContains(t, ensure, "if: matrix.goos == 'darwin' && inputs.cgo")
+	requireWorkflowContains(t, ensure, "if: matrix.container != '' && inputs.cgo")
 	requireWorkflowContains(t, ensure, "apt-get install -y --no-install-recommends ccache")
 	requireWorkflowContains(t, ensure, "ccache --version")
 
@@ -43,7 +43,7 @@ func TestReleaseBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
 	requireWorkflowContains(t, show, "if: inputs.cgo")
 
 	save := releaseBuildWorkflowStep(t, workflow, "Save darwin ccache")
-	requireWorkflowContains(t, save, "if: matrix.goos == 'darwin' && inputs.cgo && steps.darwin-ccache-restore.outputs.cache-hit != 'true'")
+	requireWorkflowContains(t, save, "if: matrix.cc != '' && inputs.cgo && steps.darwin-ccache-restore.outputs.cache-hit != 'true'")
 	requireWorkflowContains(t, save, "uses: actions/cache/save@v6")
 	requireWorkflowContains(t, save, "path: ~/.ccache")
 	requireWorkflowContains(t, save, darwinCcacheWorkflowKey())
