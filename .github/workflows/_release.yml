@@ -1,16 +1,17 @@
 name: Release
 
-# Reusable, fully open-source Go release primitive. Every platform builds on an
-# Ubuntu runner. The two linux targets build natively; the two darwin targets
-# cross-compile inside the goreleaser-cross container (Apache-2.0 osxcross plus
-# the macOS SDK) with the osxcross o64-clang/oa64-clang toolchain, so a cgo
-# consumer still links its C dependencies for darwin. A cgo consumer provisions
-# its external C libraries per target through GO_MK_CGO_DEPS. darwin binaries are
-# signed and notarized with anchore/quill (Apache-2.0) from the Linux job. All
-# build, sign, archive, checksum, tag, and publish logic lives in the go-mk
-# `release` command, driven one stage per job: tag computes a single shared tag,
-# build runs per target, and publish collects every uploaded archive into one
-# GitHub release. Build identity, version package, and entitlements come from the
+# Reusable, fully open-source Go release primitive. The `platforms` input picks
+# the os/arch targets (default all four). linux targets build natively on
+# Ubuntu. darwin targets cross-compile on Ubuntu inside the goreleaser-cross
+# container (Apache-2.0 osxcross plus the macOS SDK) by default, or build
+# natively on the macOS runner named by the `darwin_runner` input when the
+# repo's generated prerequisites need native macOS tools. A cgo consumer
+# provisions its external C libraries per target through GO_MK_CGO_DEPS. darwin
+# binaries are signed and notarized with anchore/quill (Apache-2.0). All build,
+# sign, archive, checksum, tag, and publish logic lives in the go-mk `release`
+# command, driven one stage per job: tag computes a single shared tag, build
+# runs per target, and publish collects every uploaded archive into one GitHub
+# release. Build identity, version package, and entitlements come from the
 # consumer's Makefile. Signing is skipped automatically when the signing secret
 # is absent.
 
@@ -43,6 +44,20 @@ on:
         default: false
       binary:
         description: Binary asset prefix to verify after publish.
+        required: false
+        type: string
+        default: ""
+      platforms:
+        description: >-
+          Space-separated os/arch targets to build, passed to the shared build
+          component. Defaults to all four release platforms.
+        required: false
+        type: string
+        default: "darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
+      darwin_runner:
+        description: >-
+          macOS runner label for native darwin builds, passed to the shared
+          build component. Empty keeps the Ubuntu cross-compile default.
         required: false
         type: string
         default: ""
@@ -89,6 +104,8 @@ jobs:
       quill_version: ${{ inputs.quill_version }}
       require_darwin_codesign: ${{ inputs.require_darwin_codesign }}
       release_tag: ${{ needs.tag.outputs.tag }}
+      platforms: ${{ inputs.platforms }}
+      darwin_runner: ${{ inputs.darwin_runner }}
 
   publish:
     name: Publish

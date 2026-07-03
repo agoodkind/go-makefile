@@ -37,9 +37,14 @@ export REQUIRE_DARWIN_CODESIGN
 release: | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" release
 
-# GO_MK_PREREQS (see go.mk): codegen and go.work routing. Release cross-compiles
-# the module, so it needs generated parsers/proto and go.work first. Empty
-# default is a no-op.
+# GO_MK_PREREQS (see go.mk): codegen and go.work routing. Only the stages that
+# compile the module (build, or the single-runner all-in-one pipeline with no
+# stage) need generated parsers/proto and go.work. The tag and publish stages
+# never compile, and a consumer whose generate hook needs platform-specific
+# tools (macOS xcrun/lipo/swiftc) must be able to tag and publish from the
+# Ubuntu runners. Empty default is a no-op.
 ifneq ($(strip $(GO_MK_PREREQS)),)
+ifeq ($(filter tag publish,$(RELEASE_STAGE)),)
 release: | $(GO_MK_PREREQS)
+endif
 endif
