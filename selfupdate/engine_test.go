@@ -78,14 +78,18 @@ func TestVerifyReleaseAssetsDownloadsAndVerifiesMatchingArchives(t *testing.T) {
 
 	darwinAssetName := "agent-gate_darwin_amd64.tar.gz"
 	linuxAssetName := "agent-gate_linux_arm64.tar.gz"
+	siblingAssetName := "agentctl_linux_arm64.tar.gz"
 	darwinArchive := []byte("darwin archive")
 	linuxArchive := []byte("linux archive")
+	siblingArchive := []byte("sibling archive")
 	checksums := fmt.Sprintf(
-		"%s  %s\n%s  %s\n",
+		"%s  %s\n%s  %s\n%s  %s\n",
 		testSHA256Hex(darwinArchive),
 		darwinAssetName,
 		testSHA256Hex(linuxArchive),
 		linuxAssetName,
+		testSHA256Hex(siblingArchive),
+		siblingAssetName,
 	)
 	verifiedAttestations := []string{}
 	var server *httptest.Server
@@ -105,6 +109,10 @@ func TestVerifyReleaseAssetsDownloadsAndVerifiesMatchingArchives(t *testing.T) {
 					{
 						Name:               linuxAssetName,
 						BrowserDownloadURL: server.URL + "/downloads/" + linuxAssetName,
+					},
+					{
+						Name:               siblingAssetName,
+						BrowserDownloadURL: server.URL + "/downloads/" + siblingAssetName,
 					},
 					{
 						Name:               "checksums.txt",
@@ -129,6 +137,11 @@ func TestVerifyReleaseAssetsDownloadsAndVerifiesMatchingArchives(t *testing.T) {
 				t.Errorf("Authorization = %q, want no token on asset download", got)
 			}
 			_, _ = writer.Write(linuxArchive)
+		case "/downloads/" + siblingAssetName:
+			if got := request.Header.Get("Authorization"); got != "" {
+				t.Errorf("Authorization = %q, want no token on asset download", got)
+			}
+			_, _ = writer.Write(siblingArchive)
 		case "/downloads/checksums.txt":
 			if got := request.Header.Get("Authorization"); got != "" {
 				t.Errorf("Authorization = %q, want no token on checksum download", got)
@@ -169,11 +182,12 @@ func TestVerifyReleaseAssetsDownloadsAndVerifiesMatchingArchives(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyReleaseAssets() error: %v", err)
 	}
-	if strings.Join(verifiedAttestations, ",") != darwinAssetName+","+linuxAssetName {
+	if strings.Join(verifiedAttestations, ",") != darwinAssetName+","+linuxAssetName+","+siblingAssetName {
 		t.Fatalf("verified attestations = %#v", verifiedAttestations)
 	}
 	assertFileBytes(t, filepath.Join(cacheDir, darwinAssetName), darwinArchive)
 	assertFileBytes(t, filepath.Join(cacheDir, linuxAssetName), linuxArchive)
+	assertFileBytes(t, filepath.Join(cacheDir, siblingAssetName), siblingArchive)
 }
 
 func TestVerifyReleaseAssetsRequiresMatchingArchives(t *testing.T) {
@@ -213,6 +227,51 @@ func TestVerifyReleaseAssetsRequiresMatchingArchives(t *testing.T) {
 		t.Fatal("VerifyReleaseAssets() error = nil, want missing archive error")
 	}
 	if !strings.Contains(err.Error(), "no release assets matched") {
+		t.Fatalf("VerifyReleaseAssets() error = %v", err)
+	}
+}
+
+func TestVerifyReleaseAssetsRequiresNamedBinaryAmongAllArchives(t *testing.T) {
+	archive := []byte("sibling archive")
+	assetName := "agentctl_linux_arm64.tar.gz"
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/repos/agoodkind/agent-gate/releases/tags/v1.2.3":
+			response := release{
+				TagName: "v1.2.3",
+				Assets: []releaseAsset{
+					{
+						Name:               assetName,
+						BrowserDownloadURL: server.URL + "/downloads/" + assetName,
+						Digest:             "sha256:" + testSHA256Hex(archive),
+					},
+				},
+			}
+			if err := json.NewEncoder(writer).Encode(response); err != nil {
+				t.Errorf("encode response: %v", err)
+			}
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	options := Options{
+		Config: Config{
+			Repo:       "agoodkind/agent-gate",
+			Binary:     "agent-gate",
+			APIBaseURL: server.URL,
+		},
+		Client:   server.Client(),
+		CacheDir: t.TempDir(),
+	}
+
+	err := VerifyReleaseAssets(context.Background(), options, "v1.2.3")
+	if err == nil {
+		t.Fatal("VerifyReleaseAssets() error = nil, want missing named binary error")
+	}
+	if !strings.Contains(err.Error(), "no release assets matched agent-gate_*.tar.gz") {
 		t.Fatalf("VerifyReleaseAssets() error = %v", err)
 	}
 }

@@ -39,6 +39,7 @@ const (
 type releaseConfig struct {
 	binary                string
 	mainPkg               string
+	binaries              []releaseBinary
 	versionPkg            string
 	gklogPkg              string
 	entitlements          string
@@ -50,6 +51,11 @@ type releaseConfig struct {
 	targetSHA             string
 	buildTime             string
 	prerelease            bool
+}
+
+type releaseBinary struct {
+	name    string
+	mainPkg string
 }
 
 var (
@@ -175,6 +181,11 @@ func loadReleaseConfig() (releaseConfig, error) {
 	if mainPkg == "" {
 		mainPkg = "."
 	}
+	binaries, err := parseReleaseBinaries(binary, mainPkg, os.Getenv("RELEASE_BINS"))
+	if err != nil {
+		return releaseConfig{}, err
+	}
+	primaryBinary := binaries[0]
 	platformsText := strings.TrimSpace(os.Getenv("RELEASE_PLATFORMS"))
 	if platformsText == "" {
 		platformsText = defaultReleasePlatforms
@@ -225,8 +236,9 @@ func loadReleaseConfig() (releaseConfig, error) {
 	}
 
 	return releaseConfig{
-		binary:                binary,
-		mainPkg:               mainPkg,
+		binary:                primaryBinary.name,
+		mainPkg:               primaryBinary.mainPkg,
+		binaries:              binaries,
 		versionPkg:            strings.TrimSpace(os.Getenv("VPKG")),
 		gklogPkg:              strings.TrimSpace(os.Getenv("GKLOG_VPKG")),
 		entitlements:          strings.TrimSpace(os.Getenv("RELEASE_ENTITLEMENTS")),
@@ -239,6 +251,47 @@ func loadReleaseConfig() (releaseConfig, error) {
 		buildTime:             now.Format("2006-01-02T15:04:05Z"),
 		prerelease:            !stable,
 	}, nil
+}
+
+func parseReleaseBinaries(binary string, mainPkg string, releaseBinsText string) ([]releaseBinary, error) {
+	fields := strings.Fields(releaseBinsText)
+	if len(fields) == 0 {
+		return []releaseBinary{{name: binary, mainPkg: mainPkg}}, nil
+	}
+	binaries := make([]releaseBinary, 0, len(fields))
+	for _, field := range fields {
+		parts := strings.Split(field, ":")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("release: malformed RELEASE_BINS entry %q (want name:cmd)", field)
+		}
+		name := strings.TrimSpace(parts[0])
+		mainPackage := strings.TrimSpace(parts[1])
+		if name == "" || mainPackage == "" {
+			return nil, fmt.Errorf("release: malformed RELEASE_BINS entry %q (want name:cmd)", field)
+		}
+		binaries = append(binaries, releaseBinary{name: name, mainPkg: mainPackage})
+	}
+	// RELEASE_BINS is the full set of binaries the release ships, not an
+	// addition to BINARY. Require it to include the primary BINARY so an
+	// incomplete list cannot silently drop the primary binary, and move the
+	// primary to the front so entry order never changes which binary titles
+	// the GitHub release.
+	primaryIndex := -1
+	for index, candidate := range binaries {
+		if candidate.name == binary {
+			primaryIndex = index
+			break
+		}
+	}
+	if primaryIndex < 0 {
+		return nil, fmt.Errorf("release: RELEASE_BINS must include the primary binary %q", binary)
+	}
+	if primaryIndex > 0 {
+		primary := binaries[primaryIndex]
+		binaries = append(binaries[:primaryIndex], binaries[primaryIndex+1:]...)
+		binaries = append([]releaseBinary{primary}, binaries...)
+	}
+	return binaries, nil
 }
 
 func envTruthy(value string) bool {
@@ -308,10 +361,11 @@ func pushReleaseTag(cfg releaseConfig) error {
 	return runProcess("git", []string{"push", "origin", cfg.tag}, nil)
 }
 
-// buildPlatform compiles one os/arch target with the stamped ldflags, writing
-// the binary under dist/<binary>_<os>_<arch>/<binary>. When a consumer declared
-// GO_MK_CGO_DEPS it first provisions that target's cgo dependencies and threads
-// the per-target pkg-config directory into the build environment.
+// buildPlatform compiles every configured release binary for one os/arch
+// target with the stamped ldflags, writing each under
+// dist/<name>_<os>_<arch>/<name>. When a consumer declared GO_MK_CGO_DEPS it
+// first provisions that target's cgo dependencies once and threads the
+// per-target pkg-config directory into every binary's build environment.
 func buildPlatform(cfg releaseConfig, platform string) error {
 	osName, arch, ok := strings.Cut(platform, "/")
 	if !ok {
@@ -321,13 +375,22 @@ func buildPlatform(cfg releaseConfig, platform string) error {
 	if err != nil {
 		return err
 	}
-	outDir := filepath.Join(cfg.distDir, fmt.Sprintf("%s_%s_%s", cfg.binary, osName, arch))
+	env := buildPlatformEnv(osName, arch, pkgConfigDir, os.Getenv("PKG_CONFIG_PATH"))
+	for _, binary := range releaseBinaries(cfg) {
+		if err := buildReleaseBinary(cfg, binary, osName, arch, env); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func buildReleaseBinary(cfg releaseConfig, binary releaseBinary, osName string, arch string, env []string) error {
+	outDir := filepath.Join(cfg.distDir, fmt.Sprintf("%s_%s_%s", binary.name, osName, arch))
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err
 	}
-	outPath := filepath.Join(outDir, cfg.binary)
-	args := []string{"build", "-trimpath", "-ldflags", releaseLdflags(cfg), "-o", outPath, cfg.mainPkg}
-	env := buildPlatformEnv(osName, arch, pkgConfigDir, os.Getenv("PKG_CONFIG_PATH"))
+	outPath := filepath.Join(outDir, binary.name)
+	args := []string{"build", "-trimpath", "-ldflags", releaseLdflags(cfg), "-o", outPath, binary.mainPkg}
 	return runProcess("go", args, env)
 }
 
@@ -489,6 +552,7 @@ func releaseLdflags(cfg releaseConfig) string {
 	}
 	if cfg.gklogPkg != "" {
 		parts = append(parts,
+			"-X", cfg.gklogPkg+".Version="+cfg.tag,
 			"-X", cfg.gklogPkg+".Commit="+cfg.shortSHA,
 			"-X", cfg.gklogPkg+".Dirty=false",
 			"-X", cfg.gklogPkg+".BuildTime="+cfg.buildTime,
@@ -532,9 +596,11 @@ func signDarwinBinaries(cfg releaseConfig) error {
 		if !ok || osName != "darwin" {
 			continue
 		}
-		bin := filepath.Join(cfg.distDir, fmt.Sprintf("%s_%s_%s", cfg.binary, osName, arch), cfg.binary)
-		if err := signAndNotarizeDarwinBinary(quill, bin, cfg.entitlements); err != nil {
-			return err
+		for _, binary := range releaseBinaries(cfg) {
+			bin := filepath.Join(cfg.distDir, fmt.Sprintf("%s_%s_%s", binary.name, osName, arch), binary.name)
+			if err := signAndNotarizeDarwinBinary(quill, bin, cfg.entitlements); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -584,32 +650,50 @@ func resolveQuill() (string, error) {
 	return candidate, nil
 }
 
-// archivePlatforms writes one tar.gz per built platform containing the binary
-// and a README.md when present, returning the archive paths.
+// archivePlatforms writes one tar.gz per built (binary, platform) pair, each
+// containing that single binary and a README.md when present, returning the
+// archive paths.
 func archivePlatforms(cfg releaseConfig) ([]string, error) {
 	readme := ""
 	if _, err := os.Stat("README.md"); err == nil {
 		readme = "README.md"
 	}
-	archives := make([]string, 0, len(cfg.platforms))
+	binaries := releaseBinaries(cfg)
+	archives := make([]string, 0, len(cfg.platforms)*len(binaries))
 	for _, platform := range cfg.platforms {
 		osName, arch, ok := strings.Cut(platform, "/")
 		if !ok {
 			return nil, fmt.Errorf("release: malformed platform %q", platform)
 		}
-		name := fmt.Sprintf("%s_%s_%s", cfg.binary, osName, arch)
-		dir := filepath.Join(cfg.distDir, name)
-		archivePath := filepath.Join(cfg.distDir, name+".tar.gz")
-		members := []tarMember{{source: filepath.Join(dir, cfg.binary), name: cfg.binary, mode: 0o755}}
-		if readme != "" {
-			members = append(members, tarMember{source: readme, name: "README.md", mode: 0o644})
+		for _, binary := range binaries {
+			name := fmt.Sprintf("%s_%s_%s", binary.name, osName, arch)
+			dir := filepath.Join(cfg.distDir, name)
+			archivePath := filepath.Join(cfg.distDir, name+".tar.gz")
+			members := []tarMember{{source: filepath.Join(dir, binary.name), name: binary.name, mode: 0o755}}
+			if readme != "" {
+				members = append(members, tarMember{source: readme, name: "README.md", mode: 0o644})
+			}
+			if err := writeTarGz(archivePath, members); err != nil {
+				return nil, err
+			}
+			archives = append(archives, archivePath)
 		}
-		if err := writeTarGz(archivePath, members); err != nil {
-			return nil, err
-		}
-		archives = append(archives, archivePath)
 	}
 	return archives, nil
+}
+
+func releaseBinaries(cfg releaseConfig) []releaseBinary {
+	if len(cfg.binaries) > 0 {
+		return cfg.binaries
+	}
+	if cfg.binary == "" {
+		return nil
+	}
+	mainPackage := cfg.mainPkg
+	if mainPackage == "" {
+		mainPackage = "."
+	}
+	return []releaseBinary{{name: cfg.binary, mainPkg: mainPackage}}
 }
 
 // tarMember names a file to place into an archive at a fixed in-archive name.

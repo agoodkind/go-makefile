@@ -76,9 +76,18 @@ func verifyChecksum(ctx context.Context, options Options, latest release, asset 
 		if !ok {
 			return fmt.Errorf("checksum unavailable for %s", asset.Name)
 		}
-		checksumsPath := filepath.Join(options.CacheDir, "checksums.txt")
-		if err := downloadFile(ctx, options.Client, checksums.BrowserDownloadURL, checksumsPath); err != nil {
-			return err
+		// Cache checksums.txt once per release: a multi-binary release verifies
+		// many archives, so re-downloading the shared checksums file per asset
+		// would scale network requests as O(archives). The cache file is keyed
+		// by a hash of repo plus release tag because CacheDir is stable per
+		// binary name, so a file left by an earlier release, or by another
+		// repo whose binary shares this name, can never be reused for a
+		// different (repo, tag) pair.
+		checksumsPath := filepath.Join(options.CacheDir, "checksums-"+checksumsCacheKey(options.Config.Repo, latest.TagName)+".txt")
+		if _, statErr := os.Stat(checksumsPath); statErr != nil {
+			if err := downloadFile(ctx, options.Client, checksums.BrowserDownloadURL, checksumsPath); err != nil {
+				return err
+			}
 		}
 		resolved, err := checksumFromFile(checksumsPath, asset.Name)
 		if err != nil {
@@ -94,6 +103,15 @@ func verifyChecksum(ctx context.Context, options Options, latest release, asset 
 		return fmt.Errorf("checksum mismatch for %s: expected %s, got %s", asset.Name, want, got)
 	}
 	return nil
+}
+
+// checksumsCacheKey derives a filesystem-safe, collision-free cache-file key
+// for one (repo, tag) pair by hashing the pair. Hashing sidesteps sanitization
+// ambiguity entirely: distinct inputs can never map to the same key the way a
+// character-replacement scheme would (for example org/repo vs org-repo).
+func checksumsCacheKey(repo string, tag string) string {
+	digest := sha256.Sum256([]byte(repo + "@" + tag))
+	return hex.EncodeToString(digest[:8])
 }
 
 func checksumFromAsset(asset releaseAsset) string {

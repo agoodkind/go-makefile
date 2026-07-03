@@ -394,6 +394,7 @@ run_install() {
     fi
 
     tag="$(resolve_tag "$repo" "$version" "$channel")"
+    RESOLVED_TAG="$tag"
     install_release "$repo" "$binary" "$tag" "$bin_dir" "$require_attestation"
     installed_path="$bin_dir/$binary"
 
