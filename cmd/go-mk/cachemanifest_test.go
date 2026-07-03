@@ -129,6 +129,9 @@ func TestCacheManifestWritesGitHubOutputHeredocs(t *testing.T) {
 		"generated_cache_paths",
 		"generated_cache_key",
 		"generated_cache_warnings",
+		"cgo_cache_enabled",
+		"cgo_cache_paths",
+		"cgo_cache_key",
 	}
 	actualNames := githubOutputNames(t, result.githubOutput)
 	if strings.Join(actualNames, ",") != strings.Join(expectedNames, ",") {
@@ -146,6 +149,48 @@ func TestCacheManifestWritesGitHubOutputHeredocs(t *testing.T) {
 		"cache/out\n"
 	if result.stdout != expectedStdout {
 		t.Fatalf("stdout mismatch\nwant:\n%s\ngot:\n%s", expectedStdout, result.stdout)
+	}
+}
+
+func TestCacheManifestCgoKeyStableAndChangesWithInputFile(t *testing.T) {
+	repoDir := cacheManifestTestRepo(t)
+	writeBootstrapTestFile(t, filepath.Join(repoDir, "Makefile"), "all:\n\t@true\n")
+	mustMkdirAll(t, filepath.Join(repoDir, "scripts"))
+	inputPath := filepath.Join(repoDir, "scripts", "build-pcre2.sh")
+	writeBootstrapTestFile(t, inputPath, "printf 'pcre2 10.45\\n'\n")
+	fakeCompiler := writeFakeCacheManifestCompiler(t, repoDir)
+	cacheManifestGit(t, repoDir, "add", "Makefile")
+	t.Chdir(repoDir)
+
+	env := map[string]string{
+		"GO_MK_CGO_DEPS":           "pcre2",
+		"GO_MK_CGO_CACHE_VERSIONS": "pcre2=10.45",
+		"GO_MK_CGO_CACHE_INPUTS":   "scripts/build-pcre2.sh",
+		"GO_MK_CGO_TOOLCHAIN_ID":   "ghcr.io/goreleaser/goreleaser-cross:v1.26.3",
+		"GO_MK_TARGET_GOOS":        "darwin",
+		"GO_MK_TARGET_GOARCH":      "arm64",
+		"GO_MK_CC":                 fakeCompiler,
+	}
+	first := runCacheManifestForTest(t, env)
+	second := runCacheManifestForTest(t, env)
+
+	if first.outputs["cgo_cache_enabled"] != "true" {
+		t.Fatalf("cgo_cache_enabled = %q, want true", first.outputs["cgo_cache_enabled"])
+	}
+	if first.outputs["cgo_cache_paths"] != ".make/cgo/darwin-arm64" {
+		t.Fatalf("cgo_cache_paths = %q, want .make/cgo/darwin-arm64", first.outputs["cgo_cache_paths"])
+	}
+	if first.outputs["cgo_cache_key"] == "" {
+		t.Fatal("cgo_cache_key is empty")
+	}
+	if first.outputs["cgo_cache_key"] != second.outputs["cgo_cache_key"] {
+		t.Fatalf("cgo key changed across stable runs\nfirst: %s\nsecond: %s", first.outputs["cgo_cache_key"], second.outputs["cgo_cache_key"])
+	}
+
+	writeBootstrapTestFile(t, inputPath, "printf 'pcre2 10.46\\n'\n")
+	after := runCacheManifestForTest(t, env)
+	if first.outputs["cgo_cache_key"] == after.outputs["cgo_cache_key"] {
+		t.Fatalf("cgo key did not change after cache input changed: %s", first.outputs["cgo_cache_key"])
 	}
 }
 
@@ -320,6 +365,32 @@ func cacheManifestGit(t *testing.T, repoDir string, args ...string) {
 	if err != nil {
 		t.Fatalf("git %s failed: %v\noutput:\n%s", strings.Join(args, " "), err, string(output))
 	}
+}
+
+func writeFakeCacheManifestCompiler(t *testing.T, repoDir string) string {
+	t.Helper()
+	compilerPath := filepath.Join(repoDir, "fake-cc.sh")
+	script := `#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "-dumpmachine" ]]; then
+    printf '%s\n' 'arm64-apple-darwin'
+    exit 0
+fi
+
+if [[ "${1:-}" == "--version" ]]; then
+    printf '%s\n' 'fake cc 1.0'
+    printf '%s\n' 'extra version line'
+    exit 0
+fi
+
+printf '%s\n' "unexpected fake compiler argument: ${1:-}" >&2
+exit 2
+`
+	if err := os.WriteFile(compilerPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake compiler: %v", err)
+	}
+	return compilerPath
 }
 
 func parseGitHubOutputHeredocs(t *testing.T, output string) map[string]string {
