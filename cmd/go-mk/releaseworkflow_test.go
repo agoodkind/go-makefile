@@ -29,8 +29,14 @@ func TestReleaseBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
 	requireWorkflowContains(t, configure, `echo "CCACHE_COMPILERCHECK=content"`)
 	requireWorkflowContains(t, configure, `echo "CCACHE_NOHASHDIR=true"`)
 	requireWorkflowContains(t, configure, `mkdir -p "${HOME}/.ccache"`)
-	requireWorkflowContains(t, configure, `echo "GO_MK_CC=ccache ${{ matrix.cc }}"`)
-	requireWorkflowContains(t, configure, `echo "GO_MK_CXX=ccache ${{ matrix.cxx }}"`)
+	// ccache interposes through masquerade symlinks so GO_MK_CC stays a single
+	// word; consumer dep recipes may invoke "$CC" as one word and a two-word
+	// value fails there with exit 127.
+	requireWorkflowContains(t, configure, `ln -sf "${ccache_bin}" "${wrapper_dir}/${{ matrix.cc }}"`)
+	requireWorkflowContains(t, configure, `ln -sf "${ccache_bin}" "${wrapper_dir}/${{ matrix.cxx }}"`)
+	requireWorkflowContains(t, configure, `echo "${wrapper_dir}" >> "${GITHUB_PATH}"`)
+	requireWorkflowContains(t, configure, `echo "GO_MK_CC=${{ matrix.cc }}"`)
+	requireWorkflowContains(t, configure, `echo "GO_MK_CXX=${{ matrix.cxx }}"`)
 	requireWorkflowContains(t, configure, "ccache --zero-stats")
 
 	show := releaseBuildWorkflowStep(t, workflow, "Show ccache stats")

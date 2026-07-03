@@ -166,15 +166,28 @@ jobs:
         # the global CC / CXX, so go-mk applies it only to the target build and
         # its cgo-dep provisioning. Host-tool builds in this job (the go-mk binary
         # and quill) then compile with the container's host compiler.
+        #
+        # ccache interposes through masquerade symlinks named after the compilers,
+        # prepended to PATH, rather than a two-word "ccache o64-clang" value:
+        # consumer dep recipes may invoke "$CC" as a single word (agent-gate's
+        # pcre2 script does), and a two-word CC fails there with exit 127. When
+        # ccache runs under a compiler's name it finds the real compiler later
+        # in PATH, so GO_MK_CC stays the plain compiler name.
         run: |
           mkdir -p "${HOME}/.ccache"
+          wrapper_dir="${RUNNER_TEMP}/ccache-masquerade"
+          mkdir -p "${wrapper_dir}"
+          ccache_bin="$(command -v ccache)"
+          ln -sf "${ccache_bin}" "${wrapper_dir}/${{ matrix.cc }}"
+          ln -sf "${ccache_bin}" "${wrapper_dir}/${{ matrix.cxx }}"
+          echo "${wrapper_dir}" >> "${GITHUB_PATH}"
           {
             echo "CCACHE_DIR=${HOME}/.ccache"
             echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}"
             echo "CCACHE_COMPILERCHECK=content"
             echo "CCACHE_NOHASHDIR=true"
-            echo "GO_MK_CC=ccache ${{ matrix.cc }}"
-            echo "GO_MK_CXX=ccache ${{ matrix.cxx }}"
+            echo "GO_MK_CC=${{ matrix.cc }}"
+            echo "GO_MK_CXX=${{ matrix.cxx }}"
           } >> "${GITHUB_ENV}"
           CCACHE_DIR="${HOME}/.ccache" ccache --zero-stats
       - name: Inspect go-mk cache manifest
