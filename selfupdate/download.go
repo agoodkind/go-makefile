@@ -78,8 +78,10 @@ func verifyChecksum(ctx context.Context, options Options, latest release, asset 
 		}
 		// Cache checksums.txt once per release: a multi-binary release verifies
 		// many archives, so re-downloading the shared checksums file per asset
-		// would scale network requests as O(archives). Reuse a local copy.
-		checksumsPath := filepath.Join(options.CacheDir, "checksums.txt")
+		// would scale network requests as O(archives). The cache file is keyed
+		// by release tag because CacheDir is stable per binary, so an unkeyed
+		// file left by an earlier release would poison a later verification.
+		checksumsPath := filepath.Join(options.CacheDir, "checksums-"+sanitizeCacheFileComponent(latest.TagName)+".txt")
 		if _, statErr := os.Stat(checksumsPath); statErr != nil {
 			if err := downloadFile(ctx, options.Client, checksums.BrowserDownloadURL, checksumsPath); err != nil {
 				return err
@@ -99,6 +101,24 @@ func verifyChecksum(ctx context.Context, options Options, latest release, asset 
 		return fmt.Errorf("checksum mismatch for %s: expected %s, got %s", asset.Name, want, got)
 	}
 	return nil
+}
+
+// sanitizeCacheFileComponent maps a release tag to a safe cache-file name
+// component, replacing path separators and any character outside the tag
+// alphabet with a dash.
+func sanitizeCacheFileComponent(value string) string {
+	mapped := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
+			return r
+		default:
+			return '-'
+		}
+	}, value)
+	if mapped == "" {
+		return "untagged"
+	}
+	return mapped
 }
 
 func checksumFromAsset(asset releaseAsset) string {

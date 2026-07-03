@@ -116,6 +116,29 @@ func TestLoadReleaseConfigRejectsMalformedReleaseBins(t *testing.T) {
 	}
 }
 
+func TestLoadReleaseConfigReordersPrimaryBinaryFirst(t *testing.T) {
+	t.Setenv("BINARY", "agent-gate")
+	t.Setenv("CMD", "./cmd/agent-gate")
+	t.Setenv("RELEASE_BINS", "agentctl:./cmd/agentctl agent-gate:./cmd/agent-gate helper:./cmd/helper")
+	t.Setenv("RELEASE_PLATFORMS", "linux/amd64")
+
+	cfg, err := loadReleaseConfig()
+	if err != nil {
+		t.Fatalf("loadReleaseConfig() error: %v", err)
+	}
+	wantBinaries := []releaseBinary{
+		{name: "agent-gate", mainPkg: "./cmd/agent-gate"},
+		{name: "agentctl", mainPkg: "./cmd/agentctl"},
+		{name: "helper", mainPkg: "./cmd/helper"},
+	}
+	if !slices.Equal(cfg.binaries, wantBinaries) {
+		t.Fatalf("binaries = %#v, want %#v", cfg.binaries, wantBinaries)
+	}
+	if cfg.binary != "agent-gate" || cfg.mainPkg != "./cmd/agent-gate" {
+		t.Fatalf("primary = %s %s, want agent-gate ./cmd/agent-gate", cfg.binary, cfg.mainPkg)
+	}
+}
+
 func TestLoadReleaseConfigRejectsReleaseBinsWithoutPrimary(t *testing.T) {
 	t.Setenv("BINARY", "agent-gate")
 	t.Setenv("CMD", "./cmd/agent-gate")
