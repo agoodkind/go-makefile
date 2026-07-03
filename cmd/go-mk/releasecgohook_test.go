@@ -35,6 +35,15 @@ func TestGoMkCgoDepsCgoHookResolvesCompilerEnvironment(t *testing.T) {
 			wantCXX: "fake-cross-cxx",
 		},
 		{
+			name: "go_mk_compilers_preserve_wrapped_cc_and_cxx",
+			env: []string{
+				"GO_MK_CC=ccache fake-cross-cc",
+				"GO_MK_CXX=ccache fake-cross-cxx",
+			},
+			wantCC:  "ccache fake-cross-cc",
+			wantCXX: "ccache fake-cross-cxx",
+		},
+		{
 			name: "cc_passes_through_without_go_mk_compiler",
 			env: []string{
 				"CC=ccache gcc",

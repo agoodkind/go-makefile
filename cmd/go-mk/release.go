@@ -391,6 +391,10 @@ func buildReleaseBinary(cfg releaseConfig, binary releaseBinary, osName string, 
 // consumer declares through GO_MK_CGO_DEPS.
 const cgoDepsTarget = "go-mk-cgo-deps"
 
+// cgoCacheStampFile records the manifest key that produced the restored cgo
+// dependency prefix.
+const cgoCacheStampFile = ".go-mk-cgo-cache-key"
+
 // cgoPrefixForTarget returns the absolute per-target install prefix for
 // provisioned cgo dependencies, keyed by os/arch so a darwin cross build and a
 // linux native build never share artifacts. It mirrors the GO_MK_CGO_PREFIX
@@ -414,6 +418,12 @@ func provisionCgoDeps(osName, arch string) (string, error) {
 		return "", err
 	}
 	prefix := cgoPrefixForTarget(workDir, osName, arch)
+	pkgConfigDir := filepath.Join(prefix, "lib", "pkgconfig")
+	cacheKey := strings.TrimSpace(os.Getenv("GO_MK_CGO_CACHE_KEY"))
+	if cgoDepsCacheRestored(prefix, pkgConfigDir, cacheKey) {
+		slog.Info("release skip cgo deps from restored cache", slog.String("goos", osName), slog.String("goarch", arch))
+		return pkgConfigDir, nil
+	}
 	slog.Info("release provision cgo deps", slog.String("goos", osName), slog.String("goarch", arch))
 	env := []string{
 		"GO_MK_TARGET_GOOS=" + osName,
@@ -426,7 +436,49 @@ func provisionCgoDeps(osName, arch string) (string, error) {
 	if err := releaseRunProcess("make", []string{cgoDepsTarget}, env); err != nil {
 		return "", err
 	}
-	return filepath.Join(prefix, "lib", "pkgconfig"), nil
+	if err := writeCgoDepsCacheStamp(prefix, cacheKey); err != nil {
+		return "", err
+	}
+	return pkgConfigDir, nil
+}
+
+func cgoDepsCacheRestored(prefix, pkgConfigDir, cacheKey string) bool {
+	if strings.TrimSpace(os.Getenv("GO_MK_CGO_CACHE_HIT")) != "true" {
+		return false
+	}
+	if cacheKey == "" {
+		return false
+	}
+	stamp, err := os.ReadFile(filepath.Join(prefix, cgoCacheStampFile))
+	if err != nil {
+		return false
+	}
+	// Trim surrounding whitespace so a stamp with a trailing newline (for
+	// example one rewritten by a shell script) still compares equal and does
+	// not force an unnecessary cold rebuild.
+	if strings.TrimSpace(string(stamp)) != cacheKey {
+		return false
+	}
+	info, err := os.Stat(pkgConfigDir)
+	return err == nil && info.IsDir()
+}
+
+func writeCgoDepsCacheStamp(prefix, cacheKey string) error {
+	slog.Info("release write cgo deps cache stamp", slog.String("prefix", prefix))
+	if cacheKey == "" {
+		return nil
+	}
+	info, err := os.Stat(prefix)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if !info.IsDir() {
+		return nil
+	}
+	return os.WriteFile(filepath.Join(prefix, cgoCacheStampFile), []byte(cacheKey), 0o644)
 }
 
 // crossCompilerEnv returns the CC/CXX the workflow supplies for a cross build

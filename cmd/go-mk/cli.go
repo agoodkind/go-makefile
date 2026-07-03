@@ -161,6 +161,7 @@ func registerEngineCommands(root *cobra.Command) {
 		{"uninstall", "Remove every declared binary from its install directory", runUninstall},
 		{"go-version-check", "Report whether go.mod tracks the latest Go release", runGoVersionCheck},
 		{"ci-changed", "Report whether a CI push changed anything the Go build depends on", runCIChanged},
+		{"cache-manifest", "Build the generated-output cache manifest and GitHub outputs", runCacheManifest},
 		{"prepare-generated-submodules", "Initialize generated-output submodules before cache restore", func() int {
 			return statusFromError(runPrepareGeneratedSubmodules())
 		}},

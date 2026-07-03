@@ -75,7 +75,6 @@ endef
 GO_MK_SCRIPT_FILES := \
 	scripts/go-mk-fetch-one.sh \
 	scripts/go-mk-bin.sh \
-	scripts/go-mk-cache-manifest.sh \
 	scripts/go-mk-sync.sh \
 	notices.txt
 
@@ -383,8 +382,8 @@ go-version-check: go-mk-bin
 ci-changed: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" ci-changed
 
-go-mk-cache-manifest:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-cache-manifest.sh"
+go-mk-cache-manifest: go-mk-bin
+	@"$(GO_MK_BIN_RESOLVED)" cache-manifest
 
 go-mk-prepare-submodules: go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" prepare-generated-submodules
@@ -517,6 +516,18 @@ export GO_MK_WORKSPACE_USE
 # is never invoked and the build environment is unchanged.
 GO_MK_CGO_DEPS ?=
 
+# GO_MK_CGO_CACHE_VERSIONS: optional space-separated dep=version pairs that
+# become part of the cgo dependency output cache key. Consumers should list the
+# external library versions their go-mk-cgo-dep-<dep> targets build, for example
+# pcre2=10.45. Empty is allowed and only makes the cache key less specific.
+GO_MK_CGO_CACHE_VERSIONS ?=
+
+# GO_MK_CGO_CACHE_INPUTS: optional space-separated script or recipe input paths
+# whose file hashes become part of the cgo dependency output cache key. Use this
+# for helper scripts that build the C libraries. Empty is allowed and only makes
+# the cache key less specific.
+GO_MK_CGO_CACHE_INPUTS ?=
+
 # GO_MK_TARGET_GOOS / GO_MK_TARGET_GOARCH: the os/arch currently being built. The
 # release command sets these per platform so a consumer's go-mk-cgo-dep-<dep>
 # target provisions the right library for a darwin cross build or a linux native
@@ -537,6 +548,10 @@ GO_MK_TARGET_GOARCH ?=
 GO_MK_CGO_PREFIX ?= $(CURDIR)/.make/cgo/$(if $(strip $(GO_MK_TARGET_GOOS)$(GO_MK_TARGET_GOARCH)),$(GO_MK_TARGET_GOOS)-$(GO_MK_TARGET_GOARCH),$(GO_MK_HOST_GOOS)-$(GO_MK_HOST_GOARCH))
 
 export GO_MK_CGO_DEPS
+export GO_MK_CGO_CACHE_VERSIONS
+export GO_MK_CGO_CACHE_INPUTS
+export GO_MK_TARGET_GOOS
+export GO_MK_TARGET_GOARCH
 
 .PHONY: go-mk-cgo-deps
 ifneq ($(strip $(GO_MK_CGO_DEPS)),)
