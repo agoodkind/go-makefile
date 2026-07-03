@@ -79,11 +79,11 @@ func verifyChecksum(ctx context.Context, options Options, latest release, asset 
 		// Cache checksums.txt once per release: a multi-binary release verifies
 		// many archives, so re-downloading the shared checksums file per asset
 		// would scale network requests as O(archives). The cache file is keyed
-		// by repo and release tag because CacheDir is stable per binary name,
-		// so an unkeyed file left by an earlier release (or another repo whose
-		// binary shares this name) would poison a later verification.
-		cacheKey := sanitizeCacheFileComponent(options.Config.Repo) + "-" + sanitizeCacheFileComponent(latest.TagName)
-		checksumsPath := filepath.Join(options.CacheDir, "checksums-"+cacheKey+".txt")
+		// by a hash of repo plus release tag because CacheDir is stable per
+		// binary name, so a file left by an earlier release, or by another
+		// repo whose binary shares this name, can never be reused for a
+		// different (repo, tag) pair.
+		checksumsPath := filepath.Join(options.CacheDir, "checksums-"+checksumsCacheKey(options.Config.Repo, latest.TagName)+".txt")
 		if _, statErr := os.Stat(checksumsPath); statErr != nil {
 			if err := downloadFile(ctx, options.Client, checksums.BrowserDownloadURL, checksumsPath); err != nil {
 				return err
@@ -105,22 +105,13 @@ func verifyChecksum(ctx context.Context, options Options, latest release, asset 
 	return nil
 }
 
-// sanitizeCacheFileComponent maps a release tag to a safe cache-file name
-// component, replacing path separators and any character outside the tag
-// alphabet with a dash.
-func sanitizeCacheFileComponent(value string) string {
-	mapped := strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
-			return r
-		default:
-			return '-'
-		}
-	}, value)
-	if mapped == "" {
-		return "untagged"
-	}
-	return mapped
+// checksumsCacheKey derives a filesystem-safe, collision-free cache-file key
+// for one (repo, tag) pair by hashing the pair. Hashing sidesteps sanitization
+// ambiguity entirely: distinct inputs can never map to the same key the way a
+// character-replacement scheme would (for example org/repo vs org-repo).
+func checksumsCacheKey(repo string, tag string) string {
+	digest := sha256.Sum256([]byte(repo + "@" + tag))
+	return hex.EncodeToString(digest[:8])
 }
 
 func checksumFromAsset(asset releaseAsset) string {
