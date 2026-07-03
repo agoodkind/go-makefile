@@ -271,6 +271,20 @@ func parseReleaseBinaries(binary string, mainPkg string, releaseBinsText string)
 		}
 		binaries = append(binaries, releaseBinary{name: name, mainPkg: mainPackage})
 	}
+	// RELEASE_BINS is the full set of binaries the release ships, not an
+	// addition to BINARY. Require it to include the primary BINARY so a
+	// reordered or incomplete list cannot silently drop the primary binary
+	// (whose name titles the GitHub release).
+	primaryPresent := false
+	for _, candidate := range binaries {
+		if candidate.name == binary {
+			primaryPresent = true
+			break
+		}
+	}
+	if !primaryPresent {
+		return nil, fmt.Errorf("release: RELEASE_BINS must include the primary binary %q", binary)
+	}
 	return binaries, nil
 }
 

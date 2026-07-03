@@ -76,9 +76,14 @@ func verifyChecksum(ctx context.Context, options Options, latest release, asset 
 		if !ok {
 			return fmt.Errorf("checksum unavailable for %s", asset.Name)
 		}
+		// Cache checksums.txt once per release: a multi-binary release verifies
+		// many archives, so re-downloading the shared checksums file per asset
+		// would scale network requests as O(archives). Reuse a local copy.
 		checksumsPath := filepath.Join(options.CacheDir, "checksums.txt")
-		if err := downloadFile(ctx, options.Client, checksums.BrowserDownloadURL, checksumsPath); err != nil {
-			return err
+		if _, statErr := os.Stat(checksumsPath); statErr != nil {
+			if err := downloadFile(ctx, options.Client, checksums.BrowserDownloadURL, checksumsPath); err != nil {
+				return err
+			}
 		}
 		resolved, err := checksumFromFile(checksumsPath, asset.Name)
 		if err != nil {

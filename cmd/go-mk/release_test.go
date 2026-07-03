@@ -116,6 +116,20 @@ func TestLoadReleaseConfigRejectsMalformedReleaseBins(t *testing.T) {
 	}
 }
 
+func TestLoadReleaseConfigRejectsReleaseBinsWithoutPrimary(t *testing.T) {
+	t.Setenv("BINARY", "agent-gate")
+	t.Setenv("CMD", "./cmd/agent-gate")
+	t.Setenv("RELEASE_BINS", "agentctl:./cmd/agentctl helper:./cmd/helper")
+
+	_, err := loadReleaseConfig()
+	if err == nil {
+		t.Fatal("loadReleaseConfig() error = nil, want missing primary binary error")
+	}
+	if !strings.Contains(err.Error(), `release: RELEASE_BINS must include the primary binary "agent-gate"`) {
+		t.Fatalf("loadReleaseConfig() error = %v", err)
+	}
+}
+
 func TestArchivePlatformsWritesOneArchivePerBinaryAndPlatform(t *testing.T) {
 	workDir := t.TempDir()
 	t.Chdir(workDir)

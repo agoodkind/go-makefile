@@ -6,7 +6,7 @@
 #
 # Inputs (from go-build.mk and the project Makefile):
 #   BINARY, CMD, VPKG, GKLOG_VPKG   build identity and version stamping
-#   RELEASE_BINS                    optional name:cmd pairs for extra binaries
+#   RELEASE_BINS                    full name:cmd set to release (default BINARY:CMD; must include BINARY)
 #   RELEASE_PLATFORMS               os/arch list (default darwin+linux, amd64+arm64)
 #   RELEASE_ENTITLEMENTS            optional entitlements XML for darwin signing
 #   REQUIRE_DARWIN_CODESIGN         fail darwin release builds when signing

@@ -73,9 +73,10 @@ INSTALL_BIN := $(INSTALL_DIR)/$(BINARY)
 # declare nothing. The go-mk install/build/uninstall commands read this.
 INSTALL_BINS ?=
 
-# Release binaries beyond the primary BINARY, declared as space-separated
-# name:cmd pairs. Empty means the single BINARY:CMD. The release command reads
-# this when a repo ships more than one binary in the same GitHub release.
+# The full set of binaries a release ships, declared as space-separated
+# name:cmd pairs. Empty defaults to the single BINARY:CMD. When set it replaces
+# that default and MUST include the primary BINARY (the release fails loudly
+# otherwise); the primary binary's name titles the GitHub release.
 RELEASE_BINS ?=
 
 # Version metadata derived from git. Single canonical scheme across all repos.
