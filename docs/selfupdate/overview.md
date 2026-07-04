@@ -24,7 +24,7 @@ The generated installer performs the same verification for a first install. [cmd
 
 ## The daemon scheduler
 
-`RunScheduler` in [selfupdate/scheduler.go](../../selfupdate/scheduler.go) runs a consumer daemon's update loop from `SchedulerHooks`: `Enabled` gates the loop, `Mode` selects check or apply, `Options` supplies the per-tick config, and `StopForRelaunch` runs after a successful apply so the caller can exit and let its service manager relaunch the new binary. Because `Check` forces `UpdateAvailable` false for a dirty build, an apply-mode scheduler in a dev build takes no action, so a `make deploy` binary is not replaced by a release while it runs.
+`RunScheduler` in [selfupdate/scheduler.go](../../selfupdate/scheduler.go) runs a consumer daemon's update loop from `SchedulerHooks`: `Enabled` gates the loop, `Mode` selects check or apply, `Options` supplies the per-tick config, and `StopForRelaunch` runs after a successful apply so the caller can exit and let its service manager relaunch the new binary. Because `Check` forces `UpdateAvailable` false for a dirty build, an apply-mode scheduler in a build with uncommitted changes takes no action, so that build is not replaced by a release while it runs.
 
 ## Sources of truth
 
