@@ -71,17 +71,18 @@ on:
         default: true
       release_platforms:
         description: >-
-          Space-separated os/arch targets for the release-build gate, passed to
-          the shared build component. Defaults to all four release platforms.
-          Set this to match the consumer's release.yml platforms value.
+          Space-separated os/arch targets for the compile and release gates,
+          passed to the shared build and package components. Defaults to all
+          four release platforms. Set this to match the consumer's release.yml
+          platforms value.
         required: false
         type: string
         default: "darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
       darwin_runner:
         description: >-
-          macOS runner label for native darwin release-build jobs, passed to
-          the shared build component. Empty keeps the Ubuntu cross-compile
-          default. Set this to match the consumer's release.yml darwin_runner.
+          macOS runner label for native darwin compile jobs, passed to the
+          shared build component. Empty keeps the Ubuntu cross-compile default.
+          Set this to match the consumer's release.yml darwin_runner.
         required: false
         type: string
         default: ""
@@ -91,11 +92,11 @@ on:
           Whether the push changed anything the Go build or tests depend on, as
           computed by go-mk ci-changed. A consumer can gate its own extra Go job
           with `needs: <this job>` and `if: needs.<job>.outputs.changed == 'true'`.
-        value: ${{ jobs.changes.outputs.changed }}
+        value: ${{ jobs.prepare.outputs.changed }}
 
 jobs:
-  changes:
-    name: Changes
+  prepare:
+    name: Prepare
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
@@ -151,8 +152,8 @@ jobs:
           else
             echo "run=false" >> "${GITHUB_OUTPUT}"
           fi
-      # A repo that releases has a release workflow file, and the release-build
-      # job below keys off this output.
+      # A repo that releases has a release workflow file, and the build and
+      # release gates below key off this output.
       - name: Detect release configuration
         id: release-detect
         run: |
@@ -161,20 +162,67 @@ jobs:
           else
             echo "releases=false" >> "${GITHUB_OUTPUT}"
           fi
+      # Warm the generated-output cache once here, the single saver, so the
+      # quality gates and the compile matrix restore it instead of each
+      # regenerating. A repo with no codegen leaves generated_cache_enabled
+      # false, so every step below is a no-op and this job stays cheap.
+      - name: Inspect go-mk cache manifest
+        id: go-mk-cache-prep
+        if: steps.decide.outputs.run == 'true'
+        working-directory: ${{ inputs.working_directory }}
+        run: make go-mk-cache-manifest
+      - name: Install apt packages
+        if: steps.decide.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ inputs.apt_packages }}
+      - name: Install Go tool packages
+        if: steps.decide.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true' && inputs.go_tool_packages != ''
+        run: |
+          for go_tool_package in ${{ inputs.go_tool_packages }}; do
+            go install "${go_tool_package}"
+          done
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+      - name: Run pre-make commands
+        if: steps.decide.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true' && inputs.pre_make_commands != ''
+        run: ${{ inputs.pre_make_commands }}
+      - name: Prepare generated submodules
+        if: steps.decide.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
+        working-directory: ${{ inputs.working_directory }}
+        run: make go-mk-prepare-submodules
+      - name: Build go-mk cache manifest
+        id: go-mk-cache
+        if: steps.decide.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true'
+        working-directory: ${{ inputs.working_directory }}
+        run: make go-mk-cache-manifest
+      - name: Restore generated outputs
+        id: generated-cache-restore
+        if: steps.decide.outputs.run == 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true'
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
+          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
+      - name: Generate outputs on cache miss
+        if: steps.decide.outputs.run == 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true' && steps.generated-cache-restore.outputs.cache-hit != 'true'
+        working-directory: ${{ inputs.working_directory }}
+        run: make go-mk-generate
+      - name: Save generated outputs
+        if: steps.decide.outputs.run == 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true' && steps.generated-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
+          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
 
-  release-build:
-    name: Release Build
-    # This job is THE build for a releasing repo, and it uses the same
-    # component that the release workflow publishes. It runs once per push with
-    # real signing, notarization, and attestation whenever the repository's
-    # secrets are present. The cgo input is always on because a pure-Go consumer
-    # compiles no C either way. Fork pull requests are skipped because fork
-    # tokens carry no secrets or id-token. The nesting depth is consumer ci.yml,
-    # then _ci.yml, then _release_build.yml, which is three levels inside
-    # GitHub's cap.
-    needs: changes
-    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
-    uses: agoodkind/go-makefile/.github/workflows/_release_build.yml@main
+  compile:
+    name: Compile
+    # The per-platform compile matrix. It produces this run's build artifacts,
+    # which the release gate consumes. It runs once per push with the shared
+    # build component. Fork pull requests are skipped because fork tokens carry
+    # no secrets or id-token. The nesting depth is consumer ci.yml, then _ci.yml,
+    # then _build.yml, which is three levels inside GitHub's cap.
+    needs: prepare
+    if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
+    uses: agoodkind/go-makefile/.github/workflows/_build.yml@main
     secrets: inherit
     with:
       cgo: true
@@ -183,14 +231,170 @@ jobs:
       platforms: ${{ inputs.release_platforms }}
       darwin_runner: ${{ inputs.darwin_runner }}
 
+  build:
+    name: Build
+    # The required build gate. On a releasing repo it rolls up the compile
+    # matrix so the single go / Build check reflects compilation with one
+    # uniform name across every consumer platform set; its first step fails when
+    # the compile matrix did. On a repo without a release configuration it runs
+    # the host make build instead. This job always runs so its named Build check
+    # reports, and a skipped compile matrix (an irrelevant push or a fork pull
+    # request) keeps this check green because nothing was supposed to build.
+    needs: [prepare, compile]
+    if: ${{ !cancelled() }}
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Require compile success
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases == 'true' && (needs.compile.result == 'failure' || needs.compile.result == 'cancelled')
+        run: |
+          echo "Compile matrix did not succeed (result: ${{ needs.compile.result }})." >&2
+          exit 1
+      - if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true'
+        uses: actions/checkout@v7
+        with:
+          submodules: ${{ inputs.submodules }}
+      - name: Install apt packages
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ inputs.apt_packages }}
+      - if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: ${{ inputs.go_version_file }}
+          cache-dependency-path: |
+            ${{ inputs.go_version_file }}
+            ${{ inputs.working_directory }}/go.sum
+            ${{ inputs.working_directory }}/go.work
+            ${{ inputs.working_directory }}/go.work.sum
+      - name: Install ccache
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ccache
+      - name: Restore ccache
+        id: ccache-restore
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-
+      - name: Configure ccache
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        run: |
+          {
+            echo "CCACHE_DIR=${HOME}/.ccache"
+            echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}"
+            echo "CCACHE_COMPILERCHECK=content"
+            echo "CCACHE_NOHASHDIR=true"
+            echo "CC=ccache gcc"
+            echo "CXX=ccache g++"
+          } >> "${GITHUB_ENV}"
+      - name: Inspect go-mk cache manifest
+        id: go-mk-cache-prep
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true'
+        run: make go-mk-cache-manifest
+        working-directory: ${{ inputs.working_directory }}
+      - name: Prepare generated submodules
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true' && steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
+        run: make go-mk-prepare-submodules
+        working-directory: ${{ inputs.working_directory }}
+      - name: Build go-mk cache manifest
+        id: go-mk-cache
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true' && steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true'
+        run: make go-mk-cache-manifest
+        working-directory: ${{ inputs.working_directory }}
+      - name: Restore generated outputs
+        id: generated-cache-restore
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true'
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
+          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
+      - name: Install Go tool packages
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true' && inputs.go_tool_packages != ''
+        run: |
+          for go_tool_package in ${{ inputs.go_tool_packages }}; do
+            go install "${go_tool_package}"
+          done
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+      - name: Run pre-make commands
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true' && inputs.pre_make_commands != ''
+        run: ${{ inputs.pre_make_commands }}
+      - if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true'
+        run: make build
+        working-directory: ${{ inputs.working_directory }}
+      - name: Show ccache stats
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        run: ccache --show-stats || true
+      - name: Save generated outputs
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true' && steps.generated-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
+          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
+      - name: Save ccache
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != '' && steps.ccache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}
+
+  release-package:
+    name: Package
+    # The per-platform package matrix. It consumes the compile artifacts and
+    # signs, notarizes, archives, and attests them, throwing the archives away on
+    # a dry run. Its legs roll up into the required Release (dry run) gate.
+    needs: [prepare, compile]
+    if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: agoodkind/go-makefile/.github/workflows/_package.yml@main
+    secrets: inherit
+    with:
+      submodules: ${{ inputs.submodules }}
+      platforms: ${{ inputs.release_platforms }}
+
+  release:
+    name: Release (dry run)
+    # The release dry run rolls up the package matrix and exercises the full
+    # package path (sign, notarize, archive, attest) without tag or publish, so
+    # a release-path regression blocks merge before it reaches the real release.
+    # It is required across consumers under this one uniform name. On a repo
+    # without a release configuration it does nothing and stays green.
+    needs: [prepare, release-package]
+    if: ${{ !cancelled() }}
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+    steps:
+      - name: Require release package success
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases == 'true' && (needs.release-package.result == 'failure' || needs.release-package.result == 'cancelled')
+        run: |
+          echo "Release package matrix did not succeed (result: ${{ needs.release-package.result }})." >&2
+          exit 1
+      - name: Report dry run
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases == 'true'
+        run: |
+          echo "Release dry run succeeded: compiled, signed, archived, and attested without publishing." >> "${GITHUB_STEP_SUMMARY}"
+
   quality:
     name: Quality / ${{ matrix.name }}
-    # Gates fan out after the single build completes and reuse its warm caches.
-    # A failed build short-circuits the gates while the skipped gate checks still
-    # report, and the failed Build or Release Build check is what blocks the
-    # merge.
-    needs: [changes, build, release-build]
-    if: ${{ !cancelled() && needs.build.result != 'failure' && needs.build.result != 'cancelled' && needs.release-build.result != 'failure' && needs.release-build.result != 'cancelled' }}
+    # Gates run in parallel with the compile matrix and the release dry run,
+    # depending on neither. They restore the generated cache the prepare job
+    # warmed. A gate failure blocks merge independently of the build and release
+    # results.
+    needs: [prepare]
+    if: ${{ !cancelled() }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
@@ -227,16 +431,16 @@ jobs:
             command: make go-version-check
             install_golangci_lint: false
     steps:
-      - if: needs.changes.outputs.run == 'true'
+      - if: needs.prepare.outputs.run == 'true'
         uses: actions/checkout@v7
         with:
           submodules: ${{ inputs.submodules }}
       - name: Install apt packages
-        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        if: needs.prepare.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y ${{ inputs.apt_packages }}
-      - if: needs.changes.outputs.run == 'true'
+      - if: needs.prepare.outputs.run == 'true'
         uses: actions/setup-go@v6
         with:
           go-version-file: ${{ inputs.go_version_file }}
@@ -246,12 +450,12 @@ jobs:
             ${{ inputs.working_directory }}/go.work
             ${{ inputs.working_directory }}/go.work.sum
       - name: Install ccache
-        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        if: needs.prepare.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y ccache
       - name: Restore ccache
-        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        if: needs.prepare.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         uses: actions/cache/restore@v6
         with:
           path: ~/.ccache
@@ -259,7 +463,7 @@ jobs:
           restore-keys: |
             ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-
       - name: Configure ccache
-        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        if: needs.prepare.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: |
           {
             echo "CCACHE_DIR=${HOME}/.ccache"
@@ -271,159 +475,44 @@ jobs:
           } >> "${GITHUB_ENV}"
       - name: Inspect go-mk cache manifest
         id: go-mk-cache-prep
-        if: needs.changes.outputs.run == 'true'
+        if: needs.prepare.outputs.run == 'true'
         run: make go-mk-cache-manifest
         working-directory: ${{ inputs.working_directory }}
       - name: Prepare generated submodules
-        if: needs.changes.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
+        if: needs.prepare.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
         run: make go-mk-prepare-submodules
         working-directory: ${{ inputs.working_directory }}
       - name: Build go-mk cache manifest
         id: go-mk-cache
-        if: needs.changes.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true'
+        if: needs.prepare.outputs.run == 'true' && steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true'
         run: make go-mk-cache-manifest
         working-directory: ${{ inputs.working_directory }}
       - name: Restore generated outputs
         id: generated-cache-restore
-        if: needs.changes.outputs.run == 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true'
+        if: needs.prepare.outputs.run == 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true'
         uses: actions/cache/restore@v6
         with:
           path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
           key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
       - name: Install Go tool packages
-        if: needs.changes.outputs.run == 'true' && inputs.go_tool_packages != ''
+        if: needs.prepare.outputs.run == 'true' && inputs.go_tool_packages != ''
         run: |
           for go_tool_package in ${{ inputs.go_tool_packages }}; do
             go install "${go_tool_package}"
           done
           echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
       - name: Run pre-make commands
-        if: needs.changes.outputs.run == 'true' && inputs.pre_make_commands != ''
+        if: needs.prepare.outputs.run == 'true' && inputs.pre_make_commands != ''
         run: ${{ inputs.pre_make_commands }}
       - name: Install golangci-lint
-        if: needs.changes.outputs.run == 'true' && matrix.install_golangci_lint
+        if: needs.prepare.outputs.run == 'true' && matrix.install_golangci_lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ inputs.golangci_lint_version }}
           install-only: true
-      - if: needs.changes.outputs.run == 'true'
+      - if: needs.prepare.outputs.run == 'true'
         run: ${{ matrix.command }}
         working-directory: ${{ inputs.working_directory }}
       - name: Show ccache stats
-        if: needs.changes.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
+        if: needs.prepare.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: ccache --show-stats || true
-
-  build:
-    name: Build
-    # The host build serves repos without a release configuration. Releasing
-    # repos build through the Release Build job instead. This job still always
-    # runs so its named Build check reports, and on a releasing repo its first
-    # step fails when the Release Build failed, so the required Build check
-    # reflects the real build result without any ruleset change. A skipped
-    # Release Build (an irrelevant push or a fork pull request) keeps this
-    # check green because nothing was supposed to build.
-    needs: [changes, release-build]
-    if: ${{ !cancelled() }}
-    runs-on: ${{ inputs.runs_on }}
-    timeout-minutes: ${{ inputs.timeout_minutes }}
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - name: Require release build success
-        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases == 'true' && (needs.release-build.result == 'failure' || needs.release-build.result == 'cancelled')
-        run: |
-          echo "Release Build did not succeed (result: ${{ needs.release-build.result }})." >&2
-          exit 1
-      - if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true'
-        uses: actions/checkout@v7
-        with:
-          submodules: ${{ inputs.submodules }}
-      - name: Install apt packages
-        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ${{ inputs.apt_packages }}
-      - if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true'
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: ${{ inputs.go_version_file }}
-          cache-dependency-path: |
-            ${{ inputs.go_version_file }}
-            ${{ inputs.working_directory }}/go.sum
-            ${{ inputs.working_directory }}/go.work
-            ${{ inputs.working_directory }}/go.work.sum
-      - name: Install ccache
-        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ccache
-      - name: Restore ccache
-        id: ccache-restore
-        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
-        uses: actions/cache/restore@v6
-        with:
-          path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}
-          restore-keys: |
-            ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-
-      - name: Configure ccache
-        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
-        run: |
-          {
-            echo "CCACHE_DIR=${HOME}/.ccache"
-            echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}"
-            echo "CCACHE_COMPILERCHECK=content"
-            echo "CCACHE_NOHASHDIR=true"
-            echo "CC=ccache gcc"
-            echo "CXX=ccache g++"
-          } >> "${GITHUB_ENV}"
-      - name: Inspect go-mk cache manifest
-        id: go-mk-cache-prep
-        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true'
-        run: make go-mk-cache-manifest
-        working-directory: ${{ inputs.working_directory }}
-      - name: Prepare generated submodules
-        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
-        run: make go-mk-prepare-submodules
-        working-directory: ${{ inputs.working_directory }}
-      - name: Build go-mk cache manifest
-        id: go-mk-cache
-        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true'
-        run: make go-mk-cache-manifest
-        working-directory: ${{ inputs.working_directory }}
-      - name: Restore generated outputs
-        id: generated-cache-restore
-        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true'
-        uses: actions/cache/restore@v6
-        with:
-          path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
-          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
-      - name: Install Go tool packages
-        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && inputs.go_tool_packages != ''
-        run: |
-          for go_tool_package in ${{ inputs.go_tool_packages }}; do
-            go install "${go_tool_package}"
-          done
-          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
-      - name: Run pre-make commands
-        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && inputs.pre_make_commands != ''
-        run: ${{ inputs.pre_make_commands }}
-      - if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true'
-        run: make build
-        working-directory: ${{ inputs.working_directory }}
-      - name: Show ccache stats
-        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
-        run: ccache --show-stats || true
-      - name: Save generated outputs
-        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && steps.go-mk-cache.outputs.generated_cache_enabled == 'true' && steps.generated-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
-          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
-      - name: Save ccache
-        if: needs.changes.outputs.run == 'true' && needs.changes.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != '' && steps.ccache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}
