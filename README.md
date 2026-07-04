@@ -48,6 +48,11 @@ by one fetched file, `go.mk`.
   every compile-bearing target, exports `PKG_CONFIG_PATH`, and resolves the
   cross toolchain into `CC`/`CXX` per build target. See
   [docs/cgo/overview.md](docs/cgo/overview.md) for the contract.
+- Repos that ship a self-updating binary or daemon use the `selfupdate` library
+  to discover, verify, and install their own releases. A dev or `make deploy`
+  build is guarded from auto-update, and each consumer sources its build hash
+  from a runtime hash because the stamped `BinHash` is empty. See
+  [docs/selfupdate/overview.md](docs/selfupdate/overview.md) for the contract.
 - Do not pin the lint tools (golangci-lint, gocyclo, deadcode, govulncheck,
   gofumpt, goimports, staticcheck-extra) with a go.mod `tool` directive; go.mk
   installs them itself with versions it controls via the `*_INSTALL` variables,
