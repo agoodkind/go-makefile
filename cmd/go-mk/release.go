@@ -95,6 +95,8 @@ func runReleaseStage(stage releaseStage, cfg releaseConfig) error {
 		return compileStage(cfg)
 	case stagePackage:
 		return packageStage(cfg)
+	case stageBuild:
+		return buildStage(cfg)
 	case stagePublish:
 		return publishStage(cfg)
 	case stageAllInOne:
@@ -114,7 +116,12 @@ const (
 	stageTag      releaseStage = "tag"
 	stageCompile  releaseStage = "compile"
 	stagePackage  releaseStage = "package"
-	stagePublish  releaseStage = "publish"
+	// stageBuild is the fused compile-and-package stage the earlier single build
+	// matrix drove. It is retained for the transition window while the shared
+	// release workflows still reference the old component at @main, and is
+	// retired once every caller has moved to the compile and package stages.
+	stageBuild   releaseStage = "build"
+	stagePublish releaseStage = "publish"
 )
 
 // emitReleaseTag prints the computed tag so the matrix workflow threads one
@@ -174,6 +181,17 @@ func packageStage(cfg releaseConfig) error {
 	}
 	_, err := archivePlatforms(cfg)
 	return err
+}
+
+// buildStage is the fused compile-and-package stage the earlier single build
+// matrix drove. It compiles, signs, and archives in one pass. It is retained
+// for the transition window and is a plain composition of compileStage and
+// packageStage, so it stays identical to running the two stages back to back.
+func buildStage(cfg releaseConfig) error {
+	if err := compileStage(cfg); err != nil {
+		return err
+	}
+	return packageStage(cfg)
 }
 
 // publishStage pushes the prerelease tag, writes checksums over the archives the
