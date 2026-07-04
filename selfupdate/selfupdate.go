@@ -34,15 +34,11 @@ var (
 
 // Config describes the target repository and current binary identity.
 type Config struct {
-	Repo             string
-	Binary           string
-	CurrentVersion   string
-	CurrentCommit    string
-	CurrentBuildHash string
-	// CurrentDirty marks a dev or locally-built binary (uncommitted changes
-	// at build time). When true, Check reports no update and Apply is a no-op,
-	// so a dev build is never auto-replaced by a release.
-	CurrentDirty      bool
+	Repo              string
+	Binary            string
+	CurrentVersion    string
+	CurrentCommit     string
+	CurrentBuildHash  string
 	AllowPrerelease   *bool
 	Interval          time.Duration
 	SignerWorkflowURI string
@@ -51,6 +47,11 @@ type Config struct {
 	AuthToken         string
 	ValidateArgs      []string
 	ValidateMatch     string
+	// CurrentDirty marks a dev or locally-built binary (uncommitted changes at
+	// build time). When true, Check reports no update and Apply installs
+	// nothing, so a dev build is never auto-replaced by a release. It is
+	// appended at the end so unkeyed Config literals keep compiling.
+	CurrentDirty bool
 }
 
 // Options configures one update check or apply operation.
