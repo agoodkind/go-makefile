@@ -9,11 +9,11 @@ name: Release
 # provisions its external C libraries per target through GO_MK_CGO_DEPS. darwin
 # binaries are signed and notarized with anchore/quill (Apache-2.0). All build,
 # sign, archive, checksum, tag, and publish logic lives in the go-mk `release`
-# command, driven one stage per job: tag computes a single shared tag, build
-# runs per target, and publish collects every uploaded archive into one GitHub
-# release. Build identity, version package, and entitlements come from the
-# consumer's Makefile. Signing is skipped automatically when the signing secret
-# is absent.
+# command, driven one stage per job: tag computes a single shared tag, compile
+# builds each target, package signs and archives each target, and publish
+# collects every uploaded archive into one GitHub release. Build identity,
+# version package, and entitlements come from the consumer's Makefile. Signing
+# is skipped automatically when the signing secret is absent.
 
 on:
   workflow_call:
@@ -90,26 +90,45 @@ jobs:
           RELEASE_STAGE: tag
         run: make release
 
-  # The build matrix lives in the shared component.
+  # The compile matrix lives in the shared build component. It uploads the raw
+  # per-platform binaries the package job consumes.
   # The @main reference keeps the nested workflow on the ref consumers already pin.
-  build:
-    name: Build
+  compile:
+    name: Compile
     needs: tag
-    uses: agoodkind/go-makefile/.github/workflows/_release_build.yml@main
+    permissions:
+      contents: read
+    uses: agoodkind/go-makefile/.github/workflows/_build.yml@main
     secrets: inherit
     with:
       cgo: ${{ inputs.cgo }}
       apt_packages: ${{ inputs.apt_packages }}
       submodules: ${{ inputs.submodules }}
-      quill_version: ${{ inputs.quill_version }}
-      require_darwin_codesign: ${{ inputs.require_darwin_codesign }}
       release_tag: ${{ needs.tag.outputs.tag }}
       platforms: ${{ inputs.platforms }}
       darwin_runner: ${{ inputs.darwin_runner }}
 
+  # The package matrix signs, notarizes, archives, and attests the compiled
+  # binaries, uploading one release-<goos>-<goarch> archive per platform.
+  package:
+    name: Package
+    needs: [tag, compile]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: agoodkind/go-makefile/.github/workflows/_package.yml@main
+    secrets: inherit
+    with:
+      submodules: ${{ inputs.submodules }}
+      quill_version: ${{ inputs.quill_version }}
+      require_darwin_codesign: ${{ inputs.require_darwin_codesign }}
+      release_tag: ${{ needs.tag.outputs.tag }}
+      platforms: ${{ inputs.platforms }}
+
   publish:
     name: Publish
-    needs: [tag, build]
+    needs: [tag, package]
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -121,6 +140,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: dist
+          pattern: release-*
           merge-multiple: true
       - uses: actions/setup-go@v6
         with:

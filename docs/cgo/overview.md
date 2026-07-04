@@ -1,6 +1,6 @@
 # Cgo dependency provisioning
 
-go-makefile builds a consumer's external C libraries per build target through the `GO_MK_CGO_DEPS` hook, so cgo consumers cross-compile with the same declaration that drives their host builds. The hook, its per-target environment, and the toolchain resolution live in [go.mk](../../go.mk); the release engine's invocation lives in [cmd/go-mk/release.go](../../cmd/go-mk/release.go); the workflow that publishes the cross toolchain lives in [.github/workflows/_release_build.yml](../../.github/workflows/_release_build.yml).
+go-makefile builds a consumer's external C libraries per build target through the `GO_MK_CGO_DEPS` hook, so cgo consumers cross-compile with the same declaration that drives their host builds. The hook, its per-target environment, and the toolchain resolution live in [go.mk](../../go.mk); the release engine's invocation lives in [cmd/go-mk/release.go](../../cmd/go-mk/release.go); the workflow that publishes the cross toolchain lives in [.github/workflows/_build.yml](../../.github/workflows/_build.yml).
 
 ## The consumer contract
 
@@ -14,11 +14,11 @@ The hook runs from two entry points, and both provide the same environment contr
 
 The release engine provisions each platform before its `go build`: `provisionCgoDeps` in [cmd/go-mk/release.go](../../cmd/go-mk/release.go) runs `make go-mk-cgo-deps` with the target tuple, the per-target prefix, and the resolved compiler.
 
-The make layer runs the same hook as an order-only prerequisite of build, vet, lint, test, install, and the compile-bearing release stages, through `GO_MK_PREREQS` in [go.mk](../../go.mk). The release target attaches the hook only when the stage compiles (the build stage, or the stage-less all-in-one pipeline); the tag and publish stages skip it, so a consumer whose prerequisites need platform-specific tools still tags and publishes from any runner (see [go-release.mk](../../go-release.mk)). The hook's target-specific exports supply the tuple, the prefix, `PKG_CONFIG_PATH`, and the compiler there as well.
+The make layer runs the same hook as an order-only prerequisite of build, vet, lint, test, install, and the compile-bearing release stages, through `GO_MK_PREREQS` in [go.mk](../../go.mk). The release target attaches the hook only when the stage compiles (the compile stage, the transitional fused build stage, or the stage-less all-in-one pipeline); the tag, publish, and package stages skip it, so a consumer whose prerequisites need platform-specific tools still tags, packages, and publishes from any runner (see [go-release.mk](../../go-release.mk)). The hook's target-specific exports supply the tuple, the prefix, `PKG_CONFIG_PATH`, and the compiler there as well.
 
 ## How the toolchain flows
 
-The release workflow publishes the target declaration job-wide: [\_release_build.yml](../../.github/workflows/_release_build.yml) writes `GO_MK_TARGET_GOOS` / `GO_MK_TARGET_GOARCH` for every cgo job and `GO_MK_CC` / `GO_MK_CXX` for the darwin cross jobs. The cross compiler travels under dedicated names, not global `CC` / `CXX`, so host tools in the same job (the go-mk binary, quill) keep the host compiler.
+The release workflow publishes the target declaration job-wide: [\_build.yml](../../.github/workflows/_build.yml) writes `GO_MK_TARGET_GOOS` / `GO_MK_TARGET_GOARCH` for every cgo job and `GO_MK_CC` / `GO_MK_CXX` for the darwin cross jobs. The cross compiler travels under dedicated names, not global `CC` / `CXX`, so host tools in the same job (the go-mk binary, quill) keep the host compiler.
 
 go.mk resolves `GO_MK_CC` / `GO_MK_CXX` into `CC` / `CXX` at the hook, so a dep recipe compiles with the target's compiler no matter which entry point invoked it. The release engine also injects the resolved `CC` / `CXX` into its own hook invocation (`crossCompilerEnv` in [cmd/go-mk/release.go](../../cmd/go-mk/release.go)); both mechanisms read the same job-wide variables, so they agree. Unset `GO_MK_CC` / `GO_MK_CXX` leave `CC` / `CXX` passing through unchanged, which preserves a linux job's multi-word `CC="ccache gcc"`.
 
@@ -26,7 +26,7 @@ go.mk resolves `GO_MK_CC` / `GO_MK_CXX` into `CC` / `CXX` at the hook, so a dep 
 
 ## Caching provisioned dependencies
 
-The release build caches each target's `GO_MK_CGO_PREFIX` so a warm run skips the dependency build. The `go-mk cache-manifest` command in [cmd/go-mk/cachemanifest.go](../../cmd/go-mk/cachemanifest.go) emits a per-target `cgo_cache_key`, and [\_release_build.yml](../../.github/workflows/_release_build.yml) restores and saves the prefix under that exact key. On a cache hit `provisionCgoDeps` in [cmd/go-mk/release.go](../../cmd/go-mk/release.go) reads a stamp file in the prefix and skips `make go-mk-cgo-deps`.
+The release build caches each target's `GO_MK_CGO_PREFIX` so a warm run skips the dependency build. The `go-mk cache-manifest` command in [cmd/go-mk/cachemanifest.go](../../cmd/go-mk/cachemanifest.go) emits a per-target `cgo_cache_key`, and [\_build.yml](../../.github/workflows/_build.yml) restores and saves the prefix under that exact key. On a cache hit `provisionCgoDeps` in [cmd/go-mk/release.go](../../cmd/go-mk/release.go) reads a stamp file in the prefix and skips `make go-mk-cgo-deps`.
 
 A consumer strengthens the key with two optional variables set before `include bootstrap.mk`. `GO_MK_CGO_CACHE_VERSIONS` lists `dep=version` pairs so a version bump invalidates the cache, for example `GO_MK_CGO_CACHE_VERSIONS := pcre2=10.45`. `GO_MK_CGO_CACHE_INPUTS` lists the recipe's build-script paths so editing a script invalidates the cache. Both default to empty, which leaves the key based on the dep list, the target tuple, the resolved compiler, and the tracked Makefile and `.mk` files.
 

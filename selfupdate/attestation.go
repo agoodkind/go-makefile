@@ -27,7 +27,7 @@ const (
 	githubReleaseAttestationPredicateType = "https://in-toto.io/attestation/release/v0.2"
 	githubReleaseAttestationSAN           = "https://dotcom.releases.github.com"
 	githubReleaseTUFRepositoryURL         = "https://tuf-repo.github.com"
-	goMakefileReleaseBuildWorkflowURI     = "https://github.com/agoodkind/go-makefile/.github/workflows/_release_build.yml@refs/heads/main"
+	goMakefilePackageWorkflowURI          = "https://github.com/agoodkind/go-makefile/.github/workflows/_package.yml@refs/heads/main"
 )
 
 //go:embed embed/tuf-repo.github.com/4.root.json

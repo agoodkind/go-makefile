@@ -105,7 +105,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileContains(t, installScript, "# BEGIN go-mk installer core (managed by go-mk bootstrap; do not edit)")
 		assertFileContains(t, installScript, "# END go-mk installer core")
 		assertFileContains(t, installScript, `--channel rolling|stable`)
-		assertFileContains(t, installScript, `gh attestation verify "$tarball" --repo "$repo" --signer-workflow agoodkind/go-makefile/.github/workflows/_release_build.yml`)
+		assertFileContains(t, installScript, `gh attestation verify "$tarball" --repo "$repo" --signer-workflow agoodkind/go-makefile/.github/workflows/_package.yml`)
 		assertFileContains(t, installScript, "post_install() { :; }")
 		assertFileContains(t, installScript, `run_install "$@"`)
 		assertFileExists(t, filepath.Join(repoDir, ".gitignore"))
