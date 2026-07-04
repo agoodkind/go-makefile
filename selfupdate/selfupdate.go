@@ -47,6 +47,11 @@ type Config struct {
 	AuthToken         string
 	ValidateArgs      []string
 	ValidateMatch     string
+	// CurrentDirty marks a dev or locally-built binary (uncommitted changes at
+	// build time). When true, Check reports no update and Apply installs
+	// nothing, so a dev build is never auto-replaced by a release. It is
+	// appended at the end so unkeyed Config literals keep compiling.
+	CurrentDirty bool
 }
 
 // Options configures one update check or apply operation.
@@ -69,6 +74,10 @@ type CheckResult struct {
 	LatestURL        string
 	AssetName        string
 	UpdateAvailable  bool
+	// DevBuild is true when the running binary is a dev or locally-built
+	// build (see Config.CurrentDirty). UpdateAvailable is forced false so the
+	// build is never auto-updated, even when a newer release exists.
+	DevBuild bool
 }
 
 // ApplyResult describes one attempted apply operation.
@@ -102,7 +111,8 @@ func Check(ctx context.Context, options Options) (CheckResult, error) {
 		LatestTag:        latest.TagName,
 		LatestURL:        latest.HTMLURL,
 		AssetName:        asset.Name,
-		UpdateAvailable:  releaseIsNewer(cfg.CurrentVersion, latest.TagName),
+		UpdateAvailable:  !cfg.CurrentDirty && releaseIsNewer(cfg.CurrentVersion, latest.TagName),
+		DevBuild:         cfg.CurrentDirty,
 	}
 	var state State
 	state.LastCheckAt = timeNow()
