@@ -114,15 +114,15 @@ func TestValidateReleaseAttestationRejectsMismatches(t *testing.T) {
 
 func TestValidateBuildProvenanceCertificate(t *testing.T) {
 	summary := &fulciocert.Summary{
-		SubjectAlternativeName: goMakefileReleaseBuildWorkflowURI,
+		SubjectAlternativeName: goMakefilePackageWorkflowURI,
 		Extensions: fulciocert.Extensions{
 			Issuer:              githubActionsOIDCIssuer,
-			BuildSignerURI:      goMakefileReleaseBuildWorkflowURI,
+			BuildSignerURI:      goMakefilePackageWorkflowURI,
 			RunnerEnvironment:   githubHostedRunnerEnvironment,
 			SourceRepositoryURI: githubRepositoryURI("agoodkind/agent-gate"),
 		},
 	}
-	if err := validateBuildProvenanceCertificate(summary, "agoodkind/agent-gate", goMakefileReleaseBuildWorkflowURI); err != nil {
+	if err := validateBuildProvenanceCertificate(summary, "agoodkind/agent-gate", goMakefilePackageWorkflowURI); err != nil {
 		t.Fatalf("validateBuildProvenanceCertificate() error: %v", err)
 	}
 }
@@ -140,7 +140,7 @@ func TestValidateBuildProvenanceCertificateRejectsMismatches(t *testing.T) {
 				SubjectAlternativeName: "https://github.com/agoodkind/go-makefile/.github/workflows/not-real.yml@refs/heads/main",
 				Extensions: fulciocert.Extensions{
 					Issuer:              githubActionsOIDCIssuer,
-					BuildSignerURI:      goMakefileReleaseBuildWorkflowURI,
+					BuildSignerURI:      goMakefilePackageWorkflowURI,
 					RunnerEnvironment:   githubHostedRunnerEnvironment,
 					SourceRepositoryURI: githubRepositoryURI("agoodkind/agent-gate"),
 				},
@@ -151,10 +151,10 @@ func TestValidateBuildProvenanceCertificateRejectsMismatches(t *testing.T) {
 		{
 			name: "wrong repo",
 			summary: &fulciocert.Summary{
-				SubjectAlternativeName: goMakefileReleaseBuildWorkflowURI,
+				SubjectAlternativeName: goMakefilePackageWorkflowURI,
 				Extensions: fulciocert.Extensions{
 					Issuer:              githubActionsOIDCIssuer,
-					BuildSignerURI:      goMakefileReleaseBuildWorkflowURI,
+					BuildSignerURI:      goMakefilePackageWorkflowURI,
 					RunnerEnvironment:   githubHostedRunnerEnvironment,
 					SourceRepositoryURI: githubRepositoryURI("agoodkind/go-makefile"),
 				},
@@ -165,10 +165,10 @@ func TestValidateBuildProvenanceCertificateRejectsMismatches(t *testing.T) {
 		{
 			name: "wrong issuer",
 			summary: &fulciocert.Summary{
-				SubjectAlternativeName: goMakefileReleaseBuildWorkflowURI,
+				SubjectAlternativeName: goMakefilePackageWorkflowURI,
 				Extensions: fulciocert.Extensions{
 					Issuer:              "https://issuer.example.invalid",
-					BuildSignerURI:      goMakefileReleaseBuildWorkflowURI,
+					BuildSignerURI:      goMakefilePackageWorkflowURI,
 					RunnerEnvironment:   githubHostedRunnerEnvironment,
 					SourceRepositoryURI: githubRepositoryURI("agoodkind/agent-gate"),
 				},
@@ -179,7 +179,7 @@ func TestValidateBuildProvenanceCertificateRejectsMismatches(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			err := validateBuildProvenanceCertificate(testCase.summary, testCase.repo, goMakefileReleaseBuildWorkflowURI)
+			err := validateBuildProvenanceCertificate(testCase.summary, testCase.repo, goMakefilePackageWorkflowURI)
 			if err == nil {
 				t.Fatal("validateBuildProvenanceCertificate() error = nil, want mismatch")
 			}
@@ -204,7 +204,7 @@ func TestValidateBuildProvenanceRejectsMissingCertificateSummary(t *testing.T) {
 		"agoodkind/agent-gate",
 		"agent-gate_darwin_arm64.tar.gz",
 		"deadbeef",
-		goMakefileReleaseBuildWorkflowURI,
+		goMakefilePackageWorkflowURI,
 	)
 	if err == nil {
 		t.Fatal("validateBuildProvenance() error = nil, want missing certificate summary")

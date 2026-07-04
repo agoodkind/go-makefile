@@ -234,7 +234,7 @@ verify_attestation() {
 
     if command -v gh >/dev/null 2>&1; then
         if gh auth status >/dev/null 2>&1; then
-            gh attestation verify "$tarball" --repo "$repo" --signer-workflow agoodkind/go-makefile/.github/workflows/_release_build.yml || install_error "attestation verification failed"
+            gh attestation verify "$tarball" --repo "$repo" --signer-workflow agoodkind/go-makefile/.github/workflows/_package.yml || install_error "attestation verification failed"
             return 0
         fi
     fi

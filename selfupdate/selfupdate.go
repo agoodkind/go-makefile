@@ -305,7 +305,7 @@ func (cfg Config) interval() time.Duration {
 
 func (cfg Config) signerWorkflowURI() string {
 	if cfg.SignerWorkflowURI == "" {
-		return goMakefileReleaseBuildWorkflowURI
+		return goMakefilePackageWorkflowURI
 	}
 	return cfg.SignerWorkflowURI
 }
