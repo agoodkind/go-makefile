@@ -109,7 +109,7 @@ jobs:
           echo "matrix=$(jq -c '{include: .}' <<<"${rows}")" >> "${GITHUB_OUTPUT}"
 
   compile:
-    name: Compile ${{ matrix.goos }}/${{ matrix.goarch }}
+    name: ${{ matrix.goos }}/${{ matrix.goarch }}
     needs: plan
     strategy:
       fail-fast: false
