@@ -7,15 +7,15 @@ import (
 	"testing"
 )
 
-func TestReleaseBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
-	workflow := readReleaseBuildWorkflow(t)
+func TestBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
+	workflow := readBuildWorkflow(t)
 
-	ensure := releaseBuildWorkflowStep(t, workflow, "Ensure ccache in darwin cross container")
+	ensure := buildWorkflowStep(t, workflow, "Ensure ccache in darwin cross container")
 	requireWorkflowContains(t, ensure, "if: matrix.container != '' && inputs.cgo")
 	requireWorkflowContains(t, ensure, "apt-get install -y --no-install-recommends ccache")
 	requireWorkflowContains(t, ensure, "ccache --version")
 
-	restore := releaseBuildWorkflowStep(t, workflow, "Restore darwin ccache")
+	restore := buildWorkflowStep(t, workflow, "Restore darwin ccache")
 	requireWorkflowContains(t, restore, "id: darwin-ccache-restore")
 	requireWorkflowContains(t, restore, "uses: actions/cache/restore@v6")
 	requireWorkflowContains(t, restore, "path: ~/.ccache")
@@ -23,7 +23,7 @@ func TestReleaseBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
 	requireWorkflowContains(t, restore, "ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-")
 	requireWorkflowContains(t, restore, "ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-")
 
-	configure := releaseBuildWorkflowStep(t, workflow, "Configure darwin cross compilers")
+	configure := buildWorkflowStep(t, workflow, "Configure darwin cross compilers")
 	requireWorkflowContains(t, configure, `echo "CCACHE_DIR=${HOME}/.ccache"`)
 	requireWorkflowContains(t, configure, `echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}"`)
 	requireWorkflowContains(t, configure, `echo "CCACHE_COMPILERCHECK=content"`)
@@ -39,24 +39,24 @@ func TestReleaseBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
 	requireWorkflowContains(t, configure, `echo "GO_MK_CXX=${{ matrix.cxx }}"`)
 	requireWorkflowContains(t, configure, "ccache --zero-stats")
 
-	show := releaseBuildWorkflowStep(t, workflow, "Show ccache stats")
+	show := buildWorkflowStep(t, workflow, "Show ccache stats")
 	requireWorkflowContains(t, show, "if: inputs.cgo")
 
-	save := releaseBuildWorkflowStep(t, workflow, "Save darwin ccache")
+	save := buildWorkflowStep(t, workflow, "Save darwin ccache")
 	requireWorkflowContains(t, save, "if: matrix.cc != '' && inputs.cgo && steps.darwin-ccache-restore.outputs.cache-hit != 'true'")
 	requireWorkflowContains(t, save, "uses: actions/cache/save@v6")
 	requireWorkflowContains(t, save, "path: ~/.ccache")
 	requireWorkflowContains(t, save, darwinCcacheWorkflowKey())
 
 	requireWorkflowOrder(t, workflow, "      - name: Configure darwin cross compilers", "      - name: Build go-mk cache manifest")
-	// Match the "Build" step exactly with a trailing newline, so the assertion
-	// does not accidentally anchor on the earlier "Build go-mk cache manifest".
-	requireWorkflowOrder(t, workflow, "      - name: Build\n", "      - name: Save darwin ccache")
+	// Match the "Compile" step exactly with a trailing newline, so the assertion
+	// does not accidentally anchor on another step name.
+	requireWorkflowOrder(t, workflow, "      - name: Compile\n", "      - name: Save darwin ccache")
 }
 
-func readReleaseBuildWorkflow(t *testing.T) string {
+func readBuildWorkflow(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join("..", "..", ".github", "workflows", "_release_build.yml")
+	path := filepath.Join("..", "..", ".github", "workflows", "_build.yml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
@@ -64,7 +64,7 @@ func readReleaseBuildWorkflow(t *testing.T) string {
 	return string(data)
 }
 
-func releaseBuildWorkflowStep(t *testing.T, workflow string, name string) string {
+func buildWorkflowStep(t *testing.T, workflow string, name string) string {
 	t.Helper()
 	marker := "      - name: " + name
 	start := strings.Index(workflow, marker)
