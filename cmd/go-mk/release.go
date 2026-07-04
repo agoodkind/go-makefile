@@ -66,37 +66,55 @@ var (
 )
 
 // runRelease loads the release configuration and runs the requested stage. The
-// matrix workflow drives three stages: tag computes one shared tag, build runs
-// per native runner (one platform, cgo honoured, darwin signed), and publish
-// collects every uploaded archive into the GitHub release. An unset stage keeps
-// the single-runner all-in-one pipeline for a pure-Go consumer that does not
-// need the matrix. It returns the process exit code.
+// matrix workflow drives four stages: tag computes one shared tag, compile runs
+// per native runner (one platform, cgo honored, no signing) and uploads the
+// raw binary, package downloads a compiled binary and signs, notarizes, and
+// archives it, and publish collects every uploaded archive into the GitHub
+// release. An empty stage keeps the single-runner all-in-one pipeline for a
+// pure-Go consumer that does not need the matrix. Any other value is an error,
+// so a stray or version-skewed stage name fails safe instead of falling through
+// to the publishing all-in-one path. It returns the process exit code.
 func runRelease() int {
 	cfg, err := loadReleaseConfig()
 	if err != nil {
 		return statusFromError(err)
 	}
-	switch releaseStage(strings.TrimSpace(os.Getenv("RELEASE_STAGE"))) {
+	stage := releaseStage(strings.TrimSpace(os.Getenv("RELEASE_STAGE")))
+	return statusFromError(runReleaseStage(stage, cfg))
+}
+
+// runReleaseStage dispatches one release stage. The empty stage runs the
+// single-runner all-in-one pipeline; every other unrecognized value is an
+// error, so a stray or version-skewed stage name fails safe instead of falling
+// through to the publishing all-in-one path.
+func runReleaseStage(stage releaseStage, cfg releaseConfig) error {
+	switch stage {
 	case stageTag:
-		return statusFromError(emitReleaseTag(cfg))
-	case stageBuild:
-		return statusFromError(buildStage(cfg))
+		return emitReleaseTag(cfg)
+	case stageCompile:
+		return compileStage(cfg)
+	case stagePackage:
+		return packageStage(cfg)
 	case stagePublish:
-		return statusFromError(publishStage(cfg))
+		return publishStage(cfg)
+	case stageAllInOne:
+		return executeRelease(cfg)
 	default:
-		return statusFromError(executeRelease(cfg))
+		return fmt.Errorf("release: unknown RELEASE_STAGE %q", stage)
 	}
 }
 
 // releaseStage is the named enum of release stages the matrix workflow drives
-// through RELEASE_STAGE. An empty or unrecognized value runs the single-runner
-// all-in-one pipeline.
+// through RELEASE_STAGE. The empty value runs the single-runner all-in-one
+// pipeline; every other unrecognized value is rejected in runRelease.
 type releaseStage string
 
 const (
-	stageTag     releaseStage = "tag"
-	stageBuild   releaseStage = "build"
-	stagePublish releaseStage = "publish"
+	stageAllInOne releaseStage = ""
+	stageTag      releaseStage = "tag"
+	stageCompile  releaseStage = "compile"
+	stagePackage  releaseStage = "package"
+	stagePublish  releaseStage = "publish"
 )
 
 // emitReleaseTag prints the computed tag so the matrix workflow threads one
@@ -119,11 +137,14 @@ func emitReleaseTag(cfg releaseConfig) error {
 	return err
 }
 
-// buildStage builds, signs, and archives the configured platforms without
-// pushing a tag or publishing. Each native runner sets RELEASE_PLATFORMS to its
-// own os/arch, so this builds one platform with the runner's toolchain; cgo is
-// honoured through CGO_ENABLED and the system libraries the workflow installed.
-func buildStage(cfg releaseConfig) error {
+// compileStage cross-compiles the configured platforms without signing,
+// archiving, tagging, or publishing. Each native runner sets RELEASE_PLATFORMS
+// to its own os/arch, so this compiles one platform with the runner's
+// toolchain; cgo is honored through CGO_ENABLED and the system libraries the
+// workflow installed. The compiled binaries land under
+// dist/<name>_<os>_<arch>/<name> for the package stage to consume, which the
+// build job uploads as this platform's artifact.
+func compileStage(cfg releaseConfig) error {
 	if err := os.MkdirAll(cfg.distDir, 0o755); err != nil {
 		return err
 	}
@@ -134,6 +155,19 @@ func buildStage(cfg releaseConfig) error {
 		if err := buildPlatform(cfg, platform); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// packageStage signs, notarizes, and archives the binaries the compile stage
+// produced, without recompiling, tagging, or publishing. The package job runs
+// after the compile matrix and restores the compiled binaries into the dist
+// directory, so this consumes dist/<name>_<os>_<arch>/<name> and writes one
+// tar.gz per (binary, platform) pair for the publish stage. Signing is skipped
+// when no signing material is present, so a dry run still archives.
+func packageStage(cfg releaseConfig) error {
+	if err := os.MkdirAll(cfg.distDir, 0o755); err != nil {
+		return err
 	}
 	if err := signDarwinBinaries(cfg); err != nil {
 		return err
