@@ -248,6 +248,14 @@ jobs:
       contents: read
       id-token: write
     steps:
+      # A prepare failure leaves run empty, which would skip every gated step
+      # below and report this required check green. Fail loudly instead so a
+      # broken setup blocks merge.
+      - name: Require prepare success
+        if: needs.prepare.result != 'success'
+        run: |
+          echo "Prepare did not succeed (result: ${{ needs.prepare.result }})." >&2
+          exit 1
       - name: Require compile success
         if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases == 'true' && (needs.compile.result == 'failure' || needs.compile.result == 'cancelled')
         run: |
@@ -377,13 +385,20 @@ jobs:
     permissions:
       contents: read
     steps:
+      # A prepare failure would otherwise skip the gated steps and report this
+      # check green, so fail loudly on it.
+      - name: Require prepare success
+        if: needs.prepare.result != 'success'
+        run: |
+          echo "Prepare did not succeed (result: ${{ needs.prepare.result }})." >&2
+          exit 1
       - name: Require release package success
         if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases == 'true' && (needs.release-package.result == 'failure' || needs.release-package.result == 'cancelled')
         run: |
           echo "Release package matrix did not succeed (result: ${{ needs.release-package.result }})." >&2
           exit 1
       - name: Report dry run
-        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases == 'true'
+        if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases == 'true' && needs.release-package.result == 'success'
         run: |
           echo "Release dry run succeeded: compiled, signed, archived, and attested without publishing." >> "${GITHUB_STEP_SUMMARY}"
 
@@ -431,6 +446,13 @@ jobs:
             command: make go-version-check
             install_golangci_lint: false
     steps:
+      # A prepare failure would otherwise skip every gated gate step and report
+      # these required checks green, so fail loudly on it.
+      - name: Require prepare success
+        if: needs.prepare.result != 'success'
+        run: |
+          echo "Prepare did not succeed (result: ${{ needs.prepare.result }})." >&2
+          exit 1
       - if: needs.prepare.outputs.run == 'true'
         uses: actions/checkout@v7
         with:
