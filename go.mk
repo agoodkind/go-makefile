@@ -5,7 +5,7 @@
 	lint-deadcode lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new staticcheck-extra-bin \
 	baseline baseline-bin baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
-	go-mk-sync update-go-mk smoke-fetch go-mk-notice go-version-check go-mk-bin ci-changed go-mk-cache-manifest go-mk-prepare-submodules
+	go-mk-sync update-go-mk smoke-fetch go-mk-notice go-version-check go-mk-bin ci-changed go-mk-cache-manifest go-mk-prepare-submodules go-mk-generate
 
 GO_MK_URL       := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
 GO_MK_CACHE     := $(HOME)/.cache/go-makefile/go.mk
@@ -635,6 +635,14 @@ GO_MK_PREREQS := $(if $(strip $(GO_MK_WORKSPACE_USE)),go-mk-workspace) $(GO_MK_G
 ifneq ($(strip $(GO_MK_PREREQS)),)
 build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test govulncheck: | $(GO_MK_PREREQS)
 endif
+
+# go-mk-generate runs only the consumer codegen prerequisite, so a CI prepare
+# job can warm the generated-output cache once without compiling. It deliberately
+# omits go.work routing and cgo deps, which belong to the compile stage. An empty
+# GO_MK_GENERATE leaves it with no prerequisites and an empty recipe, a no-op for
+# a consumer without codegen.
+.PHONY: go-mk-generate
+go-mk-generate: | $(GO_MK_GENERATE)
 
 # Include opt-in modules at end so they see all go.mk definitions.
 $(foreach m,$(GO_MK_MODULES),$(eval -include .make/$(m)))

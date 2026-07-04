@@ -565,6 +565,64 @@ func TestProvisionCgoDepsSkipsWarmCacheWithTrailingNewlineStamp(t *testing.T) {
 	}
 }
 
+// TestRunReleaseStageRejectsUnknownStage proves an unrecognized RELEASE_STAGE
+// fails with an error rather than falling through to the publishing all-in-one
+// path, so a stray or version-skewed stage name never publishes a release.
+func TestRunReleaseStageRejectsUnknownStage(t *testing.T) {
+	err := runReleaseStage("frobnicate", releaseConfig{})
+	if err == nil {
+		t.Fatal("runReleaseStage() = nil, want error for unknown stage")
+	}
+	if !strings.Contains(err.Error(), `unknown RELEASE_STAGE "frobnicate"`) {
+		t.Fatalf("runReleaseStage() error = %v, want unknown stage error", err)
+	}
+}
+
+// TestPackageStageArchivesCompiledBinariesWithoutSigning proves the package
+// stage archives the binaries the compile stage produced and skips signing when
+// no signing material is present, so a dry run still produces one tar.gz per
+// (binary, platform) pair without recompiling.
+func TestPackageStageArchivesCompiledBinariesWithoutSigning(t *testing.T) {
+	t.Setenv("QUILL_SIGN_P12", "")
+	workDir := t.TempDir()
+	t.Chdir(workDir)
+	distDir := "dist"
+	binaries := []releaseBinary{{name: "agent-gate", mainPkg: "."}}
+	platforms := []string{"darwin/arm64", "linux/amd64"}
+	for _, binary := range binaries {
+		for _, platform := range platforms {
+			osName, arch, ok := strings.Cut(platform, "/")
+			if !ok {
+				t.Fatalf("bad test platform %q", platform)
+			}
+			outDir := filepath.Join(distDir, binary.name+"_"+osName+"_"+arch)
+			if err := os.MkdirAll(outDir, 0o755); err != nil {
+				t.Fatalf("mkdir %s: %v", outDir, err)
+			}
+			if err := os.WriteFile(filepath.Join(outDir, binary.name), []byte(binary.name), 0o755); err != nil {
+				t.Fatalf("write compiled binary: %v", err)
+			}
+		}
+	}
+
+	if err := packageStage(releaseConfig{
+		binary:    "agent-gate",
+		binaries:  binaries,
+		platforms: platforms,
+		distDir:   distDir,
+	}); err != nil {
+		t.Fatalf("packageStage() error = %v, want nil", err)
+	}
+	for _, want := range []string{
+		filepath.Join(distDir, "agent-gate_darwin_arm64.tar.gz"),
+		filepath.Join(distDir, "agent-gate_linux_amd64.tar.gz"),
+	} {
+		if _, err := os.Stat(want); err != nil {
+			t.Fatalf("stat %s: %v", want, err)
+		}
+	}
+}
+
 func TestProvisionCgoDepsRunsWhenWarmCacheConditionFails(t *testing.T) {
 	testCases := []struct {
 		name             string
