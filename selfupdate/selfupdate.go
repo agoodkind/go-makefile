@@ -34,11 +34,15 @@ var (
 
 // Config describes the target repository and current binary identity.
 type Config struct {
-	Repo              string
-	Binary            string
-	CurrentVersion    string
-	CurrentCommit     string
-	CurrentBuildHash  string
+	Repo             string
+	Binary           string
+	CurrentVersion   string
+	CurrentCommit    string
+	CurrentBuildHash string
+	// CurrentDirty marks a dev or locally-built binary (uncommitted changes
+	// at build time). When true, Check reports no update and Apply is a no-op,
+	// so a dev build is never auto-replaced by a release.
+	CurrentDirty      bool
 	AllowPrerelease   *bool
 	Interval          time.Duration
 	SignerWorkflowURI string
@@ -69,6 +73,10 @@ type CheckResult struct {
 	LatestURL        string
 	AssetName        string
 	UpdateAvailable  bool
+	// DevBuild is true when the running binary is a dev or locally-built
+	// build (see Config.CurrentDirty). UpdateAvailable is forced false so the
+	// build is never auto-updated, even when a newer release exists.
+	DevBuild bool
 }
 
 // ApplyResult describes one attempted apply operation.
@@ -102,7 +110,8 @@ func Check(ctx context.Context, options Options) (CheckResult, error) {
 		LatestTag:        latest.TagName,
 		LatestURL:        latest.HTMLURL,
 		AssetName:        asset.Name,
-		UpdateAvailable:  releaseIsNewer(cfg.CurrentVersion, latest.TagName),
+		UpdateAvailable:  !cfg.CurrentDirty && releaseIsNewer(cfg.CurrentVersion, latest.TagName),
+		DevBuild:         cfg.CurrentDirty,
 	}
 	var state State
 	state.LastCheckAt = timeNow()
