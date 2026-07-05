@@ -102,7 +102,7 @@ jobs:
       # Restore the raw binaries the compile job produced for this platform back
       # into dist/<name>_<os>_<arch>/, which the package stage signs and archives.
       - name: Download compiled binaries
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: build-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist
