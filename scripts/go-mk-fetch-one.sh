@@ -40,14 +40,14 @@ fetch_with_gh() {
 
 fetch_with_raw_url() {
     curl -fsSL --connect-timeout 5 --max-time 10 \
-        --retry 3 --retry-delay 2 --retry-all-errors \
+        --retry 3 --retry-delay 2 \
         "${base_url}/${relative_path}?v=${EPOCHSECONDS:-$(date +%s)}" \
         -o "${temporary_path}" 2>"${error_path}"
 }
 
 fetch_with_plain_raw_url() {
     curl -fsSL --connect-timeout 5 --max-time 10 \
-        --retry 3 --retry-delay 2 --retry-all-errors \
+        --retry 3 --retry-delay 2 \
         "${base_url}/${relative_path}" \
         -o "${temporary_path}" 2>"${error_path}"
 }
