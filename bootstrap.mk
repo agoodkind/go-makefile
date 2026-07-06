@@ -26,7 +26,7 @@ define _go_mk_fetch
 		cp "$(GO_MK_DEV_DIR)/$(1)" "$(2)"; \
 	elif command -v gh >/dev/null 2>&1 && gh api "repos/$(GO_MK_API_REPO)/contents/$(1)?ref=$(GO_MK_API_REF)" -H "Accept: application/vnd.github.raw" > "$(2)" 2>/dev/null && [ -s "$(2)" ]; then \
 		: ; \
-	elif curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)" -o "$(2)" 2>/dev/null && [ -s "$(2)" ]; then \
+	elif curl -fsSL --connect-timeout 5 --max-time 10 --retry 3 --retry-delay 2 "$(GO_MK_BASE_URL)/$(1)" -o "$(2)" 2>/dev/null && [ -s "$(2)" ]; then \
 		: ; \
 	else \
 		printf '%s\n' "error: $(1) fetch failed; no cache fallback (moratorium). Set GO_MK_DEV_DIR, install/authenticate gh, or check curl access to $(GO_MK_BASE_URL)" >&2; \
