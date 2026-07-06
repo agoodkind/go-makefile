@@ -43,6 +43,13 @@ on:
         type: string
         default: "darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
 
+# Authenticate the go-mk bootstrap fetch (bootstrap.mk / go-mk-fetch-one.sh use
+# gh api when a token is present) so it hits the 5000/hr contents API instead of
+# the rate-limited raw.githubusercontent.com CDN, which throttles under the
+# parallel job matrix and hard-fails the moratorium fetch.
+env:
+  GH_TOKEN: ${{ github.token }}
+
 jobs:
   plan:
     name: Plan matrix
