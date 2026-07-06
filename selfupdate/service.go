@@ -85,7 +85,7 @@ func InstallLaunchdService(options LaunchdServiceOptions) error {
 	if err := os.MkdirAll(filepath.Dir(options.LogPath), 0o755); err != nil {
 		return err
 	}
-	logFile, err := os.OpenFile(options.LogPath, os.O_CREATE, 0o644)
+	logFile, err := os.OpenFile(options.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return err
 	}
@@ -199,6 +199,16 @@ func RenderSystemdUserUnit(options SystemdUserServiceOptions) (string, error) {
 	description := options.Description
 	if description == "" {
 		description = strings.TrimSuffix(options.Unit, ".service")
+	}
+	for _, field := range []struct{ name, value string }{
+		{"description", description},
+		{"documentation", options.Documentation},
+		{"restart", options.Restart},
+		{"restart-sec", options.RestartSec},
+	} {
+		if strings.ContainsAny(field.value, "\r\n") {
+			return "", fmt.Errorf("systemd-user-service: %s must not contain newlines", field.name)
+		}
 	}
 	var builder strings.Builder
 	builder.WriteString("[Unit]\n")

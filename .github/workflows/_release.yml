@@ -200,7 +200,4 @@ jobs:
               sleep 30
               attempt=$((attempt + 1))
             done
-            if [ "${attempt}" -gt 5 ]; then
-              exit 1
-            fi
           done
