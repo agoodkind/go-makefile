@@ -71,6 +71,7 @@ func newRootCommand() *cobra.Command {
 	}
 	registerLintCommands(root)
 	registerEngineCommands(root)
+	registerSelfUpdateCommand(root)
 	registerBootstrapCommand(root)
 	registerInputCommands(root)
 	return root
@@ -159,6 +160,7 @@ func registerEngineCommands(root *cobra.Command) {
 		{"build", "Build every declared binary into the dist directory", runBuild},
 		{"install", "Build and install every declared binary", runInstall},
 		{"uninstall", "Remove every declared binary from its install directory", runUninstall},
+		{"version", "Print go-mk build identity", runVersion},
 		{"go-version-check", "Report whether go.mod tracks the latest Go release", runGoVersionCheck},
 		{"ci-changed", "Report whether a CI push changed anything the Go build depends on", runCIChanged},
 		{"cache-manifest", "Build the generated-output cache manifest and GitHub outputs", runCacheManifest},

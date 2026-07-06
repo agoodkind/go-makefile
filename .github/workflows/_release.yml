@@ -185,18 +185,19 @@ jobs:
             go.work.sum
       - name: Verify release assets
         env:
-          RELEASE_BINARY: ${{ inputs.binary }}
+          RELEASE_BINARIES: ${{ inputs.binary }}
           RELEASE_TAG: ${{ needs.tag.outputs.tag }}
         run: |
-          attempt=1
-          while [ "${attempt}" -le 5 ]; do
-            if go run goodkind.io/go-makefile/selfupdate/cmd/verify-release@main --repo "${GITHUB_REPOSITORY}" --tag "${RELEASE_TAG}" --binary "${RELEASE_BINARY}"; then
-              exit 0
-            fi
-            if [ "${attempt}" -eq 5 ]; then
-              break
-            fi
-            sleep 30
-            attempt=$((attempt + 1))
+          for binary in ${RELEASE_BINARIES}; do
+            attempt=1
+            while [ "${attempt}" -le 5 ]; do
+              if go run goodkind.io/go-makefile/selfupdate/cmd/verify-release@main --repo "${GITHUB_REPOSITORY}" --tag "${RELEASE_TAG}" --binary "${binary}"; then
+                break
+              fi
+              if [ "${attempt}" -eq 5 ]; then
+                exit 1
+              fi
+              sleep 30
+              attempt=$((attempt + 1))
+            done
           done
-          exit 1
