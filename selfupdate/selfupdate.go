@@ -21,15 +21,17 @@ const (
 )
 
 var (
-	timeNow                        = time.Now
-	updateWithLock                 = WithLock
-	updateFetchLatestRelease       = fetchLatestRelease
-	updateDownloadFile             = downloadFile
-	updateVerifyChecksum           = verifyChecksum
-	updateVerifyGitHubAttestations = verifyGitHubAttestations
-	updateExtractCandidate         = extractCandidate
-	updateValidateCandidate        = validateCandidate
-	updateReplaceBinary            = replaceBinary
+	timeNow                                = time.Now
+	updateWithLock                         = WithLock
+	updateFetchLatestRelease               = fetchLatestRelease
+	updateDownloadFile                     = downloadFile
+	updateVerifyChecksum                   = verifyChecksum
+	updateVerifyGitHubAttestations         = verifyGitHubAttestations
+	updateVerifyReleaseAssetAttestation    = verifyReleaseAssetAttestation
+	updateVerifyBuildProvenanceAttestation = verifyBuildProvenanceAttestation
+	updateExtractCandidate                 = extractCandidate
+	updateValidateCandidate                = validateCandidate
+	updateReplaceBinary                    = replaceBinary
 )
 
 // Config describes the target repository and current binary identity.

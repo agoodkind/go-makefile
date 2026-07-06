@@ -13,5 +13,5 @@ jobs:
       id-token: write
       attestations: write
     with:
-      binary: go-mk
+      binary: go-mk go-mk-install
     secrets: inherit

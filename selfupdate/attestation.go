@@ -71,11 +71,11 @@ func verifyGitHubAttestations(ctx context.Context, options Options, latest relea
 	if err != nil {
 		return fmt.Errorf("decode artifact digest: %w", err)
 	}
-	if err := verifyReleaseAssetAttestation(ctx, options, latest, asset, digestHex, digestBytes); err != nil {
+	if err := updateVerifyReleaseAssetAttestation(ctx, options, latest, asset, digestHex, digestBytes); err != nil {
 		options.Log.WarnContext(ctx, "update release attestation verification failed", "asset", asset.Name, "tag", latest.TagName, "err", err)
 		return err
 	}
-	if err := verifyBuildProvenanceAttestation(ctx, options, asset, digestHex, digestBytes); err != nil {
+	if err := updateVerifyBuildProvenanceAttestation(ctx, options, asset, digestHex, digestBytes); err != nil {
 		options.Log.WarnContext(ctx, "update build provenance verification failed", "asset", asset.Name, "repo", options.Config.Repo, "err", err)
 		return err
 	}

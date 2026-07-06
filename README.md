@@ -49,11 +49,17 @@ by one fetched file, `go.mk`.
   cross toolchain into `CC`/`CXX` per build target. See
   [docs/cgo/overview.md](docs/cgo/overview.md) for the contract.
 - Repos that ship a self-updating binary or daemon use the `selfupdate` library
-  to discover, verify, and install their own releases. A build with uncommitted
-  changes (marked `CurrentDirty`) is guarded from auto-update, and each consumer
-  sources its build hash from a runtime hash because the stamped `BinHash` is
-  empty. See [docs/selfupdate/overview.md](docs/selfupdate/overview.md) for the
-  contract.
+  to discover, verify, and install their own releases. `go-mk` uses the same
+  package for `go-mk selfupdate`, `go-mk selfupdate watch`, and
+  `go-mk selfupdate install-service`. A build with uncommitted changes (marked
+  `CurrentDirty`) is guarded from auto-update, and each consumer sources its
+  build hash from a runtime hash because the stamped `BinHash` is empty. See
+  [docs/selfupdate/overview.md](docs/selfupdate/overview.md) for the contract.
+- First installs use the hosted [install.sh](install.sh), which fetches
+  `go-mk-install` from the latest `agoodkind/go-makefile` release and delegates
+  the consumer binary install to the `selfupdate` package. See
+  [docs/installer/overview.md](docs/installer/overview.md) for the flow and
+  trust chain.
 - Do not pin the lint tools (golangci-lint, gocyclo, deadcode, govulncheck,
   gofumpt, goimports, staticcheck-extra) with a go.mod `tool` directive; go.mk
   installs them itself with versions it controls via the `*_INSTALL` variables,

@@ -21,7 +21,7 @@ import (
 	"golang.org/x/term"
 )
 
-//go:embed bootstrap_assets/bootstrap.mk bootstrap_assets/Makefile.tmpl bootstrap_assets/ci.yml bootstrap_assets/release.yml bootstrap_assets/install.sh.tmpl
+//go:embed bootstrap_assets/bootstrap.mk bootstrap_assets/Makefile.tmpl bootstrap_assets/ci.yml bootstrap_assets/release.yml
 var bootstrapAssetFS embed.FS
 
 var bootstrapBinaryNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
@@ -30,8 +30,6 @@ const (
 	defaultBootstrapVanityRoot = "goodkind.io"
 	makefileAssetPath          = "bootstrap_assets/Makefile.tmpl"
 	bootstrapMkAssetPath       = "bootstrap_assets/bootstrap.mk"
-	installScriptAssetPath     = "bootstrap_assets/install.sh.tmpl"
-	installScriptPath          = "install.sh"
 	ciWorkflowAssetPath        = "bootstrap_assets/ci.yml"
 	ciWorkflowPath             = ".github/workflows/ci.yml"
 	releaseWorkflowAssetPath   = "bootstrap_assets/release.yml"
@@ -39,8 +37,6 @@ const (
 	releaseReusableWorkflowRef = "agoodkind/go-makefile/.github/workflows/_release.yml"
 	ciReusableWorkflowRef      = "agoodkind/go-makefile/.github/workflows/_ci.yml"
 	generatedMakefileFirstLine = "# `make help` is the canonical source of truth for every target this repo"
-	installScriptBeginMarker   = "# BEGIN go-mk installer core (managed by go-mk bootstrap; do not edit)"
-	installScriptEndMarker     = "# END go-mk installer core"
 )
 
 type bootstrapOptions struct {
@@ -60,11 +56,6 @@ type bootstrapContext struct {
 	Layout  string
 	Vpkg    string
 	BaseURL string
-}
-
-type bootstrapInstallScriptContext struct {
-	Repo   string
-	Binary string
 }
 
 type generatedMakefileKey string
@@ -126,11 +117,9 @@ func runBootstrap(options bootstrapOptions) error {
 		return err
 	}
 	releaseBinary := releaseWorkflowBinary(context)
-	renderInstallScript := true
 	if releaseBinary != "" && !isSafeBootstrapBinaryName(releaseBinary) {
-		fmt.Fprintf(options.stderr, "warning: unsafe BINARY %q; skipping install.sh and release workflow binary input\n", releaseBinary)
+		fmt.Fprintf(options.stderr, "warning: unsafe BINARY %q; skipping release workflow binary input\n", releaseBinary)
 		releaseBinary = ""
-		renderInstallScript = false
 	}
 	futureTrackedFiles := bootstrapManagedTrackedFiles(options.stderr)
 	printBootstrapSummary(options.stdout, modulePath, context)
@@ -145,11 +134,6 @@ func runBootstrap(options bootstrapOptions) error {
 	}
 	if err := reconcileReleaseWorkflow(releaseBinary, options.stdout); err != nil {
 		return err
-	}
-	if renderInstallScript {
-		if err := reconcileInstallScript(modulePath, context, releaseBinary, options.stdout, options.stderr); err != nil {
-			return err
-		}
 	}
 	warnIfLocalGolangCI(options.stderr)
 	if err := reconcileGitignore(futureTrackedFiles, options.stdout); err != nil {
@@ -425,26 +409,6 @@ func renderMakefile(context bootstrapContext) (string, error) {
 	return output.String(), nil
 }
 
-func renderInstallScript(context bootstrapInstallScriptContext) (string, error) {
-	templateBytes, err := bootstrapAssetFS.ReadFile(installScriptAssetPath)
-	if err != nil {
-		return "", err
-	}
-	return renderBootstrapTemplate("install.sh.tmpl", string(templateBytes), context)
-}
-
-func renderBootstrapTemplate(name string, source string, context bootstrapInstallScriptContext) (string, error) {
-	tmpl, err := template.New(name).Option("missingkey=error").Parse(source)
-	if err != nil {
-		return "", err
-	}
-	var output bytes.Buffer
-	if err := tmpl.Execute(&output, context); err != nil {
-		return "", err
-	}
-	return output.String(), nil
-}
-
 func isClearlyGeneratedMakefile(content string) bool {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	if !strings.HasPrefix(content, generatedMakefileFirstLine) {
@@ -495,130 +459,6 @@ func releaseWorkflowBinary(context bootstrapContext) string {
 
 func isSafeBootstrapBinaryName(binary string) bool {
 	return bootstrapBinaryNamePattern.MatchString(binary)
-}
-
-func reconcileInstallScript(
-	modulePath string,
-	context bootstrapContext,
-	binary string,
-	stdout io.Writer,
-	stderr io.Writer,
-) error {
-	slog.Info("bootstrap reconcile install script", slog.String("layout", context.Layout))
-	if context.Layout != "binary" {
-		return nil
-	}
-	binary = strings.TrimSpace(binary)
-	if binary == "" {
-		binary = context.Binary
-	}
-	repo := bootstrapInstallScriptRepo(modulePath)
-	if repo == "" {
-		fmt.Fprintln(stderr, "warning: could not derive a GitHub owner/repo from the git remote or module path; skipping install.sh")
-		return nil
-	}
-	rendered, err := renderInstallScript(bootstrapInstallScriptContext{
-		Repo:   repo,
-		Binary: binary,
-	})
-	if err != nil {
-		return err
-	}
-	if !fileExists(installScriptPath) {
-		if err := os.WriteFile(installScriptPath, []byte(rendered), 0o755); err != nil {
-			return err
-		}
-		fmt.Fprintln(stdout, "created install.sh")
-		return nil
-	}
-	existingBytes, err := os.ReadFile(installScriptPath)
-	if err != nil {
-		return err
-	}
-	existing := string(existingBytes)
-	if existing == rendered {
-		fmt.Fprintln(stdout, "skipping install.sh (already current)")
-		return nil
-	}
-	repaired, hasManagedRegion, err := replaceInstallScriptCore(existing, rendered)
-	if err != nil {
-		return err
-	}
-	if !hasManagedRegion {
-		absolutePath, err := filepath.Abs(installScriptPath)
-		if err != nil {
-			absolutePath = installScriptPath
-		}
-		fmt.Fprintf(stderr, "warning: %s exists and appears customized; leaving it unchanged\n", absolutePath)
-		return nil
-	}
-	if repaired == existing {
-		fmt.Fprintln(stdout, "skipping install.sh (already current)")
-		return nil
-	}
-	if err := os.WriteFile(installScriptPath, []byte(repaired), 0o755); err != nil {
-		return err
-	}
-	if err := os.Chmod(installScriptPath, 0o755); err != nil {
-		return err
-	}
-	fmt.Fprintln(stdout, "updated install.sh")
-	return nil
-}
-
-func bootstrapInstallScriptRepo(modulePath string) string {
-	if isInsideGitWorkTree() {
-		remote, err := bootstrapGitOutput("config", "--get", "remote.origin.url")
-		if err == nil {
-			repo := githubOwnerRepoFromPath(normalizeGitRemote(remote))
-			if repo != "" {
-				return repo
-			}
-		}
-	}
-	return githubOwnerRepoFromPath(modulePath)
-}
-
-func githubOwnerRepoFromPath(repoPath string) string {
-	trimmedPath := strings.Trim(strings.TrimSpace(repoPath), "/")
-	if trimmedPath == "" {
-		return ""
-	}
-	parts := strings.Split(trimmedPath, "/")
-	if len(parts) >= 3 && parts[0] == "github.com" {
-		return parts[1] + "/" + parts[2]
-	}
-	if len(parts) >= 2 && !strings.Contains(parts[0], ".") {
-		return parts[0] + "/" + parts[1]
-	}
-	return ""
-}
-
-func replaceInstallScriptCore(existing string, rendered string) (string, bool, error) {
-	renderedCore, hasRenderedCore := installScriptCoreRegion(rendered)
-	if !hasRenderedCore {
-		return "", false, fmt.Errorf("rendered %s is missing go-mk installer markers", installScriptAssetPath)
-	}
-	beginIndex := strings.Index(existing, installScriptBeginMarker)
-	endIndex := strings.Index(existing, installScriptEndMarker)
-	if beginIndex < 0 || endIndex < 0 {
-		return existing, false, nil
-	}
-	if endIndex < beginIndex {
-		return "", true, errors.New("install.sh has go-mk installer markers out of order")
-	}
-	endIndex += len(installScriptEndMarker)
-	return existing[:beginIndex] + renderedCore + existing[endIndex:], true, nil
-}
-
-func installScriptCoreRegion(content string) (string, bool) {
-	beginIndex := strings.Index(content, installScriptBeginMarker)
-	endIndex := strings.Index(content, installScriptEndMarker)
-	if beginIndex < 0 || endIndex < 0 || endIndex < beginIndex {
-		return "", false
-	}
-	endIndex += len(installScriptEndMarker)
-	return content[beginIndex:endIndex], true
 }
 
 func readMakefileAssignment(filePath string, key string) (string, bool) {
