@@ -78,6 +78,7 @@ resolve_latest_go_mk_tag_with_gh() {
     tag="$(
         gh release list \
             --repo "$GO_MK_REPO" \
+            --exclude-drafts \
             --limit 1 \
             --json tagName \
             --jq '.[0].tagName' 2>/dev/null
@@ -90,7 +91,7 @@ resolve_latest_go_mk_tag_with_jq() {
     local releases="$1"
     local tag
     command -v jq >/dev/null 2>&1 || return 1
-    tag="$(jq -r '.[0].tag_name // empty' <<< "$releases")" || return 1
+    tag="$(jq -r '[.[] | select(.draft == false)][0].tag_name // empty' <<< "$releases")" || return 1
     [[ -n "$tag" ]] || return 1
     printf '%s\n' "$tag"
 }
