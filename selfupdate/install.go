@@ -82,19 +82,6 @@ func InstallReleaseBinary(ctx context.Context, installOptions InstallReleaseBina
 	}, nil
 }
 
-// ResolveReleaseTag resolves a tag without downloading any release assets.
-func ResolveReleaseTag(ctx context.Context, options Options, version string, channel ReleaseChannel) (string, error) {
-	resolvedOptions := resolveOptions(options)
-	if strings.TrimSpace(resolvedOptions.Config.Repo) == "" {
-		return "", fmt.Errorf("update repo is required")
-	}
-	latest, err := resolveRequestedRelease(ctx, resolvedOptions, version, channel)
-	if err != nil {
-		return "", err
-	}
-	return latest.TagName, nil
-}
-
 func resolveRequestedRelease(ctx context.Context, options Options, version string, channel ReleaseChannel) (release, error) {
 	version = strings.TrimSpace(version)
 	if version != "" {

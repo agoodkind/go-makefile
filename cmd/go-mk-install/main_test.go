@@ -9,34 +9,18 @@ import (
 	"goodkind.io/go-makefile/selfupdate"
 )
 
-func TestRunInstallerInstallsResolvedReleaseAndExecsPostInstallArgs(t *testing.T) {
+func TestRunInstallerInstallsRequestedReleaseAndExecsPostInstallArgs(t *testing.T) {
 	restoreInstallerSeams(t)
-	var resolved selfupdate.ReleaseChannel
 	var installOptions selfupdate.InstallReleaseBinaryOptions
 	var execPath string
 	var execArgs []string
-	resolveReleaseTagFunc = func(
-		_ context.Context,
-		options selfupdate.Options,
-		version string,
-		channel selfupdate.ReleaseChannel,
-	) (string, error) {
-		if options.Config.Repo != "agoodkind/agent-gate" {
-			t.Fatalf("resolve repo = %q", options.Config.Repo)
-		}
-		if options.Config.Binary != "agent-gate" {
-			t.Fatalf("resolve binary = %q", options.Config.Binary)
-		}
-		if version != "v1.2.3" {
-			t.Fatalf("resolve version = %q, want v1.2.3", version)
-		}
-		resolved = channel
-		return "v1.2.3", nil
-	}
 	installReleaseBinaryFunc = func(
-		_ context.Context,
+		ctx context.Context,
 		options selfupdate.InstallReleaseBinaryOptions,
 	) (selfupdate.InstallReleaseBinaryResult, error) {
+		if ctx.Err() != context.Canceled {
+			t.Fatalf("install context error = %v, want canceled", ctx.Err())
+		}
 		installOptions = options
 		return selfupdate.InstallReleaseBinaryResult{
 			Tag:         "v1.2.3",
@@ -50,16 +34,17 @@ func TestRunInstallerInstallsResolvedReleaseAndExecsPostInstallArgs(t *testing.T
 		return nil
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	exitCode := runInstaller(
-		context.Background(),
+		ctx,
 		[]string{
 			"--repo", "agoodkind/agent-gate",
 			"--binary", "agent-gate",
 			"--bin-dir", "/tmp/bin",
 			"--version", "v1.2.3",
-			"--require-attestation",
 			"--",
 			"configure",
 			"--force",
@@ -71,9 +56,6 @@ func TestRunInstallerInstallsResolvedReleaseAndExecsPostInstallArgs(t *testing.T
 	if exitCode != 0 {
 		t.Fatalf("runInstaller() = %d, want 0\nstderr:\n%s", exitCode, stderr.String())
 	}
-	if resolved != selfupdate.ReleaseChannelRolling {
-		t.Fatalf("resolved channel = %q, want rolling", resolved)
-	}
 	if installOptions.Options.Config.Repo != "agoodkind/agent-gate" {
 		t.Fatalf("install repo = %q", installOptions.Options.Config.Repo)
 	}
@@ -82,6 +64,9 @@ func TestRunInstallerInstallsResolvedReleaseAndExecsPostInstallArgs(t *testing.T
 	}
 	if installOptions.Version != "v1.2.3" {
 		t.Fatalf("install version = %q", installOptions.Version)
+	}
+	if installOptions.Channel != selfupdate.ReleaseChannelRolling {
+		t.Fatalf("install channel = %q, want rolling", installOptions.Channel)
 	}
 	if installOptions.BinDir != "/tmp/bin" {
 		t.Fatalf("install bin dir = %q", installOptions.BinDir)
@@ -94,6 +79,40 @@ func TestRunInstallerInstallsResolvedReleaseAndExecsPostInstallArgs(t *testing.T
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte("installed: /tmp/bin/agent-gate\n")) {
 		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestRunInstallerRejectsRemovedRequireAttestationFlag(t *testing.T) {
+	restoreInstallerSeams(t)
+	installReleaseBinaryFunc = func(
+		_ context.Context,
+		_ selfupdate.InstallReleaseBinaryOptions,
+	) (selfupdate.InstallReleaseBinaryResult, error) {
+		t.Fatal("installReleaseBinaryFunc called for invalid flags")
+		return selfupdate.InstallReleaseBinaryResult{}, nil
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	exitCode := runInstaller(
+		context.Background(),
+		[]string{
+			"--repo", "agoodkind/agent-gate",
+			"--binary", "agent-gate",
+			"--require-attestation",
+		},
+		&stdout,
+		&stderr,
+	)
+
+	if exitCode != 1 {
+		t.Fatalf("runInstaller() = %d, want 1", exitCode)
+	}
+	if !bytes.Contains(stderr.Bytes(), []byte("flag provided but not defined: -require-attestation")) {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 }
 
@@ -117,11 +136,9 @@ func TestRunInstallerRequiresRepoAndBinary(t *testing.T) {
 
 func restoreInstallerSeams(t *testing.T) {
 	t.Helper()
-	originalResolveReleaseTagFunc := resolveReleaseTagFunc
 	originalInstallReleaseBinaryFunc := installReleaseBinaryFunc
 	originalExecInstalledBinaryFunc := execInstalledBinaryFunc
 	t.Cleanup(func() {
-		resolveReleaseTagFunc = originalResolveReleaseTagFunc
 		installReleaseBinaryFunc = originalInstallReleaseBinaryFunc
 		execInstalledBinaryFunc = originalExecInstalledBinaryFunc
 	})

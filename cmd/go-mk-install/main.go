@@ -15,16 +15,14 @@ import (
 )
 
 type installerOptions struct {
-	repo               string
-	binary             string
-	binDir             string
-	version            string
-	requireAttestation bool
-	postInstallArgs    []string
+	repo            string
+	binary          string
+	binDir          string
+	version         string
+	postInstallArgs []string
 }
 
 var (
-	resolveReleaseTagFunc    = selfupdate.ResolveReleaseTag
 	installReleaseBinaryFunc = selfupdate.InstallReleaseBinary
 	execInstalledBinaryFunc  = execInstalledBinary
 )
@@ -40,14 +38,9 @@ func runInstaller(ctx context.Context, args []string, stdout io.Writer, stderr i
 		fmt.Fprintf(stderr, "go-mk-install: %v\n", err)
 		return 1
 	}
-	resolvedTag, err := resolveReleaseTagFunc(ctx, selfupdateOptions(options), options.version, selfupdate.ReleaseChannelRolling)
-	if err != nil {
-		fmt.Fprintf(stderr, "go-mk-install: %v\n", err)
-		return 1
-	}
 	result, err := installReleaseBinaryFunc(ctx, selfupdate.InstallReleaseBinaryOptions{
 		Options: selfupdateOptions(options),
-		Version: resolvedTag,
+		Version: options.version,
 		Channel: selfupdate.ReleaseChannelRolling,
 		BinDir:  options.binDir,
 	})
@@ -58,9 +51,6 @@ func runInstaller(ctx context.Context, args []string, stdout io.Writer, stderr i
 	fmt.Fprintf(stdout, "installed: %s\n", result.InstallPath)
 	fmt.Fprintf(stdout, "tag: %s\n", result.Tag)
 	fmt.Fprintf(stdout, "asset: %s\n", result.AssetName)
-	if options.requireAttestation {
-		fmt.Fprintln(stdout, "attestation: required")
-	}
 	if len(options.postInstallArgs) == 0 {
 		return 0
 	}
@@ -79,7 +69,6 @@ func parseInstallerOptions(args []string, stderr io.Writer) (installerOptions, e
 	flagSet.StringVar(&options.binary, "binary", "", "release binary name")
 	flagSet.StringVar(&options.binDir, "bin-dir", options.binDir, "directory to install the binary into")
 	flagSet.StringVar(&options.version, "version", "", "exact release tag to install")
-	flagSet.BoolVar(&options.requireAttestation, "require-attestation", false, "require release attestations")
 	if err := flagSet.Parse(args); err != nil {
 		return installerOptions{}, err
 	}

@@ -72,25 +72,66 @@ fetch_releases_json() {
     curl -fsSL "${auth_args[@]}" "$GO_MK_API_RELEASES_URL"
 }
 
-resolve_latest_go_mk_tag() {
+resolve_latest_go_mk_tag_with_gh() {
+    local tag
+    command -v gh >/dev/null 2>&1 || return 1
+    tag="$(
+        gh release list \
+            --repo "$GO_MK_REPO" \
+            --limit 1 \
+            --json tagName \
+            --jq '.[0].tagName' 2>/dev/null
+    )" || return 1
+    [[ -n "$tag" ]] || return 1
+    printf '%s\n' "$tag"
+}
+
+resolve_latest_go_mk_tag_with_jq() {
+    local releases="$1"
+    local tag
+    command -v jq >/dev/null 2>&1 || return 1
+    tag="$(jq -r '.[0].tag_name // empty' <<< "$releases")" || return 1
+    [[ -n "$tag" ]] || return 1
+    printf '%s\n' "$tag"
+}
+
+parse_latest_go_mk_tag_from_json() {
+    local releases="$1"
     local line
-    local releases
     local tag=""
-    releases="$(fetch_releases_json)"
+    local tag_regex='"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)"'
+    local draft_regex='"draft"[[:space:]]*:[[:space:]]*false'
     while IFS= read -r line; do
-        if [[ "$line" == *'"tag_name":'* ]]; then
-            tag="${line#*\"tag_name\":}"
-            tag="${tag#*\"}"
-            tag="${tag%%\"*}"
+        if [[ "$line" =~ $tag_regex ]]; then
+            tag="${BASH_REMATCH[1]}"
         fi
-        if [[ "$line" == *'"draft": false'* && -n "$tag" ]]; then
+        if [[ "$line" =~ $draft_regex && -n "$tag" ]]; then
             printf '%s\n' "$tag"
-            return
+            return 0
         fi
         if [[ "$line" == *'}'* ]]; then
             tag=""
         fi
     done <<< "$releases"
+    return 1
+}
+
+resolve_latest_go_mk_tag() {
+    local releases
+    local tag
+    if tag="$(resolve_latest_go_mk_tag_with_gh)"; then
+        printf '%s\n' "$tag"
+        return
+    fi
+    releases="$(fetch_releases_json)"
+    if tag="$(resolve_latest_go_mk_tag_with_jq "$releases")"; then
+        printf '%s\n' "$tag"
+        return
+    fi
+    if tag="$(parse_latest_go_mk_tag_from_json "$releases")"; then
+        printf '%s\n' "$tag"
+        return
+    fi
     fail "could not resolve latest ${GO_MK_REPO} release"
 }
 
@@ -239,9 +280,6 @@ INSTALL_ARGS=(
 )
 if [[ -n "$VERSION" ]]; then
     INSTALL_ARGS+=(--version "$VERSION")
-fi
-if [[ "$REQUIRE_ATTESTATION" == "1" ]]; then
-    INSTALL_ARGS+=(--require-attestation)
 fi
 if ((${#POST_INSTALL_ARGS[@]} > 0)); then
     INSTALL_ARGS+=(--)
