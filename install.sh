@@ -61,7 +61,7 @@ download_file() {
     while IFS= read -r arg; do
         auth_args+=("$arg")
     done < <(curl_auth_args)
-    curl -fsSL "${auth_args[@]}" -o "$output_path" "$url"
+    curl -fsSL ${auth_args[@]+"${auth_args[@]}"} -o "$output_path" "$url"
 }
 
 fetch_releases_json() {
@@ -69,7 +69,7 @@ fetch_releases_json() {
     while IFS= read -r arg; do
         auth_args+=("$arg")
     done < <(curl_auth_args)
-    curl -fsSL "${auth_args[@]}" "$GO_MK_API_RELEASES_URL"
+    curl -fsSL ${auth_args[@]+"${auth_args[@]}"} "$GO_MK_API_RELEASES_URL"
 }
 
 resolve_latest_go_mk_tag_with_gh() {
