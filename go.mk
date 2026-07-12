@@ -103,7 +103,13 @@ $(if $(wildcard $(2)),,$(error go-makefile failed to fetch $(1) into $(2)))
 endef
 
 ifeq ($(GO_MK_HELPER_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
+ifeq ($(strip $(GO_MK_SKIP_FETCH)),1)
+# Honor GO_MK_SKIP_FETCH here too: require the pre-vendored fetcher rather than
+# curling GO_MK_BASE_URL, so an offline run stays network-free.
+GO_MK_FETCHED_BOOTSTRAP := $(if $(wildcard $(CURDIR)/.make/scripts/go-mk-fetch-one.sh),,$(error go-makefile expected .make/scripts/go-mk-fetch-one.sh; rerun without GO_MK_SKIP_FETCH))
+else
 GO_MK_FETCHED_BOOTSTRAP := $(call go_mk_fetch_bootstrap,scripts/go-mk-fetch-one.sh,.make/scripts/go-mk-fetch-one.sh)
+endif
 endif
 
 define go-mk-fetch-one
