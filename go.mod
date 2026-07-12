@@ -12,8 +12,8 @@ require (
 	github.com/sigstore/sigstore-go v1.2.2
 	github.com/spf13/cobra v1.10.2
 	go.opentelemetry.io/otel v1.44.0
-	golang.org/x/mod v0.37.0
-	golang.org/x/term v0.44.0
+	golang.org/x/mod v0.38.0
+	golang.org/x/term v0.45.0
 	goodkind.io/gklog v0.4.4
 	google.golang.org/protobuf v1.36.11
 )
@@ -107,7 +107,7 @@ require (
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
