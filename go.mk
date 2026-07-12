@@ -14,6 +14,45 @@ GO_MK_API_REPO  ?= agoodkind/go-makefile
 GO_MK_API_REF   ?= main
 GO_MK_CACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile
 
+GO_MK_SCRIPT_FILES := \
+	scripts/go-mk-fetch-one.sh \
+	scripts/go-mk-bin.sh \
+	scripts/go-mk-sync.sh \
+	notices.txt
+
+# _go_mk_prime downloads the go-makefile archive once and copies only the helper
+# scripts and notices this file owns into .make/. It runs before GO_MK_HELPER_DIR
+# below first globs .make/scripts, so make's wildcard cache already holds the files
+# and the later require checks find them (a glob of an empty dir is cached for the
+# whole run). It removes each asset first so a failed download never leaves a stale
+# file, and only .sh and .txt land in .make/, so no go-makefile source pollutes the
+# consumer's find-based lint targets. The gh api contents path was removed; a single
+# tarball costs zero GITHUB_TOKEN core-REST.
+define _go_mk_prime
+	if [ -n "$(GO_MK_DEV_DIR)" ]; then \
+		: ; \
+	else \
+		for asset in $(GO_MK_SCRIPT_FILES); do rm -f ".make/$$asset"; done; \
+		tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/go-mk.XXXXXXXX") || exit 0; \
+		if curl -fsSL --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 "https://codeload.github.com/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" 2>/dev/null | tar -xzf - -C "$$tmp" --strip-components 1 2>/dev/null; then \
+			for asset in $(GO_MK_SCRIPT_FILES); do \
+				if [ -f "$$tmp/$$asset" ]; then \
+					mkdir -p "$$(dirname ".make/$$asset")"; \
+					cp "$$tmp/$$asset" ".make/$$asset"; \
+					case "$$asset" in *.sh) chmod +x ".make/$$asset" ;; esac; \
+				fi; \
+			done; \
+		fi; \
+		rm -rf "$$tmp"; \
+	fi
+endef
+# Skip the prime entirely under GO_MK_SKIP_FETCH so air-gapped or pre-vendored
+# runs never touch the network; the require paths below then fail fast if an
+# expected asset is missing.
+ifneq ($(strip $(GO_MK_SKIP_FETCH)),1)
+$(shell mkdir -p .make && { $(call _go_mk_prime); } 1>&2)
+endif
+
 GO_MK_SELF      := $(lastword $(MAKEFILE_LIST))
 GO_MK_SELF_DIR  := $(patsubst %/,%,$(dir $(abspath $(GO_MK_SELF))))
 GO_MK_LOCAL_SCRIPT_DIR := $(if $(strip $(GO_MK_DEV_DIR)),$(GO_MK_DEV_DIR)/scripts,$(GO_MK_SELF_DIR)/scripts)
@@ -25,18 +64,21 @@ GO_MK_NOTICES_FILE := $(if $(wildcard $(GO_MK_LOCAL_NOTICES)),$(GO_MK_LOCAL_NOTI
 
 # go.mk still contains this small bootstrap fetcher because old consumers only
 # fetch go.mk first. Once helper scripts are present, every larger shell and
-# awk body lives under scripts/.
+# awk body lives under scripts/. Fetch order: dev override > files _go_mk_prime
+# already extracted from one codeload tarball into .make/ > raw URL. The gh api
+# contents path was removed; a single tarball costs zero GITHUB_TOKEN core-REST.
 define _go_mk_fetch_bootstrap_commands
-	mkdir -p "$$(dirname "$(2)")"; \
-	tmp=$$(mktemp "$(2).tmp.XXXXXX") || exit 1; \
-	err=$$(mktemp "$(2).err.XXXXXX") || { rm -f "$$tmp"; exit 1; }; \
 	if [ -n "$(3)" ] && [ -f "$(3)/$(1)" ]; then \
-		cp "$(3)/$(1)" "$$tmp" || { rm -f "$$tmp" "$$err"; exit 1; }; \
+		mkdir -p "$$(dirname "$(2)")"; \
+		cp "$(3)/$(1)" "$(2)"; \
+		case "$(2)" in *.sh) chmod +x "$(2)" ;; esac; \
+	elif [ -s "$(2)" ]; then \
+		: ; \
 	else \
-		gh_path=$$(command -v gh || true); \
-		if [ -n "$$gh_path" ] && gh api "repos/$(GO_MK_API_REPO)/contents/$(1)?ref=$(GO_MK_API_REF)" -H "Accept: application/vnd.github.raw" > "$$tmp" 2>"$$err"; then \
-			:; \
-		elif curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)?v=$$(date +%s)" -o "$$tmp" 2>"$$err"; then \
+		mkdir -p "$$(dirname "$(2)")"; \
+		tmp=$$(mktemp "$(2).tmp.XXXXXX") || exit 1; \
+		err=$$(mktemp "$(2).err.XXXXXX") || { rm -f "$$tmp"; exit 1; }; \
+		if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)?v=$$(date +%s)" -o "$$tmp" 2>"$$err"; then \
 			:; \
 		elif curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_BASE_URL)/$(1)" -o "$$tmp" 2>"$$err"; then \
 			:; \
@@ -44,14 +86,14 @@ define _go_mk_fetch_bootstrap_commands
 			rm -f "$$tmp" "$$err"; \
 			exit 1; \
 		fi; \
-	fi; \
-	if [ -s "$$tmp" ]; then \
-		mv "$$tmp" "$(2)"; \
-		case "$(2)" in *.sh) chmod +x "$(2)" ;; esac; \
-		rm -f "$$err"; \
-	else \
-		rm -f "$$tmp" "$$err"; \
-		exit 1; \
+		if [ -s "$$tmp" ]; then \
+			mv "$$tmp" "$(2)"; \
+			case "$(2)" in *.sh) chmod +x "$(2)" ;; esac; \
+			rm -f "$$err"; \
+		else \
+			rm -f "$$tmp" "$$err"; \
+			exit 1; \
+		fi; \
 	fi
 endef
 
@@ -61,7 +103,13 @@ $(if $(wildcard $(2)),,$(error go-makefile failed to fetch $(1) into $(2)))
 endef
 
 ifeq ($(GO_MK_HELPER_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
+ifeq ($(strip $(GO_MK_SKIP_FETCH)),1)
+# Honor GO_MK_SKIP_FETCH here too: require the pre-vendored fetcher rather than
+# curling GO_MK_BASE_URL, so an offline run stays network-free.
+GO_MK_FETCHED_BOOTSTRAP := $(if $(wildcard $(CURDIR)/.make/scripts/go-mk-fetch-one.sh),,$(error go-makefile expected .make/scripts/go-mk-fetch-one.sh; rerun without GO_MK_SKIP_FETCH))
+else
 GO_MK_FETCHED_BOOTSTRAP := $(call go_mk_fetch_bootstrap,scripts/go-mk-fetch-one.sh,.make/scripts/go-mk-fetch-one.sh)
+endif
 endif
 
 define go-mk-fetch-one
@@ -72,17 +120,14 @@ define go-mk-require-one
 $(if $(wildcard $(1)),,$(error go-makefile expected $(1); rerun without GO_MK_SKIP_FETCH))
 endef
 
-GO_MK_SCRIPT_FILES := \
-	scripts/go-mk-fetch-one.sh \
-	scripts/go-mk-bin.sh \
-	scripts/go-mk-sync.sh \
-	notices.txt
-
 ifeq ($(GO_MK_HELPER_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
 ifeq ($(strip $(GO_MK_SKIP_FETCH)),1)
 GO_MK_FETCHED_SCRIPTS := $(foreach s,$(GO_MK_SCRIPT_FILES),$(call go-mk-require-one,.make/$(s)))
 else
-GO_MK_FETCHED_SCRIPTS := $(foreach s,$(GO_MK_SCRIPT_FILES),$(call go-mk-fetch-one,$(s)))
+# _go_mk_prime already copied each script from the tarball, so require it when
+# present and fall back to a per-file fetch (raw) only when the archive was
+# unavailable.
+GO_MK_FETCHED_SCRIPTS := $(foreach s,$(GO_MK_SCRIPT_FILES),$(if $(wildcard $(CURDIR)/.make/$(s)),$(call go-mk-require-one,.make/$(s)),$(call go-mk-fetch-one,$(s))))
 endif
 endif
 
