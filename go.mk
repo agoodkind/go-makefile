@@ -46,7 +46,12 @@ define _go_mk_prime
 		rm -rf "$$tmp"; \
 	fi
 endef
+# Skip the prime entirely under GO_MK_SKIP_FETCH so air-gapped or pre-vendored
+# runs never touch the network; the require paths below then fail fast if an
+# expected asset is missing.
+ifneq ($(strip $(GO_MK_SKIP_FETCH)),1)
 $(shell mkdir -p .make && { $(call _go_mk_prime); } 1>&2)
+endif
 
 GO_MK_SELF      := $(lastword $(MAKEFILE_LIST))
 GO_MK_SELF_DIR  := $(patsubst %/,%,$(dir $(abspath $(GO_MK_SELF))))
