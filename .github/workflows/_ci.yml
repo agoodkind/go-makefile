@@ -94,10 +94,10 @@ on:
           with `needs: <this job>` and `if: needs.<job>.outputs.changed == 'true'`.
         value: ${{ jobs.prepare.outputs.changed }}
 
-# Authenticate the go-mk bootstrap fetch (bootstrap.mk / go-mk-fetch-one.sh use
-# gh api when a token is present) so it hits the 5000/hr contents API instead of
-# the rate-limited raw.githubusercontent.com CDN, which throttles under the
-# parallel job matrix and hard-fails the moratorium fetch.
+# The go-mk bootstrap fetch (bootstrap.mk / go.mk) downloads a single codeload
+# tarball, which spends no GITHUB_TOKEN core-REST budget, with a
+# raw.githubusercontent.com per-file fallback. GH_TOKEN stays set for any gh CLI
+# step but is no longer required by the fetch.
 env:
   GH_TOKEN: ${{ github.token }}
 
