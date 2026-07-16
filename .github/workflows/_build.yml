@@ -153,7 +153,7 @@ jobs:
             apt-get install -y --no-install-recommends ccache
           fi
           ccache --version
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         id: setup-go
         with:
           go-version-file: go.mod
