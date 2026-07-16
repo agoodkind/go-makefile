@@ -120,7 +120,7 @@ jobs:
         with:
           submodules: false
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: ${{ inputs.go_version_file }}
           cache-dependency-path: |
@@ -278,7 +278,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ${{ inputs.apt_packages }}
       - if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true'
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: ${{ inputs.go_version_file }}
           cache-dependency-path: |
@@ -470,7 +470,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ${{ inputs.apt_packages }}
       - if: needs.prepare.outputs.run == 'true'
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: ${{ inputs.go_version_file }}
           cache-dependency-path: |
