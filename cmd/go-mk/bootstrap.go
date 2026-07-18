@@ -654,23 +654,30 @@ func repairReleaseBinaryInput(content string, releaseBinary string) (string, boo
 		lineEnding = "\r\n"
 	}
 	lines := strings.Split(content, lineEnding)
-	usesIndex := usesLineIndex(lines, releaseReusableWorkflowRef)
-	if usesIndex < 0 {
-		return content, false
+	indices := allUsesLineIndices(lines, releaseReusableWorkflowRef)
+	changed := false
+	for cursor := len(indices) - 1; cursor >= 0; cursor-- {
+		var did bool
+		lines, did = repairReleaseBinaryInputAt(lines, indices[cursor], releaseBinary)
+		changed = changed || did
 	}
+	return strings.Join(lines, lineEnding), changed
+}
+
+func repairReleaseBinaryInputAt(lines []string, usesIndex int, releaseBinary string) ([]string, bool) {
 	usesIndent := leadingSpaceCount(lines[usesIndex])
 	jobHeaderIndex := jobHeaderIndexAbove(lines, usesIndex, usesIndent)
 	if jobHeaderIndex < 0 {
-		return content, false
+		return lines, false
 	}
 	jobIndent := leadingSpaceCount(lines[jobHeaderIndex])
 	jobEnd := jobBodyEndIndex(lines, usesIndex, jobIndent)
 	withIndex := jobChildKeyLineIndex(lines, jobHeaderIndex+1, jobEnd, usesIndent, "with")
 	if withIndex >= 0 {
 		if !isBlockFormKey(lines[withIndex]) {
-			return content, false
+			return lines, false
 		}
-		return insertOrUpdateBlockEntry(lines, withIndex, jobEnd, usesIndent, lineEnding, "binary", releaseBinary)
+		return insertOrUpdateBlockEntryLines(lines, withIndex, jobEnd, usesIndent, "binary", releaseBinary)
 	}
 	insertAt := usesIndex + 1
 	permissionsIndex := jobChildKeyLineIndex(lines, jobHeaderIndex+1, jobEnd, usesIndent, "permissions")
@@ -687,7 +694,7 @@ func repairReleaseBinaryInput(content string, releaseBinary string) (string, boo
 	updated = append(updated, lines[:insertAt]...)
 	updated = append(updated, block...)
 	updated = append(updated, lines[insertAt:]...)
-	return strings.Join(updated, lineEnding), true
+	return updated, true
 }
 
 // repairCallerPermissions performs a surgical, formatting-preserving edit of a
@@ -708,35 +715,47 @@ func repairCallerPermissions(content string, usesRef string, permissions []workf
 		lineEnding = "\r\n"
 	}
 	lines := strings.Split(content, lineEnding)
-	usesIndex := usesLineIndex(lines, usesRef)
-	if usesIndex < 0 {
-		return content, false
+	indices := allUsesLineIndices(lines, usesRef)
+	changed := false
+	for cursor := len(indices) - 1; cursor >= 0; cursor-- {
+		var did bool
+		lines, did = repairCallerPermissionsAt(lines, indices[cursor], permissions)
+		changed = changed || did
 	}
+	return strings.Join(lines, lineEnding), changed
+}
+
+func repairCallerPermissionsAt(lines []string, usesIndex int, permissions []workflowPermission) ([]string, bool) {
 	usesIndent := leadingSpaceCount(lines[usesIndex])
 	jobHeaderIndex := jobHeaderIndexAbove(lines, usesIndex, usesIndent)
 	if jobHeaderIndex < 0 {
-		return content, false
+		return lines, false
 	}
 	jobIndent := leadingSpaceCount(lines[jobHeaderIndex])
 	jobEnd := jobBodyEndIndex(lines, usesIndex, jobIndent)
 	permissionsIndex := permissionsLineIndex(lines, jobHeaderIndex+1, jobEnd, usesIndent)
 	if permissionsIndex < 0 {
-		return insertPermissionsBlock(lines, usesIndex, usesIndent, usesIndent-jobIndent, lineEnding, permissions), true
+		return insertPermissionsBlockLines(lines, usesIndex, usesIndent, usesIndent-jobIndent, permissions), true
 	}
 	if !isBlockFormPermissions(lines[permissionsIndex]) {
-		return content, false
+		return lines, false
 	}
-	return insertMissingPermissions(lines, permissionsIndex, jobEnd, usesIndent, lineEnding, permissions)
+	return insertMissingPermissionsLines(lines, permissionsIndex, jobEnd, usesIndent, permissions)
 }
 
-func usesLineIndex(lines []string, usesRef string) int {
+// allUsesLineIndices returns the index of every job uses line that references
+// usesRef, so a caller with more than one reusable-workflow job (for example a
+// repo that runs the reusable CI workflow once per module) has each job
+// repaired, not only the first.
+func allUsesLineIndices(lines []string, usesRef string) []int {
+	var indices []int
 	for index, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "uses:") && strings.Contains(trimmed, usesRef) {
-			return index
+			indices = append(indices, index)
 		}
 	}
-	return -1
+	return indices
 }
 
 func jobHeaderIndexAbove(lines []string, fromIndex int, childIndent int) int {
@@ -808,15 +827,14 @@ func blockEndIndex(lines []string, blockIndex int, jobEnd int, parentIndent int)
 	return index
 }
 
-func insertOrUpdateBlockEntry(
+func insertOrUpdateBlockEntryLines(
 	lines []string,
 	blockIndex int,
 	jobEnd int,
 	parentIndent int,
-	lineEnding string,
 	key string,
 	value string,
-) (string, bool) {
+) ([]string, bool) {
 	childIndent := -1
 	insertAt := blockIndex + 1
 	for index := blockIndex + 1; index < jobEnd; index++ {
@@ -839,10 +857,10 @@ func insertOrUpdateBlockEntry(
 			updated := append([]string(nil), lines...)
 			corrected := strings.Repeat(" ", indent) + key + ": " + value
 			if updated[index] == corrected {
-				return strings.Join(updated, lineEnding), false
+				return updated, false
 			}
 			updated[index] = corrected
-			return strings.Join(updated, lineEnding), true
+			return updated, true
 		}
 	}
 	if childIndent < 0 {
@@ -853,10 +871,10 @@ func insertOrUpdateBlockEntry(
 	updated = append(updated, lines[:insertAt]...)
 	updated = append(updated, entry)
 	updated = append(updated, lines[insertAt:]...)
-	return strings.Join(updated, lineEnding), true
+	return updated, true
 }
 
-func insertPermissionsBlock(lines []string, usesIndex int, jobChildIndent int, indentStep int, lineEnding string, permissions []workflowPermission) string {
+func insertPermissionsBlockLines(lines []string, usesIndex int, jobChildIndent int, indentStep int, permissions []workflowPermission) []string {
 	childIndent := jobChildIndent + indentStep
 	block := []string{strings.Repeat(" ", jobChildIndent) + "permissions:"}
 	for _, permission := range permissions {
@@ -866,10 +884,10 @@ func insertPermissionsBlock(lines []string, usesIndex int, jobChildIndent int, i
 	updated = append(updated, lines[:usesIndex+1]...)
 	updated = append(updated, block...)
 	updated = append(updated, lines[usesIndex+1:]...)
-	return strings.Join(updated, lineEnding)
+	return updated
 }
 
-func insertMissingPermissions(lines []string, permissionsIndex int, jobEnd int, jobChildIndent int, lineEnding string, permissions []workflowPermission) (string, bool) {
+func insertMissingPermissionsLines(lines []string, permissionsIndex int, jobEnd int, jobChildIndent int, permissions []workflowPermission) ([]string, bool) {
 	presentIndex := map[string]int{}
 	childIndent := -1
 	lastChildIndex := permissionsIndex
@@ -911,13 +929,13 @@ func insertMissingPermissions(lines []string, permissionsIndex int, jobEnd int, 
 		}
 	}
 	if len(insertions) == 0 {
-		return strings.Join(updated, lineEnding), changed
+		return updated, changed
 	}
 	result := make([]string, 0, len(updated)+len(insertions))
 	result = append(result, updated[:lastChildIndex+1]...)
 	result = append(result, insertions...)
 	result = append(result, updated[lastChildIndex+1:]...)
-	return strings.Join(result, lineEnding), true
+	return result, true
 }
 
 // ensureSecretsInherit adds a job-level `secrets: inherit` to the reusable-CI
@@ -933,14 +951,21 @@ func ensureSecretsInherit(content string, usesRef string) (string, bool) {
 		lineEnding = "\r\n"
 	}
 	lines := strings.Split(content, lineEnding)
-	usesIndex := usesLineIndex(lines, usesRef)
-	if usesIndex < 0 {
-		return content, false
+	indices := allUsesLineIndices(lines, usesRef)
+	changed := false
+	for cursor := len(indices) - 1; cursor >= 0; cursor-- {
+		var did bool
+		lines, did = ensureSecretsInheritAt(lines, indices[cursor])
+		changed = changed || did
 	}
+	return strings.Join(lines, lineEnding), changed
+}
+
+func ensureSecretsInheritAt(lines []string, usesIndex int) ([]string, bool) {
 	usesIndent := leadingSpaceCount(lines[usesIndex])
 	jobHeaderIndex := jobHeaderIndexAbove(lines, usesIndex, usesIndent)
 	if jobHeaderIndex < 0 {
-		return content, false
+		return lines, false
 	}
 	jobIndent := leadingSpaceCount(lines[jobHeaderIndex])
 	jobEnd := jobBodyEndIndex(lines, usesIndex, jobIndent)
@@ -950,7 +975,7 @@ func ensureSecretsInherit(content string, usesRef string) (string, bool) {
 		}
 		key, _, found := strings.Cut(strings.TrimSpace(lines[index]), ":")
 		if found && strings.TrimSpace(key) == "secrets" {
-			return content, false
+			return lines, false
 		}
 	}
 	// Insert after the uses line and any contiguous comment or blank lines that
@@ -965,7 +990,7 @@ func ensureSecretsInherit(content string, usesRef string) (string, bool) {
 	updated = append(updated, lines[:insertAt]...)
 	updated = append(updated, secretsLine)
 	updated = append(updated, lines[insertAt:]...)
-	return strings.Join(updated, lineEnding), true
+	return updated, true
 }
 
 func leadingSpaceCount(line string) int {

@@ -580,6 +580,60 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
 		}
 	})
+
+	t.Run("repairs every reusable-release job in a multi-job caller", func(t *testing.T) {
+		repoDir := t.TempDir()
+		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+		// A caller with two reusable-release jobs, each missing id-token: write and
+		// attestations: write. Both jobs must be repaired, not only the first.
+		drifted := "name: Release\n\n" +
+			"jobs:\n" +
+			"  linux:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: write\n" +
+			"    secrets: inherit\n" +
+			"  darwin:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: write\n" +
+			"    secrets: inherit\n"
+		writeBootstrapTestFile(t, releaseWorkflow, drifted)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
+			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+		}
+
+		expected := "name: Release\n\n" +
+			"jobs:\n" +
+			"  linux:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: write\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    secrets: inherit\n" +
+			"  darwin:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: write\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    secrets: inherit\n"
+		if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
+			t.Fatalf("multi-job release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+
+		// Idempotent: a second run leaves both repaired jobs byte-identical.
+		var secondStdout bytes.Buffer
+		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
+			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+		}
+		assertFileText(t, releaseWorkflow, expected)
+	})
 }
 
 func TestReconcileCIWorkflow(t *testing.T) {
@@ -800,6 +854,72 @@ func TestReconcileCIWorkflow(t *testing.T) {
 			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
 		}
 		assertFileText(t, ciWorkflow, custom)
+	})
+
+	t.Run("repairs every reusable-CI job in a multi-job caller", func(t *testing.T) {
+		repoDir := t.TempDir()
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		mustMkdirAll(t, filepath.Dir(ciWorkflow))
+		// A caller with two reusable-CI jobs, each missing attestations: write and
+		// secrets: inherit. Both jobs must be repaired, not only the first.
+		drifted := "name: CI\n\n" +
+			"jobs:\n" +
+			"  scripts:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"      id-token: write\n" +
+			"    with:\n" +
+			"      go_version_file: scripts/go.mod\n" +
+			"      working_directory: scripts\n\n" +
+			"  mwan-go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"      id-token: write\n" +
+			"    with:\n" +
+			"      go_version_file: mwan/go/go.mod\n" +
+			"      working_directory: mwan/go\n"
+		writeBootstrapTestFile(t, ciWorkflow, drifted)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileCIWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+		}
+
+		expected := "name: CI\n\n" +
+			"jobs:\n" +
+			"  scripts:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    secrets: inherit\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    with:\n" +
+			"      go_version_file: scripts/go.mod\n" +
+			"      working_directory: scripts\n\n" +
+			"  mwan-go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    secrets: inherit\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    with:\n" +
+			"      go_version_file: mwan/go/go.mod\n" +
+			"      working_directory: mwan/go\n"
+		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+			t.Fatalf("multi-job ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+
+		// Idempotent: a second run leaves both repaired jobs byte-identical.
+		var secondStdout bytes.Buffer
+		if err := reconcileCIWorkflow(&secondStdout); err != nil {
+			t.Fatalf("second reconcileCIWorkflow returned error: %v", err)
+		}
+		assertFileText(t, ciWorkflow, expected)
 	})
 }
 
