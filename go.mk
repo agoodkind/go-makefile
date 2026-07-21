@@ -545,12 +545,23 @@ GO_MK_GENERATE_OUTPUTS ?=
 # existing go.work is left untouched, so a developer override survives.
 GO_MK_WORKSPACE_USE ?=
 
+# GO_MK_WORKSPACE_NO_AUTOSHADOW: opt-out for the inherited-go.work self-heal. When
+# a repo declares no GO_MK_WORKSPACE_USE but its working directory sits inside a
+# parent checkout that has a go.work (a worktree nested under a primary), Go
+# discovers that parent go.work and turns workspace mode on, and the parent's
+# use-paths do not list this module, so every compile-bearing gate fails with
+# "directory prefix . does not contain modules listed in go.work". By default
+# go-mk-workspace materializes a local `go work init .` that shadows the parent so
+# the module resolves. Set this to 1 to skip the shadow and only print the cause.
+GO_MK_WORKSPACE_NO_AUTOSHADOW ?=
+
 # Exported so the ci-changed engine command treats the workspace use-paths (the
 # vendored modules whose inputs go list cannot see on their own) as relevant.
 export GO_MK_GENERATE
 export GO_MK_GENERATE_INPUTS
 export GO_MK_GENERATE_OUTPUTS
 export GO_MK_WORKSPACE_USE
+export GO_MK_WORKSPACE_NO_AUTOSHADOW
 
 # GO_MK_CGO_DEPS: opt-in, space-separated list of external C library dependency
 # names a consumer links through cgo. A consumer sets this BEFORE
@@ -648,11 +659,52 @@ go-mk-cgo-deps:
 
 endif
 
+# go-mk-workspace runs before every compile-bearing gate. It has two jobs.
+#
+# 1. Declared routing. When GO_MK_WORKSPACE_USE is set and no local go.work
+#    exists, it writes one from those use-paths (the original behavior).
+#
+# 2. Inherited-go.work self-heal. When the repo declares no use-paths, it checks
+#    whether Go has activated a go.work from a parent directory (the nested-
+#    worktree case). If that parent workspace does not cover this module, it
+#    writes a local `go work init .` that shadows the parent so the module
+#    resolves, instead of leaving the gate to fail with a misleading typecheck
+#    cascade. The `go list ./...` probe reproduces the exact failing operation, so
+#    the shadow is written only when the inherited workspace is genuinely broken
+#    for this directory, never when it legitimately covers it (a real monorepo
+#    root). GO_MK_WORKSPACE_NO_AUTOSHADOW=1 prints the cause instead of writing.
+#
+# An existing local go.work is always left untouched, so a deliberate developer
+# workspace survives. When no go.work is active anywhere, the recipe exits after
+# one `go env GOWORK` call, so a repo without workspaces pays only that.
+#
+# Both branches force the output path with GOWORK=$(CURDIR)/go.work so `go work
+# init` writes a local file. Without it, a nested worktree inherits the parent's
+# active GOWORK, and `go work init` targets that parent path and fails with
+# "already exists" instead of writing the local file. Forcing the path is a no-op
+# for a standalone checkout where GOWORK is empty.
 .PHONY: go-mk-workspace
 go-mk-workspace:
-	@if [ -n "$(strip $(GO_MK_WORKSPACE_USE))" ] && [ ! -f go.work ]; then \
+	@if [ -f go.work ]; then \
+		:; \
+	elif [ -n "$(strip $(GO_MK_WORKSPACE_USE))" ]; then \
 		echo "go-mk-workspace: creating go.work (use $(GO_MK_WORKSPACE_USE))"; \
-		go work init $(GO_MK_WORKSPACE_USE); \
+		GOWORK="$(CURDIR)/go.work" go work init $(GO_MK_WORKSPACE_USE); \
+	else \
+		gw=$$(go env GOWORK 2>/dev/null); \
+		case "$$gw" in \
+			"") : ;; \
+			"$(CURDIR)/"*) : ;; \
+			*) \
+				if go list ./... >/dev/null 2>&1; then \
+					: ; \
+				elif [ -n "$(strip $(GO_MK_WORKSPACE_NO_AUTOSHADOW))" ]; then \
+					echo "go-mk-workspace: inherited go.work at $$gw does not cover this module; run 'go work init .' or set GOWORK=off"; \
+				else \
+					echo "go-mk-workspace: shadowing inherited go.work ($$gw) with local 'go work init .'"; \
+					GOWORK="$(CURDIR)/go.work" go work init .; \
+				fi ;; \
+		esac; \
 	fi
 
 # go-mk-workspace runs after codegen so a use-path provided by a generated
@@ -665,18 +717,20 @@ go-mk-workspace: | $(GO_MK_GENERATE)
 endif
 
 # Combined order-only prerequisites attached to every target that loads or
-# compiles packages. Empty (the default) adds nothing. This block sits before
-# the module include so the recipe-less build rule merges onto go-build.mk's
-# build recipe. The CI matrix split legs lint-format and lint-gocyclo are
-# deliberately omitted: gofumpt/goimports and gocyclo are textual or AST-only,
-# they never compile or resolve packages, and they pass on a fresh runner
-# without generated sources or a go.work, so attaching the prerequisite would
-# only add cost. ci-changed is also omitted so detection stays cheap and never
-# runs codegen or go-mk-workspace. A declared GO_MK_CGO_DEPS adds go-mk-cgo-deps
-# so the C libraries exist before any target compiles the cgo package; a dep
-# recipe that needs generated inputs first declares its own ordering
-# (go-mk-cgo-dep-x: | $(GO_MK_GENERATE)).
-GO_MK_PREREQS := $(if $(strip $(GO_MK_WORKSPACE_USE)),go-mk-workspace) $(GO_MK_GENERATE) $(if $(strip $(GO_MK_CGO_DEPS)),go-mk-cgo-deps)
+# compiles packages. go-mk-workspace is always present: it self-heals an
+# inherited go.work even for a repo that declares no GO_MK_WORKSPACE_USE, and it
+# is a cheap no-op (one `go env GOWORK`) when no workspace is active. This block
+# sits before the module include so the recipe-less build rule merges onto
+# go-build.mk's build recipe. The CI matrix split legs lint-format and
+# lint-gocyclo are deliberately omitted: gofumpt/goimports and gocyclo are
+# textual or AST-only, they never compile or resolve packages, and they pass on a
+# fresh runner without generated sources or a go.work, so attaching the
+# prerequisite would only add cost. ci-changed is also omitted so detection stays
+# cheap and never runs codegen or go-mk-workspace. A declared GO_MK_CGO_DEPS adds
+# go-mk-cgo-deps so the C libraries exist before any target compiles the cgo
+# package; a dep recipe that needs generated inputs first declares its own
+# ordering (go-mk-cgo-dep-x: | $(GO_MK_GENERATE)).
+GO_MK_PREREQS := go-mk-workspace $(GO_MK_GENERATE) $(if $(strip $(GO_MK_CGO_DEPS)),go-mk-cgo-deps)
 ifneq ($(strip $(GO_MK_PREREQS)),)
 build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test govulncheck: | $(GO_MK_PREREQS)
 endif
