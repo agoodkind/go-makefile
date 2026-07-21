@@ -20,6 +20,12 @@ A committed relative `replace` in `go.mod` would also route the dependency, but 
 
 The workspace generation must run after the codegen that initializes the submodule. `go work init` silently drops a use-path whose directory has no `go.mod` yet, so generating `go.work` before the submodule is present produces a file that omits the dependency. The symptom is that Go downloads the parser-less module from the proxy and the build fails on a missing `parser.c`. go.mk orders the workspace step after `GO_MK_GENERATE` to prevent this.
 
+## Inherited go.work in nested worktrees
+
+A worktree created inside a primary checkout can inherit that primary's `go.work` even when the worktree's own repo declares no workspace. Go discovers a `go.work` by walking up the filesystem from the current directory, so a worktree under a path such as `<primary>/.claude/worktrees/<name>/` finds the primary's `go.work` and turns workspace mode on. The primary's use-paths do not list the worktree's module, so every compile-bearing gate fails with `directory prefix . does not contain modules listed in go.work` and analyzers report skipped packages. This is an environment problem, not a code problem, but the raw error reads like a typecheck failure.
+
+`go-mk-workspace` self-heals this case. Before any gate runs, it checks `go env GOWORK`. When a `go.work` is active from a parent directory and `go list ./...` fails, it writes a local `go work init .` that shadows the inherited workspace so the module resolves. The `go list ./...` probe reproduces the exact failing operation, so the shadow is written only when the inherited workspace is genuinely broken for this directory, never when it legitimately covers it. The self-heal runs for every repo, including those that set no `GO_MK_WORKSPACE_USE`, and is a no-op when no `go.work` is active. Set `GO_MK_WORKSPACE_NO_AUTOSHADOW=1` to print the cause instead of writing the shadow. A local `go.work` that already exists is always left untouched.
+
 ## Consumer requirements
 
 A consumer with such a dependency sets `GO_MK_WORKSPACE_USE` to its workspace use-paths and `GO_MK_GENERATE` to its codegen target. It must not commit `go.work` or `go.work.sum`, which the bootstrap gitignores. It must not add `submodules: recursive` to its CI or release checkout, because a nested grammar submodule authenticates over `git@`, which fails on CI runners, and the codegen target initializes submodules over HTTPS instead.
