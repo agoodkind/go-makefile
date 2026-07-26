@@ -11,7 +11,8 @@
 ## Global Constraints
 
 - Validation request bound: `--connect-timeout 2 --max-time 3`. Measured `304` is 0.88s median on a 201ms RTT link.
-- Reuse window after a failed validation: 3600 seconds (1 hour), a hardcoded constant, not a variable.
+- Reuse window after a failed validation: 3600 seconds (1 hour), a hardcoded constant, not a variable. The clock runs from the last completed download and a successful `304` never resets it, so the window is fixed rather than sliding. Offline reuse is therefore available only within an hour of a real download, which is the intended strictness.
+- A `304` writes nothing: no asset changes, and the state file is not rewritten.
 - CI test: `GITHUB_ACTIONS` equals `true` AND `GITHUB_RUN_ID` is non-empty. `GITHUB_ACTIONS` alone is not CI.
 - In CI: never read state, never write state, never send a conditional request, never serve disk on failure.
 - No new user-facing variable. `GO_MK_SKIP_FETCH` stays the only knob. `GO_MK_CODELOAD_BASE` is internal and test-only, in the same category as the existing `GO_MK_API_REPO` and `GO_MK_API_REF` overrides.
@@ -922,7 +923,9 @@ main() {
         status_code=$(validate_upstream "${probe_root}/snapshot.tar.gz" "${known_etag}" || printf '')
         rm -rf "${probe_root}"
         if [[ "${status_code}" == "304" ]]; then
-            write_state "${known_etag}"
+            # Deliberately no state write. The reuse window is a fixed hour from
+            # the last real download, not a window a successful check can slide
+            # forward, so a 304 leaves both the assets and the state alone.
             return 0
         fi
     fi
