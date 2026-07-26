@@ -245,12 +245,21 @@ func golangciCacheDir() string {
 	return filepath.Join(makeDir, golangciCacheDirName)
 }
 
-// golangciCachePattern returns the glob that matches every golangci-lint cache
-// directory a run can produce, covering both the plain directory and the
-// per-target directories a platform-matrix pass creates. Continuous integration
-// caches this pattern, so it must match whatever golangciCacheDir chooses.
-func golangciCachePattern() string {
-	return filepath.Join(makeDir, golangciCacheDirName+"*")
+// golangciCachePatterns returns the globs matching every golangci-lint cache
+// directory a build can produce: the plain directory, the per-target directories
+// a platform-matrix pass creates, and the directories a nested module creates
+// when a target lints it in its own working directory. Continuous integration
+// caches these patterns, so together they must match whatever golangciCacheDir
+// chooses, at whatever depth the target that chose it ran.
+//
+// The depth is covered by two patterns rather than one recursive glob because
+// implementations disagree on whether a leading ** may match zero path
+// segments. Naming the working directory itself removes that ambiguity.
+func golangciCachePatterns() []string {
+	return []string{
+		filepath.Join(makeDir, golangciCacheDirName+"*"),
+		filepath.Join("**", makeDir, golangciCacheDirName+"*"),
+	}
 }
 
 // setEnvVar replaces or appends a KEY=VALUE entry in an environment slice,

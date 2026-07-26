@@ -259,16 +259,32 @@ func cgoCacheManifestPath(config cacheManifestConfig) string {
 }
 
 // lintCacheManifestPaths reports where golangci-lint keeps its results cache, so
-// continuous integration persists that directory between runs instead of
-// reanalyzing every package on every run. The value is the glob covering both the
-// plain cache directory and the per-target directories a platform-matrix pass
-// creates. A caller that pins GOLANGCI_LINT_CACHE gets that path back, because
-// lintEnv leaves such a value alone and the cache lives wherever it points.
+// continuous integration persists those directories between runs instead of
+// reanalyzing every package on every run. The value is the glob covering the
+// plain cache directory, the per-target directories a platform-matrix pass
+// creates, and the directories a nested module creates.
+//
+// The path is absolute. A consumer runs its targets from a working directory
+// that need not be the workspace root, and a caller may pin the cache somewhere
+// else entirely, so a relative value would have to be recombined by whoever
+// reads it and would be recombined wrongly for an already-absolute pin. A
+// caller that pins GOLANGCI_LINT_CACHE gets that path back, because lintEnv
+// leaves such a value alone and the cache lives wherever it points.
 func lintCacheManifestPaths(config cacheManifestConfig) string {
+	patterns := golangciCachePatterns()
 	if pinned := strings.TrimSpace(config.getenv("GOLANGCI_LINT_CACHE")); pinned != "" {
-		return filepath.ToSlash(pinned)
+		patterns = []string{pinned}
 	}
-	return filepath.ToSlash(golangciCachePattern())
+	resolved := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		absolute, absErr := filepath.Abs(pattern)
+		if absErr != nil {
+			resolved = append(resolved, filepath.ToSlash(pattern))
+			continue
+		}
+		resolved = append(resolved, filepath.ToSlash(absolute))
+	}
+	return strings.Join(resolved, "\n")
 }
 
 func buildCgoCacheManifest(config cacheManifestConfig, cgoPaths string) (string, error) {

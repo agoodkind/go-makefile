@@ -176,20 +176,16 @@ func TestCacheManifestLintCachePathMatchesLintEnv(t *testing.T) {
 	if reported == "" {
 		t.Fatal("lint_cache_paths is empty")
 	}
-	matches, globErr := filepath.Glob(reported)
-	if globErr != nil {
-		t.Fatalf("glob %q: %v", reported, globErr)
-	}
-	for _, match := range matches {
-		absolute, absErr := filepath.Abs(match)
-		if absErr != nil {
-			t.Fatalf("resolve %q: %v", match, absErr)
-		}
-		if absolute == lintCacheDir {
-			return
+	// The value must be usable by a reader that is not standing in the working
+	// directory the manifest ran from, so it is absolute.
+	for _, pattern := range strings.Split(reported, "\n") {
+		if !filepath.IsAbs(pattern) {
+			t.Fatalf("lint_cache_paths carries %q, want every pattern absolute", pattern)
 		}
 	}
-	t.Fatalf("lint_cache_paths %q matched %v, none of which is the lint cache %q", reported, matches, lintCacheDir)
+	if !lintCachePatternMatches(t, reported, lintCacheDir) {
+		t.Fatalf("lint_cache_paths %q does not reach the lint cache %q", reported, lintCacheDir)
+	}
 }
 
 // TestCacheManifestLintCachePathCoversPlatformMatrix proves the reported pattern
@@ -200,21 +196,20 @@ func TestCacheManifestLintCachePathCoversPlatformMatrix(t *testing.T) {
 	t.Chdir(repoDir)
 	t.Setenv("GOLANGCI_LINT_CACHE", "")
 
-	targetCacheDir := filepath.Join(makeDir, golangciCacheDirName+"-linux-amd64")
-	mustMkdirAll(t, filepath.Join(repoDir, targetCacheDir))
+	targetCacheDir := filepath.Join(repoDir, makeDir, golangciCacheDirName+"-linux-amd64")
+	mustMkdirAll(t, targetCacheDir)
+	// A target that lints a nested module writes the cache under that module's
+	// own directory, which the reported pattern must reach as well.
+	nestedCacheDir := filepath.Join(repoDir, "tools", makeDir, golangciCacheDirName)
+	mustMkdirAll(t, nestedCacheDir)
 
 	result := runCacheManifestForTest(t, map[string]string{})
 
-	matches, globErr := filepath.Glob(result.outputs["lint_cache_paths"])
-	if globErr != nil {
-		t.Fatalf("glob %q: %v", result.outputs["lint_cache_paths"], globErr)
-	}
-	for _, match := range matches {
-		if filepath.Clean(match) == filepath.Clean(targetCacheDir) {
-			return
+	for _, want := range []string{targetCacheDir, nestedCacheDir} {
+		if !lintCachePatternMatches(t, result.outputs["lint_cache_paths"], want) {
+			t.Errorf("lint_cache_paths %q does not reach %q", result.outputs["lint_cache_paths"], want)
 		}
 	}
-	t.Fatalf("lint_cache_paths %q matched %v, missing the per-target cache %q", result.outputs["lint_cache_paths"], matches, targetCacheDir)
 }
 
 // TestCacheManifestLintCachePathHonorsPinnedCache proves a caller that pins
@@ -228,9 +223,55 @@ func TestCacheManifestLintCachePathHonorsPinnedCache(t *testing.T) {
 		"GOLANGCI_LINT_CACHE": "/custom/golangci-cache",
 	})
 
+	// A pinned path is reported unchanged. Rewriting it, for example by joining
+	// it onto a working directory, would send the cache reader somewhere
+	// golangci-lint never writes.
 	if got := result.outputs["lint_cache_paths"]; got != "/custom/golangci-cache" {
 		t.Fatalf("lint_cache_paths = %q, want %q", got, "/custom/golangci-cache")
 	}
+}
+
+
+// lintCachePatternMatches reports whether the reported cache pattern expands to
+// the given directory, resolving both sides so a relative match and an absolute
+// target still compare equal.
+func lintCachePatternMatches(t *testing.T, reported string, want string) bool {
+	t.Helper()
+	wantAbsolute, absErr := filepath.Abs(want)
+	if absErr != nil {
+		t.Fatalf("resolve %q: %v", want, absErr)
+	}
+	for _, pattern := range strings.Split(reported, "\n") {
+		if pattern == "" {
+			continue
+		}
+		// filepath.Glob treats ** as a single segment, while the cache action's
+		// matcher lets it span zero or more, so expand the recursive pattern into
+		// the depths this test actually creates and try each.
+		candidates := []string{pattern}
+		if strings.Contains(pattern, "**") {
+			candidates = []string{
+				strings.ReplaceAll(pattern, "**"+string(filepath.Separator), ""),
+				strings.ReplaceAll(pattern, "**", "*"),
+			}
+		}
+		for _, candidate := range candidates {
+			matches, globErr := filepath.Glob(candidate)
+			if globErr != nil {
+				t.Fatalf("glob %q: %v", candidate, globErr)
+			}
+			for _, match := range matches {
+				matchAbsolute, matchErr := filepath.Abs(match)
+				if matchErr != nil {
+					t.Fatalf("resolve %q: %v", match, matchErr)
+				}
+				if matchAbsolute == wantAbsolute {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func TestCacheManifestCgoKeyStableAndChangesWithInputFile(t *testing.T) {
