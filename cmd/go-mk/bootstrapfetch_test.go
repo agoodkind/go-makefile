@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bufio"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // helperFiles is the engine tree the test server serves. It carries every asset
@@ -285,4 +289,121 @@ func repoRootForTest(t *testing.T) string {
 		t.Fatalf("resolve repo root: %v", err)
 	}
 	return strings.TrimSpace(string(output))
+}
+
+func TestHelperColdProvisionRecordsState(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	dir := t.TempDir()
+
+	_, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+	})
+	if code != 0 {
+		t.Fatalf("helper exit = %d, want 0: %s", code, stderr)
+	}
+
+	state := readState(t, dir)
+	if state["ref"] != "main" {
+		t.Fatalf("state ref = %q, want main", state["ref"])
+	}
+	if state["etag"] == "" {
+		t.Fatal("state carried no etag after a cold provision")
+	}
+	stamp, err := strconv.ParseInt(state["timestamp"], 10, 64)
+	if err != nil {
+		t.Fatalf("state timestamp %q is not an integer: %v", state["timestamp"], err)
+	}
+	if time.Since(time.Unix(stamp, 0)) > time.Minute {
+		t.Fatalf("state timestamp %d is not recent", stamp)
+	}
+}
+
+func TestHelperServesDiskWhenUpstreamReturnsNotModified(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	dir := t.TempDir()
+
+	// Cold run populates .make and records the ETag.
+	_, _, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	if code != 0 {
+		t.Fatalf("cold run exit = %d, want 0", code)
+	}
+	// Mark the on-disk copy so a re-extract would be visible.
+	writeAsset(t, dir, "go.mk", "# locally marked\n")
+
+	_, stderr, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	if code != 0 {
+		t.Fatalf("warm run exit = %d, want 0: %s", code, stderr)
+	}
+
+	if got := readAsset(t, dir, "go.mk"); got != "# locally marked\n" {
+		t.Fatalf("go.mk = %q, want the marked body untouched after a 304", got)
+	}
+	requests := server.Requests()
+	if len(requests) != 2 {
+		t.Fatalf("server saw %d requests, want 2", len(requests))
+	}
+	if requests[1].Status != 304 {
+		t.Fatalf("second request status = %d, want 304", requests[1].Status)
+	}
+	if requests[1].Bytes != 0 {
+		t.Fatalf("second request transferred %d bytes, want 0", requests[1].Bytes)
+	}
+}
+
+func TestHelperReprovisionsWhenUpstreamMoved(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	dir := t.TempDir()
+
+	_, _, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	if code != 0 {
+		t.Fatalf("cold run exit = %d, want 0", code)
+	}
+	firstState := readState(t, dir)
+
+	moved := helperFiles()
+	moved["go.mk"] = "# go.mk v2\n"
+	server.SetFiles(moved)
+
+	_, stderr, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	if code != 0 {
+		t.Fatalf("moved run exit = %d, want 0: %s", code, stderr)
+	}
+
+	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v2\n" {
+		t.Fatalf("go.mk = %q, want the advanced body", got)
+	}
+	secondState := readState(t, dir)
+	if secondState["etag"] == firstState["etag"] {
+		t.Fatal("state etag did not change after upstream moved")
+	}
+}
+
+func readState(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	file, err := os.Open(filepath.Join(dir, ".make", ".go-mk-fetch-state"))
+	if err != nil {
+		t.Fatalf("open fetch state: %v", err)
+	}
+	defer func() { _ = file.Close() }()
+	state := map[string]string{}
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		key, value, found := strings.Cut(scanner.Text(), "=")
+		if found {
+			state[key] = value
+		}
+	}
+	return state
+}
+
+func writeState(t *testing.T, dir string, ref string, etag string, timestamp int64) {
+	t.Helper()
+	body := fmt.Sprintf("ref=%s\netag=%s\ntimestamp=%d\n", ref, etag, timestamp)
+	path := filepath.Join(dir, ".make", ".go-mk-fetch-state")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir for state: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
 }

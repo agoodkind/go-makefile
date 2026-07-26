@@ -22,6 +22,9 @@ GO_MK_MODULES="${GO_MK_MODULES:-}"
 
 MAKE_DIR=".make"
 FETCH_MAX_TIME=30
+STATE_PATH="${MAKE_DIR}/.go-mk-fetch-state"
+VALIDATION_CONNECT_TIMEOUT=2
+VALIDATION_MAX_TIME=3
 
 required_assets() {
     printf '%s\n' "go.mk"
@@ -119,6 +122,83 @@ install_from_dev_dir() {
     return 0
 }
 
+current_epoch_seconds() {
+    # EPOCHSECONDS is a bash 5 builtin, so the common path spawns no process.
+    if [[ -n "${EPOCHSECONDS:-}" ]]; then
+        printf '%s' "${EPOCHSECONDS}"
+        return 0
+    fi
+    date +%s
+}
+
+# read_state_field looks up a single key from STATE_PATH. It returns 1 (with
+# no output) when the state file is absent, empty, or does not carry the
+# requested key, so a caller can tell "no prior state" apart from "state
+# carried an empty value" without parsing errors of its own.
+read_state_field() {
+    local field_name="$1"
+    local line
+    if [[ ! -s "${STATE_PATH}" ]]; then
+        return 1
+    fi
+    while IFS= read -r line; do
+        if [[ "${line}" == "${field_name}="* ]]; then
+            printf '%s' "${line#"${field_name}="}"
+            return 0
+        fi
+    done < "${STATE_PATH}"
+    return 1
+}
+
+# write_state records the ref, ETag, and current time after a completed
+# download. It is only ever called from a successful provision, never from a
+# 304 validation, so the reuse window a later task builds on this state runs
+# from the last real transfer rather than sliding forward on every check.
+write_state() {
+    local etag_value="$1"
+    {
+        printf 'ref=%s\n' "${GO_MK_API_REF}"
+        printf 'etag=%s\n' "${etag_value}"
+        printf 'timestamp=%s\n' "$(current_epoch_seconds)"
+    } > "${STATE_PATH}"
+}
+
+# validate_upstream sends one conditional request bounded by
+# VALIDATION_CONNECT_TIMEOUT/VALIDATION_MAX_TIME rather than FETCH_MAX_TIME's
+# full download budget, since this call only needs to learn whether anything
+# changed. It prints the HTTP status code on stdout and returns 1 only when
+# the request never completed (curl itself failed), so an unreachable
+# upstream stays distinguishable from a served 304 or 200. A curl failure
+# here is not treated as fatal on its own: the caller falls back to a full
+# provision(), which captures and reports its own curl error if that also
+# fails, so the reason is never silently lost.
+validate_upstream() {
+    local destination_path="$1"
+    local known_etag="$2"
+    local status_code
+    local curl_exit
+    local -a header_args=()
+
+    if [[ -n "${known_etag}" ]]; then
+        header_args=(-H "If-None-Match: ${known_etag}")
+    fi
+
+    status_code=$(curl -sS \
+        --connect-timeout "${VALIDATION_CONNECT_TIMEOUT}" \
+        --max-time "${VALIDATION_MAX_TIME}" \
+        "${header_args[@]}" \
+        -o "${destination_path}" -w '%{http_code}' \
+        "${GO_MK_CODELOAD_BASE}/${GO_MK_API_REPO}/tar.gz/${GO_MK_API_REF}" \
+        2>"${destination_path}.stderr")
+    curl_exit=$?
+    if [[ "${curl_exit}" -ne 0 ]]; then
+        printf 'validate_upstream: curl exited %s, falling back to a full fetch: %s\n' \
+            "${curl_exit}" "$(cat "${destination_path}.stderr")" >&2
+        return 1
+    fi
+    printf '%s' "${status_code}"
+}
+
 # provision downloads, extracts into a stage, verifies, then installs.
 #
 # The staging work runs in a subshell rather than the function body itself. A
@@ -134,6 +214,7 @@ provision() {
     local curl_exit
     local tar_exit
     local subshell_status
+    local etag_value
 
     stage_root=$(mktemp -d "${TMPDIR:-/tmp}/go-mk-stage.XXXXXXXX") || return 1
 
@@ -143,9 +224,12 @@ provision() {
         # Each probe's own stderr and exit code are captured and surfaced
         # rather than discarded, so a corrupt tarball, an HTTP error, and an
         # unreachable host are distinguishable instead of collapsing into one
-        # generic message.
+        # generic message. Headers land in their own file (-D) so the ETag
+        # comes from the same response that carried the body, rather than a
+        # second request that could race a moving upstream.
         curl -sS --connect-timeout 5 --max-time "${FETCH_MAX_TIME}" \
             --retry 3 --retry-delay 2 \
+            -D "${stage_root}/headers" \
             -o "${stage_root}/snapshot.tar.gz" -w '%{http_code}' \
             "${GO_MK_CODELOAD_BASE}/${GO_MK_API_REPO}/tar.gz/${GO_MK_API_REF}" \
             >"${stage_root}/status_code" 2>"${stage_root}/curl.stderr"
@@ -186,12 +270,19 @@ provision() {
             printf 'error: .make is incomplete after install\n' >&2
             exit 1
         fi
+
+        etag_value=$(awk 'tolower($1) == "etag:" { print $2 }' "${stage_root}/headers" | tr -d '\r' | tail -n 1)
+        write_state "${etag_value}"
     )
     subshell_status=$?
     return "${subshell_status}"
 }
 
 main() {
+    local known_etag=""
+    local status_code=""
+    local probe_root
+
     mkdir -p "${MAKE_DIR}"
 
     if [[ -n "${GO_MK_DEV_DIR}" ]]; then
@@ -212,6 +303,23 @@ main() {
         fi
         printf '%s\n' "error: GO_MK_SKIP_FETCH=1 but .make is missing a required asset" >&2
         return 1
+    fi
+
+    if assets_complete "${MAKE_DIR}"; then
+        known_etag=$(read_state_field "etag" || printf '')
+    fi
+
+    if [[ -n "${known_etag}" ]]; then
+        probe_root=$(mktemp -d "${TMPDIR:-/tmp}/go-mk-probe.XXXXXXXX") || return 1
+        status_code=$(validate_upstream "${probe_root}/snapshot.tar.gz" "${known_etag}" || printf '')
+        rm -rf "${probe_root}"
+        if [[ "${status_code}" == "304" ]]; then
+            # Deliberately no state write. The reuse window a later task adds
+            # runs from the last completed download, not from the last
+            # successful check, so a 304 here leaves both the assets and the
+            # recorded state exactly as they were.
+            return 0
+        fi
     fi
 
     if provision; then
