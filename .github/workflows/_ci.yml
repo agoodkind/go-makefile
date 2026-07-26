@@ -434,9 +434,15 @@ jobs:
           - name: Golangci Lint
             command: make lint-golangci
             install_golangci_lint: true
+            # Each gate that runs golangci-lint keeps its own results cache, so
+            # the two legs never race to write one cache entry. The slug names
+            # that entry and must stay stable, because renaming it discards the
+            # stored analysis and the next run reanalyzes every package.
+            lint_cache_slug: golangci
           - name: Format
             command: make lint-format
             install_golangci_lint: true
+            lint_cache_slug: format
           - name: Gocyclo
             command: make lint-gocyclo
             install_golangci_lint: false
@@ -539,9 +545,50 @@ jobs:
         with:
           version: ${{ inputs.golangci_lint_version }}
           install-only: true
+      # go-mk points golangci-lint at its own results cache under .make so a
+      # sibling worktree cannot poison a run, which means the action's built-in
+      # caching never sees that directory and every run reanalyzes the whole
+      # module. Restore and save the directory go-mk reports instead. The key
+      # carries the commit so each run stores a refreshed cache, and the prefix
+      # restores the closest earlier one, which is what makes an unchanged
+      # package cheap.
+      - name: Restore golangci-lint cache
+        id: golangci-cache-restore
+        if: needs.prepare.outputs.run == 'true' && matrix.install_golangci_lint
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ format('{0}/{1}', inputs.working_directory, steps.go-mk-cache-prep.outputs.lint_cache_paths) }}
+          key: go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-${{ github.sha }}
+          restore-keys: |
+            go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-
       - if: needs.prepare.outputs.run == 'true'
         run: ${{ matrix.command }}
         working-directory: ${{ inputs.working_directory }}
+      # A gate that passed without leaving a cache directory means go-mk and this
+      # workflow disagree about where that directory lives, which would otherwise
+      # show up only as gates that stay slow forever. Fail loudly instead.
+      - name: Verify golangci-lint cache exists
+        if: needs.prepare.outputs.run == 'true' && matrix.install_golangci_lint
+        shell: bash
+        env:
+          LINT_CACHE_PATTERN: ${{ steps.go-mk-cache-prep.outputs.lint_cache_paths }}
+          LINT_GATE_COMMAND: ${{ matrix.command }}
+        run: |
+          shopt -s nullglob
+          matches=(${LINT_CACHE_PATTERN})
+          if [ ${#matches[@]} -eq 0 ]; then
+            echo "No golangci-lint cache directory matched ${LINT_CACHE_PATTERN} after ${LINT_GATE_COMMAND} succeeded." >&2
+            echo "go-mk and this workflow disagree about where that cache lives, so every run reanalyzes the whole module." >&2
+            exit 1
+          fi
+          printf 'golangci-lint cache: %s\n' "${matches[@]}"
+        working-directory: ${{ inputs.working_directory }}
+      - name: Save golangci-lint cache
+        if: needs.prepare.outputs.run == 'true' && matrix.install_golangci_lint && steps.golangci-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ format('{0}/{1}', inputs.working_directory, steps.go-mk-cache-prep.outputs.lint_cache_paths) }}
+          key: go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-${{ github.sha }}
       - name: Show ccache stats
         if: needs.prepare.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: ccache --show-stats || true

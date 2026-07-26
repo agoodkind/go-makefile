@@ -36,6 +36,7 @@ var cacheManifestOutputNames = []string{
 	"cgo_cache_enabled",
 	"cgo_cache_paths",
 	"cgo_cache_key",
+	"lint_cache_paths",
 }
 
 type cacheManifestConfig struct {
@@ -59,6 +60,7 @@ type cacheManifestResult struct {
 	cgoEnabled         string
 	cgoPaths           string
 	cgoKey             string
+	lintCachePaths     string
 }
 
 func runCacheManifest() int {
@@ -117,6 +119,7 @@ func runCacheManifestWith(config cacheManifestConfig) int {
 		cgoEnabled:         cgoEnabled,
 		cgoPaths:           cgoPaths,
 		cgoKey:             cgoKey,
+		lintCachePaths:     lintCacheManifestPaths(config),
 	}
 
 	if outputErr := writeCacheManifestGitHubOutputs(config.getenv("GITHUB_OUTPUT"), result); outputErr != nil {
@@ -253,6 +256,19 @@ func cgoCacheManifestPath(config cacheManifestConfig) string {
 		return ""
 	}
 	return filepath.ToSlash(filepath.Join(".make", "cgo", goos+"-"+goarch))
+}
+
+// lintCacheManifestPaths reports where golangci-lint keeps its results cache, so
+// continuous integration persists that directory between runs instead of
+// reanalyzing every package on every run. The value is the glob covering both the
+// plain cache directory and the per-target directories a platform-matrix pass
+// creates. A caller that pins GOLANGCI_LINT_CACHE gets that path back, because
+// lintEnv leaves such a value alone and the cache lives wherever it points.
+func lintCacheManifestPaths(config cacheManifestConfig) string {
+	if pinned := strings.TrimSpace(config.getenv("GOLANGCI_LINT_CACHE")); pinned != "" {
+		return filepath.ToSlash(pinned)
+	}
+	return filepath.ToSlash(golangciCachePattern())
 }
 
 func buildCgoCacheManifest(config cacheManifestConfig, cgoPaths string) (string, error) {
@@ -636,6 +652,7 @@ func writeCacheManifestGitHubOutputs(path string, result cacheManifestResult) er
 		"cgo_cache_enabled":                   result.cgoEnabled,
 		"cgo_cache_paths":                     result.cgoPaths,
 		"cgo_cache_key":                       result.cgoKey,
+		"lint_cache_paths":                    result.lintCachePaths,
 	}
 	delimiter, delimiterErr := cacheManifestOutputDelimiterFor(values)
 	if delimiterErr != nil {

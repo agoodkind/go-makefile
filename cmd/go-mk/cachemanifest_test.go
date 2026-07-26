@@ -132,6 +132,7 @@ func TestCacheManifestWritesGitHubOutputHeredocs(t *testing.T) {
 		"cgo_cache_enabled",
 		"cgo_cache_paths",
 		"cgo_cache_key",
+		"lint_cache_paths",
 	}
 	actualNames := githubOutputNames(t, result.githubOutput)
 	if strings.Join(actualNames, ",") != strings.Join(expectedNames, ",") {
@@ -149,6 +150,86 @@ func TestCacheManifestWritesGitHubOutputHeredocs(t *testing.T) {
 		"cache/out\n"
 	if result.stdout != expectedStdout {
 		t.Fatalf("stdout mismatch\nwant:\n%s\ngot:\n%s", expectedStdout, result.stdout)
+	}
+}
+
+// TestCacheManifestLintCachePathMatchesLintEnv proves the manifest reports the
+// directory golangci-lint actually writes to. Continuous integration caches the
+// reported path, so if the two ever disagree the cache silently stores nothing
+// and every run reanalyzes the whole module.
+func TestCacheManifestLintCachePathMatchesLintEnv(t *testing.T) {
+	repoDir := cacheManifestTestRepo(t)
+	t.Chdir(repoDir)
+	t.Setenv("GOLANGCI_LINT_CACHE", "")
+
+	lintCacheDir, ok := envValue(lintEnv(), "GOLANGCI_LINT_CACHE")
+	if !ok {
+		t.Fatal("lintEnv did not set GOLANGCI_LINT_CACHE")
+	}
+	// Only an existing directory can match a glob, and a real lint run creates
+	// this one before golangci-lint writes its first result.
+	mustMkdirAll(t, lintCacheDir)
+
+	result := runCacheManifestForTest(t, map[string]string{})
+
+	reported := result.outputs["lint_cache_paths"]
+	if reported == "" {
+		t.Fatal("lint_cache_paths is empty")
+	}
+	matches, globErr := filepath.Glob(reported)
+	if globErr != nil {
+		t.Fatalf("glob %q: %v", reported, globErr)
+	}
+	for _, match := range matches {
+		absolute, absErr := filepath.Abs(match)
+		if absErr != nil {
+			t.Fatalf("resolve %q: %v", match, absErr)
+		}
+		if absolute == lintCacheDir {
+			return
+		}
+	}
+	t.Fatalf("lint_cache_paths %q matched %v, none of which is the lint cache %q", reported, matches, lintCacheDir)
+}
+
+// TestCacheManifestLintCachePathCoversPlatformMatrix proves the reported pattern
+// also matches the per-target cache directories a platform-matrix pass creates,
+// so a matrix run caches every target's analysis rather than none of it.
+func TestCacheManifestLintCachePathCoversPlatformMatrix(t *testing.T) {
+	repoDir := cacheManifestTestRepo(t)
+	t.Chdir(repoDir)
+	t.Setenv("GOLANGCI_LINT_CACHE", "")
+
+	targetCacheDir := filepath.Join(makeDir, golangciCacheDirName+"-linux-amd64")
+	mustMkdirAll(t, filepath.Join(repoDir, targetCacheDir))
+
+	result := runCacheManifestForTest(t, map[string]string{})
+
+	matches, globErr := filepath.Glob(result.outputs["lint_cache_paths"])
+	if globErr != nil {
+		t.Fatalf("glob %q: %v", result.outputs["lint_cache_paths"], globErr)
+	}
+	for _, match := range matches {
+		if filepath.Clean(match) == filepath.Clean(targetCacheDir) {
+			return
+		}
+	}
+	t.Fatalf("lint_cache_paths %q matched %v, missing the per-target cache %q", result.outputs["lint_cache_paths"], matches, targetCacheDir)
+}
+
+// TestCacheManifestLintCachePathHonorsPinnedCache proves a caller that pins
+// GOLANGCI_LINT_CACHE gets that path reported, because lintEnv leaves such a
+// value alone and the cache then lives wherever the caller pointed it.
+func TestCacheManifestLintCachePathHonorsPinnedCache(t *testing.T) {
+	repoDir := cacheManifestTestRepo(t)
+	t.Chdir(repoDir)
+
+	result := runCacheManifestForTest(t, map[string]string{
+		"GOLANGCI_LINT_CACHE": "/custom/golangci-cache",
+	})
+
+	if got := result.outputs["lint_cache_paths"]; got != "/custom/golangci-cache" {
+		t.Fatalf("lint_cache_paths = %q, want %q", got, "/custom/golangci-cache")
 	}
 }
 

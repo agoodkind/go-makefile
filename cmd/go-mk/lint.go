@@ -51,6 +51,11 @@ func lintEnvDefault(name, fallback string) string {
 // hardcoded ".make" the shell uses relative to the working directory.
 const makeDir = ".make"
 
+// golangciCacheDirName is the base name of golangci-lint's results cache under
+// .make. A platform-matrix pass appends its target to it, so every cache
+// directory a run can produce starts with this name.
+const golangciCacheDirName = "golangci-cache"
+
 // ensureMakeDir creates the .make directory, mirroring the shell's mkdir -p
 // .make before each gate. It emits a boundary log because it mutates the
 // filesystem.
@@ -208,11 +213,9 @@ func lintEnv() []string {
 	// what makes the matrix non-bypassable: an empty or darwin host GOOS is
 	// replaced for each declared platform, so a single gate or an unset GOOS
 	// still runs the full set.
-	cacheName := "golangci-cache"
 	if activePlatform.goos != "" {
 		env = setEnvVar(env, "GOOS", activePlatform.goos)
 		env = setEnvVar(env, "GOARCH", activePlatform.goarch)
-		cacheName = "golangci-cache-" + activePlatform.goos + "-" + activePlatform.goarch
 	}
 	// Isolate golangci-lint's content-addressed results cache per worktree, and
 	// per platform during a matrix run, so a sibling worktree or a different
@@ -222,11 +225,32 @@ func lintEnv() []string {
 	// it against the working directory; if that resolution fails, leave the
 	// variable unset and let golangci-lint fall back to its default cache.
 	if os.Getenv("GOLANGCI_LINT_CACHE") == "" {
-		if cacheDir, absErr := filepath.Abs(filepath.Join(makeDir, cacheName)); absErr == nil {
+		if cacheDir, absErr := filepath.Abs(golangciCacheDir()); absErr == nil {
 			env = setEnvVar(env, "GOLANGCI_LINT_CACHE", cacheDir)
 		}
 	}
 	return env
+}
+
+// golangciCacheDir returns the working-directory-relative directory golangci-lint
+// writes its content-addressed results cache to. A platform-matrix pass gets its
+// own directory per target so one target's stored absolute paths cannot poison
+// another's. The cache manifest reports this path so continuous integration can
+// persist the same directory between runs rather than reanalyzing every package
+// on every run.
+func golangciCacheDir() string {
+	if activePlatform.goos != "" {
+		return filepath.Join(makeDir, golangciCacheDirName+"-"+activePlatform.goos+"-"+activePlatform.goarch)
+	}
+	return filepath.Join(makeDir, golangciCacheDirName)
+}
+
+// golangciCachePattern returns the glob that matches every golangci-lint cache
+// directory a run can produce, covering both the plain directory and the
+// per-target directories a platform-matrix pass creates. Continuous integration
+// caches this pattern, so it must match whatever golangciCacheDir chooses.
+func golangciCachePattern() string {
+	return filepath.Join(makeDir, golangciCacheDirName+"*")
 }
 
 // setEnvVar replaces or appends a KEY=VALUE entry in an environment slice,
