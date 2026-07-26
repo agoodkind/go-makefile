@@ -162,13 +162,27 @@ jobs:
             go.sum
             go.work
             go.work.sum
+      # A compiler cache must be replaced whenever the sources it holds objects
+      # for change. Go module files miss one such source: a submodule carrying C
+      # or C++ code is pinned by a commit recorded in the index, so bumping that
+      # pin changes what gets compiled while leaving every tracked file the same.
+      # Fold the pins into the cache key so that bump replaces the cache instead
+      # of leaving a stale one in place. A repository without submodules produces
+      # a constant digest, so its key is unaffected.
+      - name: Fingerprint submodule pins
+        id: submodule-pins
+        if: inputs.cgo
+        shell: bash
+        run: |
+          pins="$(git submodule status --recursive | awk '{ print $1, $2 }' | sort)"
+          printf 'digest=%s\n' "$(printf '%s' "${pins}" | sha256sum | cut -d' ' -f1)" >> "${GITHUB_OUTPUT}"
       - name: Restore ccache
         id: ccache-restore
         if: matrix.goos == 'linux' && inputs.cgo
         uses: actions/cache/restore@v6
         with:
           path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-${{ steps.submodule-pins.outputs.digest }}
           restore-keys: |
             ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-
       - name: Restore darwin ccache
@@ -178,9 +192,17 @@ jobs:
         with:
           path: ~/.ccache
           # Keep this tag segment aligned if the goreleaser-cross image becomes parameterized.
-          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          #
+          # The key ends at the dependency digest, matching the linux ccache
+          # above, so a run whose dependencies are unchanged hits it exactly and
+          # the save below is skipped. A run-scoped suffix here could never hit,
+          # so the save always fired and every run left a permanent entry no
+          # later run could match. A repository shares one ten gigabyte cache
+          # budget, and eviction reclaims whatever was touched least recently
+          # rather than whatever is useless, so entries written once and never
+          # read push out the caches that other jobs do read.
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-${{ steps.submodule-pins.outputs.digest }}
           restore-keys: |
-            ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-
             ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-
       - name: Configure ccache
         if: matrix.goos == 'linux' && inputs.cgo
@@ -293,13 +315,13 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-${{ steps.submodule-pins.outputs.digest }}
       - name: Save darwin ccache
         if: matrix.cc != '' && inputs.cgo && steps.darwin-ccache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-${{ steps.submodule-pins.outputs.digest }}
       # Upload this platform's raw compiled binaries under dist/<name>_<os>_<arch>/.
       # The package job downloads them back into dist to sign and archive without
       # recompiling.
