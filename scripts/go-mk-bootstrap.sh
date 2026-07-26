@@ -163,39 +163,54 @@ write_state() {
     } > "${STATE_PATH}"
 }
 
-# validate_upstream sends one conditional request bounded by
+# validate_upstream sends one conditional HEAD request bounded by
 # VALIDATION_CONNECT_TIMEOUT/VALIDATION_MAX_TIME rather than FETCH_MAX_TIME's
-# full download budget, since this call only needs to learn whether anything
-# changed. It prints the HTTP status code on stdout and returns 1 only when
-# the request never completed (curl itself failed), so an unreachable
-# upstream stays distinguishable from a served 304 or 200. A curl failure
-# here is not treated as fatal on its own: the caller falls back to a full
-# provision(), which captures and reports its own curl error if that also
-# fails, so the reason is never silently lost.
+# full download budget. HEAD carries no body, so this budget is honest
+# regardless of tarball size: a GET probe would otherwise download and
+# discard the full tarball just to learn its status, doubling the transfer
+# on every run whose upstream moved and risking a timeout on a slow link
+# that a body-less HEAD would not hit. provision()'s own GET remains the
+# only request that actually downloads. This prints the HTTP status code on
+# stdout and returns 1 only when the request never completed (curl itself
+# failed), so an unreachable upstream stays distinguishable from a served
+# 304 or 200. A curl failure here is not treated as fatal on its own: the
+# caller falls back to a full provision(), which captures and reports its
+# own curl error if that also fails, so the reason is never silently lost.
+#
+# header_args is expanded as ${header_args[@]+"${header_args[@]}"} rather
+# than plain "${header_args[@]}" because bash 3.2 (still /bin/bash on stock
+# macOS) raises "unbound variable" under set -u when a declared-but-empty
+# array is expanded that way; the "+" alternate-value form only expands the
+# array when it is set, which is empty-array-safe on every bash this script
+# might run under.
 validate_upstream() {
-    local destination_path="$1"
-    local known_etag="$2"
+    local known_etag="$1"
     local status_code
     local curl_exit
+    local stderr_path
     local -a header_args=()
 
     if [[ -n "${known_etag}" ]]; then
         header_args=(-H "If-None-Match: ${known_etag}")
     fi
 
-    status_code=$(curl -sS \
+    stderr_path=$(mktemp "${TMPDIR:-/tmp}/go-mk-validate.XXXXXXXX") || return 1
+
+    status_code=$(curl -sS --head \
         --connect-timeout "${VALIDATION_CONNECT_TIMEOUT}" \
         --max-time "${VALIDATION_MAX_TIME}" \
-        "${header_args[@]}" \
-        -o "${destination_path}" -w '%{http_code}' \
+        ${header_args[@]+"${header_args[@]}"} \
+        -o /dev/null -w '%{http_code}' \
         "${GO_MK_CODELOAD_BASE}/${GO_MK_API_REPO}/tar.gz/${GO_MK_API_REF}" \
-        2>"${destination_path}.stderr")
+        2>"${stderr_path}")
     curl_exit=$?
     if [[ "${curl_exit}" -ne 0 ]]; then
         printf 'validate_upstream: curl exited %s, falling back to a full fetch: %s\n' \
-            "${curl_exit}" "$(cat "${destination_path}.stderr")" >&2
+            "${curl_exit}" "$(cat "${stderr_path}")" >&2
+        rm -f "${stderr_path}"
         return 1
     fi
+    rm -f "${stderr_path}"
     printf '%s' "${status_code}"
 }
 
@@ -271,7 +286,19 @@ provision() {
             exit 1
         fi
 
+        # etag_value is the one step here with no explicit failure check
+        # otherwise: a missing headers file or a 200 response that carries no
+        # ETag at all would leave it empty, and write_state "" would succeed
+        # silently. Every later run would then read an empty stored etag,
+        # skip validation, and full-download forever with nothing on stderr
+        # to explain why. Treating an empty etag as a provisioning failure
+        # keeps that outcome loud instead of a silent permanent regression to
+        # full downloads.
         etag_value=$(awk 'tolower($1) == "etag:" { print $2 }' "${stage_root}/headers" | tr -d '\r' | tail -n 1)
+        if [[ -z "${etag_value}" ]]; then
+            printf 'error: upstream response carried no ETag header\n' >&2
+            exit 1
+        fi
         write_state "${etag_value}"
     )
     subshell_status=$?
@@ -280,8 +307,8 @@ provision() {
 
 main() {
     local known_etag=""
+    local known_ref=""
     local status_code=""
-    local probe_root
 
     mkdir -p "${MAKE_DIR}"
 
@@ -307,12 +334,18 @@ main() {
 
     if assets_complete "${MAKE_DIR}"; then
         known_etag=$(read_state_field "etag" || printf '')
+        known_ref=$(read_state_field "ref" || printf '')
+        # A stored etag only means "nothing changed" for the ref it was
+        # recorded against. A consumer that switches GO_MK_API_REF must not
+        # reuse the previous ref's etag: a matching etag there would report
+        # 304 without ever having fetched the new ref's content.
+        if [[ "${known_ref}" != "${GO_MK_API_REF}" ]]; then
+            known_etag=""
+        fi
     fi
 
     if [[ -n "${known_etag}" ]]; then
-        probe_root=$(mktemp -d "${TMPDIR:-/tmp}/go-mk-probe.XXXXXXXX") || return 1
-        status_code=$(validate_upstream "${probe_root}/snapshot.tar.gz" "${known_etag}" || printf '')
-        rm -rf "${probe_root}"
+        status_code=$(validate_upstream "${known_etag}" || printf '')
         if [[ "${status_code}" == "304" ]]; then
             # Deliberately no state write. The reuse window a later task adds
             # runs from the last completed download, not from the last

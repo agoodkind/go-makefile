@@ -137,8 +137,10 @@ func TestFetchServerTarballExtractsWithSystemTar(t *testing.T) {
 }
 
 // fetchRequest records one served request so a test can assert how many times
-// the helper hit the network and what each call returned.
+// the helper hit the network, which HTTP method it used, and what each call
+// returned.
 type fetchRequest struct {
+	Method      string
 	IfNoneMatch string
 	Status      int
 	Bytes       int
@@ -152,12 +154,13 @@ type fetchRequest struct {
 type fetchServer struct {
 	URL string
 
-	mutex    sync.Mutex
-	tarball  []byte
-	etag     string
-	stall    time.Duration
-	requests []fetchRequest
-	server   *httptest.Server
+	mutex        sync.Mutex
+	tarball      []byte
+	etag         string
+	etagDisabled bool
+	stall        time.Duration
+	requests     []fetchRequest
+	server       *httptest.Server
 }
 
 func newFetchServer(t *testing.T, files map[string]string) *fetchServer {
@@ -191,6 +194,15 @@ func (s *fetchServer) Stall(d time.Duration) {
 	s.stall = d
 }
 
+// SetETagEnabled controls whether handle sets the ETag response header and
+// ever answers 304, so a test can simulate an upstream 200 response that
+// carries no ETag at all.
+func (s *fetchServer) SetETagEnabled(enabled bool) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.etagDisabled = !enabled
+}
+
 func (s *fetchServer) Requests() []fetchRequest {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -201,6 +213,7 @@ func (s *fetchServer) handle(writer http.ResponseWriter, request *http.Request) 
 	s.mutex.Lock()
 	tarball := s.tarball
 	etag := s.etag
+	etagDisabled := s.etagDisabled
 	stall := s.stall
 	s.mutex.Unlock()
 
@@ -208,9 +221,11 @@ func (s *fetchServer) handle(writer http.ResponseWriter, request *http.Request) 
 		time.Sleep(stall)
 	}
 
-	record := fetchRequest{IfNoneMatch: request.Header.Get("If-None-Match")}
-	writer.Header().Set("ETag", etag)
-	if record.IfNoneMatch == etag {
+	record := fetchRequest{Method: request.Method, IfNoneMatch: request.Header.Get("If-None-Match")}
+	if !etagDisabled {
+		writer.Header().Set("ETag", etag)
+	}
+	if !etagDisabled && record.IfNoneMatch == etag {
 		record.Status = http.StatusNotModified
 		writer.WriteHeader(http.StatusNotModified)
 	} else {

@@ -329,6 +329,8 @@ func TestHelperServesDiskWhenUpstreamReturnsNotModified(t *testing.T) {
 	}
 	// Mark the on-disk copy so a re-extract would be visible.
 	writeAsset(t, dir, "go.mk", "# locally marked\n")
+	stateBefore := readStateFile(t, dir)
+	modTimeBefore := statStateFile(t, dir).ModTime()
 
 	_, stderr, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
 	if code != 0 {
@@ -338,9 +340,29 @@ func TestHelperServesDiskWhenUpstreamReturnsNotModified(t *testing.T) {
 	if got := readAsset(t, dir, "go.mk"); got != "# locally marked\n" {
 		t.Fatalf("go.mk = %q, want the marked body untouched after a 304", got)
 	}
+	// A 304 must write nothing at all, including the timestamp: the repo
+	// owner ruled the reuse window a later task adds runs from the last
+	// completed download, not the last successful check, so this compares
+	// the whole file byte for byte rather than only the fields a looser
+	// check might happen to touch.
+	if stateAfter := readStateFile(t, dir); stateAfter != stateBefore {
+		t.Fatalf("state file changed across a 304 run:\nbefore: %q\nafter:  %q\nwant byte-identical, a 304 must not rewrite state (not even the timestamp)", stateBefore, stateAfter)
+	}
+	// The content comparison above would still pass if write_state ran again
+	// with the same etag and landed in the same wall-clock second as the
+	// cold run, since current_epoch_seconds has one-second resolution. The
+	// filesystem's own mtime does not have that blind spot: any write_state
+	// call truncates and rewrites the file, so comparing mtime catches a
+	// same-second rewrite that a content-only comparison could miss.
+	if modTimeAfter := statStateFile(t, dir).ModTime(); !modTimeAfter.Equal(modTimeBefore) {
+		t.Fatalf("state file mtime changed across a 304 run: before %v, after %v, want unchanged (a 304 must not touch the state file at all)", modTimeBefore, modTimeAfter)
+	}
 	requests := server.Requests()
 	if len(requests) != 2 {
 		t.Fatalf("server saw %d requests, want 2", len(requests))
+	}
+	if requests[1].Method != "HEAD" {
+		t.Fatalf("second request method = %q, want HEAD (the validation probe must not GET and discard the tarball body)", requests[1].Method)
 	}
 	if requests[1].Status != 304 {
 		t.Fatalf("second request status = %d, want 304", requests[1].Status)
@@ -348,6 +370,30 @@ func TestHelperServesDiskWhenUpstreamReturnsNotModified(t *testing.T) {
 	if requests[1].Bytes != 0 {
 		t.Fatalf("second request transferred %d bytes, want 0", requests[1].Bytes)
 	}
+}
+
+// readStateFile reads the raw fetch-state bytes so a test can assert the
+// file is byte-identical across a run, catching a state write that only
+// moves the timestamp while leaving every parsed field looking unchanged.
+func readStateFile(t *testing.T, dir string) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join(dir, ".make", ".go-mk-fetch-state"))
+	if err != nil {
+		t.Fatalf("read fetch state: %v", err)
+	}
+	return string(body)
+}
+
+// statStateFile stats the fetch-state file so a test can compare its mtime
+// across a run, catching a rewrite that a content comparison alone could
+// miss when it lands within the same wall-clock second as the prior write.
+func statStateFile(t *testing.T, dir string) os.FileInfo {
+	t.Helper()
+	info, err := os.Stat(filepath.Join(dir, ".make", ".go-mk-fetch-state"))
+	if err != nil {
+		t.Fatalf("stat fetch state: %v", err)
+	}
+	return info
 }
 
 func TestHelperReprovisionsWhenUpstreamMoved(t *testing.T) {
@@ -375,6 +421,75 @@ func TestHelperReprovisionsWhenUpstreamMoved(t *testing.T) {
 	secondState := readState(t, dir)
 	if secondState["etag"] == firstState["etag"] {
 		t.Fatal("state etag did not change after upstream moved")
+	}
+}
+
+// TestHelperFailsWhenUpstreamServesNoETag covers a 200 response that carries
+// no ETag header at all. Before this fix, provision() wrote an empty etag to
+// state and returned success; every later run would then read that empty
+// etag, skip validation, and full-download forever with nothing on stderr to
+// explain why. The fix must fail this run loudly instead, and must leave no
+// state file behind to be misread later.
+func TestHelperFailsWhenUpstreamServesNoETag(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	server.SetETagEnabled(false)
+	dir := t.TempDir()
+
+	_, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+	})
+	if code == 0 {
+		t.Fatalf("helper exit = 0, want non-zero when upstream serves a 200 with no ETag header")
+	}
+	if !strings.Contains(stderr, "ETag") {
+		t.Fatalf("stderr = %q, want it to mention the missing ETag", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".make", ".go-mk-fetch-state")); err == nil {
+		t.Fatal("state file exists after a provision that had no ETag to record")
+	}
+}
+
+// TestHelperDoesNotReuseETagAcrossRef covers a consumer that changes
+// GO_MK_API_REF between runs. Before this fix, the stored etag was reused
+// regardless of which ref it was recorded against, so a run against a new
+// ref could validate a 304 against content that was never actually fetched
+// for that ref. The fix must skip the stored etag whenever the stored ref
+// does not match the current ref, forcing a real fetch instead of a
+// conditional probe.
+func TestHelperDoesNotReuseETagAcrossRef(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	dir := t.TempDir()
+
+	_, _, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_API_REF":       "main",
+	})
+	if code != 0 {
+		t.Fatalf("cold run exit = %d, want 0", code)
+	}
+
+	_, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_API_REF":       "other-ref",
+	})
+	if code != 0 {
+		t.Fatalf("ref-changed run exit = %d, want 0: %s", code, stderr)
+	}
+
+	requests := server.Requests()
+	if len(requests) != 2 {
+		t.Fatalf("server saw %d requests, want 2 (a changed ref must skip the validation probe and fetch fresh)", len(requests))
+	}
+	if requests[1].Method != "GET" {
+		t.Fatalf("second request method = %q, want GET (a changed ref must go straight to provision, not a HEAD validation probe)", requests[1].Method)
+	}
+	if requests[1].IfNoneMatch != "" {
+		t.Fatalf("second request If-None-Match = %q, want empty (the stored etag belongs to a different ref and must not be reused)", requests[1].IfNoneMatch)
+	}
+
+	secondState := readState(t, dir)
+	if secondState["ref"] != "other-ref" {
+		t.Fatalf("state ref = %q, want other-ref", secondState["ref"])
 	}
 }
 
