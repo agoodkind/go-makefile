@@ -598,19 +598,29 @@ jobs:
           LINT_CACHE_PATTERN: ${{ steps.go-mk-cache-prep.outputs.lint_cache_paths }}
           LINT_GATE_COMMAND: ${{ matrix.command }}
         run: |
-          # compgen expands the pattern without word splitting, so a path holding
-          # a space stays one entry, and it lists nothing for a literal path that
-          # does not exist, which plain expansion would have passed through as a
-          # match. Each entry is then confirmed to be a directory.
+          # The manifest reports one pattern per line, so each line is expanded on
+          # its own; expanding the whole value at once would treat the newline as
+          # part of a single pattern and match nothing. compgen expands without
+          # word splitting, so a path holding a space stays one entry, and it
+          # lists nothing for a literal path that does not exist, which plain
+          # expansion would have passed through as a match. Each entry is then
+          # confirmed to be a directory. compgen takes the pattern without a --
+          # separator, which it would otherwise consume as the word to complete.
           directories=()
-          while IFS= read -r match; do
-            if [ -d "${match}" ]; then
-              directories+=("${match}")
+          while IFS= read -r pattern; do
+            if [ -z "${pattern}" ]; then
+              continue
             fi
-          done < <(compgen -G -- "${LINT_CACHE_PATTERN}" || true)
+            while IFS= read -r match; do
+              if [ -d "${match}" ]; then
+                directories+=("${match}")
+              fi
+            done < <(compgen -G "${pattern}" || true)
+          done <<< "${LINT_CACHE_PATTERN}"
           if [ ${#directories[@]} -eq 0 ]; then
-            echo "No golangci-lint cache directory matched ${LINT_CACHE_PATTERN} after ${LINT_GATE_COMMAND} succeeded." >&2
-            echo "go-mk and this workflow disagree about where that cache lives, so every run reanalyzes the whole module." >&2
+            echo "No golangci-lint cache directory matched any of:" >&2
+            echo "${LINT_CACHE_PATTERN}" >&2
+            echo "after ${LINT_GATE_COMMAND} succeeded. go-mk and this workflow disagree about where that cache lives, so every run reanalyzes the whole module." >&2
             exit 1
           fi
           printf 'golangci-lint cache: %s\n' "${directories[@]}"
