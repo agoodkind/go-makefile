@@ -557,24 +557,32 @@ func TestHelperServesDiskWhenUpstreamTimesOutAndStateIsRecent(t *testing.T) {
 }
 
 // unreachableCodeloadBase is a port nothing listens on, so every request
-// fails at connect rather than merely stalling. A stale or future-dated
-// state must fall through past the reuse branch into a real provision()
-// attempt, and provision()'s curl carries --retry 3 --retry-delay 2: curl
-// treats its own --max-time expiry as a retriable transient error, so a
-// stall long enough to actually exhaust FETCH_MAX_TIME (30s) would cost
-// roughly four times that once retries run. A connection refusal fails
-// every attempt immediately, exercising the same "probe cannot complete"
-// code path (validate_upstream and provision both see a non-zero curl exit)
-// without paying that retry cost.
+// fails at connect (curl exit 7) rather than merely stalling. This is the
+// easy shape of network failure: curl's default --retry policy does not
+// even retry a connection refusal (only a timeout or a 5xx/4xx response
+// counts as transient by default), so this fails on the first attempt.
 const unreachableCodeloadBase = "http://127.0.0.1:9"
 
+// TestHelperFailsWhenUpstreamTimesOutAndStateIsStale covers the harder,
+// more realistic shape of network failure: an upstream that accepts the
+// connection and then never responds, as a flaky network, a captive
+// portal, or a hung proxy actually produces. A stale state falls through
+// past the reuse branch into a real provision() attempt, whose curl call
+// carries --retry 3 --retry-delay 2 and --retry-max-time
+// (FETCH_RETRY_MAX_TIME, below FETCH_MAX_TIME): a stall this long used to
+// cost roughly 4x FETCH_MAX_TIME once retries ran unbounded (measured at
+// 134s before that fix), but is now bounded to one ~FETCH_MAX_TIME attempt.
 func TestHelperFailsWhenUpstreamTimesOutAndStateIsStale(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(-2*time.Hour).Unix())
+	// Longer than FETCH_MAX_TIME (30s) so provision's one permitted attempt
+	// genuinely exhausts its own timeout rather than completing early.
+	server.Stall(40 * time.Second)
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase,
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
 	})
 	if code == 0 {
 		t.Fatal("helper exit = 0, want non-zero when state is older than the reuse window")
@@ -588,6 +596,10 @@ func TestHelperFailsWhenUpstreamTimesOutAndStateIsStale(t *testing.T) {
 	}
 }
 
+// TestHelperTreatsFutureTimestampAsStale covers the connection-refused
+// shape (see unreachableCodeloadBase); TestHelperFailsWhenUpstreamTimesOutAndStateIsStale
+// covers the stall shape, so between the two the suite exercises both ways
+// a real network failure reaches this branch.
 func TestHelperTreatsFutureTimestampAsStale(t *testing.T) {
 	dir := t.TempDir()
 	warmMake(t, dir)
