@@ -548,17 +548,23 @@ jobs:
       # go-mk points golangci-lint at its own results cache under .make so a
       # sibling worktree cannot poison a run, which means the action's built-in
       # caching never sees that directory and every run reanalyzes the whole
-      # module. Restore and save the directory go-mk reports instead. The key
-      # carries the commit so each run stores a refreshed cache, and the prefix
-      # restores the closest earlier one, which is what makes an unchanged
-      # package cheap.
+      # module. Restore and save the directory go-mk reports instead.
+      #
+      # The key changes only when the dependency set or the linter version
+      # changes, and the save below runs only on a miss, so a gate holds one live
+      # entry rather than one per commit. A repository shares a ten gigabyte
+      # cache budget across every job, and exceeding it evicts the toolchain and
+      # compiler caches other gates depend on, so a per-commit key would buy lint
+      # time by making every other job slower. Between dependency changes the
+      # stored analysis still serves every package whose content is unchanged,
+      # which is what makes an untouched package cheap.
       - name: Restore golangci-lint cache
         id: golangci-cache-restore
         if: needs.prepare.outputs.run == 'true' && matrix.install_golangci_lint
         uses: actions/cache/restore@v6
         with:
           path: ${{ format('{0}/{1}', inputs.working_directory, steps.go-mk-cache-prep.outputs.lint_cache_paths) }}
-          key: go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-${{ github.sha }}
+          key: go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}
           restore-keys: |
             go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-
       - if: needs.prepare.outputs.run == 'true'
@@ -588,7 +594,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ${{ format('{0}/{1}', inputs.working_directory, steps.go-mk-cache-prep.outputs.lint_cache_paths) }}
-          key: go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-${{ github.sha }}
+          key: go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}
       - name: Show ccache stats
         if: needs.prepare.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: ccache --show-stats || true
