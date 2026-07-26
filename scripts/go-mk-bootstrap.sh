@@ -22,6 +22,20 @@ GO_MK_MODULES="${GO_MK_MODULES:-}"
 
 MAKE_DIR=".make"
 FETCH_MAX_TIME=30
+# FETCH_RETRY_MAX_TIME bounds total time curl spends on --retry, including
+# delays between attempts. It is deliberately less than FETCH_MAX_TIME: curl
+# treats its own --max-time expiry as a retriable transient error, and the
+# retry timer is only checked between attempts, not during one, so a value
+# at or above FETCH_MAX_TIME would let one hung attempt (already at the
+# limit) still qualify for a full second attempt before the next check saw
+# the budget exceeded, compounding a single 30s hang into roughly 60s or
+# more instead of bounding it. Kept comfortably below FETCH_MAX_TIME instead
+# of merely equal to it, so that outcome holds regardless of small timing
+# variance at the boundary. A real transient error (a dropped connection or
+# a 5xx) fails in a small fraction of this budget, so this still leaves
+# --retry 3 --retry-delay 2 free to run its normal course for that case;
+# only a fully hung upstream is bounded to one attempt.
+FETCH_RETRY_MAX_TIME=20
 STATE_PATH="${MAKE_DIR}/.go-mk-fetch-state"
 VALIDATION_CONNECT_TIMEOUT=2
 VALIDATION_MAX_TIME=3
@@ -302,7 +316,7 @@ provision() {
         # comes from the same response that carried the body, rather than a
         # second request that could race a moving upstream.
         curl -sS --connect-timeout 5 --max-time "${FETCH_MAX_TIME}" \
-            --retry 3 --retry-delay 2 \
+            --retry 3 --retry-delay 2 --retry-max-time "${FETCH_RETRY_MAX_TIME}" \
             -D "${stage_root}/headers" \
             -o "${stage_root}/snapshot.tar.gz" -w '%{http_code}' \
             "${GO_MK_CODELOAD_BASE}/${GO_MK_API_REPO}/tar.gz/${GO_MK_API_REF}" \

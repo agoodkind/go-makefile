@@ -600,3 +600,46 @@ func TestHelperTreatsFutureTimestampAsStale(t *testing.T) {
 		t.Fatal("helper exit = 0, want non-zero for a future timestamp")
 	}
 }
+
+// TestHelperBoundsRetryTimeWhenUpstreamStalls covers a cold provision (no
+// prior state, so main goes straight to provision rather than through
+// validate_upstream) against an upstream that accepts the connection and
+// then never responds. provision's curl carries --retry 3 --retry-delay 2,
+// and curl treats its own --max-time expiry as a retriable transient error;
+// without a --retry-max-time cap, each of up to 4 attempts (the initial one
+// plus 3 retries) can independently run the full FETCH_MAX_TIME, so a
+// single stalled upstream can cost roughly 4x FETCH_MAX_TIME plus retry
+// delays. A test that only checks the exit code would pass at that cost
+// too, so this asserts a wall-clock ceiling well under the unbounded-retry
+// cost, not just eventual failure.
+func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	dir := t.TempDir()
+	// Longer than FETCH_MAX_TIME (30s) so the single permitted attempt
+	// genuinely exhausts its own timeout rather than completing early.
+	server.Stall(40 * time.Second)
+
+	start := time.Now()
+	_, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+	})
+	elapsed := time.Since(start)
+	// Logged unconditionally (not just on failure) because the overall test
+	// duration Go reports also includes the fetch server's cleanup, which
+	// blocks until the stalled connection's own goroutine unwinds; that is
+	// unrelated to the bound this test is asserting.
+	t.Logf("helper took %s against a stalled upstream", elapsed)
+
+	if code == 0 {
+		t.Fatalf("helper exit = 0, want non-zero against a stalled upstream: %s", stderr)
+	}
+	// FETCH_MAX_TIME (30s) bounds a single attempt; FETCH_RETRY_MAX_TIME
+	// (20s), being less than FETCH_MAX_TIME, must prevent a second attempt
+	// from ever starting once the first has already used the whole budget.
+	// 45s gives headroom over the ~30s expected cost without coming close to
+	// the ~62s+ a single additional retried attempt would add back.
+	const wallClockCeiling = 45 * time.Second
+	if elapsed > wallClockCeiling {
+		t.Fatalf("helper took %s against a stalled upstream, want under %s (a retried timeout is not bounded)", elapsed, wallClockCeiling)
+	}
+}
