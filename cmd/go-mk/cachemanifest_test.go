@@ -132,6 +132,7 @@ func TestCacheManifestWritesGitHubOutputHeredocs(t *testing.T) {
 		"cgo_cache_enabled",
 		"cgo_cache_paths",
 		"cgo_cache_key",
+		"lint_cache_paths",
 	}
 	actualNames := githubOutputNames(t, result.githubOutput)
 	if strings.Join(actualNames, ",") != strings.Join(expectedNames, ",") {
@@ -150,6 +151,127 @@ func TestCacheManifestWritesGitHubOutputHeredocs(t *testing.T) {
 	if result.stdout != expectedStdout {
 		t.Fatalf("stdout mismatch\nwant:\n%s\ngot:\n%s", expectedStdout, result.stdout)
 	}
+}
+
+// TestCacheManifestLintCachePathMatchesLintEnv proves the manifest reports the
+// directory golangci-lint actually writes to. Continuous integration caches the
+// reported path, so if the two ever disagree the cache silently stores nothing
+// and every run reanalyzes the whole module.
+func TestCacheManifestLintCachePathMatchesLintEnv(t *testing.T) {
+	repoDir := cacheManifestTestRepo(t)
+	t.Chdir(repoDir)
+	t.Setenv("GOLANGCI_LINT_CACHE", "")
+
+	lintCacheDir, ok := envValue(lintEnv(), "GOLANGCI_LINT_CACHE")
+	if !ok {
+		t.Fatal("lintEnv did not set GOLANGCI_LINT_CACHE")
+	}
+	// Only an existing directory can match a glob, and a real lint run creates
+	// this one before golangci-lint writes its first result.
+	mustMkdirAll(t, lintCacheDir)
+
+	result := runCacheManifestForTest(t, map[string]string{})
+
+	reported := result.outputs["lint_cache_paths"]
+	if reported == "" {
+		t.Fatal("lint_cache_paths is empty")
+	}
+	// The value must be usable by a reader that is not standing in the working
+	// directory the manifest ran from, so it is absolute.
+	for _, pattern := range strings.Split(reported, "\n") {
+		if !filepath.IsAbs(pattern) {
+			t.Fatalf("lint_cache_paths carries %q, want every pattern absolute", pattern)
+		}
+	}
+	if !lintCachePatternMatches(t, reported, lintCacheDir) {
+		t.Fatalf("lint_cache_paths %q does not reach the lint cache %q", reported, lintCacheDir)
+	}
+}
+
+// TestCacheManifestLintCachePathCoversPlatformMatrix proves the reported pattern
+// also matches the per-target cache directories a platform-matrix pass creates,
+// so a matrix run caches every target's analysis rather than none of it.
+func TestCacheManifestLintCachePathCoversPlatformMatrix(t *testing.T) {
+	repoDir := cacheManifestTestRepo(t)
+	t.Chdir(repoDir)
+	t.Setenv("GOLANGCI_LINT_CACHE", "")
+
+	targetCacheDir := filepath.Join(repoDir, makeDir, golangciCacheDirName+"-linux-amd64")
+	mustMkdirAll(t, targetCacheDir)
+	// A target that lints a nested module writes the cache under that module's
+	// own directory, which the reported pattern must reach as well.
+	nestedCacheDir := filepath.Join(repoDir, "tools", makeDir, golangciCacheDirName)
+	mustMkdirAll(t, nestedCacheDir)
+
+	result := runCacheManifestForTest(t, map[string]string{})
+
+	for _, want := range []string{targetCacheDir, nestedCacheDir} {
+		if !lintCachePatternMatches(t, result.outputs["lint_cache_paths"], want) {
+			t.Errorf("lint_cache_paths %q does not reach %q", result.outputs["lint_cache_paths"], want)
+		}
+	}
+}
+
+// TestCacheManifestLintCachePathHonorsPinnedCache proves a caller that pins
+// GOLANGCI_LINT_CACHE gets that path reported, because lintEnv leaves such a
+// value alone and the cache then lives wherever the caller pointed it.
+func TestCacheManifestLintCachePathHonorsPinnedCache(t *testing.T) {
+	repoDir := cacheManifestTestRepo(t)
+	t.Chdir(repoDir)
+
+	result := runCacheManifestForTest(t, map[string]string{
+		"GOLANGCI_LINT_CACHE": "/custom/golangci-cache",
+	})
+
+	// A pinned path is reported unchanged. Rewriting it, for example by joining
+	// it onto a working directory, would send the cache reader somewhere
+	// golangci-lint never writes.
+	if got := result.outputs["lint_cache_paths"]; got != "/custom/golangci-cache" {
+		t.Fatalf("lint_cache_paths = %q, want %q", got, "/custom/golangci-cache")
+	}
+}
+
+
+// lintCachePatternMatches reports whether the reported cache pattern expands to
+// the given directory, resolving both sides so a relative match and an absolute
+// target still compare equal.
+func lintCachePatternMatches(t *testing.T, reported string, want string) bool {
+	t.Helper()
+	wantAbsolute, absErr := filepath.Abs(want)
+	if absErr != nil {
+		t.Fatalf("resolve %q: %v", want, absErr)
+	}
+	for _, pattern := range strings.Split(reported, "\n") {
+		if pattern == "" {
+			continue
+		}
+		// filepath.Glob treats ** as a single segment, while the cache action's
+		// matcher lets it span zero or more, so expand the recursive pattern into
+		// the depths this test actually creates and try each.
+		candidates := []string{pattern}
+		if strings.Contains(pattern, "**") {
+			candidates = []string{
+				strings.ReplaceAll(pattern, "**"+string(filepath.Separator), ""),
+				strings.ReplaceAll(pattern, "**", "*"),
+			}
+		}
+		for _, candidate := range candidates {
+			matches, globErr := filepath.Glob(candidate)
+			if globErr != nil {
+				t.Fatalf("glob %q: %v", candidate, globErr)
+			}
+			for _, match := range matches {
+				matchAbsolute, matchErr := filepath.Abs(match)
+				if matchErr != nil {
+					t.Fatalf("resolve %q: %v", match, matchErr)
+				}
+				if matchAbsolute == wantAbsolute {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func TestCacheManifestCgoKeyStableAndChangesWithInputFile(t *testing.T) {

@@ -434,6 +434,13 @@ jobs:
           - name: Golangci Lint
             command: make lint-golangci
             install_golangci_lint: true
+            # Naming a cache slug opts a gate into persisting golangci-lint's
+            # results cache. Only the analysis gate writes that cache; the format
+            # gate runs golangci-lint in its formatting mode, which produces
+            # none, so it names no slug and skips those steps. The slug must stay
+            # stable, because renaming it discards the stored analysis and the
+            # next run reanalyzes every package.
+            lint_cache_slug: golangci
           - name: Format
             command: make lint-format
             install_golangci_lint: true
@@ -539,9 +546,90 @@ jobs:
         with:
           version: ${{ inputs.golangci_lint_version }}
           install-only: true
+          # This workflow owns the results cache below. The action's own caching
+          # targets golangci-lint's default location, which go-mk never writes,
+          # so leaving it on only produces a post-job warning about a path that
+          # does not exist.
+          skip-cache: true
+      # go-mk points golangci-lint at its own results cache under .make so a
+      # sibling worktree cannot poison a run, which means the action's built-in
+      # caching never sees that directory and every run reanalyzes the whole
+      # module. Restore and save the directory go-mk reports instead.
+      #
+      # The key changes only when the dependency set or the linter version
+      # changes, and the save below runs only on a miss, so a gate holds one live
+      # entry rather than one per commit. A repository shares a ten gigabyte
+      # cache budget across every job, and exceeding it evicts the toolchain and
+      # compiler caches other gates depend on, so a per-commit key would buy lint
+      # time by making every other job slower. Between dependency changes the
+      # stored analysis still serves every package whose content is unchanged,
+      # which is what makes an untouched package cheap.
+      # A cache entry is immutable, so an exact hit means the save below is
+      # skipped and the stored analysis never grows. Left alone, the first run
+      # for a dependency set would freeze that snapshot, and every later run
+      # would reanalyze whatever changed since, which is the slow path this
+      # exists to avoid. A weekly generation refreshes the snapshot on a fixed
+      # cadence, and the restore prefix below still matches the previous
+      # generation, so a new week starts from the old cache rather than cold.
+      - name: Choose the golangci-lint cache generation
+        id: golangci-cache-generation
+        if: needs.prepare.outputs.run == 'true' && matrix.lint_cache_slug != ''
+        shell: bash
+        run: printf 'week=%s\n' "$(date -u +%G-%V)" >> "${GITHUB_OUTPUT}"
+      - name: Restore golangci-lint cache
+        id: golangci-cache-restore
+        if: needs.prepare.outputs.run == 'true' && matrix.lint_cache_slug != ''
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.go-mk-cache-prep.outputs.lint_cache_paths }}
+          key: go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}-${{ steps.golangci-cache-generation.outputs.week }}
+          restore-keys: |
+            go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-
       - if: needs.prepare.outputs.run == 'true'
         run: ${{ matrix.command }}
         working-directory: ${{ inputs.working_directory }}
+      # A gate that passed without leaving a cache directory means go-mk and this
+      # workflow disagree about where that directory lives, which would otherwise
+      # show up only as gates that stay slow forever. Fail loudly instead.
+      - name: Verify golangci-lint cache exists
+        if: needs.prepare.outputs.run == 'true' && matrix.lint_cache_slug != ''
+        shell: bash
+        env:
+          LINT_CACHE_PATTERN: ${{ steps.go-mk-cache-prep.outputs.lint_cache_paths }}
+          LINT_GATE_COMMAND: ${{ matrix.command }}
+        run: |
+          # The manifest reports one pattern per line, so each line is expanded on
+          # its own; expanding the whole value at once would treat the newline as
+          # part of a single pattern and match nothing. compgen expands without
+          # word splitting, so a path holding a space stays one entry, and it
+          # lists nothing for a literal path that does not exist, which plain
+          # expansion would have passed through as a match. Each entry is then
+          # confirmed to be a directory. compgen takes the pattern without a --
+          # separator, which it would otherwise consume as the word to complete.
+          directories=()
+          while IFS= read -r pattern; do
+            if [ -z "${pattern}" ]; then
+              continue
+            fi
+            while IFS= read -r match; do
+              if [ -d "${match}" ]; then
+                directories+=("${match}")
+              fi
+            done < <(compgen -G "${pattern}" || true)
+          done <<< "${LINT_CACHE_PATTERN}"
+          if [ ${#directories[@]} -eq 0 ]; then
+            echo "No golangci-lint cache directory matched any of:" >&2
+            echo "${LINT_CACHE_PATTERN}" >&2
+            echo "after ${LINT_GATE_COMMAND} succeeded. go-mk and this workflow disagree about where that cache lives, so every run reanalyzes the whole module." >&2
+            exit 1
+          fi
+          printf 'golangci-lint cache: %s\n' "${directories[@]}"
+      - name: Save golangci-lint cache
+        if: needs.prepare.outputs.run == 'true' && matrix.lint_cache_slug != '' && steps.golangci-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.go-mk-cache-prep.outputs.lint_cache_paths }}
+          key: go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}-${{ steps.golangci-cache-generation.outputs.week }}
       - name: Show ccache stats
         if: needs.prepare.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: ccache --show-stats || true
