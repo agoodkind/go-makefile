@@ -20,7 +20,6 @@ func TestBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
 	requireWorkflowContains(t, restore, "uses: actions/cache/restore@v6")
 	requireWorkflowContains(t, restore, "path: ~/.ccache")
 	requireWorkflowContains(t, restore, darwinCcacheWorkflowKey())
-	requireWorkflowContains(t, restore, "ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-")
 	requireWorkflowContains(t, restore, "ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-")
 
 	configure := buildWorkflowStep(t, workflow, "Configure darwin cross compilers")
@@ -52,6 +51,57 @@ func TestBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
 	// Match the "Compile" step exactly with a trailing newline, so the assertion
 	// does not accidentally anchor on another step name.
 	requireWorkflowOrder(t, workflow, "      - name: Compile\n", "      - name: Save darwin ccache")
+}
+
+// TestBuildWorkflowCcacheKeysAreReusable proves no compiler-cache key carries a
+// value unique to one run. Such a key can never be hit, so the save guarded on a
+// miss runs every time and each run leaves an entry nothing will read again. A
+// repository shares one cache budget, and eviction removes whatever was touched
+// least recently rather than whatever is useless, so those write-once entries
+// push out the caches other jobs restore.
+func TestBuildWorkflowCcacheKeysAreReusable(t *testing.T) {
+	workflow := readBuildWorkflow(t)
+
+	for _, runScoped := range []string{"github.run_id", "github.run_attempt", "github.run_number", "github.sha"} {
+		for _, line := range strings.Split(workflow, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if !strings.HasPrefix(trimmed, "key: ccache-") && !strings.HasPrefix(trimmed, "ccache-") {
+				continue
+			}
+			if strings.Contains(trimmed, runScoped) {
+				t.Errorf("compiler-cache key carries %s, so it can never be hit:\n%s", runScoped, trimmed)
+			}
+		}
+	}
+}
+
+// TestBuildWorkflowCcacheKeysTrackSubmodulePins proves every compiler-cache key
+// carries the submodule fingerprint. A submodule holding C or C++ code is pinned
+// by a commit recorded in the index, so bumping it changes what compiles while
+// every tracked file stays byte-identical. Without the fingerprint the key still
+// matches, the save is skipped, and the cache keeps objects for sources that no
+// longer exist.
+func TestBuildWorkflowCcacheKeysTrackSubmodulePins(t *testing.T) {
+	workflow := readBuildWorkflow(t)
+
+	fingerprint := buildWorkflowStep(t, workflow, "Fingerprint submodule pins")
+	requireWorkflowContains(t, fingerprint, "id: submodule-pins")
+	requireWorkflowContains(t, fingerprint, "git submodule status --recursive")
+
+	keyCount := 0
+	for _, line := range strings.Split(workflow, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "key: ccache-") {
+			continue
+		}
+		keyCount++
+		if !strings.Contains(trimmed, "steps.submodule-pins.outputs.digest") {
+			t.Errorf("compiler-cache key does not track submodule pins:\n%s", trimmed)
+		}
+	}
+	if keyCount == 0 {
+		t.Fatal("workflow declares no compiler-cache key")
+	}
 }
 
 func readBuildWorkflow(t *testing.T) string {
@@ -102,5 +152,5 @@ func requireWorkflowOrder(t *testing.T, workflow string, before string, after st
 }
 
 func darwinCcacheWorkflowKey() string {
-	return "ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-${{ github.run_id }}-${{ github.run_attempt }}"
+	return "ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-${{ steps.submodule-pins.outputs.digest }}"
 }
