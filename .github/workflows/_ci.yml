@@ -434,15 +434,16 @@ jobs:
           - name: Golangci Lint
             command: make lint-golangci
             install_golangci_lint: true
-            # Each gate that runs golangci-lint keeps its own results cache, so
-            # the two legs never race to write one cache entry. The slug names
-            # that entry and must stay stable, because renaming it discards the
-            # stored analysis and the next run reanalyzes every package.
+            # Naming a cache slug opts a gate into persisting golangci-lint's
+            # results cache. Only the analysis gate writes that cache; the format
+            # gate runs golangci-lint in its formatting mode, which produces
+            # none, so it names no slug and skips those steps. The slug must stay
+            # stable, because renaming it discards the stored analysis and the
+            # next run reanalyzes every package.
             lint_cache_slug: golangci
           - name: Format
             command: make lint-format
             install_golangci_lint: true
-            lint_cache_slug: format
           - name: Gocyclo
             command: make lint-gocyclo
             install_golangci_lint: false
@@ -560,7 +561,7 @@ jobs:
       # which is what makes an untouched package cheap.
       - name: Restore golangci-lint cache
         id: golangci-cache-restore
-        if: needs.prepare.outputs.run == 'true' && matrix.install_golangci_lint
+        if: needs.prepare.outputs.run == 'true' && matrix.lint_cache_slug != ''
         uses: actions/cache/restore@v6
         with:
           path: ${{ format('{0}/{1}', inputs.working_directory, steps.go-mk-cache-prep.outputs.lint_cache_paths) }}
@@ -574,7 +575,7 @@ jobs:
       # workflow disagree about where that directory lives, which would otherwise
       # show up only as gates that stay slow forever. Fail loudly instead.
       - name: Verify golangci-lint cache exists
-        if: needs.prepare.outputs.run == 'true' && matrix.install_golangci_lint
+        if: needs.prepare.outputs.run == 'true' && matrix.lint_cache_slug != ''
         shell: bash
         env:
           LINT_CACHE_PATTERN: ${{ steps.go-mk-cache-prep.outputs.lint_cache_paths }}
@@ -590,7 +591,7 @@ jobs:
           printf 'golangci-lint cache: %s\n' "${matches[@]}"
         working-directory: ${{ inputs.working_directory }}
       - name: Save golangci-lint cache
-        if: needs.prepare.outputs.run == 'true' && matrix.install_golangci_lint && steps.golangci-cache-restore.outputs.cache-hit != 'true'
+        if: needs.prepare.outputs.run == 'true' && matrix.lint_cache_slug != '' && steps.golangci-cache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ${{ format('{0}/{1}', inputs.working_directory, steps.go-mk-cache-prep.outputs.lint_cache_paths) }}
