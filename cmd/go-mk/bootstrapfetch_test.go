@@ -522,3 +522,81 @@ func writeState(t *testing.T, dir string, ref string, etag string, timestamp int
 		t.Fatalf("write state: %v", err)
 	}
 }
+
+// warmMake populates .make with a complete asset set so only the validation
+// decision is under test.
+func warmMake(t *testing.T, dir string) {
+	t.Helper()
+	for name, body := range helperFiles() {
+		if name == "scripts/go-mk-bootstrap.sh" {
+			continue
+		}
+		writeAsset(t, dir, name, body)
+	}
+}
+
+func TestHelperServesDiskWhenUpstreamTimesOutAndStateIsRecent(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	dir := t.TempDir()
+	warmMake(t, dir)
+	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(-10*time.Minute).Unix())
+	server.Stall(5 * time.Second)
+
+	_, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+	})
+	if code != 0 {
+		t.Fatalf("helper exit = %d, want 0 when state is recent: %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "serving .make assets validated") {
+		t.Fatalf("stderr = %q, want a warning naming the served assets", stderr)
+	}
+	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
+		t.Fatalf("go.mk = %q, want the warm body preserved", got)
+	}
+}
+
+// unreachableCodeloadBase is a port nothing listens on, so every request
+// fails at connect rather than merely stalling. A stale or future-dated
+// state must fall through past the reuse branch into a real provision()
+// attempt, and provision()'s curl carries --retry 3 --retry-delay 2: curl
+// treats its own --max-time expiry as a retriable transient error, so a
+// stall long enough to actually exhaust FETCH_MAX_TIME (30s) would cost
+// roughly four times that once retries run. A connection refusal fails
+// every attempt immediately, exercising the same "probe cannot complete"
+// code path (validate_upstream and provision both see a non-zero curl exit)
+// without paying that retry cost.
+const unreachableCodeloadBase = "http://127.0.0.1:9"
+
+func TestHelperFailsWhenUpstreamTimesOutAndStateIsStale(t *testing.T) {
+	dir := t.TempDir()
+	warmMake(t, dir)
+	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(-2*time.Hour).Unix())
+
+	_, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase,
+	})
+	if code == 0 {
+		t.Fatal("helper exit = 0, want non-zero when state is older than the reuse window")
+	}
+	if strings.Contains(stderr, "serving .make assets validated") {
+		t.Fatalf("stderr = %q, want no serve warning on the stale path", stderr)
+	}
+	// Even on the failing path, nothing may be destroyed.
+	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
+		t.Fatalf("go.mk = %q, want the warm body preserved through a failure", got)
+	}
+}
+
+func TestHelperTreatsFutureTimestampAsStale(t *testing.T) {
+	dir := t.TempDir()
+	warmMake(t, dir)
+	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(2*time.Hour).Unix())
+
+	_, _, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase,
+	})
+	if code == 0 {
+		t.Fatal("helper exit = 0, want non-zero for a future timestamp")
+	}
+}

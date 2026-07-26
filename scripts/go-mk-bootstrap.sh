@@ -25,6 +25,11 @@ FETCH_MAX_TIME=30
 STATE_PATH="${MAKE_DIR}/.go-mk-fetch-state"
 VALIDATION_CONNECT_TIMEOUT=2
 VALIDATION_MAX_TIME=3
+# REUSE_WINDOW_SECONDS bounds offline reuse to a fixed hour from the last
+# completed download. It does not slide: a successful probe (a 304) writes no
+# state, so it cannot extend the window, and only a real provision() run
+# resets the clock.
+REUSE_WINDOW_SECONDS=3600
 
 required_assets() {
     printf '%s\n' "go.mk"
@@ -214,6 +219,60 @@ validate_upstream() {
     printf '%s' "${status_code}"
 }
 
+# state_is_recent reports whether the last completed download is inside
+# REUSE_WINDOW_SECONDS. The window is fixed from that recorded timestamp
+# rather than sliding, so it returns 1 (not recent) once the age exceeds the
+# window, with no allowance for a successful probe to push it back out. A
+# timestamp in the future, which a backwards clock produces, is not recent
+# either: treating it as recent would let a clock fault grant unbounded
+# offline reuse instead of forcing a real fetch.
+state_is_recent() {
+    local recorded
+    local now
+    local age
+
+    if ! recorded=$(read_state_field "timestamp"); then
+        return 1
+    fi
+    if [[ ! "${recorded}" =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+    now=$(current_epoch_seconds)
+    if (( recorded > now )); then
+        return 1
+    fi
+    age=$(( now - recorded ))
+    (( age <= REUSE_WINDOW_SECONDS ))
+}
+
+# format_age renders a whole number of seconds as a short, human-readable
+# age for the warning serve_from_disk_with_warning prints.
+format_age() {
+    local seconds="$1"
+    if (( seconds < 60 )); then
+        printf '%ds' "${seconds}"
+        return 0
+    fi
+    printf '%dm' "$(( seconds / 60 ))"
+}
+
+# serve_from_disk_with_warning announces the bounded-offline-reuse decision
+# on stderr, naming how long ago the served assets were validated and which
+# etag they were validated against, so a consumer can tell this run apart
+# from a normal validated or freshly provisioned one without inspecting
+# STATE_PATH directly.
+serve_from_disk_with_warning() {
+    local recorded
+    local now
+    local etag_value
+
+    recorded=$(read_state_field "timestamp")
+    etag_value=$(read_state_field "etag" || printf 'unknown')
+    now=$(current_epoch_seconds)
+    printf 'go-makefile: upstream unreachable; serving .make assets validated %s ago (etag %s). Set GO_MK_SKIP_FETCH=1 to silence, or check network access to %s\n' \
+        "$(format_age $(( now - recorded )))" "${etag_value}" "${GO_MK_CODELOAD_BASE}" >&2
+}
+
 # provision downloads, extracts into a stage, verifies, then installs.
 #
 # The staging work runs in a subshell rather than the function body itself. A
@@ -351,6 +410,15 @@ main() {
             # runs from the last completed download, not from the last
             # successful check, so a 304 here leaves both the assets and the
             # recorded state exactly as they were.
+            return 0
+        fi
+        # status_code is empty only when validate_upstream itself could not
+        # complete (a curl failure), never for a real response: a completed
+        # non-304 response means upstream is reachable, so that case falls
+        # through to provision() below rather than reusing disk. Bounded
+        # offline reuse applies only here, and only within the fixed window.
+        if [[ -z "${status_code}" ]] && state_is_recent; then
+            serve_from_disk_with_warning
             return 0
         fi
     fi
