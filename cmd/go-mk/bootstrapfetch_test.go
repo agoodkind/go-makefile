@@ -892,3 +892,89 @@ func TestHelperDoesNotReuseWhenLocalSetupFailsBeforeAnyRequest(t *testing.T) {
 		t.Fatalf("go.mk = %q, want the warm body preserved through a failure", got)
 	}
 }
+
+// TestHelperAlwaysProvisionsUnconditionallyInCI covers a CI run (both
+// GITHUB_ACTIONS=true and a GITHUB_RUN_ID present) against otherwise
+// reuse-eligible state: a fresh timestamp that would produce a 304 (and,
+// if the probe instead failed, a disk serve) outside CI. In CI, none of
+// that conditional machinery may run at all: the request must carry no
+// If-None-Match and must be a real 200, not a 304 the helper then trusts
+// without having downloaded anything this run.
+func TestHelperAlwaysProvisionsUnconditionallyInCI(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	dir := t.TempDir()
+	warmMake(t, dir)
+	// Fresh state that would produce a 304 and a disk serve off CI.
+	writeState(t, dir, "main", `"cached-etag"`, time.Now().Unix())
+
+	_, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GITHUB_ACTIONS":      "true",
+		"GITHUB_RUN_ID":       "1",
+	})
+	if code != 0 {
+		t.Fatalf("helper exit = %d, want 0: %s", code, stderr)
+	}
+
+	requests := server.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("server saw %d requests, want 1", len(requests))
+	}
+	if requests[0].IfNoneMatch != "" {
+		t.Fatalf("CI request carried If-None-Match %q, want none", requests[0].IfNoneMatch)
+	}
+	if requests[0].Status != 200 {
+		t.Fatalf("CI request status = %d, want 200", requests[0].Status)
+	}
+}
+
+// TestHelperFailsInCIWhenUpstreamIsUnreachableDespiteFreshState covers the
+// consequence of the CI guard above: with reuse and conditional validation
+// both disabled in CI, a fresh, otherwise-reuse-eligible state does not
+// soften an unreachable upstream. CI must fail loudly rather than silently
+// serving assets that were never re-validated this run.
+func TestHelperFailsInCIWhenUpstreamIsUnreachableDespiteFreshState(t *testing.T) {
+	dir := t.TempDir()
+	warmMake(t, dir)
+	writeState(t, dir, "main", `"cached-etag"`, time.Now().Unix())
+
+	_, _, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": "http://127.0.0.1:9",
+		"GITHUB_ACTIONS":      "true",
+		"GITHUB_RUN_ID":       "1",
+	})
+	if code == 0 {
+		t.Fatal("helper exit = 0 in CI with an unreachable upstream, want non-zero")
+	}
+}
+
+// TestHelperTreatsGithubActionsWithoutRunIdAsLocal covers the other half
+// of running_in_ci's contract: GITHUB_ACTIONS alone (no GITHUB_RUN_ID) is
+// not a CI run, since a local shell that happens to export GITHUB_ACTIONS
+// (or a consumer testing CI-adjacent tooling locally) must still get
+// ordinary conditional-validation behavior, not the unconditional-fetch
+// path meant for a real GitHub Actions job.
+func TestHelperTreatsGithubActionsWithoutRunIdAsLocal(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	dir := t.TempDir()
+
+	_, _, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	if code != 0 {
+		t.Fatalf("cold run exit = %d, want 0", code)
+	}
+
+	_, _, code = runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GITHUB_ACTIONS":      "true",
+		// No GITHUB_RUN_ID, so this is not a CI run.
+	})
+	if code != 0 {
+		t.Fatalf("second run exit = %d, want 0", code)
+	}
+
+	requests := server.Requests()
+	if requests[len(requests)-1].Status != 304 {
+		t.Fatalf("last status = %d, want 304 because GITHUB_ACTIONS alone is not CI",
+			requests[len(requests)-1].Status)
+	}
+}

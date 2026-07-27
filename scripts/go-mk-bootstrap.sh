@@ -452,6 +452,13 @@ provision() {
     return "${subshell_status}"
 }
 
+# running_in_ci matches the test the engine already uses for a real GitHub
+# Actions run. GITHUB_ACTIONS alone is not a CI run, so a local shell that
+# happens to export it still gets the local behavior.
+running_in_ci() {
+    [[ "${GITHUB_ACTIONS:-}" == "true" && -n "${GITHUB_RUN_ID:-}" ]]
+}
+
 main() {
     local known_etag=""
     local known_ref=""
@@ -480,7 +487,11 @@ main() {
         return 1
     fi
 
-    if assets_complete "${MAKE_DIR}"; then
+    # running_in_ci gates this whole block, not just the etag assignment:
+    # CI must never send a conditional request at all, so known_etag stays
+    # at its initial empty value and known_ref is never even read, rather
+    # than computing it and then discarding it.
+    if ! running_in_ci && assets_complete "${MAKE_DIR}"; then
         known_etag=$(read_state_field "etag" || printf '')
         known_ref=$(read_state_field "ref" || printf '')
         # A stored etag only means "nothing changed" for the ref it was
@@ -516,7 +527,14 @@ main() {
         # never consulted the network, so it is not eligible for reuse and
         # falls through to provision() instead, which fails loudly with the
         # real reason if the same local condition blocks it too.
-        if [[ -z "${status_code}" && "${probe_exit}" -eq 1 ]] && state_is_recent; then
+        #
+        # ! running_in_ci is redundant with the guard above known_etag's
+        # assignment in the current control flow (known_etag can only be
+        # non-empty here if that guard already let it through), but it is
+        # kept as its own explicit condition rather than relied on
+        # implicitly: a later change to how known_etag gets set should not
+        # silently reopen CI's path to serving disk.
+        if ! running_in_ci && [[ -z "${status_code}" && "${probe_exit}" -eq 1 ]] && state_is_recent; then
             serve_from_disk_with_warning
             return 0
         fi
