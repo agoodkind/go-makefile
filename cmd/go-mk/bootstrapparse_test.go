@@ -319,3 +319,113 @@ func TestHelperAcquisitionBoundedWhenBootstrapURLStalls(t *testing.T) {
 		t.Fatalf("helper acquisition took %s against a stalled bootstrap URL, want under %s (a retried stall is not bounded)", elapsed, wallClockCeiling)
 	}
 }
+
+func TestDeadCacheVariablesAreGone(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join(repoRootForTest(t), "go.mk"))
+	if err != nil {
+		t.Fatalf("read go.mk: %v", err)
+	}
+	for _, name := range []string{"GO_MK_URL", "GO_MK_CACHE_DIR", "GO_MK_CACHE "} {
+		if strings.Contains(string(body), name) {
+			t.Fatalf("go.mk still defines the unused variable %s", strings.TrimSpace(name))
+		}
+	}
+}
+
+func TestMoratoriumWordingIsGone(t *testing.T) {
+	root := repoRootForTest(t)
+	for _, relative := range []string{
+		"bootstrap.mk",
+		"cmd/go-mk/bootstrap_assets/bootstrap.mk",
+		"scripts/go-mk-fetch-one.sh",
+	} {
+		body, err := os.ReadFile(filepath.Join(root, relative))
+		if err != nil {
+			t.Fatalf("read %s: %v", relative, err)
+		}
+		if strings.Contains(strings.ToLower(string(body)), "moratorium") {
+			t.Fatalf("%s still references the moratorium", relative)
+		}
+	}
+}
+
+// TestOldBootstrapStillParsesWithNewGoMk covers the rollout window, where a
+// consumer has merged nothing yet but already fetches the new go.mk. Its
+// bootstrap.mk never sets GO_MK_PROVISION, so go.mk must fall back to priming
+// the assets itself rather than assuming the helper ran.
+func TestOldBootstrapStillParsesWithNewGoMk(t *testing.T) {
+	files := consumerFiles()
+	// Serve the real go.mk so its own provisioning path is what runs.
+	realGoMk, err := os.ReadFile(filepath.Join(repoRootForTest(t), "go.mk"))
+	if err != nil {
+		t.Fatalf("read go.mk: %v", err)
+	}
+	files["go.mk"] = string(realGoMk)
+	server := newFetchServer(t, files)
+
+	dir := t.TempDir()
+	// A bootstrap.mk shaped like the pre-helper one: it fetches go.mk itself
+	// and sets no GO_MK_PROVISION.
+	oldBootstrap := `GO_MK := .make/go.mk
+GO_MK_API_REPO ?= agoodkind/go-makefile
+GO_MK_API_REF  ?= main
+GO_MK_BOOTSTRAP_FETCHED := 1
+$(shell mkdir -p .make && curl -sS -o .make/snapshot.tar.gz "$(GO_MK_CODELOAD_BASE)/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" && tar -xzf .make/snapshot.tar.gz -C .make --strip-components 1 2>/dev/null)
+-include $(GO_MK)
+`
+	if err := os.WriteFile(filepath.Join(dir, "bootstrap.mk"), []byte(oldBootstrap), 0o644); err != nil {
+		t.Fatalf("write old bootstrap.mk: %v", err)
+	}
+	makefile := "BINARY := probe\ninclude bootstrap.mk\n"
+	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	output, code := runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	if code != 0 {
+		t.Fatalf("mixed-version parse exit = %d, want 0: %s", code, output)
+	}
+	if readAsset(t, dir, "go.mk") == "" {
+		t.Fatal("go.mk absent after a mixed-version parse")
+	}
+}
+
+// TestGoMkSkipsItsOwnPrimeWhenHelperProvisioned covers the actual behavior
+// this task's interface promises: go.mk skips its own prime when
+// GO_MK_PROVISION shows the helper already provisioned this run. This is
+// the one property TestOldBootstrapStillParsesWithNewGoMk does not
+// actually exercise, since that test's own inline old-bootstrap snippet
+// extracts the whole served tarball into .make/ itself, so every asset
+// go.mk might need is already present regardless of whether go.mk's own
+// prime also runs; it cannot tell "prime ran redundantly" apart from
+// "prime correctly stayed out of the way."
+//
+// This test uses the real (new) bootstrap.mk via newConsumer, which sets
+// GO_MK_PROVISION after the helper succeeds, paired with the real go.mk
+// (not consumerFiles' stub) so go.mk's own prime-guard logic actually
+// runs. go.mk's _go_mk_prime fetches straight from the real
+// codeload.github.com, not the local GO_MK_CODELOAD_BASE test server, so
+// if it ran a second time it would overwrite the served stub
+// scripts/go-mk-fetch-one.sh (a few bytes, served only by the local
+// fetchServer) with the real script's actual content pulled from the real
+// internet, which this asserts against.
+func TestGoMkSkipsItsOwnPrimeWhenHelperProvisioned(t *testing.T) {
+	files := consumerFiles()
+	realGoMk, err := os.ReadFile(filepath.Join(repoRootForTest(t), "go.mk"))
+	if err != nil {
+		t.Fatalf("read go.mk: %v", err)
+	}
+	files["go.mk"] = string(realGoMk)
+	server := newFetchServer(t, files)
+	dir := newConsumer(t)
+
+	output, code := runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	if code != 0 {
+		t.Fatalf("parse exit = %d, want 0: %s", code, output)
+	}
+
+	const stub = "#!/usr/bin/env bash\nexit 0\n"
+	if got := readAsset(t, dir, "scripts/go-mk-fetch-one.sh"); got != stub {
+		t.Fatalf("scripts/go-mk-fetch-one.sh = %q, want the helper-provisioned stub %q preserved (go.mk's own prime must not run a second time)", got, stub)
+	}
+}

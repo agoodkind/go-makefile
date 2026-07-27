@@ -54,6 +54,6 @@ if copy_from_developer_dir || fetch_from_raw_cdn; then
     exit 0
 fi
 
-printf "error: %s fetch failed; no cache fallback. Set GO_MK_DEV_DIR or check network access to %s\n" \
+printf "error: %s fetch failed. Set GO_MK_DEV_DIR or check network access to %s\n" \
     "${relative_path}" "${base_url}"
 exit 1

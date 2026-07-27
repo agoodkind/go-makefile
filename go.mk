@@ -7,12 +7,9 @@
 	baseline baseline-bin baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
 	go-mk-sync update-go-mk smoke-fetch go-mk-notice go-version-check go-mk-bin ci-changed go-mk-cache-manifest go-mk-prepare-submodules go-mk-generate
 
-GO_MK_URL       := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
-GO_MK_CACHE     := $(HOME)/.cache/go-makefile/go.mk
 GO_MK_BASE_URL  ?= https://raw.githubusercontent.com/agoodkind/go-makefile/main
 GO_MK_API_REPO  ?= agoodkind/go-makefile
 GO_MK_API_REF   ?= main
-GO_MK_CACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile
 
 GO_MK_SCRIPT_FILES := \
 	scripts/go-mk-fetch-one.sh \
@@ -49,8 +46,14 @@ endef
 # Skip the prime entirely under GO_MK_SKIP_FETCH so air-gapped or pre-vendored
 # runs never touch the network; the require paths below then fail fast if an
 # expected asset is missing.
+#
+# The bootstrap helper provisions every asset in one extraction, so this prime
+# is only for a consumer whose committed bootstrap.mk predates the helper. It
+# is removed once the fleet has migrated.
 ifneq ($(strip $(GO_MK_SKIP_FETCH)),1)
+ifeq ($(strip $(GO_MK_PROVISION)),)
 $(shell mkdir -p .make && { $(call _go_mk_prime); } 1>&2)
+endif
 endif
 
 GO_MK_SELF      := $(lastword $(MAKEFILE_LIST))
