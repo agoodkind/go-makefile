@@ -359,18 +359,24 @@ provision() {
             exit 1
         fi
 
-        # etag_value is the one step here with no explicit failure check
-        # otherwise: a missing headers file or a 200 response that carries no
-        # ETag at all would leave it empty, and write_state "" would succeed
-        # silently. Every later run would then read an empty stored etag,
-        # skip validation, and full-download forever with nothing on stderr
-        # to explain why. Treating an empty etag as a provisioning failure
-        # keeps that outcome loud instead of a silent permanent regression to
-        # full downloads.
+        # A missing ETag header is degraded operation, not a provisioning
+        # failure: the tree above this point is already verified and
+        # installed, so failing here would trade a working (if unpinned)
+        # engine for none at all on every consumer, the moment codeload ever
+        # stops sending ETag on archive responses. Any stale state from a
+        # previous run that did have an ETag is removed rather than left in
+        # place, so a later run's known_etag genuinely reads empty (not a
+        # now-unverifiable leftover) and goes straight to a fresh provision
+        # rather than validating against content this run never confirmed.
+        # The loud warning is what actually replaces the old hard failure:
+        # every affected run says so, rather than silently reverting to
+        # today's always-download behavior.
         etag_value=$(awk 'tolower($1) == "etag:" { print $2 }' "${stage_root}/headers" | tr -d '\r' | tail -n 1)
         if [[ -z "${etag_value}" ]]; then
-            printf 'error: upstream response carried no ETag header\n' >&2
-            exit 1
+            rm -f "${STATE_PATH}"
+            printf 'go-makefile: upstream served no ETag header; installed the fetched tree but could not record validation state, so every run will download unconditionally until ETag returns. Check upstream (%s).\n' \
+                "${GO_MK_CODELOAD_BASE}" >&2
+            exit 0
         fi
         write_state "${etag_value}"
     )

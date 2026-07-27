@@ -424,13 +424,18 @@ func TestHelperReprovisionsWhenUpstreamMoved(t *testing.T) {
 	}
 }
 
-// TestHelperFailsWhenUpstreamServesNoETag covers a 200 response that carries
-// no ETag header at all. Before this fix, provision() wrote an empty etag to
-// state and returned success; every later run would then read that empty
-// etag, skip validation, and full-download forever with nothing on stderr to
-// explain why. The fix must fail this run loudly instead, and must leave no
-// state file behind to be misread later.
-func TestHelperFailsWhenUpstreamServesNoETag(t *testing.T) {
+// TestHelperDegradesWhenUpstreamServesNoETag covers a 200 response that
+// carries no ETag header at all. A prior fix (reverted here) made this a
+// hard provisioning failure; a reviewer argued that failure mode is worse
+// than the bug it prevented, since it would break every consumer's build
+// the moment codeload ever stopped sending ETag on archive responses,
+// leaving a cold consumer with no .make at all rather than a working
+// engine. The repo owner agreed: the tree is already verified and installed
+// by the point the ETag is missing, so this now installs it, skips the
+// state write (so a later run finds no etag and downloads unconditionally
+// rather than validating against content this run never confirmed), warns
+// loudly, and still returns success.
+func TestHelperDegradesWhenUpstreamServesNoETag(t *testing.T) {
 	server := newFetchServer(t, helperFiles())
 	server.SetETagEnabled(false)
 	dir := t.TempDir()
@@ -438,14 +443,54 @@ func TestHelperFailsWhenUpstreamServesNoETag(t *testing.T) {
 	_, stderr, code := runHelper(t, dir, map[string]string{
 		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
 	})
-	if code == 0 {
-		t.Fatalf("helper exit = 0, want non-zero when upstream serves a 200 with no ETag header")
+	if code != 0 {
+		t.Fatalf("helper exit = %d, want 0 when upstream serves a 200 with no ETag header (degrade, don't fail): %s", code, stderr)
+	}
+	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
+		t.Fatalf("go.mk = %q, want the fetched tree installed even without an ETag", got)
 	}
 	if !strings.Contains(stderr, "ETag") {
-		t.Fatalf("stderr = %q, want it to mention the missing ETag", stderr)
+		t.Fatalf("stderr = %q, want it to warn about the missing ETag", stderr)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".make", ".go-mk-fetch-state")); err == nil {
 		t.Fatal("state file exists after a provision that had no ETag to record")
+	}
+}
+
+// TestHelperClearsStaleStateWhenUpstreamStopsServingETag covers the
+// transition case: a consumer already has valid state from an earlier
+// provision that did carry an ETag, and upstream then stops sending one. A
+// naive "just skip the write" leaves the old etag and timestamp in place,
+// so a later run would still "find" an etag, exactly the outcome the fix
+// above is meant to prevent (the currently-installed content was never
+// verified against that leftover etag). The fix must remove the stale
+// state file, not merely skip writing a new one.
+func TestHelperClearsStaleStateWhenUpstreamStopsServingETag(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	dir := t.TempDir()
+
+	_, _, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	if code != 0 {
+		t.Fatalf("cold run exit = %d, want 0", code)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".make", ".go-mk-fetch-state")); err != nil {
+		t.Fatalf("state file missing after a cold run that did carry an ETag: %v", err)
+	}
+
+	moved := helperFiles()
+	moved["go.mk"] = "# go.mk v2\n"
+	server.SetFiles(moved)
+	server.SetETagEnabled(false)
+
+	_, stderr, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	if code != 0 {
+		t.Fatalf("no-etag run exit = %d, want 0: %s", code, stderr)
+	}
+	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v2\n" {
+		t.Fatalf("go.mk = %q, want the newly fetched tree installed", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".make", ".go-mk-fetch-state")); err == nil {
+		t.Fatal("state file still exists after upstream stopped serving an ETag, want it removed rather than left stale")
 	}
 }
 
@@ -589,6 +634,13 @@ func TestHelperFailsWhenUpstreamTimesOutAndStateIsStale(t *testing.T) {
 	}
 	if strings.Contains(stderr, "serving .make assets validated") {
 		t.Fatalf("stderr = %q, want no serve warning on the stale path", stderr)
+	}
+	// The validation probe's own failure reason (curl's exit code and an
+	// excerpt of its stderr) must stay visible on this fall-through path,
+	// not just on the reuse-serving path: a probe failing on every run is
+	// otherwise invisible once main proceeds straight to provision.
+	if !strings.Contains(stderr, "validate_upstream: curl exited") {
+		t.Fatalf("stderr = %q, want the validation probe's own failure reason on the stale fall-through path", stderr)
 	}
 	// Even on the failing path, nothing may be destroyed.
 	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
