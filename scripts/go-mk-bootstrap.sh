@@ -371,7 +371,18 @@ provision() {
         # it treated a --max-time expiry, so --retry-max-time still caps how
         # many times a genuinely hung upstream gets retried instead of
         # leaving that cascade unbounded.
-        curl -sS --connect-timeout 2 --max-time "${FETCH_MAX_TIME}" \
+        #
+        # --connect-timeout is 5 here, not the 2 the validation probe below
+        # uses: connect time (DNS, TCP, TLS setup) has nothing to do with
+        # stall detection, which --speed-limit/--speed-time already handle
+        # once a connection exists. Squeezing it buys nothing and risks a
+        # hard failure on a slow but working link (a roaming or hotel
+        # connection can measure hundreds of milliseconds on DNS alone, and
+        # a full TCP+TLS handshake can exceed 2s on a bad one) before it
+        # ever gets the chance to retry into a working connection. The HEAD
+        # probe can afford the tighter 2s because it is a cheap check with
+        # its own fallback to a real fetch; this is the fetch itself.
+        curl -sS --connect-timeout 5 --max-time "${FETCH_MAX_TIME}" \
             --speed-limit "${FETCH_SPEED_LIMIT}" --speed-time "${FETCH_SPEED_TIME}" \
             --retry 3 --retry-delay 2 --retry-max-time "${FETCH_RETRY_MAX_TIME}" \
             -D "${stage_root}/headers" \

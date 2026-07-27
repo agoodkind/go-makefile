@@ -754,6 +754,64 @@ func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
 	}
 }
 
+// blackholedCodeloadBase is an address from the IETF TEST-NET-1 block
+// (RFC 5737, 192.0.2.0/24), reserved for documentation and testing and
+// never routable on the public internet, so a connection attempt to it
+// hangs at the TCP level rather than completing or being refused. This is
+// what a slow DNS/TCP/TLS setup on a real network looks like from curl's
+// perspective: connect() keeps trying until --connect-timeout gives up.
+// It is distinct from unreachableCodeloadBase's fast connection-refused
+// and from server.Stall's post-connection stall, which --speed-limit/
+// --speed-time handle instead.
+const blackholedCodeloadBase = "http://192.0.2.1"
+
+// TestHelperBoundsConnectTimeToFiveSeconds covers the connect phase
+// specifically, which --speed-limit/--speed-time do not touch at all: a
+// cold provision (no prior state, so main goes straight to provision)
+// against an address that never responds at the TCP level. provision's
+// curl carries --connect-timeout 5, raised back from an earlier, too
+// aggressive 2 that combined with --retry-max-time 4 would have hard
+// failed a merely slow real connect (a roaming or hotel link can spend
+// hundreds of milliseconds on DNS alone, or exceed 2s on a full TCP+TLS
+// handshake) in 6 seconds without ever giving it the chance to retry into
+// a working connection. Measured locally: ~5.0s, one attempt
+// (--retry-max-time's 4s budget is already spent by a single
+// connect-timeout failure, so no retry follows), against ~2.0s before
+// this fix.
+func TestHelperBoundsConnectTimeToFiveSeconds(t *testing.T) {
+	dir := t.TempDir()
+
+	start := time.Now()
+	_, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": blackholedCodeloadBase,
+	})
+	elapsed := time.Since(start)
+	t.Logf("helper took %s against a blackholed connect", elapsed)
+
+	if code == 0 {
+		t.Fatalf("helper exit = 0, want non-zero against an address that never responds: %s", stderr)
+	}
+	// Must run for close to the full connect-timeout (5s), not give up
+	// early the way the previous, too-tight value (2s) would. A lower
+	// bound alone does not discriminate the two: reverting connect-timeout
+	// to 2 still measures ~6.15s here (2s failed attempt + 2s retry-delay
+	// + a second 2s failed attempt, since retry-max-time's 4s budget is
+	// not yet spent after the first attempt), comfortably clearing a naive
+	// "at least 4s" floor while being the very regression this test exists
+	// to catch. The ceiling is what actually separates them: one 5s
+	// connect-timeout attempt (~5.0-5.1s measured) leaves no room in
+	// retry-max-time's 4s budget for a retry, while a 2s one does, so the
+	// ceiling is set between the two measured values.
+	const minimumElapsed = 4 * time.Second
+	if elapsed < minimumElapsed {
+		t.Fatalf("helper took %s against a blackholed connect, want at least %s (connect-timeout is too tight)", elapsed, minimumElapsed)
+	}
+	const wallClockCeiling = 5800 * time.Millisecond
+	if elapsed > wallClockCeiling {
+		t.Fatalf("helper took %s against a blackholed connect, want under %s (a second connect attempt followed, meaning connect-timeout is too tight to spend retry-max-time's budget on one attempt)", elapsed, wallClockCeiling)
+	}
+}
+
 // TestHelperCompletesWhenUpstreamTricklesAboveSpeedLimit covers the other
 // side of the progress-based abort: a transfer that is genuinely slow but
 // never stops making progress must not be punished by FETCH_SPEED_LIMIT/
@@ -764,13 +822,17 @@ func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
 //
 // notices.txt is inflated to pseudo-random, close-to-incompressible content
 // so the served tarball's compressed size is large enough that trickling it
-// at 2 KB/s takes several seconds rather than finishing as soon as gzip
-// collapses realistic-sized padding down to nothing. 2 KB/s comfortably
-// clears FETCH_SPEED_LIMIT (1024 B/s), and the whole transfer completes
-// well inside FETCH_MAX_TIME (15s).
+// at 2 KB/s takes several seconds (comfortably more than one
+// FETCH_SPEED_TIME window, so the abort check gets multiple chances to
+// wrongly fire) rather than finishing as soon as gzip collapses
+// realistic-sized padding down to nothing. 12 KB was chosen over a larger
+// size specifically to keep this well clear of FETCH_MAX_TIME (15s): an
+// earlier 18 KB body measured ~9.6s, only about 5s of margin before
+// ordinary CI/host jitter could read as a false max-time regression; 12 KB
+// measures ~5-6s, leaving roughly 9-10s of margin instead.
 func TestHelperCompletesWhenUpstreamTricklesAboveSpeedLimit(t *testing.T) {
 	files := helperFiles()
-	files["notices.txt"] = randomAssetBody(18 * 1024)
+	files["notices.txt"] = randomAssetBody(12 * 1024)
 	server := newFetchServer(t, files)
 	dir := t.TempDir()
 	const trickleBytesPerSecond = 2048
