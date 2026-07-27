@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -154,13 +155,14 @@ type fetchRequest struct {
 type fetchServer struct {
 	URL string
 
-	mutex        sync.Mutex
-	tarball      []byte
-	etag         string
-	etagDisabled bool
-	stall        time.Duration
-	requests     []fetchRequest
-	server       *httptest.Server
+	mutex                 sync.Mutex
+	tarball               []byte
+	etag                  string
+	etagDisabled          bool
+	stall                 time.Duration
+	trickleBytesPerSecond int
+	requests              []fetchRequest
+	server                *httptest.Server
 }
 
 func newFetchServer(t *testing.T, files map[string]string) *fetchServer {
@@ -194,6 +196,18 @@ func (s *fetchServer) Stall(d time.Duration) {
 	s.stall = d
 }
 
+// Trickle makes a 200 response body write in chunks of bytesPerSecond,
+// pausing one second between chunks, rather than in a single Write call.
+// This is distinct from Stall: a stalled connection produces no bytes at
+// all, while a trickled one keeps making genuine progress just slowly, so
+// a test can tell "curl aborts a truly stuck transfer" apart from "curl
+// does not punish a merely slow one" against the same speed-limit flags.
+func (s *fetchServer) Trickle(bytesPerSecond int) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.trickleBytesPerSecond = bytesPerSecond
+}
+
 // SetETagEnabled controls whether handle sets the ETag response header and
 // ever answers 304, so a test can simulate an upstream 200 response that
 // carries no ETag at all.
@@ -215,6 +229,7 @@ func (s *fetchServer) handle(writer http.ResponseWriter, request *http.Request) 
 	etag := s.etag
 	etagDisabled := s.etagDisabled
 	stall := s.stall
+	trickleBytesPerSecond := s.trickleBytesPerSecond
 	s.mutex.Unlock()
 
 	if stall > 0 {
@@ -233,12 +248,51 @@ func (s *fetchServer) handle(writer http.ResponseWriter, request *http.Request) 
 		record.Bytes = len(tarball)
 		writer.Header().Set("Content-Type", "application/x-gzip")
 		writer.WriteHeader(http.StatusOK)
-		_, _ = writer.Write(tarball)
+		if trickleBytesPerSecond > 0 {
+			writeTrickled(writer, tarball, trickleBytesPerSecond)
+		} else {
+			_, _ = writer.Write(tarball)
+		}
 	}
 
 	s.mutex.Lock()
 	s.requests = append(s.requests, record)
 	s.mutex.Unlock()
+}
+
+// writeTrickled writes body in bytesPerSecond-sized chunks, flushing each
+// one and sleeping a second before the next, so a client sees genuine
+// incremental progress spread over multiple seconds rather than the whole
+// body arriving at once.
+func writeTrickled(writer io.Writer, body []byte, bytesPerSecond int) {
+	flusher, canFlush := writer.(http.Flusher)
+	for offset := 0; offset < len(body); offset += bytesPerSecond {
+		end := offset + bytesPerSecond
+		if end > len(body) {
+			end = len(body)
+		}
+		if _, err := writer.Write(body[offset:end]); err != nil {
+			return
+		}
+		if canFlush {
+			flusher.Flush()
+		}
+		if end < len(body) {
+			time.Sleep(time.Second)
+		}
+	}
+}
+
+// randomAssetBody returns byteCount pseudo-random bytes from a fixed seed, so
+// a test's tarball is reproducible while staying close to incompressible:
+// gzip cannot shrink it the way it would a repeated-character fixture, so a
+// trickled transfer of it takes close to byteCount/rate seconds rather than
+// finishing as soon as gzip collapses padding down to nothing.
+func randomAssetBody(byteCount int) string {
+	source := rand.New(rand.NewSource(1))
+	body := make([]byte, byteCount)
+	_, _ = source.Read(body)
+	return string(body)
 }
 
 // buildTarball produces a gzipped tar whose entries all sit under one top-level

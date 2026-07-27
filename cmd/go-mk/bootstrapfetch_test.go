@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,8 +70,7 @@ func TestHelperLeavesAssetsIntactWhenUpstreamIsUnreachable(t *testing.T) {
 	writeAsset(t, dir, "scripts/go-mk-sync.sh", "#!/usr/bin/env bash\nexit 0\n")
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		// A port nothing listens on, so every request fails at connect.
-		"GO_MK_CODELOAD_BASE": "http://127.0.0.1:9",
+		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
 	})
 	if code != 1 {
 		t.Fatalf("helper exit = %d, want 1 (the script's own failure exit, not e.g. 127 from a missing script)\nstderr: %s", code, stderr)
@@ -586,6 +586,8 @@ func TestHelperServesDiskWhenUpstreamTimesOutAndStateIsRecent(t *testing.T) {
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(-10*time.Minute).Unix())
 	server.Stall(5 * time.Second)
+	stateBefore := readStateFile(t, dir)
+	modTimeBefore := statStateFile(t, dir).ModTime()
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
 		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
@@ -599,32 +601,66 @@ func TestHelperServesDiskWhenUpstreamTimesOutAndStateIsRecent(t *testing.T) {
 	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
 		t.Fatalf("go.mk = %q, want the warm body preserved", got)
 	}
+	// The reuse window is fixed from the last completed download, not the
+	// last successful reuse: a write here would let the window slide
+	// forward on every offline run, turning a fixed hour into unbounded
+	// reuse while the rest of the suite stayed green. Comparing both the
+	// raw bytes and the mtime (the same pair TestHelperServesDiskWhenUpstreamReturnsNotModified
+	// uses for the 304 case) catches a rewrite that lands in the same
+	// wall-clock second as the original write, which a content-only
+	// comparison could miss.
+	if stateAfter := readStateFile(t, dir); stateAfter != stateBefore {
+		t.Fatalf("state file changed across a reuse run:\nbefore: %q\nafter:  %q\nwant byte-identical, reuse must not rewrite state", stateBefore, stateAfter)
+	}
+	if modTimeAfter := statStateFile(t, dir).ModTime(); !modTimeAfter.Equal(modTimeBefore) {
+		t.Fatalf("state file mtime changed across a reuse run: before %v, after %v, want unchanged", modTimeBefore, modTimeAfter)
+	}
 }
 
-// unreachableCodeloadBase is a port nothing listens on, so every request
-// fails at connect (curl exit 7) rather than merely stalling. This is the
-// easy shape of network failure: curl's default --retry policy does not
-// even retry a connection refusal (only a timeout or a 5xx/4xx response
-// counts as transient by default), so this fails on the first attempt.
-const unreachableCodeloadBase = "http://127.0.0.1:9"
+// unreachableCodeloadBase returns an address nothing is listening on, so
+// every request fails at connect (curl exit 7) rather than merely stalling.
+// It opens a real listener, reads its address, and closes it immediately,
+// rather than pointing at a fixed low port number: this suite runs on a
+// real developer machine rather than an isolated network namespace, so a
+// hardcoded port carries a small but real risk of an unrelated process
+// already holding it, while a port that this call just held and released
+// is refused deterministically. This is the easy shape of network failure:
+// curl's default --retry policy does not even retry a connection refusal
+// (only a timeout or a 5xx/4xx response counts as transient by default),
+// so this fails on the first attempt.
+func unreachableCodeloadBase(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("open a listener to find a free port: %v", err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+	return "http://" + address
+}
 
 // TestHelperFailsWhenUpstreamTimesOutAndStateIsStale covers the harder,
 // more realistic shape of network failure: an upstream that accepts the
 // connection and then never responds, as a flaky network, a captive
 // portal, or a hung proxy actually produces. A stale state falls through
 // past the reuse branch into a real provision() attempt, whose curl call
-// carries --retry 3 --retry-delay 2 and --retry-max-time
-// (FETCH_RETRY_MAX_TIME, below FETCH_MAX_TIME): a stall this long used to
-// cost roughly 4x FETCH_MAX_TIME once retries ran unbounded (measured at
-// 134s before that fix), but is now bounded to one ~FETCH_MAX_TIME attempt.
+// now aborts a stalled transfer by lack of progress
+// (FETCH_SPEED_LIMIT/FETCH_SPEED_TIME) rather than by riding out
+// FETCH_MAX_TIME, so each attempt dies in a few seconds regardless of how
+// long the stall actually lasts; --retry still applies on top of that (see
+// TestHelperBoundsRetryTimeWhenUpstreamStalls for the measured total).
 func TestHelperFailsWhenUpstreamTimesOutAndStateIsStale(t *testing.T) {
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(-2*time.Hour).Unix())
-	// Longer than FETCH_MAX_TIME (30s) so provision's one permitted attempt
-	// genuinely exhausts its own timeout rather than completing early.
-	server.Stall(40 * time.Second)
+	// Longer than FETCH_SPEED_TIME (3s) so every attempt's speed-limit abort
+	// fires from lack of progress rather than the stall happening to end
+	// first; how much longer does not matter, since each retry opens a
+	// fresh connection and the server sleeps again from scratch.
+	server.Stall(10 * time.Second)
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
 		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
@@ -658,7 +694,7 @@ func TestHelperTreatsFutureTimestampAsStale(t *testing.T) {
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(2*time.Hour).Unix())
 
 	_, _, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase,
+		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
 	})
 	if code == 0 {
 		t.Fatal("helper exit = 0, want non-zero for a future timestamp")
@@ -668,20 +704,30 @@ func TestHelperTreatsFutureTimestampAsStale(t *testing.T) {
 // TestHelperBoundsRetryTimeWhenUpstreamStalls covers a cold provision (no
 // prior state, so main goes straight to provision rather than through
 // validate_upstream) against an upstream that accepts the connection and
-// then never responds. provision's curl carries --retry 3 --retry-delay 2,
-// and curl treats its own --max-time expiry as a retriable transient error;
-// without a --retry-max-time cap, each of up to 4 attempts (the initial one
-// plus 3 retries) can independently run the full FETCH_MAX_TIME, so a
-// single stalled upstream can cost roughly 4x FETCH_MAX_TIME plus retry
-// delays. A test that only checks the exit code would pass at that cost
-// too, so this asserts a wall-clock ceiling well under the unbounded-retry
-// cost, not just eventual failure.
+// then never sends anything further. provision's curl now aborts a stalled
+// transfer by lack of progress (--speed-limit/--speed-time), not by waiting
+// out --max-time, so a single attempt dies in about FETCH_SPEED_TIME (3s)
+// regardless of how long the stall actually lasts. --retry 3 --retry-delay 2
+// still applies on top of that (curl treats a speed-limit abort as a
+// retriable transient error, the same as it did a --max-time expiry), so
+// the real worst case is up to 4 attempts at ~3s each plus 3 retry delays
+// at 2s each: measured locally at ~18s, against 134s before the
+// progress-based abort and 30-62s in the intermediate --retry-max-time-only
+// fix. A test that only checks the exit code would pass at any of those
+// costs, so this asserts a wall-clock ceiling tuned to the current
+// architecture, not just eventual failure.
 func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
-	// Longer than FETCH_MAX_TIME (30s) so the single permitted attempt
-	// genuinely exhausts its own timeout rather than completing early.
-	server.Stall(40 * time.Second)
+	// Long enough that the speed-limit abort (not the stall ending) is what
+	// stops each attempt; kept short (rather than merely "longer than
+	// FETCH_SPEED_TIME") because the test server's own handler goroutines
+	// keep sleeping for the full stall duration even after curl gives up
+	// client-side, and the httptest.Server's Close (run via t.Cleanup)
+	// blocks on each of those goroutines unwinding, so a needlessly long
+	// stall here inflates the test's reported wall time well past what the
+	// helper itself actually takes.
+	server.Stall(10 * time.Second)
 
 	start := time.Now()
 	_, stderr, code := runHelper(t, dir, map[string]string{
@@ -697,13 +743,88 @@ func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("helper exit = 0, want non-zero against a stalled upstream: %s", stderr)
 	}
-	// FETCH_MAX_TIME (30s) bounds a single attempt; FETCH_RETRY_MAX_TIME
-	// (20s), being less than FETCH_MAX_TIME, must prevent a second attempt
-	// from ever starting once the first has already used the whole budget.
-	// 45s gives headroom over the ~30s expected cost without coming close to
-	// the ~62s+ a single additional retried attempt would add back.
-	const wallClockCeiling = 45 * time.Second
+	// Measured worst case is ~18s (4 attempts x ~3s + 3 retry delays x 2s).
+	// 25s gives margin for CI/host jitter without coming close to masking a
+	// regression back toward the old unbounded-retry cost.
+	const wallClockCeiling = 25 * time.Second
 	if elapsed > wallClockCeiling {
-		t.Fatalf("helper took %s against a stalled upstream, want under %s (a retried timeout is not bounded)", elapsed, wallClockCeiling)
+		t.Fatalf("helper took %s against a stalled upstream, want under %s (a retried stall is not bounded)", elapsed, wallClockCeiling)
+	}
+}
+
+// TestHelperCompletesWhenUpstreamTricklesAboveSpeedLimit covers the other
+// side of the progress-based abort: a transfer that is genuinely slow but
+// never stops making progress must not be punished by FETCH_SPEED_LIMIT/
+// FETCH_SPEED_TIME the way a real stall now is. Without this test, a later
+// tightening of those numbers (or of FETCH_MAX_TIME) could start failing
+// good networks silently, since every other test in this file exercises
+// either a fast, healthy transfer or a fully stalled one.
+//
+// notices.txt is inflated to pseudo-random, close-to-incompressible content
+// so the served tarball's compressed size is large enough that trickling it
+// at 2 KB/s takes several seconds rather than finishing as soon as gzip
+// collapses realistic-sized padding down to nothing. 2 KB/s comfortably
+// clears FETCH_SPEED_LIMIT (1024 B/s), and the whole transfer completes
+// well inside FETCH_MAX_TIME (15s).
+func TestHelperCompletesWhenUpstreamTricklesAboveSpeedLimit(t *testing.T) {
+	files := helperFiles()
+	files["notices.txt"] = randomAssetBody(18 * 1024)
+	server := newFetchServer(t, files)
+	dir := t.TempDir()
+	const trickleBytesPerSecond = 2048
+	server.Trickle(trickleBytesPerSecond)
+
+	start := time.Now()
+	_, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+	})
+	elapsed := time.Since(start)
+	t.Logf("helper took %s against a %d B/s trickling upstream", elapsed, trickleBytesPerSecond)
+
+	if code != 0 {
+		t.Fatalf("helper exit = %d, want 0 against a slow but progressing upstream: %s", code, stderr)
+	}
+	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
+		t.Fatalf("go.mk = %q, want the fetched tree installed", got)
+	}
+	if got := readAsset(t, dir, "notices.txt"); got != files["notices.txt"] {
+		t.Fatal("notices.txt does not match the trickled body, want the full slow transfer to have landed intact")
+	}
+}
+
+// TestHelperDoesNotReuseWhenLocalSetupFailsBeforeAnyRequest covers
+// validate_upstream failing before it ever attempts a request (an
+// unwritable TMPDIR breaking its own mktemp), with a recent, otherwise
+// reuse-eligible state and a genuinely healthy upstream. If a local setup
+// failure were treated the same as a real network failure, this would
+// wrongly serve the warm .make tree with an "upstream unreachable" warning,
+// even though the network was never consulted and, in this scenario, is
+// not the problem at all. The fix must skip reuse for this case and fall
+// through to provision, which fails loudly with its own local-cause
+// message when the same broken TMPDIR blocks its staging directory too.
+func TestHelperDoesNotReuseWhenLocalSetupFailsBeforeAnyRequest(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	dir := t.TempDir()
+	warmMake(t, dir)
+	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(-10*time.Minute).Unix())
+
+	_, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"TMPDIR":              filepath.Join(dir, "no-such-tmpdir"),
+	})
+	if code == 0 {
+		t.Fatalf("helper exit = 0, want non-zero when TMPDIR is broken: %s", stderr)
+	}
+	if strings.Contains(stderr, "upstream unreachable") {
+		t.Fatalf("stderr = %q, want no upstream-unreachable warning: the network was never consulted, only a local setup failure occurred", stderr)
+	}
+	if !strings.Contains(stderr, "validate_upstream: could not create a temp file") {
+		t.Fatalf("stderr = %q, want validate_upstream to name its own local setup failure", stderr)
+	}
+	if !strings.Contains(stderr, "could not create a staging directory") {
+		t.Fatalf("stderr = %q, want provision's own fallback to also name a local cause, not just a generic network complaint", stderr)
+	}
+	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
+		t.Fatalf("go.mk = %q, want the warm body preserved through a failure", got)
 	}
 }

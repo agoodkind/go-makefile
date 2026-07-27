@@ -21,21 +21,23 @@ GO_MK_DEV_DIR="${GO_MK_DEV_DIR:-}"
 GO_MK_MODULES="${GO_MK_MODULES:-}"
 
 MAKE_DIR=".make"
-FETCH_MAX_TIME=30
-# FETCH_RETRY_MAX_TIME bounds total time curl spends on --retry, including
-# delays between attempts. It is deliberately less than FETCH_MAX_TIME: curl
-# treats its own --max-time expiry as a retriable transient error, and the
-# retry timer is only checked between attempts, not during one, so a value
-# at or above FETCH_MAX_TIME would let one hung attempt (already at the
-# limit) still qualify for a full second attempt before the next check saw
-# the budget exceeded, compounding a single 30s hang into roughly 60s or
-# more instead of bounding it. Kept comfortably below FETCH_MAX_TIME instead
-# of merely equal to it, so that outcome holds regardless of small timing
-# variance at the boundary. A real transient error (a dropped connection or
-# a 5xx) fails in a small fraction of this budget, so this still leaves
-# --retry 3 --retry-delay 2 free to run its normal course for that case;
-# only a fully hung upstream is bounded to one attempt.
-FETCH_RETRY_MAX_TIME=20
+# FETCH_MAX_TIME is a backstop, not the thing that decides how long a stall
+# takes to fail: FETCH_SPEED_LIMIT/FETCH_SPEED_TIME below abort a stalled
+# transfer in FETCH_SPEED_TIME seconds regardless of this value. 15 is about
+# 6x a real cold codeload download (measured at 2.06-2.4s), leaving headroom
+# for a slow hotel or roaming link on a transfer that is progressing, just
+# pathologically slowly; it is not inherited from any prior budget.
+FETCH_MAX_TIME=15
+# FETCH_SPEED_LIMIT/FETCH_SPEED_TIME give curl a progress-based abort:
+# --speed-limit bytes/sec sustained for less than --speed-time seconds
+# aborts the transfer, rather than waiting for FETCH_MAX_TIME to elapse.
+# Measured locally: a connection that stalls entirely (either before or
+# partway through the body) now dies in ~3s instead of riding FETCH_MAX_TIME
+# out, while a genuinely slow but progressing transfer (2 KB/s, well under
+# FETCH_MAX_TIME's old budget) is not aborted, since its throughput stays
+# above FETCH_SPEED_LIMIT.
+FETCH_SPEED_LIMIT=1024
+FETCH_SPEED_TIME=3
 STATE_PATH="${MAKE_DIR}/.go-mk-fetch-state"
 VALIDATION_CONNECT_TIMEOUT=2
 VALIDATION_MAX_TIME=3
@@ -190,9 +192,21 @@ write_state() {
 # on every run whose upstream moved and risking a timeout on a slow link
 # that a body-less HEAD would not hit. provision()'s own GET remains the
 # only request that actually downloads. This prints the HTTP status code on
-# stdout and returns 1 only when the request never completed (curl itself
-# failed), so an unreachable upstream stays distinguishable from a served
-# 304 or 200. A curl failure here is not treated as fatal on its own: the
+# stdout on success. On failure it returns one of two distinct codes rather
+# than a single generic one, because the caller's reuse decision treats them
+# differently:
+#   1 - curl itself ran and failed to complete (a real network-level
+#       failure: connection refused, timed out, or aborted for lack of
+#       progress). The network was genuinely consulted and found wanting,
+#       so this is eligible for bounded offline reuse.
+#   2 - validate_upstream failed before any request was attempted (a local
+#       setup failure, e.g. an unwritable or full TMPDIR). The network was
+#       never consulted, so treating this the same as code 1 would let a
+#       local environment problem masquerade as an upstream outage and
+#       serve stale assets under a false pretense; the caller skips reuse
+#       for this code and falls through to provision(), which fails loudly
+#       with the real reason if the same local condition blocks it too.
+# Either way, a curl failure here is not treated as fatal on its own: the
 # caller falls back to a full provision(), which captures and reports its
 # own curl error if that also fails, so the reason is never silently lost.
 #
@@ -213,7 +227,11 @@ validate_upstream() {
         header_args=(-H "If-None-Match: ${known_etag}")
     fi
 
-    stderr_path=$(mktemp "${TMPDIR:-/tmp}/go-mk-validate.XXXXXXXX") || return 1
+    if ! stderr_path=$(mktemp "${TMPDIR:-/tmp}/go-mk-validate.XXXXXXXX"); then
+        printf 'validate_upstream: could not create a temp file to capture curl stderr (TMPDIR=%s); no request was attempted\n' \
+            "${TMPDIR:-/tmp}" >&2
+        return 2
+    fi
 
     status_code=$(curl -sS --head \
         --connect-timeout "${VALIDATION_CONNECT_TIMEOUT}" \
@@ -274,17 +292,28 @@ format_age() {
 # on stderr, naming how long ago the served assets were validated and which
 # etag they were validated against, so a consumer can tell this run apart
 # from a normal validated or freshly provisioned one without inspecting
-# STATE_PATH directly.
+# STATE_PATH directly. The timestamp read here carries its own fallback
+# (unlike state_is_recent's read of the same field moments earlier) because
+# it is not itself a control-flow condition: read_state_field failing here
+# under set -e (e.g. the state file vanishing between that check and this
+# call) would otherwise abort the whole run with no message, right as the
+# script is trying to explain why it is degrading gracefully.
 serve_from_disk_with_warning() {
     local recorded
     local now
     local etag_value
+    local age_display
 
-    recorded=$(read_state_field "timestamp")
+    recorded=$(read_state_field "timestamp" || printf '')
     etag_value=$(read_state_field "etag" || printf 'unknown')
     now=$(current_epoch_seconds)
+    if [[ "${recorded}" =~ ^[0-9]+$ ]]; then
+        age_display=$(format_age $(( now - recorded )))
+    else
+        age_display="an unknown time"
+    fi
     printf 'go-makefile: upstream unreachable; serving .make assets validated %s ago (etag %s). Set GO_MK_SKIP_FETCH=1 to silence, or check network access to %s\n' \
-        "$(format_age $(( now - recorded )))" "${etag_value}" "${GO_MK_CODELOAD_BASE}" >&2
+        "${age_display}" "${etag_value}" "${GO_MK_CODELOAD_BASE}" >&2
 }
 
 # provision downloads, extracts into a stage, verifies, then installs.
@@ -304,7 +333,11 @@ provision() {
     local subshell_status
     local etag_value
 
-    stage_root=$(mktemp -d "${TMPDIR:-/tmp}/go-mk-stage.XXXXXXXX") || return 1
+    if ! stage_root=$(mktemp -d "${TMPDIR:-/tmp}/go-mk-stage.XXXXXXXX"); then
+        printf 'error: could not create a staging directory (TMPDIR=%s): a local setup problem, not necessarily a network one\n' \
+            "${TMPDIR:-/tmp}" >&2
+        return 1
+    fi
 
     (
         trap 'rm -rf "${stage_root}"' EXIT
@@ -315,8 +348,20 @@ provision() {
         # generic message. Headers land in their own file (-D) so the ETag
         # comes from the same response that carried the body, rather than a
         # second request that could race a moving upstream.
-        curl -sS --connect-timeout 5 --max-time "${FETCH_MAX_TIME}" \
-            --retry 3 --retry-delay 2 --retry-max-time "${FETCH_RETRY_MAX_TIME}" \
+        #
+        # --speed-limit/--speed-time abort on lack of progress rather than
+        # elapsed time: a connection that stalls (before or partway through
+        # the body) dies in FETCH_SPEED_TIME seconds instead of riding
+        # FETCH_MAX_TIME out, while a transfer that keeps moving above
+        # FETCH_SPEED_LIMIT is never aborted no matter how long it takes.
+        # FETCH_MAX_TIME is now only a backstop for a transfer that is
+        # progressing but pathologically slowly. --retry stays (a transient
+        # 503 still recovers in a few seconds); --retry-max-time was removed
+        # because with the progress abort and a 15s backstop there is too
+        # little left to multiply for a separate ceiling to earn its keep.
+        curl -sS --connect-timeout 2 --max-time "${FETCH_MAX_TIME}" \
+            --speed-limit "${FETCH_SPEED_LIMIT}" --speed-time "${FETCH_SPEED_TIME}" \
+            --retry 3 --retry-delay 2 \
             -D "${stage_root}/headers" \
             -o "${stage_root}/snapshot.tar.gz" -w '%{http_code}' \
             "${GO_MK_CODELOAD_BASE}/${GO_MK_API_REPO}/tar.gz/${GO_MK_API_REF}" \
@@ -388,6 +433,7 @@ main() {
     local known_etag=""
     local known_ref=""
     local status_code=""
+    local probe_exit=0
 
     mkdir -p "${MAKE_DIR}"
 
@@ -424,7 +470,13 @@ main() {
     fi
 
     if [[ -n "${known_etag}" ]]; then
-        status_code=$(validate_upstream "${known_etag}" || printf '')
+        # Capturing both the substitution's stdout and validate_upstream's
+        # exact exit code (rather than collapsing every failure to empty
+        # status_code via `|| printf ''`) is what lets the branch below tell
+        # a real network failure (code 1) apart from a local setup failure
+        # (code 2, e.g. an unwritable TMPDIR) that never reached the network
+        # at all.
+        status_code=$(validate_upstream "${known_etag}") && probe_exit=0 || probe_exit=$?
         if [[ "${status_code}" == "304" ]]; then
             # Deliberately no state write. The reuse window a later task adds
             # runs from the last completed download, not from the last
@@ -433,11 +485,15 @@ main() {
             return 0
         fi
         # status_code is empty only when validate_upstream itself could not
-        # complete (a curl failure), never for a real response: a completed
-        # non-304 response means upstream is reachable, so that case falls
-        # through to provision() below rather than reusing disk. Bounded
-        # offline reuse applies only here, and only within the fixed window.
-        if [[ -z "${status_code}" ]] && state_is_recent; then
+        # complete, never for a real response: a completed non-304 response
+        # means upstream is reachable, so that case falls through to
+        # provision() below rather than reusing disk. Bounded offline reuse
+        # applies only when the network was actually consulted and found
+        # unreachable (probe_exit 1); a local setup failure (probe_exit 2)
+        # never consulted the network, so it is not eligible for reuse and
+        # falls through to provision() instead, which fails loudly with the
+        # real reason if the same local condition blocks it too.
+        if [[ -z "${status_code}" && "${probe_exit}" -eq 1 ]] && state_is_recent; then
             serve_from_disk_with_warning
             return 0
         fi
