@@ -1,11 +1,11 @@
-# bootstrap.mk: tiny shim that fetches go-makefile assets and includes them.
-# Consumer Makefiles set their identity vars (BINARY, CMD, VPKG, MODULES, etc.)
-# then `include bootstrap.mk`. Everything else (go.mk, golangci.yml, modules)
-# is fetched at parse time and -included transitively.
+# bootstrap.mk: tiny shim that obtains the go-makefile bootstrap helper, runs
+# it, and includes the engine. Consumer Makefiles set their identity vars
+# (BINARY, CMD, VPKG, MODULES, etc.) then `include bootstrap.mk`.
 #
 # This file is canonical in agoodkind/go-makefile. Consumers commit a copy.
-# Update path: edit go-makefile/bootstrap.mk, then refresh all consumer copies
-# (one-off sync; not a long-term mechanism).
+# It deliberately holds no fetch policy beyond obtaining the helper: the helper
+# is fetched, so a change to validation, reuse, or failure behavior reaches
+# every consumer on its next run with no consumer-side change.
 
 GO_MK_DEV_DIR  ?=
 GO_MK_MODULES  ?=
@@ -14,71 +14,59 @@ GO_MK_BASE_URL ?= https://raw.githubusercontent.com/agoodkind/go-makefile/main
 GO_MK_API_REPO ?= agoodkind/go-makefile
 GO_MK_API_REF  ?= main
 
-# _go_mk_fetch and _go_mk_prime exist here because bootstrap.mk must fetch go.mk
-# before any go.mk helpers are available. After go.mk is included, go.mk owns the
-# sibling script/module/config fetches.
-# Fetch order at parse time: dev override > files _go_mk_prime already extracted
-# from one codeload tarball into .make/ > raw URL. The gh api contents path was
-# removed: it spent one per-repo GITHUB_TOKEN core-REST call per file per job, and
-# a single tarball costs zero core-REST.
-# TODO(fetch-order): keep this order aligned with go.mk.
-# TODO(moratorium): no on-disk cache fallback. _go_mk_prime removes each asset
-# before re-copying, so a failed fetch falls through to raw or fails loud rather
-# than serving a stale file.
-define _go_mk_fetch
-	if [ -n "$(GO_MK_DEV_DIR)" ] && [ -f "$(GO_MK_DEV_DIR)/$(1)" ]; then \
-		cp "$(GO_MK_DEV_DIR)/$(1)" "$(2)"; \
-	elif [ -s "$(2)" ]; then \
-		: ; \
-	elif curl -fsSL --connect-timeout 5 --max-time 10 --retry 3 --retry-delay 2 "$(GO_MK_BASE_URL)/$(1)" -o "$(2)" 2>/dev/null && [ -s "$(2)" ]; then \
-		: ; \
-	else \
-		printf '%s\n' "error: $(1) fetch failed; no cache fallback (moratorium). Set GO_MK_DEV_DIR, or check network access to codeload.github.com and $(GO_MK_BASE_URL)" >&2; \
-		exit 1; \
-	fi
-endef
+GO_MK_BOOTSTRAP := .make/scripts/go-mk-bootstrap.sh
+# The helper URL follows GO_MK_API_REF so a ref-pinned consumer gets that ref's
+# helper. GO_MK_BASE_URL ends in /main and would pin the helper to main, so it
+# is not used here.
+GO_MK_BOOTSTRAP_URL := https://raw.githubusercontent.com/$(GO_MK_API_REPO)/$(GO_MK_API_REF)/scripts/go-mk-bootstrap.sh
 
-# _go_mk_prime downloads the go-makefile archive once, extracts it into a throwaway
-# temp dir, and copies only the assets this shim owns (go.mk, golangci.yml, and the
-# GO_MK_MODULES) into .make/. It removes each asset first so a failed download never
-# leaves a stale file for _go_mk_fetch to serve. Only .mk and .yml files land in
-# .make/, so no go-makefile source pollutes the consumer's find-based lint targets.
-define _go_mk_prime
-	if [ -n "$(GO_MK_DEV_DIR)" ]; then \
+# Obtaining the helper is the only fetch rule left in consumer-committed code.
+# It never removes an existing helper, so a warm checkout stays usable when the
+# network is gone, and only a cold offline start fails here.
+define _go_mk_get_bootstrap
+	if [ -n "$(GO_MK_DEV_DIR)" ] && [ -f "$(GO_MK_DEV_DIR)/scripts/go-mk-bootstrap.sh" ]; then \
+		mkdir -p .make/scripts; \
+		cp "$(GO_MK_DEV_DIR)/scripts/go-mk-bootstrap.sh" "$(GO_MK_BOOTSTRAP)"; \
+	elif [ -s "$(GO_MK_BOOTSTRAP)" ]; then \
 		: ; \
 	else \
-		for asset in go.mk golangci.yml $(GO_MK_MODULES); do rm -f ".make/$$asset"; done; \
-		tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/go-mk.XXXXXXXX") || exit 0; \
-		if curl -fsSL --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 "https://codeload.github.com/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" 2>/dev/null | tar -xzf - -C "$$tmp" --strip-components 1 2>/dev/null; then \
-			for asset in go.mk golangci.yml $(GO_MK_MODULES); do \
-				if [ -f "$$tmp/$$asset" ]; then \
-					mkdir -p "$$(dirname ".make/$$asset")"; \
-					cp "$$tmp/$$asset" ".make/$$asset"; \
-				fi; \
-			done; \
+		mkdir -p .make/scripts; \
+		tmp=$$(mktemp "$(GO_MK_BOOTSTRAP).tmp.XXXXXX") || exit 1; \
+		if curl -fsSL --connect-timeout 5 --max-time 10 --retry 3 --retry-delay 2 \
+			"$(GO_MK_BOOTSTRAP_URL)" -o "$$tmp" 2>/dev/null && [ -s "$$tmp" ]; then \
+			mv "$$tmp" "$(GO_MK_BOOTSTRAP)"; \
+		else \
+			rm -f "$$tmp"; \
+			printf '%s\n' "error: could not obtain $(GO_MK_BOOTSTRAP). Set GO_MK_DEV_DIR, or check network access to raw.githubusercontent.com" >&2; \
+			exit 1; \
 		fi; \
-		rm -rf "$$tmp"; \
-	fi
+	fi; \
+	chmod +x "$(GO_MK_BOOTSTRAP)"
 endef
 
 GO_MK_BOOTSTRAP_FETCHED := 1
 
-define _go_mk_require_fetched
-$(if $(wildcard $(1)),,$(error go-makefile expected $(1); rerun without GO_MK_SKIP_FETCH))
-endef
-
 ifeq ($(strip $(GO_MK_SKIP_FETCH)),1)
-GO_MK_FETCH_CHECK := $(call _go_mk_require_fetched,$(GO_MK))
-GO_MK_FETCH_CHECK += $(call _go_mk_require_fetched,.make/golangci.yml)
-GO_MK_FETCH_CHECK += $(foreach m,$(GO_MK_MODULES),$(call _go_mk_require_fetched,.make/$(m)))
+$(if $(wildcard $(GO_MK_BOOTSTRAP)),,$(error go-makefile expected $(GO_MK_BOOTSTRAP); rerun without GO_MK_SKIP_FETCH))
 else
-
-$(shell mkdir -p .make && { $(call _go_mk_prime); } 1>&2)
-$(shell mkdir -p .make && { $(call _go_mk_fetch,go.mk,$(GO_MK)); } 1>&2)
-$(shell { $(call _go_mk_fetch,golangci.yml,.make/golangci.yml); } 1>&2)
-$(foreach m,$(GO_MK_MODULES),$(shell { $(call _go_mk_fetch,$(m),.make/$(m)); } 1>&2))
-
+$(shell { $(call _go_mk_get_bootstrap); } 1>&2)
 endif
+
+# The helper provisions every asset and owns the validation, reuse, and failure
+# rules. A non-zero exit means it could not produce a usable .make, so stop
+# rather than parse an engine that is not there.
+#
+# GO_MK_API_REPO/GO_MK_API_REF are passed explicitly rather than relied on to
+# reach the helper's environment implicitly: Make only auto-exports variables
+# that originated from the process environment, not ones a consumer set with
+# a plain assignment inside their own Makefile before this include. Without
+# this, a consumer who pins GO_MK_API_REF that way would still get the right
+# ref for the helper script itself (GO_MK_BOOTSTRAP_URL substitutes it at the
+# Make level, not through the environment) but the helper would silently fall
+# back to its own main/agoodkind/go-makefile defaults once running, fetching
+# the wrong ref's assets.
+GO_MK_PROVISION := $(shell GO_MK_API_REPO="$(GO_MK_API_REPO)" GO_MK_API_REF="$(GO_MK_API_REF)" GO_MK_MODULES="$(GO_MK_MODULES)" bash "$(GO_MK_BOOTSTRAP)" >&2 && printf ok)
+$(if $(filter ok,$(GO_MK_PROVISION)),,$(error go-makefile failed to provision its assets))
 
 # go.mk handles -including the modules at its tail (after all its variables
 # are defined), so the modules see build-check etc. Don't duplicate
