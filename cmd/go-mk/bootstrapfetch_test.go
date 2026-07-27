@@ -709,13 +709,14 @@ func TestHelperTreatsFutureTimestampAsStale(t *testing.T) {
 // out --max-time, so a single attempt dies in about FETCH_SPEED_TIME (3s)
 // regardless of how long the stall actually lasts. --retry 3 --retry-delay 2
 // still applies on top of that (curl treats a speed-limit abort as a
-// retriable transient error, the same as it did a --max-time expiry), so
-// the real worst case is up to 4 attempts at ~3s each plus 3 retry delays
-// at 2s each: measured locally at ~18s, against 134s before the
-// progress-based abort and 30-62s in the intermediate --retry-max-time-only
-// fix. A test that only checks the exit code would pass at any of those
-// costs, so this asserts a wall-clock ceiling tuned to the current
-// architecture, not just eventual failure.
+// retriable transient error, the same as it did a --max-time expiry), and
+// --retry-max-time (FETCH_RETRY_MAX_TIME) caps that cascade at two attempts:
+// measured locally at ~8s (2 attempts x ~3s + 1 retry delay x 2s), against
+// ~18s with --retry uncapped, 30-62s in an earlier --retry-max-time-only fix
+// at a larger value, and 134s before any progress-based abort existed. A
+// test that only checks the exit code would pass at any of those costs, so
+// this asserts a wall-clock ceiling tuned to the current architecture, not
+// just eventual failure.
 func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
@@ -743,10 +744,11 @@ func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("helper exit = 0, want non-zero against a stalled upstream: %s", stderr)
 	}
-	// Measured worst case is ~18s (4 attempts x ~3s + 3 retry delays x 2s).
-	// 25s gives margin for CI/host jitter without coming close to masking a
-	// regression back toward the old unbounded-retry cost.
-	const wallClockCeiling = 25 * time.Second
+	// Measured worst case is ~8s (2 attempts x ~3s + 1 retry delay x 2s).
+	// 15s gives margin for CI/host jitter while staying well clear of the
+	// ~18s an uncapped retry cascade would cost, so a regression back to
+	// that shape would still be caught.
+	const wallClockCeiling = 15 * time.Second
 	if elapsed > wallClockCeiling {
 		t.Fatalf("helper took %s against a stalled upstream, want under %s (a retried stall is not bounded)", elapsed, wallClockCeiling)
 	}

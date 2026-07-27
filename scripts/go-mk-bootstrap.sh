@@ -38,6 +38,16 @@ FETCH_MAX_TIME=15
 # above FETCH_SPEED_LIMIT.
 FETCH_SPEED_LIMIT=1024
 FETCH_SPEED_TIME=3
+# FETCH_RETRY_MAX_TIME bounds the total time curl spends on --retry
+# (including the delays between attempts), on top of the progress-based
+# abort above. Measured locally against a server that never responds:
+# --retry 3 with no ceiling costs ~18s (4 attempts x ~3s, since curl treats
+# a speed-limit abort as a retriable transient error the same way it
+# treated a --max-time expiry); --retry 3 --retry-max-time 4 costs ~8s (2
+# attempts); no --retry at all costs ~3s (1 attempt). 4 keeps retries (a
+# transient 503 still recovers in a few seconds) while capping the cascade
+# at two attempts instead of leaving it unbounded.
+FETCH_RETRY_MAX_TIME=4
 STATE_PATH="${MAKE_DIR}/.go-mk-fetch-state"
 VALIDATION_CONNECT_TIMEOUT=2
 VALIDATION_MAX_TIME=3
@@ -356,12 +366,14 @@ provision() {
         # FETCH_SPEED_LIMIT is never aborted no matter how long it takes.
         # FETCH_MAX_TIME is now only a backstop for a transfer that is
         # progressing but pathologically slowly. --retry stays (a transient
-        # 503 still recovers in a few seconds); --retry-max-time was removed
-        # because with the progress abort and a 15s backstop there is too
-        # little left to multiply for a separate ceiling to earn its keep.
+        # 503 still recovers in a few seconds), but curl treats a
+        # speed-limit abort as a retriable transient error exactly the way
+        # it treated a --max-time expiry, so --retry-max-time still caps how
+        # many times a genuinely hung upstream gets retried instead of
+        # leaving that cascade unbounded.
         curl -sS --connect-timeout 2 --max-time "${FETCH_MAX_TIME}" \
             --speed-limit "${FETCH_SPEED_LIMIT}" --speed-time "${FETCH_SPEED_TIME}" \
-            --retry 3 --retry-delay 2 \
+            --retry 3 --retry-delay 2 --retry-max-time "${FETCH_RETRY_MAX_TIME}" \
             -D "${stage_root}/headers" \
             -o "${stage_root}/snapshot.tar.gz" -w '%{http_code}' \
             "${GO_MK_CODELOAD_BASE}/${GO_MK_API_REPO}/tar.gz/${GO_MK_API_REF}" \
