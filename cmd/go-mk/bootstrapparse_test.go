@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newConsumer builds a temp repo shaped like a real consumer: its own Makefile
@@ -265,5 +266,56 @@ func TestOldBootstrapMkParsesWithCurrentGoMkAndNoGoMkProvision(t *testing.T) {
 	output, code := runMake(t, dir, map[string]string{"GO_MK_DEV_DIR": devDir})
 	if code != 0 {
 		t.Fatalf("parse exit = %d, want 0 (old bootstrap.mk + current go.mk, GO_MK_PROVISION never set): %s", code, output)
+	}
+}
+
+// TestHelperAcquisitionBoundedWhenBootstrapURLStalls covers
+// _go_mk_get_bootstrap's own curl call, the one fetch that is
+// consumer-committed rather than fetched, and therefore the one place a
+// later hardening change cannot reach every consumer without another PR.
+// It stalls the server GO_MK_BOOTSTRAP_BASE_URL points at (mirroring
+// GO_MK_CODELOAD_BASE's role for the helper's own fetches) and asserts the
+// acquisition gives up within a bounded wall-clock time, not merely that
+// it eventually fails: an exit-code-only assertion would have passed at
+// 134 seconds, which is how this exact class of bug (curl retrying a
+// speed-limit or max-time abort as a transient error, uncapped) hid the
+// first time in provision(). Unlike newConsumer, this deliberately does
+// not seed .make/scripts/go-mk-bootstrap.sh, since the acquisition path
+// under test only runs when no cached helper is already on disk.
+func TestHelperAcquisitionBoundedWhenBootstrapURLStalls(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	server.Stall(10 * time.Second)
+	dir := t.TempDir()
+
+	source := filepath.Join(repoRootForTest(t), "bootstrap.mk")
+	body, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("read bootstrap.mk: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bootstrap.mk"), body, 0o644); err != nil {
+		t.Fatalf("write bootstrap.mk: %v", err)
+	}
+	makefile := "BINARY := probe\nCMD := ./cmd/probe\ninclude bootstrap.mk\n"
+	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	start := time.Now()
+	output, code := runMake(t, dir, map[string]string{
+		"GO_MK_BOOTSTRAP_BASE_URL": server.CodeloadBase(),
+	})
+	elapsed := time.Since(start)
+	t.Logf("helper acquisition took %s against a stalled bootstrap URL", elapsed)
+
+	if code == 0 {
+		t.Fatalf("parse exit = 0, want non-zero against a stalled bootstrap URL: %s", output)
+	}
+	// Measured worst case is ~8s (2 attempts x ~3s speed-limit abort + 1
+	// retry delay x 2s), the same shape as provision()'s own bound. 15s
+	// gives margin for CI/host jitter while staying well clear of the
+	// ~30s+ an uncapped retry cascade against this fetch would cost.
+	const wallClockCeiling = 15 * time.Second
+	if elapsed > wallClockCeiling {
+		t.Fatalf("helper acquisition took %s against a stalled bootstrap URL, want under %s (a retried stall is not bounded)", elapsed, wallClockCeiling)
 	}
 }

@@ -15,14 +15,31 @@ GO_MK_API_REPO ?= agoodkind/go-makefile
 GO_MK_API_REF  ?= main
 
 GO_MK_BOOTSTRAP := .make/scripts/go-mk-bootstrap.sh
-# The helper URL follows GO_MK_API_REF so a ref-pinned consumer gets that ref's
-# helper. GO_MK_BASE_URL ends in /main and would pin the helper to main, so it
-# is not used here.
-GO_MK_BOOTSTRAP_URL := https://raw.githubusercontent.com/$(GO_MK_API_REPO)/$(GO_MK_API_REF)/scripts/go-mk-bootstrap.sh
+# GO_MK_BOOTSTRAP_BASE_URL is an internal override in the same category as
+# GO_MK_CODELOAD_BASE in go-mk-bootstrap.sh: tests point it at a local server,
+# consumers never set it. The helper URL itself follows GO_MK_API_REF so a
+# ref-pinned consumer gets that ref's helper. GO_MK_BASE_URL ends in /main and
+# would pin the helper to main, so it is not used here.
+GO_MK_BOOTSTRAP_BASE_URL ?= https://raw.githubusercontent.com
+GO_MK_BOOTSTRAP_URL := $(GO_MK_BOOTSTRAP_BASE_URL)/$(GO_MK_API_REPO)/$(GO_MK_API_REF)/scripts/go-mk-bootstrap.sh
 
 # Obtaining the helper is the only fetch rule left in consumer-committed code.
 # It never removes an existing helper, so a warm checkout stays usable when the
 # network is gone, and only a cold offline start fails here.
+#
+# This is a consumer-committed fetch, so it cannot be hardened later the way
+# a fetched file can: any future change here needs another consumer PR, which
+# is exactly the round this task exists to end. The curl flags below give it
+# the same treatment provision() in go-mk-bootstrap.sh got. --speed-limit/
+# --speed-time abort a stalled connection by lack of progress rather than
+# elapsed time (a stall dies in ~3s instead of riding --max-time out), and
+# --retry-max-time caps the retry cascade at two attempts instead of leaving
+# it unbounded (curl treats a speed-limit or max-time abort as a retriable
+# transient error, so uncapped retries would cost roughly 4x --max-time).
+# --connect-timeout is 5, not tighter, for the same reason provision()'s is:
+# connect time (DNS, TCP, TLS setup) has nothing to do with stall detection,
+# and this is the very first network call a cold consumer makes, so it must
+# not fail a slow-but-working link before retrying has a chance to help.
 define _go_mk_get_bootstrap
 	if [ -n "$(GO_MK_DEV_DIR)" ] && [ -f "$(GO_MK_DEV_DIR)/scripts/go-mk-bootstrap.sh" ]; then \
 		mkdir -p .make/scripts; \
@@ -32,12 +49,14 @@ define _go_mk_get_bootstrap
 	else \
 		mkdir -p .make/scripts; \
 		tmp=$$(mktemp "$(GO_MK_BOOTSTRAP).tmp.XXXXXX") || exit 1; \
-		if curl -fsSL --connect-timeout 5 --max-time 10 --retry 3 --retry-delay 2 \
+		if curl -fsSL --connect-timeout 5 --max-time 15 \
+			--speed-limit 1024 --speed-time 3 \
+			--retry 3 --retry-delay 2 --retry-max-time 4 \
 			"$(GO_MK_BOOTSTRAP_URL)" -o "$$tmp" 2>/dev/null && [ -s "$$tmp" ]; then \
 			mv "$$tmp" "$(GO_MK_BOOTSTRAP)"; \
 		else \
 			rm -f "$$tmp"; \
-			printf '%s\n' "error: could not obtain $(GO_MK_BOOTSTRAP). Set GO_MK_DEV_DIR, or check network access to raw.githubusercontent.com" >&2; \
+			printf '%s\n' "error: could not obtain $(GO_MK_BOOTSTRAP). Set GO_MK_DEV_DIR, or check network access to $(GO_MK_BOOTSTRAP_BASE_URL)" >&2; \
 			exit 1; \
 		fi; \
 	fi; \
