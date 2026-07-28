@@ -12,6 +12,23 @@
 
 set -euo pipefail
 
+# This script installs its own successor, so it can be asked to overwrite the
+# file it is currently executing. Bash reads a script incrementally rather than
+# loading it whole, so replacing it mid-run can make the shell read the new
+# file's bytes at the old file's offset. Re-execute from a temporary copy first,
+# so the file being read is never the file being replaced. The guard variable
+# stops the copy from re-executing itself.
+reexec_from_temp_copy() {
+    local temp_copy
+    if [[ -n "${GO_MK_BOOTSTRAP_REEXEC:-}" ]]; then
+        return 0
+    fi
+    temp_copy=$(mktemp "${TMPDIR:-/tmp}/go-mk-bootstrap.XXXXXXXX") || return 1
+    cp "$0" "${temp_copy}"
+    chmod +x "${temp_copy}"
+    GO_MK_BOOTSTRAP_REEXEC=1 exec bash "${temp_copy}" "$@"
+}
+
 GO_MK_API_REPO="${GO_MK_API_REPO:-agoodkind/go-makefile}"
 GO_MK_API_REF="${GO_MK_API_REF:-main}"
 # Internal override, in the same category as GO_MK_API_REPO and GO_MK_API_REF.
@@ -64,6 +81,13 @@ required_assets() {
     printf '%s\n' "scripts/go-mk-fetch-one.sh"
     printf '%s\n' "scripts/go-mk-bin.sh"
     printf '%s\n' "scripts/go-mk-sync.sh"
+    # This script installs its own successor. bootstrap.mk serves any helper
+    # that already exists, so without this a warm consumer would run the copy it
+    # first acquired forever and never pick up a newer one. That would make the
+    # claim this delegation exists for, that a policy change reaches every
+    # consumer on its next run with no consumer pull request, false for exactly
+    # the consumers who have already run once.
+    printf '%s\n' "scripts/go-mk-bootstrap.sh"
     local module_name
     for module_name in ${GO_MK_MODULES}; do
         printf '%s\n' "${module_name}"
@@ -548,4 +572,5 @@ main() {
     return 1
 }
 
+reexec_from_temp_copy "$@"
 main "$@"
