@@ -75,23 +75,32 @@ endif
 # rules. A non-zero exit means it could not produce a usable .make, so stop
 # rather than parse an engine that is not there.
 #
-# GO_MK_API_REPO/GO_MK_API_REF are passed explicitly rather than relied on to
-# reach the helper's environment implicitly: Make only auto-exports variables
-# that originated from the process environment, not ones a consumer set with
-# a plain assignment inside their own Makefile before this include. Without
-# this, a consumer who pins GO_MK_API_REF that way would still get the right
-# ref for the helper script itself (GO_MK_BOOTSTRAP_URL substitutes it at the
-# Make level, not through the environment) but the helper would silently fall
-# back to its own main/agoodkind/go-makefile defaults once running, fetching
-# the wrong ref's assets.
-# GO_MK_CODELOAD_BASE travels the same way and for a sharper reason: without it
-# the override is silently ineffective through a Make parse. A command-line
-# assignment sets the Make variable but is not exported, so `make
-# GO_MK_CODELOAD_BASE=http://localhost:1234` reaches the helper as nothing and
-# the helper falls back to real codeload while appearing to be redirected. A
-# test written that way passes against production, which is the exact shape of
-# false positive this project has already hit twice.
-GO_MK_PROVISION := $(shell GO_MK_API_REPO="$(GO_MK_API_REPO)" GO_MK_API_REF="$(GO_MK_API_REF)" GO_MK_MODULES="$(GO_MK_MODULES)" GO_MK_CODELOAD_BASE="$(GO_MK_CODELOAD_BASE)" bash "$(GO_MK_BOOTSTRAP)" >&2 && printf ok)
+# EVERY GO_MK_* variable this file understands is forwarded to the helper
+# explicitly. Make only auto-exports variables that came from the process
+# environment, so a consumer who sets one on the make command line, or with a
+# plain assignment in their own Makefile before this include, sets the Make
+# variable without exporting it. This file then acts on the value while the
+# helper, which owns every asset install, never sees it, and the two halves
+# disagree about what the user asked for.
+#
+# That split has already produced three distinct bugs here, so forward the
+# whole set rather than adding names one at a time as each is found:
+#
+#   GO_MK_DEV_DIR       this file takes its dev branch while the helper
+#                       downloads upstream over the developer's own checkout,
+#                       so they build and lint against main believing they
+#                       are testing local edits
+#   GO_MK_SKIP_FETCH    this file honors it while the helper fetches anyway,
+#                       so an air-gapped or pre-vendored build fails at parse
+#                       time, the exact case the flag exists to serve
+#   GO_MK_CODELOAD_BASE the redirect is silently ineffective and the helper
+#                       reaches real codeload while appearing redirected, so
+#                       a test written that way passes against production
+#   GO_MK_API_REPO      the helper falls back to its own defaults and fetches
+#   GO_MK_API_REF       the wrong repository or ref's assets
+#
+# Adding a GO_MK_* variable that the helper reads means adding it here too.
+GO_MK_PROVISION := $(shell GO_MK_API_REPO="$(GO_MK_API_REPO)" GO_MK_API_REF="$(GO_MK_API_REF)" GO_MK_MODULES="$(GO_MK_MODULES)" GO_MK_CODELOAD_BASE="$(GO_MK_CODELOAD_BASE)" GO_MK_DEV_DIR="$(GO_MK_DEV_DIR)" GO_MK_SKIP_FETCH="$(GO_MK_SKIP_FETCH)" bash "$(GO_MK_BOOTSTRAP)" >&2 && printf ok)
 $(if $(filter ok,$(GO_MK_PROVISION)),,$(error go-makefile failed to provision its assets))
 
 # go.mk handles -including the modules at its tail (after all its variables

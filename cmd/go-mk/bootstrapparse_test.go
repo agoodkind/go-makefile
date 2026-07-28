@@ -54,7 +54,11 @@ func newConsumer(t *testing.T) string {
 }
 
 // runMake parses the consumer Makefile without running any recipe, which is
-// enough to exercise the whole parse-time fetch path.
+// enough to exercise the whole parse-time fetch path. Variables in env are set
+// in the process environment, which GNU Make auto-exports to $(shell ...).
+// That is only one of the three ways a consumer can set a GO_MK_* variable,
+// and it is the one that happens to work even when bootstrap.mk forgets to
+// forward it, so use runMakeWithCommandLineVars for the other two.
 func runMake(t *testing.T, dir string, env map[string]string) (string, int) {
 	t.Helper()
 	command := exec.Command("make", "-n", "help")
@@ -76,6 +80,127 @@ func runMake(t *testing.T, dir string, env map[string]string) (string, int) {
 		code = exitErr.ExitCode()
 	}
 	return combined.String(), code
+}
+
+// runMakeWithCommandLineVars passes its variables as `make VAR=value`
+// arguments rather than through the environment. GNU Make sets the Make
+// variable for a command-line assignment but does NOT export it, so anything
+// bootstrap.mk fails to forward explicitly reaches the helper as unset. A
+// consumer writing `VAR := value` in their own Makefile before the include
+// hits the same path, so this covers both of the two origins that runMake
+// cannot reach.
+func runMakeWithCommandLineVars(t *testing.T, dir string, vars map[string]string) (string, int) {
+	t.Helper()
+	arguments := []string{"-n", "help"}
+	for key, value := range vars {
+		arguments = append(arguments, key+"="+value)
+	}
+	command := exec.Command("make", arguments...)
+	command.Dir = dir
+	command.Env = append(os.Environ(), "GITHUB_ACTIONS=", "GITHUB_RUN_ID=", "GO_MK_DEV_DIR=")
+	var combined strings.Builder
+	command.Stdout = &combined
+	command.Stderr = &combined
+	err := command.Run()
+	code := 0
+	var exitErr *exec.ExitError
+	if err != nil {
+		if !asExitError(err, &exitErr) {
+			t.Fatalf("run make: %v", err)
+		}
+		code = exitErr.ExitCode()
+	}
+	return combined.String(), code
+}
+
+// devDirTree writes a complete set of required assets to a directory, so it
+// can stand in for a developer's own go-makefile checkout. go.mk prints a
+// marker the test can look for, which is how a caller tells "the dev tree was
+// used" apart from "upstream was downloaded over it".
+func devDirTree(t *testing.T, marker string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o755); err != nil {
+		t.Fatalf("mkdir dev scripts: %v", err)
+	}
+	for name, body := range helperFiles() {
+		if name == "go.mk" {
+			body = "help:\n\t@printf '" + marker + "\\n'\n"
+		}
+		if name == "scripts/go-mk-bootstrap.sh" {
+			helperBody, err := os.ReadFile(
+				filepath.Join(repoRootForTest(t), "scripts", "go-mk-bootstrap.sh"))
+			if err != nil {
+				t.Fatalf("read helper: %v", err)
+			}
+			body = string(helperBody)
+		}
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir for %s: %v", name, err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	return dir
+}
+
+// TestDevDirHonoredWhenSetOnTheMakeCommandLine covers the origin the rest of
+// the suite cannot reach. bootstrap.mk decides what to do from GO_MK_DEV_DIR
+// and then runs the helper, which owns every asset install; if the variable is
+// not forwarded explicitly the two disagree. With an unreachable upstream the
+// symptom is an error telling the user to set the variable they just set, and
+// with a reachable one it is worse and silent: the helper downloads upstream
+// over the developer's own checkout, so they build and lint against main while
+// believing they are testing local edits.
+func TestDevDirHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
+	dir := newConsumer(t)
+	devDir := devDirTree(t, "from-dev-dir")
+
+	output, code := runMakeWithCommandLineVars(t, dir, map[string]string{
+		"GO_MK_DEV_DIR":       devDir,
+		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+	})
+	if code != 0 {
+		t.Fatalf("parse exit = %d with GO_MK_DEV_DIR set on the command line, want 0: %s", code, output)
+	}
+	if !strings.Contains(output, "from-dev-dir") {
+		t.Fatalf("parse output = %q, want the dev tree's go.mk (marker \"from-dev-dir\"); "+
+			"the helper used upstream instead of the developer's checkout", output)
+	}
+}
+
+// TestSkipFetchHonoredWhenSetOnTheMakeCommandLine is the same split for the
+// flag that means "do not touch the network, the assets are already here".
+// bootstrap.mk honors it while the helper, not seeing it, fetches anyway, so
+// an air-gapped or pre-vendored build fails at parse time, which is the exact
+// case the flag exists to serve.
+func TestSkipFetchHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
+	dir := newConsumer(t)
+	for name, body := range helperFiles() {
+		// Leave the helper alone. newConsumer seeded .make with this
+		// checkout's real script, and helperFiles carries a stub that exits 0
+		// without doing anything. Writing that stub here would make the parse
+		// succeed no matter what the flag does, so the test would pass against
+		// the very bug it exists to catch.
+		if name == "scripts/go-mk-bootstrap.sh" {
+			continue
+		}
+		if name == "go.mk" {
+			body = "help:\n\t@printf 'vendored\\n'\n"
+		}
+		writeAsset(t, dir, name, body)
+	}
+
+	output, code := runMakeWithCommandLineVars(t, dir, map[string]string{
+		"GO_MK_SKIP_FETCH":    "1",
+		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+	})
+	if code != 0 {
+		t.Fatalf("parse exit = %d with GO_MK_SKIP_FETCH=1 on the command line and a complete .make, "+
+			"want 0 (the flag must prevent every network access): %s", code, output)
+	}
 }
 
 // consumerFiles is the served tree for a parse test. go.mk is a stub with a
