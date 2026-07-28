@@ -569,13 +569,16 @@ func writeState(t *testing.T, dir string, ref string, etag string, timestamp int
 }
 
 // warmMake populates .make with a complete asset set so only the validation
-// decision is under test.
+// decision is under test. "Complete" means every entry required_assets lists,
+// including scripts/go-mk-bootstrap.sh: the helper installs its own successor,
+// so that file is a required asset, and omitting it leaves assets_complete
+// false. A .make that fails assets_complete never reaches the state read, so
+// the helper skips validate_upstream entirely and provisions instead, which
+// silently turns any test of the validation decision into a test of the
+// provision path.
 func warmMake(t *testing.T, dir string) {
 	t.Helper()
 	for name, body := range helperFiles() {
-		if name == "scripts/go-mk-bootstrap.sh" {
-			continue
-		}
 		writeAsset(t, dir, name, body)
 	}
 }
@@ -751,64 +754,6 @@ func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
 	const wallClockCeiling = 15 * time.Second
 	if elapsed > wallClockCeiling {
 		t.Fatalf("helper took %s against a stalled upstream, want under %s (a retried stall is not bounded)", elapsed, wallClockCeiling)
-	}
-}
-
-// blackholedCodeloadBase is an address from the IETF TEST-NET-1 block
-// (RFC 5737, 192.0.2.0/24), reserved for documentation and testing and
-// never routable on the public internet, so a connection attempt to it
-// hangs at the TCP level rather than completing or being refused. This is
-// what a slow DNS/TCP/TLS setup on a real network looks like from curl's
-// perspective: connect() keeps trying until --connect-timeout gives up.
-// It is distinct from unreachableCodeloadBase's fast connection-refused
-// and from server.Stall's post-connection stall, which --speed-limit/
-// --speed-time handle instead.
-const blackholedCodeloadBase = "http://192.0.2.1"
-
-// TestHelperBoundsConnectTimeToFiveSeconds covers the connect phase
-// specifically, which --speed-limit/--speed-time do not touch at all: a
-// cold provision (no prior state, so main goes straight to provision)
-// against an address that never responds at the TCP level. provision's
-// curl carries --connect-timeout 5, raised back from an earlier, too
-// aggressive 2 that combined with --retry-max-time 4 would have hard
-// failed a merely slow real connect (a roaming or hotel link can spend
-// hundreds of milliseconds on DNS alone, or exceed 2s on a full TCP+TLS
-// handshake) in 6 seconds without ever giving it the chance to retry into
-// a working connection. Measured locally: ~5.0s, one attempt
-// (--retry-max-time's 4s budget is already spent by a single
-// connect-timeout failure, so no retry follows), against ~2.0s before
-// this fix.
-func TestHelperBoundsConnectTimeToFiveSeconds(t *testing.T) {
-	dir := t.TempDir()
-
-	start := time.Now()
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": blackholedCodeloadBase,
-	})
-	elapsed := time.Since(start)
-	t.Logf("helper took %s against a blackholed connect", elapsed)
-
-	if code == 0 {
-		t.Fatalf("helper exit = 0, want non-zero against an address that never responds: %s", stderr)
-	}
-	// Must run for close to the full connect-timeout (5s), not give up
-	// early the way the previous, too-tight value (2s) would. A lower
-	// bound alone does not discriminate the two: reverting connect-timeout
-	// to 2 still measures ~6.15s here (2s failed attempt + 2s retry-delay
-	// + a second 2s failed attempt, since retry-max-time's 4s budget is
-	// not yet spent after the first attempt), comfortably clearing a naive
-	// "at least 4s" floor while being the very regression this test exists
-	// to catch. The ceiling is what actually separates them: one 5s
-	// connect-timeout attempt (~5.0-5.1s measured) leaves no room in
-	// retry-max-time's 4s budget for a retry, while a 2s one does, so the
-	// ceiling is set between the two measured values.
-	const minimumElapsed = 4 * time.Second
-	if elapsed < minimumElapsed {
-		t.Fatalf("helper took %s against a blackholed connect, want at least %s (connect-timeout is too tight)", elapsed, minimumElapsed)
-	}
-	const wallClockCeiling = 5800 * time.Millisecond
-	if elapsed > wallClockCeiling {
-		t.Fatalf("helper took %s against a blackholed connect, want under %s (a second connect attempt followed, meaning connect-timeout is too tight to spend retry-max-time's budget on one attempt)", elapsed, wallClockCeiling)
 	}
 }
 

@@ -84,7 +84,14 @@ endif
 # Make level, not through the environment) but the helper would silently fall
 # back to its own main/agoodkind/go-makefile defaults once running, fetching
 # the wrong ref's assets.
-GO_MK_PROVISION := $(shell GO_MK_API_REPO="$(GO_MK_API_REPO)" GO_MK_API_REF="$(GO_MK_API_REF)" GO_MK_MODULES="$(GO_MK_MODULES)" bash "$(GO_MK_BOOTSTRAP)" >&2 && printf ok)
+# GO_MK_CODELOAD_BASE travels the same way and for a sharper reason: without it
+# the override is silently ineffective through a Make parse. A command-line
+# assignment sets the Make variable but is not exported, so `make
+# GO_MK_CODELOAD_BASE=http://localhost:1234` reaches the helper as nothing and
+# the helper falls back to real codeload while appearing to be redirected. A
+# test written that way passes against production, which is the exact shape of
+# false positive this project has already hit twice.
+GO_MK_PROVISION := $(shell GO_MK_API_REPO="$(GO_MK_API_REPO)" GO_MK_API_REF="$(GO_MK_API_REF)" GO_MK_MODULES="$(GO_MK_MODULES)" GO_MK_CODELOAD_BASE="$(GO_MK_CODELOAD_BASE)" bash "$(GO_MK_BOOTSTRAP)" >&2 && printf ok)
 $(if $(filter ok,$(GO_MK_PROVISION)),,$(error go-makefile failed to provision its assets))
 
 # go.mk handles -including the modules at its tail (after all its variables

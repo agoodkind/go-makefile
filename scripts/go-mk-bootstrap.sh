@@ -12,23 +12,6 @@
 
 set -euo pipefail
 
-# This script installs its own successor, so it can be asked to overwrite the
-# file it is currently executing. Bash reads a script incrementally rather than
-# loading it whole, so replacing it mid-run can make the shell read the new
-# file's bytes at the old file's offset. Re-execute from a temporary copy first,
-# so the file being read is never the file being replaced. The guard variable
-# stops the copy from re-executing itself.
-reexec_from_temp_copy() {
-    local temp_copy
-    if [[ -n "${GO_MK_BOOTSTRAP_REEXEC:-}" ]]; then
-        return 0
-    fi
-    temp_copy=$(mktemp "${TMPDIR:-/tmp}/go-mk-bootstrap.XXXXXXXX") || return 1
-    cp "$0" "${temp_copy}"
-    chmod +x "${temp_copy}"
-    GO_MK_BOOTSTRAP_REEXEC=1 exec bash "${temp_copy}" "$@"
-}
-
 GO_MK_API_REPO="${GO_MK_API_REPO:-agoodkind/go-makefile}"
 GO_MK_API_REF="${GO_MK_API_REF:-main}"
 # Internal override, in the same category as GO_MK_API_REPO and GO_MK_API_REF.
@@ -38,6 +21,10 @@ GO_MK_DEV_DIR="${GO_MK_DEV_DIR:-}"
 GO_MK_MODULES="${GO_MK_MODULES:-}"
 
 MAKE_DIR=".make"
+# The one asset that is this script itself, installed through install_self
+# rather than install_one_asset. Named once so required_assets and the install
+# branch cannot drift apart.
+SELF_ASSET="scripts/go-mk-bootstrap.sh"
 # FETCH_MAX_TIME is a backstop, not the thing that decides how long a stall
 # takes to fail: FETCH_SPEED_LIMIT/FETCH_SPEED_TIME below abort a stalled
 # transfer in FETCH_SPEED_TIME seconds regardless of this value. 15 is about
@@ -87,7 +74,7 @@ required_assets() {
     # claim this delegation exists for, that a policy change reaches every
     # consumer on its next run with no consumer pull request, false for exactly
     # the consumers who have already run once.
-    printf '%s\n' "scripts/go-mk-bootstrap.sh"
+    printf '%s\n' "${SELF_ASSET}"
     local module_name
     for module_name in ${GO_MK_MODULES}; do
         printf '%s\n' "${module_name}"
@@ -143,6 +130,39 @@ install_one_asset() {
     return 0
 }
 
+# install_self replaces this script itself, which needs different mechanics
+# from every other asset. cp writes through the existing inode, so copying over
+# the file bash is currently reading can make the shell read the new content at
+# its old offset partway through a run. Writing a sibling temporary and
+# renaming it into place swaps the directory entry instead: this process keeps
+# reading the inode it started with, and the next run opens the new one. The
+# temporary is a sibling so the rename stays on one filesystem and is atomic.
+#
+# Only this one asset needs it. Every other asset is installed with cp, which
+# preserves the existing behavior that an unwritable target is an install
+# failure rather than something a rename would quietly replace.
+install_self() {
+    local source_path="$1"
+    local target_path="$2"
+    local staged_path
+
+    if ! staged_path=$(mktemp "${target_path}.XXXXXXXX"); then
+        printf 'error: could not stage %s for install\n' "${target_path}" >&2
+        return 1
+    fi
+    if ! cp "${source_path}" "${staged_path}" || ! chmod +x "${staged_path}"; then
+        rm -f "${staged_path}"
+        printf 'error: could not install %s into %s\n' "${source_path}" "${target_path}" >&2
+        return 1
+    fi
+    if ! mv "${staged_path}" "${target_path}"; then
+        rm -f "${staged_path}"
+        printf 'error: could not install %s into %s\n' "${source_path}" "${target_path}" >&2
+        return 1
+    fi
+    return 0
+}
+
 # install_from_stage copies each verified asset out of the staging tree into
 # .make. It runs only after assets_complete succeeded against the stage, so a
 # copy here always overwrites a file with known-good content. It stops and
@@ -151,6 +171,12 @@ install_from_stage() {
     local stage_dir="$1"
     local asset_name
     while IFS= read -r asset_name; do
+        if [[ "${asset_name}" == "${SELF_ASSET}" ]]; then
+            if ! install_self "${stage_dir}/${asset_name}" "${MAKE_DIR}/${asset_name}"; then
+                return 1
+            fi
+            continue
+        fi
         if ! install_one_asset "${stage_dir}/${asset_name}" "${MAKE_DIR}/${asset_name}"; then
             return 1
         fi
@@ -572,5 +598,4 @@ main() {
     return 1
 }
 
-reexec_from_temp_copy "$@"
 main "$@"

@@ -80,14 +80,29 @@ func runMake(t *testing.T, dir string, env map[string]string) (string, int) {
 
 // consumerFiles is the served tree for a parse test. go.mk is a stub with a
 // help target, so the parse succeeds without pulling the real engine.
-func consumerFiles() map[string]string {
+//
+// scripts/go-mk-bootstrap.sh, by contrast, must be the real script rather than
+// a stub. The helper installs its own successor, so whatever the server serves
+// under that name becomes the helper bootstrap.mk executes on the NEXT parse.
+// Serving a stub therefore makes a consumer downgrade itself: the cold parse
+// overwrites the seeded real helper with the stub, and the warm parse then runs
+// a script that exits 0 without contacting anything, which reads as a passing
+// parse that issued no requests.
+func consumerFiles(t *testing.T) map[string]string {
+	t.Helper()
 	files := helperFiles()
 	files["go.mk"] = "help:\n\t@printf 'stub help\\n'\n"
+	helperBody, err := os.ReadFile(
+		filepath.Join(repoRootForTest(t), "scripts", "go-mk-bootstrap.sh"))
+	if err != nil {
+		t.Fatalf("read scripts/go-mk-bootstrap.sh: %v", err)
+	}
+	files["scripts/go-mk-bootstrap.sh"] = string(helperBody)
 	return files
 }
 
 func TestOfflineParseDoesNotDestroyCachedAssets(t *testing.T) {
-	server := newFetchServer(t, consumerFiles())
+	server := newFetchServer(t, consumerFiles(t))
 	dir := newConsumer(t)
 
 	output, code := runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
@@ -111,7 +126,7 @@ func TestOfflineParseDoesNotDestroyCachedAssets(t *testing.T) {
 }
 
 func TestWarmParseIssuesOneRequestTotal(t *testing.T) {
-	server := newFetchServer(t, consumerFiles())
+	server := newFetchServer(t, consumerFiles(t))
 	dir := newConsumer(t)
 
 	if output, code := runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()}); code != 0 {
@@ -354,7 +369,7 @@ func TestMoratoriumWordingIsGone(t *testing.T) {
 // bootstrap.mk never sets GO_MK_PROVISION, so go.mk must fall back to priming
 // the assets itself rather than assuming the helper ran.
 func TestOldBootstrapStillParsesWithNewGoMk(t *testing.T) {
-	files := consumerFiles()
+	files := consumerFiles(t)
 	// Serve the real go.mk so its own provisioning path is what runs.
 	realGoMk, err := os.ReadFile(filepath.Join(repoRootForTest(t), "go.mk"))
 	if err != nil {
@@ -410,7 +425,7 @@ $(shell mkdir -p .make && curl -sS -o .make/snapshot.tar.gz "$(GO_MK_CODELOAD_BA
 // fetchServer) with the real script's actual content pulled from the real
 // internet, which this asserts against.
 func TestGoMkSkipsItsOwnPrimeWhenHelperProvisioned(t *testing.T) {
-	files := consumerFiles()
+	files := consumerFiles(t)
 	realGoMk, err := os.ReadFile(filepath.Join(repoRootForTest(t), "go.mk"))
 	if err != nil {
 		t.Fatalf("read go.mk: %v", err)
