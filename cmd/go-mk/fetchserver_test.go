@@ -141,7 +141,12 @@ func TestFetchServerTarballExtractsWithSystemTar(t *testing.T) {
 // the helper hit the network, which HTTP method it used, and what each call
 // returned.
 type fetchRequest struct {
-	Method      string
+	Method string
+	// Path is the request URI the helper actually asked for. Without it no
+	// test can tell a correct fetch from one aimed at the wrong repository or
+	// ref, because this server answers every path with the same fixture, so a
+	// regression in either would still return a normal 200.
+	Path        string
 	IfNoneMatch string
 	Status      int
 	Bytes       int
@@ -236,7 +241,11 @@ func (s *fetchServer) handle(writer http.ResponseWriter, request *http.Request) 
 		time.Sleep(stall)
 	}
 
-	record := fetchRequest{Method: request.Method, IfNoneMatch: request.Header.Get("If-None-Match")}
+	record := fetchRequest{
+		Method:      request.Method,
+		Path:        request.URL.Path,
+		IfNoneMatch: request.Header.Get("If-None-Match"),
+	}
 	if !etagDisabled {
 		writer.Header().Set("ETag", etag)
 	}

@@ -528,6 +528,23 @@ $(shell mkdir -p .make && curl -sS -o .make/snapshot.tar.gz "$(GO_MK_CODELOAD_BA
 	if readAsset(t, dir, "go.mk") == "" {
 		t.Fatal("go.mk absent after a mixed-version parse")
 	}
+	// Two requests must reach THIS server: the old bootstrap.mk fetching the
+	// archive itself, and go.mk's own _go_mk_prime running because
+	// GO_MK_PROVISION is unset. The second one is the point. While the prime
+	// held codeload.github.com as a literal it ignored the redirect and hit
+	// production on every run of this test, so the server saw only one request
+	// and the test silently depended on the network and on whatever was on
+	// main rather than on the fixture above.
+	requests := server.Requests()
+	if len(requests) != 2 {
+		t.Fatalf("server saw %d requests, want 2 (the old bootstrap fetch plus go.mk's own prime); "+
+			"a missing one escaped to production instead of the test server", len(requests))
+	}
+	for index, request := range requests {
+		if want := "/agoodkind/go-makefile/tar.gz/main"; request.Path != want {
+			t.Fatalf("request %d path = %q, want %q", index, request.Path, want)
+		}
+	}
 }
 
 // TestGoMkSkipsItsOwnPrimeWhenHelperProvisioned covers the actual behavior

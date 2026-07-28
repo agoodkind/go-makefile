@@ -9,9 +9,28 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
+
+// inodeOf returns the inode number of path. install_self's whole purpose is to
+// replace the running script by renaming a new file over it rather than writing
+// through the existing one, and the inode is the only deterministic, non-timing
+// observation of which of those two happened: a copy keeps the inode, a rename
+// replaces it.
+func inodeOf(t *testing.T, path string) uint64 {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Fatalf("stat %s: no syscall.Stat_t, cannot read the inode", path)
+	}
+	return uint64(stat.Ino)
+}
 
 // helperFiles is the engine tree the test server serves. It carries every asset
 // the helper must provision, so a cold run has a complete source.
@@ -46,8 +65,17 @@ func TestHelperColdProvisionWritesEveryAsset(t *testing.T) {
 	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
 		t.Fatalf("go.mk = %q, want the served body", got)
 	}
-	if requests := server.Requests(); len(requests) != 1 {
+	requests := server.Requests()
+	if len(requests) != 1 {
 		t.Fatalf("server saw %d requests, want exactly 1", len(requests))
+	}
+	// Assert the URL, not just that a request happened. This server answers
+	// every path with the same fixture, so a helper pointed at the wrong
+	// repository or the wrong ref would still get a normal 200 and every other
+	// assertion here would still pass.
+	const wantPath = "/agoodkind/go-makefile/tar.gz/main"
+	if requests[0].Path != wantPath {
+		t.Fatalf("cold provision requested %q, want %q", requests[0].Path, wantPath)
 	}
 }
 
@@ -166,13 +194,72 @@ func TestHelperMidInstallFailureExitsNonZero(t *testing.T) {
 // against a tree where a required asset path is actually a directory. The -s
 // test alone is true for a directory (it has nonzero apparent size), so a
 // broken tree like this used to pass as complete.
+// TestHelperReplacesItsOwnFileRatherThanWritingThroughIt covers install_self,
+// which exists because this script installs its own successor and so can be
+// asked to overwrite the file bash is currently reading. Bash reads a script
+// incrementally rather than loading it whole, so writing through the existing
+// file can make the shell read the new content at its old offset partway
+// through a run.
+//
+// The corruption itself depends on the size difference between the two
+// versions and on how far bash has read, which makes it useless as an
+// assertion. The inode is the deterministic observation of the same thing: cp
+// writes through the existing inode, while staging a sibling and renaming it
+// into place gives the target a new one. Asserting the inode changed therefore
+// fails the moment install_self is replaced with a plain copy, which is the
+// regression it guards against and which nothing else in this suite catches.
+func TestHelperReplacesItsOwnFileRatherThanWritingThroughIt(t *testing.T) {
+	served := helperFiles()
+	served["scripts/go-mk-bootstrap.sh"] = "#!/usr/bin/env bash\n# generation 1\nexit 0\n"
+	server := newFetchServer(t, served)
+	dir := t.TempDir()
+
+	if _, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+	}); code != 0 {
+		t.Fatalf("cold provision exit = %d, want 0: %s", code, stderr)
+	}
+
+	helperPath := filepath.Join(dir, ".make", "scripts", "go-mk-bootstrap.sh")
+	inodeBefore := inodeOf(t, helperPath)
+
+	// Serve a different successor, so the second provision genuinely has a new
+	// helper to install. Without this the two bodies are byte-identical and the
+	// hazard install_self guards against is never created.
+	served["scripts/go-mk-bootstrap.sh"] = "#!/usr/bin/env bash\n# generation 2\nexit 0\n"
+	server.SetFiles(served)
+
+	if _, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+	}); code != 0 {
+		t.Fatalf("second provision exit = %d, want 0: %s", code, stderr)
+	}
+
+	if got := readAsset(t, dir, "scripts/go-mk-bootstrap.sh"); !strings.Contains(got, "generation 2") {
+		t.Fatalf("installed helper = %q, want the newly served generation 2 body", got)
+	}
+	if inodeAfter := inodeOf(t, helperPath); inodeAfter == inodeBefore {
+		t.Fatalf("helper inode unchanged (%d) across a provision that installed a new body; "+
+			"the running script's file was written through rather than replaced, which is the "+
+			"self-overwrite hazard install_self exists to avoid", inodeBefore)
+	}
+}
+
 func TestHelperSkipFetchRejectsDirectoryInPlaceOfAsset(t *testing.T) {
 	dir := t.TempDir()
-	writeAsset(t, dir, "go.mk", "# warm go.mk\n")
-	writeAsset(t, dir, "golangci.yml", "version: \"2\"\n")
-	writeAsset(t, dir, "scripts/go-mk-fetch-one.sh", "#!/usr/bin/env bash\nexit 0\n")
-	writeAsset(t, dir, "scripts/go-mk-bin.sh", "#!/usr/bin/env bash\nexit 0\n")
-	writeAsset(t, dir, "scripts/go-mk-sync.sh", "#!/usr/bin/env bash\nexit 0\n")
+	// Seed every required asset, then replace exactly one with a directory.
+	// Listing the assets by hand here is what made this test pass for the
+	// wrong reason before: the hand-written list omitted
+	// scripts/go-mk-bootstrap.sh once that became a required asset, so
+	// assets_complete failed on the missing file and never reached the
+	// directory at all. Driving the seed from helperFiles keeps the two in
+	// step, so the directory really is the only thing wrong with the tree.
+	for name, body := range helperFiles() {
+		if name == "notices.txt" {
+			continue
+		}
+		writeAsset(t, dir, name, body)
+	}
 	if err := os.MkdirAll(filepath.Join(dir, ".make", "notices.txt"), 0o755); err != nil {
 		t.Fatalf("seed notices.txt as a directory: %v", err)
 	}
@@ -530,6 +617,15 @@ func TestHelperDoesNotReuseETagAcrossRef(t *testing.T) {
 	}
 	if requests[1].IfNoneMatch != "" {
 		t.Fatalf("second request If-None-Match = %q, want empty (the stored etag belongs to a different ref and must not be reused)", requests[1].IfNoneMatch)
+	}
+	// The ref must reach the URL, not just the state file. Without this a
+	// helper that recorded the new ref while still fetching the old one would
+	// satisfy every other assertion in this test.
+	if want := "/agoodkind/go-makefile/tar.gz/main"; requests[0].Path != want {
+		t.Fatalf("first request path = %q, want %q", requests[0].Path, want)
+	}
+	if want := "/agoodkind/go-makefile/tar.gz/other-ref"; requests[1].Path != want {
+		t.Fatalf("second request path = %q, want %q (the changed ref never reached the URL)", requests[1].Path, want)
 	}
 
 	secondState := readState(t, dir)
