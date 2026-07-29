@@ -25,6 +25,14 @@ MAKE_DIR=".make"
 # rather than install_one_asset. Named once so required_assets and the install
 # branch cannot drift apart.
 SELF_ASSET="scripts/go-mk-bootstrap.sh"
+# LOCK_DIR serializes concurrent parses in one consumer directory. It lives
+# under .make so it is per-consumer, and it is a directory because mkdir is the
+# atomic create-if-absent primitive available everywhere this runs.
+LOCK_DIR="${MAKE_DIR}/.go-mk-lock"
+# LOCK_WAIT_SECONDS bounds how long a second parse waits for the first. A real
+# provision measures a few seconds, so this is generous, and a wait that
+# reaches it means something is wrong rather than merely slow.
+LOCK_WAIT_SECONDS=30
 # FETCH_MAX_TIME caps a single attempt outright, whatever its throughput. It
 # is the slower of two independent bounds, so state the real consequence
 # rather than calling it a mere backstop: the archive measures about 320 KB,
@@ -66,6 +74,79 @@ VALIDATION_MAX_TIME=3
 # state, so it cannot extend the window, and only a real provision() run
 # resets the clock.
 REUSE_WINDOW_SECONDS=3600
+
+# clear_state removes the recorded validation state and reports failure if the
+# file is still there afterward. Every caller runs this BEFORE modifying .make,
+# so a modification that fails partway leaves no state behind for a later run
+# to validate a half-changed tree against.
+#
+# `rm -f` alone is not enough to rely on. It reports success for a file that
+# was already absent, which is the common case and fine, but it reports failure
+# for an immutable or permission-blocked file, and an unchecked removal there
+# would leave the stale state in place while the assets underneath it changed.
+# The existence re-check covers the same ground independently of rm's own
+# status.
+clear_state() {
+    local removal_error
+    # rm's stderr is captured rather than written to a file, because a file
+    # would have to live somewhere, and the case worth reporting is exactly
+    # the one where .make may not be writable.
+    removal_error=$(rm -f "${STATE_PATH}" 2>&1) || true
+    # The existence check, not rm's exit status, is what decides. rm reports
+    # success for an already-absent file, which is the common case, and
+    # failure for an immutable or permission-blocked one; either way what
+    # matters is whether the stale state is gone.
+    if [[ -e "${STATE_PATH}" ]]; then
+        printf 'error: could not remove %s, so refusing to modify .make while stale validation state survives: %s\n' \
+            "${STATE_PATH}" "${removal_error}" >&2
+        return 1
+    fi
+    return 0
+}
+
+# acquire_lock serializes everything that reads validation state or writes
+# under .make, for the whole lifetime of this process.
+#
+# Without it two parses in the same directory race. Each stages its own archive
+# and installs asset by asset, so their copies interleave and .make ends up
+# holding a mix of two trees, while the state file records whichever finished
+# last. Every later run then validates that mixed tree against one archive's
+# ETag, receives 304, and keeps it indefinitely. Both parses exit 0, so nothing
+# reports the problem.
+#
+# mkdir is the primitive because it is atomic on every filesystem this runs on
+# and needs no flock, which macOS does not ship. The holder's pid goes in the
+# directory so a lock left by a killed process can be reclaimed rather than
+# blocking every future parse: the reclaim races, but only via mkdir, so
+# exactly one contender wins.
+acquire_lock() {
+    local waited=0
+    local holder=""
+    while true; do
+        if mkdir "${LOCK_DIR}" 2>/dev/null; then
+            printf '%s\n' "$$" >"${LOCK_DIR}/pid" 2>/dev/null || true
+            return 0
+        fi
+        holder=$(cat "${LOCK_DIR}/pid" 2>/dev/null || printf '')
+        if [[ -n "${holder}" ]] && ! kill -0 "${holder}" 2>/dev/null; then
+            # The recorded holder is gone, so this lock cannot be released by
+            # anyone. Drop it and contend again through mkdir.
+            rm -rf "${LOCK_DIR}"
+            continue
+        fi
+        if (( waited >= LOCK_WAIT_SECONDS )); then
+            printf 'error: another go-makefile parse has held %s for %ss. If no other build is running, remove that directory.\n' \
+                "${LOCK_DIR}" "${LOCK_WAIT_SECONDS}" >&2
+            return 1
+        fi
+        sleep 1
+        waited=$(( waited + 1 ))
+    done
+}
+
+release_lock() {
+    rm -rf "${LOCK_DIR}"
+}
 
 required_assets() {
     printf '%s\n' "go.mk"
@@ -198,6 +279,16 @@ install_from_stage() {
 # leave .make incomplete.
 install_from_dev_dir() {
     local asset_name
+    # Clear the recorded state BEFORE touching any asset, not after the loop.
+    # This loop returns on its first failure, so a failure partway leaves .make
+    # holding some dev-dir files and some upstream ones. State removed only at
+    # the end would survive that, and the next run without GO_MK_DEV_DIR would
+    # send the old ETag, receive 304, and treat the half-replaced tree as
+    # current upstream content. Removed first, a partial install simply costs
+    # the next run a full fetch.
+    if ! clear_state; then
+        return 1
+    fi
     while IFS= read -r asset_name; do
         if [[ ! -f "${GO_MK_DEV_DIR}/${asset_name}" ]]; then
             continue
@@ -215,11 +306,6 @@ install_from_dev_dir() {
             return 1
         fi
     done < <(required_assets)
-    # A dev dir replaces .make with local edits, so any recorded ETag now
-    # describes content that never came from upstream. Leaving it would let a
-    # later run without GO_MK_DEV_DIR send that ETag, receive a 304, and treat
-    # the developer's modified files as current upstream content.
-    rm -f "${STATE_PATH}"
     return 0
 }
 
@@ -494,7 +580,14 @@ provision() {
         # as validated and current, and the inconsistency would persist
         # indefinitely. With no state file, a failed install simply costs the
         # next run a full fetch.
-        rm -f "${STATE_PATH}"
+        #
+        # The removal is checked, because an unchecked one that failed would
+        # put us in exactly the state this ordering exists to prevent: assets
+        # about to change underneath a state file that still describes the old
+        # ones. Refuse to install rather than proceed.
+        if ! clear_state; then
+            exit 1
+        fi
         if ! install_from_stage "${stage_dir}"; then
             exit 1
         fi
@@ -556,6 +649,15 @@ main() {
     local probe_exit=0
 
     mkdir -p "${MAKE_DIR}"
+
+    # Everything past this point either reads validation state or writes under
+    # .make, so it is all inside the lock. Two parses in one directory would
+    # otherwise interleave their installs and leave a tree that is half one
+    # archive and half another, recorded as whichever finished last.
+    if ! acquire_lock; then
+        return 1
+    fi
+    trap release_lock EXIT
 
     if [[ -n "${GO_MK_DEV_DIR}" ]]; then
         if ! install_from_dev_dir; then

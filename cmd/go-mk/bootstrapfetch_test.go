@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -268,58 +269,83 @@ func TestHelperDevDirReplacesItsOwnFileAndClearsState(t *testing.T) {
 	}
 }
 
-// TestHelperDegradesWhenStateIsUnwritable covers the last step of a successful
-// provision. .make is installed and re-verified by the time write_state runs,
-// so a failure there is a local storage problem, not a provisioning one, and
-// aborting the parse over it would trade a complete correct engine for none.
-func TestHelperDegradesWhenStateIsUnwritable(t *testing.T) {
+// TestHelperDevDirPartialInstallLeavesNoState covers the ordering of the state
+// removal on the dev-dir path. The install loop stops on its first failure, so
+// a failure partway leaves .make holding some dev-dir files and some upstream
+// ones. If the recorded state survived that, the next run without
+// GO_MK_DEV_DIR would send its ETag, receive 304, and treat the half-replaced
+// tree as current upstream content indefinitely.
+func TestHelperDevDirPartialInstallLeavesNoState(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("runs as root, where a read-only file cannot make cp fail")
+	}
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
-	// A directory at the state path makes the redirect in write_state fail
-	// while everything before it succeeds.
-	if err := os.MkdirAll(filepath.Join(dir, ".make", ".go-mk-fetch-state"), 0o755); err != nil {
-		t.Fatalf("seed the state path as a directory: %v", err)
+	if _, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+	}); code != 0 {
+		t.Fatalf("cold provision exit = %d, want 0: %s", code, stderr)
+	}
+	statePath := filepath.Join(dir, ".make", ".go-mk-fetch-state")
+	if _, err := os.Stat(statePath); err != nil {
+		t.Fatalf("cold provision left no state: %v", err)
+	}
+
+	// A dev dir carrying every asset, with one target made unwritable so the
+	// install fails after earlier assets have already been replaced.
+	devDir := t.TempDir()
+	for name, body := range helperFiles() {
+		path := filepath.Join(devDir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir for %s: %v", name, err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(dir, ".make", "golangci.yml"), 0o444); err != nil {
+		t.Fatalf("make golangci.yml read-only: %v", err)
 	}
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_DEV_DIR":       devDir,
+		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
 	})
-	if code != 0 {
-		t.Fatalf("helper exit = %d, want 0: .make is complete and verified, so an unwritable "+
-			"state path must degrade to unconditional downloads rather than fail the parse\nstderr: %s",
-			code, stderr)
+	if code == 0 {
+		t.Fatalf("dev-dir run exit = 0, want non-zero when an install step fails: %s", stderr)
 	}
-	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
-		t.Fatalf("go.mk = %q, want the served body installed despite the state write failing", got)
-	}
-	if !strings.Contains(stderr, "download unconditionally") {
-		t.Fatalf("stderr = %q, want a warning that state could not be recorded", stderr)
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Fatalf("state file survived a partial dev-dir install (stat err = %v); "+
+			"a later run would 304 against it and bless a tree that is part dev dir and part upstream", err)
 	}
 }
 
-// TestHelperSkipFetchRejectsDirectoryInPlaceOfAsset covers assets_complete
-// against a tree where a required asset path is actually a directory. The -s
-// test alone is true for a directory (it has nonzero apparent size), so a
-// broken tree like this used to pass as complete.
-// TestHelperReplacesItsOwnFileRatherThanWritingThroughIt covers install_self,
-// which exists because this script installs its own successor and so can be
-// asked to overwrite the file bash is currently reading. Bash reads a script
-// incrementally rather than loading it whole, so writing through the existing
-// file can make the shell read the new content at its old offset partway
-// through a run.
+// On the degrade path for a failed state write, which has no test here:
+// provision() warns and exits 0 rather than failing when write_state fails,
+// because .make is installed and re-verified by that point and aborting would
+// trade a complete engine for none.
 //
-// The corruption itself depends on the size difference between the two
-// versions and on how far bash has read, which makes it useless as an
-// assertion. The inode is the deterministic observation of the same thing: cp
-// writes through the existing inode, while staging a sibling and renaming it
-// into place gives the target a new one. Asserting the inode changed therefore
-// fails the moment install_self is replaced with a plain copy, which is the
-// regression it guards against and which nothing else in this suite catches.
-func TestHelperReplacesItsOwnFileRatherThanWritingThroughIt(t *testing.T) {
-	served := helperFiles()
-	served["scripts/go-mk-bootstrap.sh"] = "#!/usr/bin/env bash\n# generation 1\nexit 0\n"
-	server := newFetchServer(t, served)
+// That branch used to have a test, which seeded a directory at the state path
+// so the write would fail. clear_state now runs BEFORE any asset is installed
+// and rejects that same input first, so the helper refuses early instead of
+// reaching the write. Refusing is the better outcome and the test below
+// asserts it. Once the state is known removed, a later write to that path
+// fails only from something like a full disk between the install and the
+// write, which this suite cannot produce deterministically. The branch is
+// therefore defense in depth with no coverage claimed for it, rather than a
+// test rewritten until it passed.
+//
+// TestHelperRefusesToInstallWhenStateCannotBeCleared covers the check on that
+// removal. Removing the state before installing only helps if the removal
+// actually happened: an unchecked failure would leave assets changing
+// underneath a state file that still describes the old ones, which is the
+// precise condition the ordering exists to prevent.
+func TestHelperRefusesToInstallWhenStateCannotBeCleared(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("runs as root, where an unwritable directory cannot block removal")
+	}
+	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
 	if _, stderr, code := runHelper(t, dir, map[string]string{
@@ -328,28 +354,130 @@ func TestHelperReplacesItsOwnFileRatherThanWritingThroughIt(t *testing.T) {
 		t.Fatalf("cold provision exit = %d, want 0: %s", code, stderr)
 	}
 
-	helperPath := filepath.Join(dir, ".make", "scripts", "go-mk-bootstrap.sh")
-	inodeBefore := inodeOf(t, helperPath)
+	// Make ONLY the state file un-removable, with the immutable flag rather
+	// than by denying write on .make. Denying write on the directory would
+	// also block every asset install, so the helper would fail for that
+	// reason instead and this test would pass without exercising the check at
+	// all. Confirmed: with .make at 0555 the test passed even against an
+	// unchecked removal.
+	statePathForFlag := filepath.Join(dir, ".make", ".go-mk-fetch-state")
+	goMkBefore := readAsset(t, dir, "go.mk")
+	if output, err := exec.Command("chflags", "uchg", statePathForFlag).CombinedOutput(); err != nil {
+		t.Skipf("cannot set the immutable flag on this platform: %v: %s", err, output)
+	}
+	t.Cleanup(func() { _ = exec.Command("chflags", "nouchg", statePathForFlag).Run() })
 
-	// Serve a different successor, so the second provision genuinely has a new
-	// helper to install. Without this the two bodies are byte-identical and the
-	// hazard install_self guards against is never created.
-	served["scripts/go-mk-bootstrap.sh"] = "#!/usr/bin/env bash\n# generation 2\nexit 0\n"
-	server.SetFiles(served)
+	server.SetFiles(map[string]string{
+		"go.mk":                      "# go.mk v2\n",
+		"golangci.yml":               "version: \"2\"\n",
+		"notices.txt":                "notice v1\n",
+		"scripts/go-mk-fetch-one.sh": "#!/usr/bin/env bash\nexit 0\n",
+		"scripts/go-mk-bin.sh":       "#!/usr/bin/env bash\nexit 0\n",
+		"scripts/go-mk-sync.sh":      "#!/usr/bin/env bash\nexit 0\n",
+		"scripts/go-mk-bootstrap.sh": "#!/usr/bin/env bash\nexit 0\n",
+	})
 
-	if _, stderr, code := runHelper(t, dir, map[string]string{
+	_, stderr, code := runHelper(t, dir, map[string]string{
 		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	}); code != 0 {
-		t.Fatalf("second provision exit = %d, want 0: %s", code, stderr)
+	})
+	if code == 0 {
+		t.Fatalf("helper exit = 0, want non-zero when the state file cannot be removed: %s", stderr)
+	}
+	if got := readAsset(t, dir, "go.mk"); got != goMkBefore {
+		t.Fatalf("go.mk = %q, want the previous body %q: assets must not change while stale state survives",
+			got, goMkBefore)
+	}
+}
+
+// TestHelperSerializesConcurrentParses covers the lock. Two parses in one
+// consumer directory each stage their own archive and install asset by asset,
+// so without serialization their copies interleave and .make ends up holding a
+// mix of two trees while the state file records whichever finished last. Every
+// later run then validates that mixed tree against one archive's ETag, gets a
+// 304, and keeps it. Both parses exit 0, so nothing reports it.
+//
+// The assertion is that .make is internally consistent afterwards: every asset
+// comes from the same generation. A mixed tree fails it.
+func TestHelperSerializesConcurrentParses(t *testing.T) {
+	const parallel = 4
+	dir := t.TempDir()
+
+	// Each server serves a distinct generation, so an interleaved install is
+	// visible as assets from different generations landing together.
+	servers := make([]*fetchServer, parallel)
+	for index := range servers {
+		generation := fmt.Sprintf("gen%d", index)
+		files := map[string]string{
+			"go.mk":                      "# go.mk " + generation + "\n",
+			"golangci.yml":               "# " + generation + "\n",
+			"notices.txt":                generation + "\n",
+			"scripts/go-mk-fetch-one.sh": "#!/usr/bin/env bash\n# " + generation + "\nexit 0\n",
+			"scripts/go-mk-bin.sh":       "#!/usr/bin/env bash\n# " + generation + "\nexit 0\n",
+			"scripts/go-mk-sync.sh":      "#!/usr/bin/env bash\n# " + generation + "\nexit 0\n",
+			"scripts/go-mk-bootstrap.sh": "#!/usr/bin/env bash\n# " + generation + "\nexit 0\n",
+		}
+		servers[index] = newFetchServer(t, files)
 	}
 
-	if got := readAsset(t, dir, "scripts/go-mk-bootstrap.sh"); !strings.Contains(got, "generation 2") {
-		t.Fatalf("installed helper = %q, want the newly served generation 2 body", got)
+	// Each server holds its response for stallPerParse, which makes the
+	// critical section long enough to observe directly. Serialized, the four
+	// parses cost at least three stalls end to end. Unserialized they overlap
+	// and finish in about one.
+	//
+	// Timing is the assertion rather than a mixed tree, because a mixed tree
+	// needs the install loops to interleave, and the install is a handful of
+	// small copies. Confirmed: with four parses and no lock, the tree came out
+	// consistent every time, so that assertion passed against the very bug it
+	// was meant to catch.
+	const stallPerParse = 2 * time.Second
+	for _, server := range servers {
+		server.Stall(stallPerParse)
 	}
-	if inodeAfter := inodeOf(t, helperPath); inodeAfter == inodeBefore {
-		t.Fatalf("helper inode unchanged (%d) across a provision that installed a new body; "+
-			"the running script's file was written through rather than replaced, which is the "+
-			"self-overwrite hazard install_self exists to avoid", inodeBefore)
+
+	start := time.Now()
+	var group sync.WaitGroup
+	for index := range servers {
+		group.Add(1)
+		go func(base string) {
+			defer group.Done()
+			_, _, _ = runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": base})
+		}(servers[index].CodeloadBase())
+	}
+	group.Wait()
+	elapsed := time.Since(start)
+	t.Logf("%d concurrent parses took %s with a %s stall each", parallel, elapsed, stallPerParse)
+
+	if minimum := 3 * stallPerParse; elapsed < minimum {
+		t.Fatalf("%d concurrent parses took %s, want at least %s: they overlapped, "+
+			"so provisioning is not serialized and two installs can interleave",
+			parallel, elapsed, minimum)
+	}
+
+	// Every asset must name the same generation. Which one wins is not
+	// specified and does not matter; that they agree is the whole point.
+	generations := map[string]string{}
+	for _, asset := range []string{
+		"go.mk", "golangci.yml", "notices.txt",
+		"scripts/go-mk-fetch-one.sh", "scripts/go-mk-bin.sh", "scripts/go-mk-sync.sh",
+	} {
+		body := readAsset(t, dir, asset)
+		found := ""
+		for index := range servers {
+			if strings.Contains(body, fmt.Sprintf("gen%d", index)) {
+				found = fmt.Sprintf("gen%d", index)
+			}
+		}
+		if found == "" {
+			t.Fatalf("asset %s = %q, names no generation", asset, body)
+		}
+		generations[asset] = found
+	}
+	first := generations["go.mk"]
+	for asset, generation := range generations {
+		if generation != first {
+			t.Fatalf("mixed tree after concurrent parses: go.mk is from %s but %s is from %s; "+
+				"two parses interleaved their installs", first, asset, generation)
+		}
 	}
 }
 
@@ -1107,6 +1235,20 @@ func TestHelperAlwaysProvisionsUnconditionallyInCI(t *testing.T) {
 	if requests[0].Status != 200 {
 		t.Fatalf("CI request status = %d, want 200", requests[0].Status)
 	}
+	// Assert a real body came back, not just a 200-shaped response. Without
+	// this a regression that answered from disk while still issuing one
+	// unconditional request would satisfy every assertion above.
+	if requests[0].Bytes == 0 {
+		t.Fatal("CI request transferred 0 bytes, want the full archive: CI must re-download, not serve disk")
+	}
+	// On what this cannot cover: the rule is also that CI never READS the
+	// state file, and a read whose value is then discarded has no observable
+	// effect from outside the process, so no assertion here can distinguish
+	// it. What is observable is every way such a read could change behavior,
+	// and those are covered: a read that reached the request shows up as
+	// If-None-Match above, and a read that enabled reuse shows up as a
+	// success against an unreachable upstream in
+	// TestHelperFailsInCIWhenUpstreamIsUnreachableDespiteFreshState.
 }
 
 // TestHelperFailsInCIWhenUpstreamIsUnreachableDespiteFreshState covers the

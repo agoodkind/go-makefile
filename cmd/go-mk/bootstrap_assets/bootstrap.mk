@@ -43,7 +43,14 @@ GO_MK_BOOTSTRAP_URL := $(GO_MK_BOOTSTRAP_BASE_URL)/$(GO_MK_API_REPO)/$(GO_MK_API
 define _go_mk_get_bootstrap
 	if [ -n "$(GO_MK_DEV_DIR)" ] && [ -f "$(GO_MK_DEV_DIR)/scripts/go-mk-bootstrap.sh" ]; then \
 		mkdir -p .make/scripts; \
-		cp "$(GO_MK_DEV_DIR)/scripts/go-mk-bootstrap.sh" "$(GO_MK_BOOTSTRAP)"; \
+		devtmp=$$(mktemp "$(GO_MK_BOOTSTRAP).tmp.XXXXXX") || exit 1; \
+		if cp "$(GO_MK_DEV_DIR)/scripts/go-mk-bootstrap.sh" "$$devtmp" && mv "$$devtmp" "$(GO_MK_BOOTSTRAP)"; then \
+			: ; \
+		else \
+			rm -f "$$devtmp"; \
+			printf '%s\n' "error: could not install $(GO_MK_BOOTSTRAP) from GO_MK_DEV_DIR=$(GO_MK_DEV_DIR)" >&2; \
+			exit 1; \
+		fi; \
 	elif [ -s "$(GO_MK_BOOTSTRAP)" ]; then \
 		: ; \
 	else \
@@ -66,7 +73,17 @@ endef
 GO_MK_BOOTSTRAP_FETCHED := 1
 
 ifeq ($(strip $(GO_MK_SKIP_FETCH)),1)
-$(if $(wildcard $(GO_MK_BOOTSTRAP)),,$(error go-makefile expected $(GO_MK_BOOTSTRAP); rerun without GO_MK_SKIP_FETCH))
+# Test for a non-empty regular file, not merely an existing path. $(wildcard)
+# reports any name that exists, including a zero-byte file, and bash exits 0 on
+# an empty script, so GO_MK_PROVISION would come back `ok` and the parse would
+# continue with no engine provisioned at all. That is reachable: the fetch path
+# below writes a temp file and renames it, but an interrupted earlier run, a
+# full disk, or a hand-created placeholder all leave an empty helper that this
+# guard is the only thing standing in front of. -s matches the same test the
+# fetch path uses on the cached helper, so both paths agree on what counts as
+# present.
+GO_MK_BOOTSTRAP_PRESENT := $(shell test -s "$(GO_MK_BOOTSTRAP)" && printf yes)
+$(if $(GO_MK_BOOTSTRAP_PRESENT),,$(error go-makefile expected a non-empty $(GO_MK_BOOTSTRAP); rerun without GO_MK_SKIP_FETCH))
 else
 $(shell { $(call _go_mk_get_bootstrap); } 1>&2)
 endif

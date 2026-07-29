@@ -247,6 +247,147 @@ func TestOfflineParseDoesNotDestroyCachedAssets(t *testing.T) {
 	}
 }
 
+// TestSkipFetchRejectsAnEmptyHelper covers the skip-fetch guard, which used
+// $(wildcard) and so accepted any path that exists. An empty helper satisfies
+// that, and bash exits 0 on an empty script, so GO_MK_PROVISION came back "ok"
+// and the parse continued with nothing provisioned. An interrupted earlier
+// run, a full disk, or a hand-created placeholder all produce that file.
+func TestSkipFetchRejectsAnEmptyHelper(t *testing.T) {
+	dir := newConsumer(t)
+	helperPath := filepath.Join(dir, ".make", "scripts", "go-mk-bootstrap.sh")
+	if err := os.WriteFile(helperPath, nil, 0o755); err != nil {
+		t.Fatalf("truncate the cached helper: %v", err)
+	}
+	for name, body := range helperFiles() {
+		if name == "scripts/go-mk-bootstrap.sh" {
+			continue
+		}
+		if name == "go.mk" {
+			// A working go.mk with the target the parse asks for. Without it
+			// the parse dies on "No rule to make target help" whatever the
+			// guard does, and this test passes for that reason instead.
+			// Confirmed: with helperFiles' marker go.mk, the test passed
+			// against the old $(wildcard) guard.
+			body = "help:\n\t@printf 'vendored help\\n'\n"
+		}
+		writeAsset(t, dir, name, body)
+	}
+
+	output, code := runMake(t, dir, map[string]string{
+		"GO_MK_SKIP_FETCH":    "1",
+		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+	})
+	if code == 0 {
+		t.Fatalf("parse exit = 0 with an empty %s, want non-zero: an empty script exits 0, "+
+			"so the parse would continue with no engine provisioned\noutput: %s", helperPath, output)
+	}
+	if !strings.Contains(output, "non-empty") {
+		t.Fatalf("parse failed but not on the helper guard, so this test would pass for an "+
+			"unrelated reason\noutput: %s", output)
+	}
+}
+
+// TestDevDirHelperAcquisitionReplacesRatherThanOverwrites covers bootstrap.mk's
+// own dev-dir acquisition, which copied the dev copy over the cached helper in
+// place. cp writes through the existing inode, so a concurrent parse executing
+// that file can read the new content at its old offset, which is the hazard
+// install_self exists to avoid on the staged path.
+//
+// Isolating it needs care. The parse also runs the helper, and the helper
+// reinstalls its own successor from the dev dir through install_self, so the
+// inode changes whatever bootstrap.mk did. Confirmed: an inode assertion after
+// a successful parse passed against the in-place copy. A dev helper that exits
+// non-zero stops the run before install_self, so the acquisition is the only
+// thing that touched the file.
+//
+// Truncation is not the observable either: cp opens the source before it
+// truncates the target, so an unreadable source leaves the target intact.
+// Confirmed: that assertion also passed against the in-place copy.
+func TestDevDirHelperAcquisitionReplacesRatherThanOverwrites(t *testing.T) {
+	dir := newConsumer(t)
+	helperPath := filepath.Join(dir, ".make", "scripts", "go-mk-bootstrap.sh")
+	inodeBefore := inodeOf(t, helperPath)
+
+	devDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(devDir, "scripts"), 0o755); err != nil {
+		t.Fatalf("mkdir dev scripts: %v", err)
+	}
+	const devBody = "#!/usr/bin/env bash\n# dev dir helper that refuses to provision\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(devDir, "scripts", "go-mk-bootstrap.sh"),
+		[]byte(devBody), 0o755); err != nil {
+		t.Fatalf("write dev helper: %v", err)
+	}
+
+	// The parse fails, which is the point: it stops after the acquisition and
+	// before any install.
+	runMake(t, dir, map[string]string{
+		"GO_MK_DEV_DIR":       devDir,
+		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+	})
+
+	installed, err := os.ReadFile(helperPath)
+	if err != nil {
+		t.Fatalf("read the helper after acquisition: %v", err)
+	}
+	if string(installed) != devBody {
+		t.Fatalf("the dev helper was not installed (%q), so this test proves nothing about how it was installed",
+			string(installed))
+	}
+	if inodeAfter := inodeOf(t, helperPath); inodeAfter == inodeBefore {
+		t.Fatalf("helper inode unchanged (%d) after the dev-dir acquisition replaced its body; "+
+			"the file was written through rather than replaced, so a concurrent parse executing "+
+			"it can read new content at an old offset", inodeBefore)
+	}
+}
+
+// TestOldBootstrapPrimePreservesCachedAssetsOffline covers go.mk's own prime,
+// the path a consumer whose committed bootstrap.mk predates the helper still
+// takes. It used to delete every asset it owns before downloading their
+// replacements, which is the delete-then-fetch shape this branch exists to
+// remove: with the network down the consumer lost its cached helper scripts
+// and could not build until the network returned.
+func TestOldBootstrapPrimePreservesCachedAssetsOffline(t *testing.T) {
+	dir := t.TempDir()
+	realGoMk, err := os.ReadFile(filepath.Join(repoRootForTest(t), "go.mk"))
+	if err != nil {
+		t.Fatalf("read go.mk: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".make", "scripts"), 0o755); err != nil {
+		t.Fatalf("mkdir .make/scripts: %v", err)
+	}
+	// A warm tree carrying exactly the assets the prime owns.
+	writeAsset(t, dir, "go.mk", string(realGoMk))
+	cached := map[string]string{
+		"scripts/go-mk-fetch-one.sh": "#!/usr/bin/env bash\n# cached fetch-one\nexit 0\n",
+		"scripts/go-mk-bin.sh":       "#!/usr/bin/env bash\n# cached bin\nexit 0\n",
+		"scripts/go-mk-sync.sh":      "#!/usr/bin/env bash\n# cached sync\nexit 0\n",
+		"notices.txt":                "cached notices\n",
+	}
+	for name, body := range cached {
+		writeAsset(t, dir, name, body)
+	}
+
+	// A pre-helper bootstrap.mk: it never sets GO_MK_PROVISION, which is the
+	// condition that lets go.mk run its own prime.
+	oldBootstrap := "GO_MK := .make/go.mk\nGO_MK_BOOTSTRAP_FETCHED := 1\n-include $(GO_MK)\n"
+	if err := os.WriteFile(filepath.Join(dir, "bootstrap.mk"), []byte(oldBootstrap), 0o644); err != nil {
+		t.Fatalf("write old bootstrap.mk: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Makefile"),
+		[]byte("BINARY := probe\ninclude bootstrap.mk\n"), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t)})
+
+	for name, body := range cached {
+		if got := readAsset(t, dir, name); got != body {
+			t.Fatalf("%s = %q after an offline parse, want the cached body %q preserved: "+
+				"the prime deleted it before its replacement existed", name, got, body)
+		}
+	}
+}
+
 func TestWarmParseIssuesOneRequestTotal(t *testing.T) {
 	server := newFetchServer(t, consumerFiles(t))
 	dir := newConsumer(t)
@@ -581,5 +722,14 @@ func TestGoMkSkipsItsOwnPrimeWhenHelperProvisioned(t *testing.T) {
 	const stub = "#!/usr/bin/env bash\nexit 0\n"
 	if got := readAsset(t, dir, "scripts/go-mk-fetch-one.sh"); got != stub {
 		t.Fatalf("scripts/go-mk-fetch-one.sh = %q, want the helper-provisioned stub %q preserved (go.mk's own prime must not run a second time)", got, stub)
+	}
+	// Content alone cannot detect the prime running, because the prime fetches
+	// from the same redirected server and reinstalls a byte-identical stub, so
+	// the assertion above passes either way. The request count is what
+	// distinguishes them: the helper's own provision is one request, and a
+	// prime that also runs adds a second.
+	if requests := server.Requests(); len(requests) != 1 {
+		t.Fatalf("server saw %d requests, want exactly 1: go.mk's prime ran in addition to the "+
+			"helper's provision, which is what GO_MK_PROVISION is supposed to prevent", len(requests))
 	}
 }
