@@ -418,9 +418,23 @@ func runHelper(t *testing.T, dir string, env map[string]string) (string, string,
 		"GO_MK_API_REF=main",
 		"GO_MK_DEV_DIR=",
 		"GO_MK_MODULES=",
+		"GO_MK_SKIP_FETCH=",
 		// Never let the test inherit a real CI environment.
 		"GITHUB_ACTIONS=",
 		"GITHUB_RUN_ID=",
+		// Clearing the variables above is not enough on its own. This repo's
+		// own Makefile runs its sub-makes with GO_MK_DEV_DIR="$(CURDIR)" as a
+		// make command-line variable, and make propagates command-line
+		// variables to every descendant through MAKEFLAGS, where they
+		// OVERRIDE the environment. So under `make test` the assignments
+		// above are silently undone for any make this test spawns, and the
+		// test measures dev-dir mode: the helper is copied from the checkout,
+		// nothing is fetched, and request counts read as 0 while timing
+		// bounds pass in milliseconds. Reproduced with
+		// MAKEFLAGS=" GO_MK_DEV_DIR=<repo>", which fails exactly the four
+		// tests CI failed.
+		"MAKEFLAGS=",
+		"MFLAGS=",
 	)
 	for key, value := range env {
 		command.Env = append(command.Env, key+"="+value)
