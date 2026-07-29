@@ -240,11 +240,24 @@ required_assets() {
 # nonzero size. -s alone is true for a directory too (its apparent size is
 # nonzero), so -f is required alongside it to reject a directory standing in
 # for an asset.
+#
+# A symlink is rejected outright, even one resolving to a good regular file. -f
+# follows the link, so a symlink to a real file passes both tests above while
+# pointing anywhere on the filesystem, and the install would then write through
+# it to a path outside .make. Nothing this script does creates a symlink at a
+# required-asset path, so one being there is not a shape to repair.
 assets_complete() {
     local base_dir="$1"
     local asset_name
+    local asset_path
     while IFS= read -r asset_name; do
-        if [[ ! -f "${base_dir}/${asset_name}" || ! -s "${base_dir}/${asset_name}" ]]; then
+        asset_path="${base_dir}/${asset_name}"
+        if [[ -L "${asset_path}" ]]; then
+            printf 'error: %s is a symlink; refusing to treat it as a provisioned asset\n' \
+                "${asset_path}" >&2
+            return 1
+        fi
+        if [[ ! -f "${asset_path}" || ! -s "${asset_path}" ]]; then
             return 1
         fi
     done < <(required_assets)
@@ -260,28 +273,49 @@ assets_complete() {
 # would otherwise be silently ignored, leaving install_from_stage's overall
 # exit status determined only by whichever command the last loop iteration
 # happened to run.
+#
+# The copy goes to a sibling temporary and is renamed into place rather than
+# written straight to target_path. cp FOLLOWS a symlink at the destination, so a
+# pre-existing .make/go.mk pointing at ../../something would make this write
+# through to that path, outside the directory this script owns, and then report
+# success. rename replaces the directory entry itself, so a symlink sitting there
+# is destroyed rather than followed and nothing outside .make is ever written.
+# The temporary is a sibling so the rename stays on one filesystem and is atomic,
+# the same reason install_self uses this shape.
 install_one_asset() {
     local source_path="$1"
     local target_path="$2"
     local target_dir
+    local temp_path
 
     target_dir="$(dirname "${target_path}")"
     if ! mkdir -p "${target_dir}"; then
         printf 'error: could not create %s\n' "${target_dir}" >&2
         return 1
     fi
-    if ! cp "${source_path}" "${target_path}"; then
+    if ! temp_path=$(mktemp "${target_path}.tmp.XXXXXX"); then
+        printf 'error: could not create a temporary file beside %s\n' "${target_path}" >&2
+        return 1
+    fi
+    if ! cp "${source_path}" "${temp_path}"; then
         printf 'error: could not install %s into %s\n' "${source_path}" "${target_path}" >&2
+        rm -f "${temp_path}"
         return 1
     fi
     case "${target_path}" in
         *.sh)
-            if ! chmod +x "${target_path}"; then
+            if ! chmod +x "${temp_path}"; then
                 printf 'error: could not mark %s executable\n' "${target_path}" >&2
+                rm -f "${temp_path}"
                 return 1
             fi
             ;;
     esac
+    if ! mv -f "${temp_path}" "${target_path}"; then
+        printf 'error: could not move %s into place\n' "${target_path}" >&2
+        rm -f "${temp_path}"
+        return 1
+    fi
     return 0
 }
 
