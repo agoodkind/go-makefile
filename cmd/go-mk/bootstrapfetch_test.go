@@ -170,6 +170,13 @@ func TestHelperLeavesAssetsIntactWhenTarballIsIncomplete(t *testing.T) {
 // "every step's failure propagates" from "only the last step's failure
 // happens to be visible".
 func TestHelperMidInstallFailureExitsNonZero(t *testing.T) {
+	// The install failure below is produced by a 0444 file, and mode bits do
+	// not deny root. In a root CI container cp would overwrite it, the helper
+	// would succeed, and this test would fail for a reason unrelated to what
+	// it covers.
+	if os.Geteuid() == 0 {
+		t.Skip("runs as root, where a read-only file cannot make cp fail")
+	}
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 

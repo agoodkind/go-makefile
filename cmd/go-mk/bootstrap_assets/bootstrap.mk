@@ -75,8 +75,16 @@ endif
 # rules. A non-zero exit means it could not produce a usable .make, so stop
 # rather than parse an engine that is not there.
 #
-# EVERY GO_MK_* variable this file understands is forwarded to the helper
-# explicitly. Make only auto-exports variables that came from the process
+# Every GO_MK_* variable THE HELPER READS is forwarded explicitly. That is the
+# six below, which is the complete set the helper references.
+#
+# GO_MK_BASE_URL and GO_MK_BOOTSTRAP_BASE_URL are deliberately not among them:
+# the helper never reads either. GO_MK_BASE_URL belongs to go.mk's own fetch
+# path, and GO_MK_BOOTSTRAP_BASE_URL is consumed by this file when it acquires
+# the helper, before the helper runs. Forwarding a variable the helper ignores
+# would suggest it has an effect there.
+#
+# Make only auto-exports variables that came from the process
 # environment, so a consumer who sets one on the make command line, or with a
 # plain assignment in their own Makefile before this include, sets the Make
 # variable without exporting it. This file then acts on the value while the
