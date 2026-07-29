@@ -947,7 +947,12 @@ func runMakeHelp(t *testing.T, repoDir string, repoRoot string) {
 	t.Helper()
 	command := exec.Command("make", "help")
 	command.Dir = repoDir
-	command.Env = append(os.Environ(), "GO_MK_DEV_DIR="+repoRoot)
+	// Allow-list rather than inherit-and-clear, for the reason spelled out on
+	// testProcessEnvironment: an ambient MAKEFLAGS carrying a command-line
+	// variable outranks anything set here, and an ambient GO_MK_SKIP_FETCH
+	// would make this scaffolded repo fail for a reason unrelated to what the
+	// scenario covers.
+	command.Env = testProcessEnvironment(map[string]string{"GO_MK_DEV_DIR": repoRoot})
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("make help failed: %v\noutput:\n%s", err, string(output))

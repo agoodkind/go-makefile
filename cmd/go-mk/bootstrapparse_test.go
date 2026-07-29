@@ -63,18 +63,7 @@ func runMake(t *testing.T, dir string, env map[string]string) (string, int) {
 	t.Helper()
 	command := exec.Command("make", "-n", "help")
 	command.Dir = dir
-	command.Env = append(os.Environ(),
-		"GITHUB_ACTIONS=", "GITHUB_RUN_ID=", "GO_MK_DEV_DIR=", "GO_MK_SKIP_FETCH=",
-		// Clearing those is not enough on its own. This repo's Makefile runs
-		// its sub-makes with GO_MK_DEV_DIR="$(CURDIR)" as a make command-line
-		// variable, and make propagates command-line variables to every
-		// descendant through MAKEFLAGS, where they OVERRIDE the environment.
-		// Under `make test` the assignments above are therefore undone for
-		// any make this spawns, and the test silently measures dev-dir mode.
-		"MAKEFLAGS=", "MFLAGS=")
-	for key, value := range env {
-		command.Env = append(command.Env, key+"="+value)
-	}
+	command.Env = testProcessEnvironment(env)
 	var combined strings.Builder
 	command.Stdout = &combined
 	command.Stderr = &combined
@@ -105,15 +94,7 @@ func runMakeWithCommandLineVars(t *testing.T, dir string, vars map[string]string
 	}
 	command := exec.Command("make", arguments...)
 	command.Dir = dir
-	command.Env = append(os.Environ(),
-		"GITHUB_ACTIONS=", "GITHUB_RUN_ID=", "GO_MK_DEV_DIR=", "GO_MK_SKIP_FETCH=",
-		// Clearing those is not enough on its own. This repo's Makefile runs
-		// its sub-makes with GO_MK_DEV_DIR="$(CURDIR)" as a make command-line
-		// variable, and make propagates command-line variables to every
-		// descendant through MAKEFLAGS, where they OVERRIDE the environment.
-		// Under `make test` the assignments above are therefore undone for
-		// any make this spawns, and the test silently measures dev-dir mode.
-		"MAKEFLAGS=", "MFLAGS=")
+	command.Env = testProcessEnvironment(nil)
 	var combined strings.Builder
 	command.Stdout = &combined
 	command.Stderr = &combined

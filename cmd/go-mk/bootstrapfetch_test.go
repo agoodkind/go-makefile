@@ -413,6 +413,42 @@ func writeDevDirAsset(t *testing.T, devDir string, relative string, body string)
 	}
 }
 
+// testProcessEnvironment builds a complete environment for a spawned make or
+// helper by allow-list, naming what the child needs rather than inheriting
+// everything and clearing what it must not see.
+//
+// The inherit-and-clear shape this replaces leaked MAKEFLAGS. This repo's own
+// Makefile runs its sub-makes with GO_MK_DEV_DIR="$(CURDIR)" as a make
+// command-line variable, make propagates command-line variables to every
+// descendant through MAKEFLAGS, and there they OVERRIDE the environment. So
+// under `make test` an explicit GO_MK_DEV_DIR= was silently undone for any
+// make a test spawned, and four tests measured dev-dir mode instead of the
+// path they named: nothing was fetched, request counts read as 0, and a timing
+// bound passed in 46ms. They passed locally and failed only in CI.
+//
+// Clearing MAKEFLAGS by name would fix that one variable. Building the
+// environment from scratch fixes the class, because the next ambient variable
+// that would change behavior is absent by default instead of leaking until
+// someone notices. A variable the child genuinely needs is named here, and a
+// missing one surfaces as a loud failure rather than a quiet false pass.
+func testProcessEnvironment(overrides map[string]string) []string {
+	// PATH finds make, bash, curl, tar, mktemp and awk. HOME and TMPDIR are
+	// used for scratch space. Nothing else is required by either child.
+	allowed := map[string]string{
+		"PATH":   os.Getenv("PATH"),
+		"HOME":   os.Getenv("HOME"),
+		"TMPDIR": os.Getenv("TMPDIR"),
+	}
+	for key, value := range overrides {
+		allowed[key] = value
+	}
+	environment := make([]string, 0, len(allowed))
+	for key, value := range allowed {
+		environment = append(environment, key+"="+value)
+	}
+	return environment
+}
+
 // runHelper executes the helper with the working directory at dir and a
 // minimal environment, and returns its output and exit code.
 func runHelper(t *testing.T, dir string, env map[string]string) (string, string, int) {
@@ -420,32 +456,14 @@ func runHelper(t *testing.T, dir string, env map[string]string) (string, string,
 	helper := filepath.Join(repoRootForTest(t), "scripts", "go-mk-bootstrap.sh")
 	command := exec.Command("bash", helper)
 	command.Dir = dir
-	command.Env = append(os.Environ(),
-		"GO_MK_API_REPO=agoodkind/go-makefile",
-		"GO_MK_API_REF=main",
-		"GO_MK_DEV_DIR=",
-		"GO_MK_MODULES=",
-		"GO_MK_SKIP_FETCH=",
-		// Never let the test inherit a real CI environment.
-		"GITHUB_ACTIONS=",
-		"GITHUB_RUN_ID=",
-		// Clearing the variables above is not enough on its own. This repo's
-		// own Makefile runs its sub-makes with GO_MK_DEV_DIR="$(CURDIR)" as a
-		// make command-line variable, and make propagates command-line
-		// variables to every descendant through MAKEFLAGS, where they
-		// OVERRIDE the environment. So under `make test` the assignments
-		// above are silently undone for any make this test spawns, and the
-		// test measures dev-dir mode: the helper is copied from the checkout,
-		// nothing is fetched, and request counts read as 0 while timing
-		// bounds pass in milliseconds. Reproduced with
-		// MAKEFLAGS=" GO_MK_DEV_DIR=<repo>", which fails exactly the four
-		// tests CI failed.
-		"MAKEFLAGS=",
-		"MFLAGS=",
-	)
-	for key, value := range env {
-		command.Env = append(command.Env, key+"="+value)
+	defaults := map[string]string{
+		"GO_MK_API_REPO": "agoodkind/go-makefile",
+		"GO_MK_API_REF":  "main",
 	}
+	for key, value := range env {
+		defaults[key] = value
+	}
+	command.Env = testProcessEnvironment(defaults)
 	var stdout, stderr strings.Builder
 	command.Stdout = &stdout
 	command.Stderr = &stderr
