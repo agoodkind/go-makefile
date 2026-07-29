@@ -25,12 +25,18 @@ MAKE_DIR=".make"
 # rather than install_one_asset. Named once so required_assets and the install
 # branch cannot drift apart.
 SELF_ASSET="scripts/go-mk-bootstrap.sh"
-# FETCH_MAX_TIME is a backstop, not the thing that decides how long a stall
-# takes to fail: FETCH_SPEED_LIMIT/FETCH_SPEED_TIME below abort a stalled
-# transfer in FETCH_SPEED_TIME seconds regardless of this value. 15 is about
-# 6x a real cold codeload download (measured at 2.06-2.4s), leaving headroom
-# for a slow hotel or roaming link on a transfer that is progressing, just
-# pathologically slowly; it is not inherited from any prior budget.
+# FETCH_MAX_TIME caps a single attempt outright, whatever its throughput. It
+# is the slower of two independent bounds, so state the real consequence
+# rather than calling it a mere backstop: the archive measures about 320 KB,
+# so finishing inside 15 seconds needs roughly 21 KB/s sustained, and a link
+# below that is cut off here even though it is making progress and clears
+# FETCH_SPEED_LIMIT comfortably. A transfer at exactly the 1 KB/s floor would
+# need about 313 seconds, which this deliberately does not allow.
+#
+# That is the intended trade. This runs at Makefile parse time on every build,
+# where a bounded failure a developer can see and retry beats an unbounded
+# wait, and 15 is already about 6x a real cold download (measured 2.06-2.4s).
+# A consumer on a genuinely slow link has GO_MK_SKIP_FETCH once .make is warm.
 FETCH_MAX_TIME=15
 # FETCH_SPEED_LIMIT/FETCH_SPEED_TIME give curl a progress-based abort:
 # --speed-limit bytes/sec sustained for less than --speed-time seconds
@@ -196,10 +202,24 @@ install_from_dev_dir() {
         if [[ ! -f "${GO_MK_DEV_DIR}/${asset_name}" ]]; then
             continue
         fi
+        # This script is one of the assets a dev dir can carry, and installing
+        # it needs install_self here for the same reason it does from a staged
+        # tree: cp writes through the inode bash is currently reading.
+        if [[ "${asset_name}" == "${SELF_ASSET}" ]]; then
+            if ! install_self "${GO_MK_DEV_DIR}/${asset_name}" "${MAKE_DIR}/${asset_name}"; then
+                return 1
+            fi
+            continue
+        fi
         if ! install_one_asset "${GO_MK_DEV_DIR}/${asset_name}" "${MAKE_DIR}/${asset_name}"; then
             return 1
         fi
     done < <(required_assets)
+    # A dev dir replaces .make with local edits, so any recorded ETag now
+    # describes content that never came from upstream. Leaving it would let a
+    # later run without GO_MK_DEV_DIR send that ETag, receive a 304, and treat
+    # the developer's modified files as current upstream content.
+    rm -f "${STATE_PATH}"
     return 0
 }
 
@@ -466,6 +486,15 @@ provision() {
             printf 'error: staged tree is missing a required asset\n' >&2
             exit 1
         fi
+        # Drop the recorded state before touching .make, not after installing.
+        # install_from_stage replaces assets one at a time and stops on the
+        # first failure, so a failure partway through leaves .make holding a
+        # mix of new and old assets. If the old state file survived that, the
+        # next run would send its ETag, receive a 304, and treat the mixed tree
+        # as validated and current, and the inconsistency would persist
+        # indefinitely. With no state file, a failed install simply costs the
+        # next run a full fetch.
+        rm -f "${STATE_PATH}"
         if ! install_from_stage "${stage_dir}"; then
             exit 1
         fi
@@ -496,7 +525,18 @@ provision() {
                 "${GO_MK_CODELOAD_BASE}" >&2
             exit 0
         fi
-        write_state "${etag_value}"
+        # A failed state write is degraded operation, not a provisioning
+        # failure, for the same reason a missing ETag is: .make is already
+        # installed and re-verified above, so exiting non-zero here would
+        # abort the parse over a complete, correct engine and point the
+        # operator at the network when the real cause is local (a full disk,
+        # or permissions on this one path). Without state the next run simply
+        # downloads unconditionally.
+        if ! write_state "${etag_value}"; then
+            rm -f "${STATE_PATH}"
+            printf 'go-makefile: installed the fetched tree but could not write %s, so every run will download unconditionally until that path is writable\n' \
+                "${STATE_PATH}" >&2
+        fi
     )
     subshell_status=$?
     return "${subshell_status}"
@@ -594,7 +634,12 @@ main() {
         return 0
     fi
 
-    printf '%s\n' "error: could not provision go-makefile assets. Set GO_MK_DEV_DIR, or check network access to ${GO_MK_CODELOAD_BASE}" >&2
+    # Name the recovery for a bad helper explicitly. bootstrap.mk reuses any
+    # non-empty cached helper, and this script only installs its own successor
+    # after a provision succeeds, so a broken helper is self-perpetuating:
+    # nothing replaces it and no other message tells the user that deleting it
+    # is what forces a fresh copy.
+    printf '%s\n' "error: could not provision go-makefile assets. Set GO_MK_DEV_DIR, or check network access to ${GO_MK_CODELOAD_BASE}. If this helper itself is bad, delete ${MAKE_DIR}/${SELF_ASSET} to force a fresh copy on the next run." >&2
     return 1
 }
 

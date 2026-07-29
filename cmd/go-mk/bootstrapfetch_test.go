@@ -182,11 +182,112 @@ func TestHelperMidInstallFailureExitsNonZero(t *testing.T) {
 		t.Fatalf("seed read-only golangci.yml: %v", err)
 	}
 
+	// Seed state from a previous, successful run, so the failure below has
+	// something stale to leave behind.
+	writeState(t, dir, "main", `"old-etag"`, time.Now().Add(-10*time.Minute).Unix())
+
 	_, stderr, code := runHelper(t, dir, map[string]string{
 		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
 	})
 	if code == 0 {
 		t.Fatalf("helper exit = 0, want non-zero when a middle install step (golangci.yml) fails while the surrounding steps succeed\nstderr: %s", stderr)
+	}
+	// A failure here leaves .make holding a mix of new and old assets, because
+	// install_from_stage replaces them one at a time. The stale state file must
+	// not survive that: if it did, the next run would send its ETag, get a 304,
+	// and treat the mixed tree as validated and current forever.
+	if _, err := os.Stat(filepath.Join(dir, ".make", ".go-mk-fetch-state")); !os.IsNotExist(err) {
+		t.Fatalf("state file still present after a partial install (stat err = %v); "+
+			"a later run would 304 against it and bless a tree that is half new and half old", err)
+	}
+}
+
+// TestHelperDevDirReplacesItsOwnFileAndClearsState covers the dev-dir install
+// path, which had two defects the staged path did not. It installed this
+// script with a plain copy, writing through the inode bash was reading, and it
+// left the recorded ETag in place even though .make now holds local edits that
+// never came from upstream.
+func TestHelperDevDirReplacesItsOwnFileAndClearsState(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	dir := t.TempDir()
+
+	if _, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+	}); code != 0 {
+		t.Fatalf("cold provision exit = %d, want 0: %s", code, stderr)
+	}
+	statePath := filepath.Join(dir, ".make", ".go-mk-fetch-state")
+	if _, err := os.Stat(statePath); err != nil {
+		t.Fatalf("cold provision left no state file: %v", err)
+	}
+	helperPath := filepath.Join(dir, ".make", "scripts", "go-mk-bootstrap.sh")
+	inodeBefore := inodeOf(t, helperPath)
+
+	devDir := t.TempDir()
+	for name, body := range helperFiles() {
+		if name == "go.mk" {
+			body = "# go.mk from the dev dir\n"
+		}
+		if name == "scripts/go-mk-bootstrap.sh" {
+			body = "#!/usr/bin/env bash\n# dev dir helper\nexit 0\n"
+		}
+		path := filepath.Join(devDir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir for %s: %v", name, err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	if _, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_DEV_DIR":       devDir,
+		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+	}); code != 0 {
+		t.Fatalf("dev-dir run exit = %d, want 0: %s", code, stderr)
+	}
+
+	if got := readAsset(t, dir, "go.mk"); got != "# go.mk from the dev dir\n" {
+		t.Fatalf("go.mk = %q, want the dev dir body", got)
+	}
+	if inodeAfter := inodeOf(t, helperPath); inodeAfter == inodeBefore {
+		t.Fatalf("helper inode unchanged (%d) after a dev-dir install that replaced its body; "+
+			"the running script's file was written through rather than replaced", inodeBefore)
+	}
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Fatalf("state file survived a dev-dir install (stat err = %v); "+
+			"a later run without GO_MK_DEV_DIR would send that ETag, get a 304, and treat the "+
+			"developer's local edits as current upstream content", err)
+	}
+}
+
+// TestHelperDegradesWhenStateIsUnwritable covers the last step of a successful
+// provision. .make is installed and re-verified by the time write_state runs,
+// so a failure there is a local storage problem, not a provisioning one, and
+// aborting the parse over it would trade a complete correct engine for none.
+func TestHelperDegradesWhenStateIsUnwritable(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	dir := t.TempDir()
+
+	// A directory at the state path makes the redirect in write_state fail
+	// while everything before it succeeds.
+	if err := os.MkdirAll(filepath.Join(dir, ".make", ".go-mk-fetch-state"), 0o755); err != nil {
+		t.Fatalf("seed the state path as a directory: %v", err)
+	}
+
+	_, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+	})
+	if code != 0 {
+		t.Fatalf("helper exit = %d, want 0: .make is complete and verified, so an unwritable "+
+			"state path must degrade to unconditional downloads rather than fail the parse\nstderr: %s",
+			code, stderr)
+	}
+	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
+		t.Fatalf("go.mk = %q, want the served body installed despite the state write failing", got)
+	}
+	if !strings.Contains(stderr, "download unconditionally") {
+		t.Fatalf("stderr = %q, want a warning that state could not be recorded", stderr)
 	}
 }
 
