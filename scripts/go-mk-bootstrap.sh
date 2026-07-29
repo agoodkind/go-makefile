@@ -25,10 +25,36 @@ MAKE_DIR=".make"
 # rather than install_one_asset. Named once so required_assets and the install
 # branch cannot drift apart.
 SELF_ASSET="scripts/go-mk-bootstrap.sh"
-# LOCK_DIR serializes concurrent parses in one consumer directory. It lives
-# under .make so it is per-consumer, and it is a directory because mkdir is the
-# atomic create-if-absent primitive available everywhere this runs.
-LOCK_DIR="${MAKE_DIR}/.go-mk-lock"
+# LOCK_DIR serializes concurrent parses of one consumer directory. It is a
+# directory because mkdir is the atomic create-if-absent primitive available
+# everywhere this runs.
+#
+# It lives OUTSIDE .make, in the temporary directory, keyed by a digest of the
+# consumer's absolute path. Inside .make it would break the rule that a 304
+# writes nothing: creating and removing the lock changes .make's own directory
+# mtime on every run, including runs that touch no asset. Measured before this
+# change, two consecutive warm parses moved .make's mtime while every file
+# under it stayed identical.
+#
+# Keying by path digest keeps it per-consumer, which is what matters, and a
+# lock that does not survive a reboot is correct anyway: no parse survives one
+# either.
+go_mk_lock_dir() {
+    local consumer_path
+    local digest
+    consumer_path=$(pwd -P)
+    if command -v shasum >/dev/null 2>&1; then
+        digest=$(printf '%s' "${consumer_path}" | shasum | cut -d' ' -f1)
+    elif command -v sha1sum >/dev/null 2>&1; then
+        digest=$(printf '%s' "${consumer_path}" | sha1sum | cut -d' ' -f1)
+    else
+        # No digest tool. Fall back to a sanitized path, which is longer but
+        # just as unique, rather than dropping the lock entirely.
+        digest=$(printf '%s' "${consumer_path}" | tr -c 'A-Za-z0-9' '-')
+    fi
+    printf '%s/go-mk-lock-%s' "${TMPDIR:-/tmp}" "${digest}"
+}
+LOCK_DIR=$(go_mk_lock_dir)
 # LOCK_WAIT_SECONDS bounds how long a second parse waits for the first. A real
 # provision measures a few seconds, so this is generous, and a wait that
 # reaches it means something is wrong rather than merely slow.
@@ -96,7 +122,14 @@ clear_state() {
     # success for an already-absent file, which is the common case, and
     # failure for an immutable or permission-blocked one; either way what
     # matters is whether the stale state is gone.
-    if [[ -e "${STATE_PATH}" ]]; then
+    #
+    # -L is tested alongside -e because -e follows symlinks and so reports
+    # false for a DANGLING one, which would read as "removed" while the link
+    # is still there. write_state would then follow that link and write the
+    # state text through it, over whatever it points at, and the run would
+    # exit 0. Verified: [[ -e ]] on a dangling symlink is false while [[ -L ]]
+    # is true.
+    if [[ -e "${STATE_PATH}" || -L "${STATE_PATH}" ]]; then
         printf 'error: could not remove %s, so refusing to modify .make while stale validation state survives: %s\n' \
             "${STATE_PATH}" "${removal_error}" >&2
         return 1
@@ -122,18 +155,53 @@ clear_state() {
 acquire_lock() {
     local waited=0
     local holder=""
+    local mkdir_error=""
     while true; do
-        if mkdir "${LOCK_DIR}" 2>/dev/null; then
-            printf '%s\n' "$$" >"${LOCK_DIR}/pid" 2>/dev/null || true
+        # Separate "the lock is held" from "the lock cannot be created here".
+        # Only the first is contention worth waiting out. The second is a local
+        # setup problem, such as an unwritable or missing TMPDIR, and waiting
+        # the full timeout for it reports a conflict that does not exist while
+        # hiding the real cause. Observed: a test with a deliberately broken
+        # TMPDIR spent the whole 30 seconds here before failing.
+        if mkdir_error=$(mkdir "${LOCK_DIR}" 2>&1); then
+            # A lock whose pid was never recorded can never be recognized as
+            # stale, so every later parse would wait out the full timeout and
+            # fail. Treat a failed write as a failed acquisition and hand the
+            # lock straight back.
+            if ! printf '%s\n' "$$" >"${LOCK_DIR}/pid" 2>/dev/null; then
+                rmdir "${LOCK_DIR}" 2>/dev/null || rm -rf "${LOCK_DIR}"
+                printf 'error: could not record the lock holder in %s: a local setup problem, not a lock conflict\n' \
+                    "${LOCK_DIR}" >&2
+                return 1
+            fi
             return 0
         fi
+        if [[ ! -d "${LOCK_DIR}" ]]; then
+            printf 'error: could not create the lock directory %s: %s. This is a local setup problem, not another build holding the lock.\n' \
+                "${LOCK_DIR}" "${mkdir_error}" >&2
+            return 1
+        fi
+
         holder=$(cat "${LOCK_DIR}/pid" 2>/dev/null || printf '')
         if [[ -n "${holder}" ]] && ! kill -0 "${holder}" 2>/dev/null; then
-            # The recorded holder is gone, so this lock cannot be released by
-            # anyone. Drop it and contend again through mkdir.
-            rm -rf "${LOCK_DIR}"
-            continue
+            # The recorded holder is gone, so nobody will ever release this
+            # lock. Claim it by RENAMING it aside rather than removing it in
+            # place. Two parses can read the same dead pid, and with rm both
+            # would delete: the first would drop the stale lock and win it, and
+            # the second would then delete the first's LIVE lock and enter the
+            # critical section alongside it. rename is atomic, so exactly one
+            # contender moves that directory and the loser's rename fails
+            # against a name that is already gone.
+            if mv "${LOCK_DIR}" "${LOCK_DIR}.stale.$$" 2>/dev/null; then
+                rm -rf "${LOCK_DIR}.stale.$$"
+                continue
+            fi
+            # Someone else reclaimed it first. Fall through to the wait rather
+            # than spinning: a reclaim that keeps failing, against an immutable
+            # lock say, would otherwise loop forever without advancing the
+            # timeout.
         fi
+
         if (( waited >= LOCK_WAIT_SECONDS )); then
             printf 'error: another go-makefile parse has held %s for %ss. If no other build is running, remove that directory.\n' \
                 "${LOCK_DIR}" "${LOCK_WAIT_SECONDS}" >&2

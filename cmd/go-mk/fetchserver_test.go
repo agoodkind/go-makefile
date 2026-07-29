@@ -254,13 +254,21 @@ func (s *fetchServer) handle(writer http.ResponseWriter, request *http.Request) 
 		writer.WriteHeader(http.StatusNotModified)
 	} else {
 		record.Status = http.StatusOK
-		record.Bytes = len(tarball)
 		writer.Header().Set("Content-Type", "application/x-gzip")
 		writer.WriteHeader(http.StatusOK)
+		// Record what was actually written, not len(tarball). net/http
+		// discards the body of a HEAD response, so an intended count would
+		// report a full transfer for a request that carried no bytes at all,
+		// and an assertion that a real download happened would pass against a
+		// HEAD probe.
 		if trickleBytesPerSecond > 0 {
-			writeTrickled(writer, tarball, trickleBytesPerSecond)
+			record.Bytes = writeTrickled(writer, tarball, trickleBytesPerSecond)
 		} else {
-			_, _ = writer.Write(tarball)
+			written, _ := writer.Write(tarball)
+			record.Bytes = written
+		}
+		if request.Method == http.MethodHead {
+			record.Bytes = 0
 		}
 	}
 
@@ -273,15 +281,20 @@ func (s *fetchServer) handle(writer http.ResponseWriter, request *http.Request) 
 // one and sleeping a second before the next, so a client sees genuine
 // incremental progress spread over multiple seconds rather than the whole
 // body arriving at once.
-func writeTrickled(writer io.Writer, body []byte, bytesPerSecond int) {
+// writeTrickled returns the number of bytes it actually wrote, so a caller can
+// record real transfer rather than intent.
+func writeTrickled(writer io.Writer, body []byte, bytesPerSecond int) int {
+	written := 0
 	flusher, canFlush := writer.(http.Flusher)
 	for offset := 0; offset < len(body); offset += bytesPerSecond {
 		end := offset + bytesPerSecond
 		if end > len(body) {
 			end = len(body)
 		}
-		if _, err := writer.Write(body[offset:end]); err != nil {
-			return
+		count, err := writer.Write(body[offset:end])
+		written += count
+		if err != nil {
+			return written
 		}
 		if canFlush {
 			flusher.Flush()
@@ -290,6 +303,7 @@ func writeTrickled(writer io.Writer, body []byte, bytesPerSecond int) {
 			time.Sleep(time.Second)
 		}
 	}
+	return written
 }
 
 // randomAssetBody returns byteCount pseudo-random bytes from a fixed seed, so

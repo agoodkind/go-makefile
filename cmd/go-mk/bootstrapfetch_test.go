@@ -15,6 +15,37 @@ import (
 	"time"
 )
 
+// makeImmutable makes path un-removable and returns a function that undoes it.
+//
+// The mechanism differs by platform and both are covered, because the earlier
+// version called chflags unconditionally and skipped when it was missing. CI
+// runs on ubuntu-24.04, where chflags does not exist, so that test never ran
+// where it mattered and an unchecked-removal regression would have reached a
+// green branch. It skips only when neither mechanism is available, and says
+// which one it used.
+func makeImmutable(t *testing.T, path string) func() {
+	t.Helper()
+	// BSD and macOS.
+	if _, err := exec.LookPath("chflags"); err == nil {
+		if output, err := exec.Command("chflags", "uchg", path).CombinedOutput(); err == nil {
+			return func() { _ = exec.Command("chflags", "nouchg", path).Run() }
+		} else {
+			t.Logf("chflags present but failed, trying chattr: %v: %s", err, output)
+		}
+	}
+	// Linux. Needs CAP_LINUX_IMMUTABLE, which a container job usually has and
+	// an unprivileged local user usually does not.
+	if _, err := exec.LookPath("chattr"); err == nil {
+		if output, err := exec.Command("chattr", "+i", path).CombinedOutput(); err == nil {
+			return func() { _ = exec.Command("chattr", "-i", path).Run() }
+		} else {
+			t.Logf("chattr present but failed: %v: %s", err, output)
+		}
+	}
+	t.Skip("no working immutable-flag mechanism here (tried chflags and chattr)")
+	return func() {}
+}
+
 // inodeOf returns the inode number of path. install_self's whole purpose is to
 // replace the running script by renaming a new file over it rather than writing
 // through the existing one, and the inode is the only deterministic, non-timing
@@ -362,10 +393,8 @@ func TestHelperRefusesToInstallWhenStateCannotBeCleared(t *testing.T) {
 	// unchecked removal.
 	statePathForFlag := filepath.Join(dir, ".make", ".go-mk-fetch-state")
 	goMkBefore := readAsset(t, dir, "go.mk")
-	if output, err := exec.Command("chflags", "uchg", statePathForFlag).CombinedOutput(); err != nil {
-		t.Skipf("cannot set the immutable flag on this platform: %v: %s", err, output)
-	}
-	t.Cleanup(func() { _ = exec.Command("chflags", "nouchg", statePathForFlag).Run() })
+	clearFlag := makeImmutable(t, statePathForFlag)
+	t.Cleanup(clearFlag)
 
 	server.SetFiles(map[string]string{
 		"go.mk":                      "# go.mk v2\n",
@@ -386,6 +415,75 @@ func TestHelperRefusesToInstallWhenStateCannotBeCleared(t *testing.T) {
 	if got := readAsset(t, dir, "go.mk"); got != goMkBefore {
 		t.Fatalf("go.mk = %q, want the previous body %q: assets must not change while stale state survives",
 			got, goMkBefore)
+	}
+}
+
+// TestHelperTouchesNothingUnderMakeOnNotModified covers the write-nothing rule
+// for a 304 at the level of .make itself, not just the files in it.
+//
+// The existing 304 test compares the state file's bytes and mtime, and the
+// asset bodies. None of that notices a change to the .make DIRECTORY, and a
+// lock created and removed inside it changes exactly that on every run,
+// including a run that touches no asset. That shipped: measured against real
+// codeload, two consecutive warm parses moved .make's mtime while every file
+// under it stayed identical.
+func TestHelperTouchesNothingUnderMakeOnNotModified(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	dir := t.TempDir()
+
+	if _, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+	}); code != 0 {
+		t.Fatalf("cold provision exit = %d, want 0: %s", code, stderr)
+	}
+
+	// Snapshot every path under .make, directories included, with its mtime.
+	makeDir := filepath.Join(dir, ".make")
+	snapshot := func() map[string]time.Time {
+		seen := map[string]time.Time{}
+		if err := filepath.Walk(makeDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			seen[path] = info.ModTime()
+			return nil
+		}); err != nil {
+			t.Fatalf("walk .make: %v", err)
+		}
+		return seen
+	}
+	before := snapshot()
+
+	// Wait past the filesystem's timestamp granularity so a rewrite is
+	// visible rather than landing in the same tick.
+	time.Sleep(1100 * time.Millisecond)
+
+	_, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+	})
+	if code != 0 {
+		t.Fatalf("warm parse exit = %d, want 0: %s", code, stderr)
+	}
+	requests := server.Requests()
+	if len(requests) != 2 || requests[1].Status != 304 {
+		t.Fatalf("second request = %+v, want a 304: this test only means something on the 304 path", requests)
+	}
+
+	after := snapshot()
+	for path, mod := range before {
+		later, present := after[path]
+		if !present {
+			t.Fatalf("%s disappeared across a 304", path)
+		}
+		if !later.Equal(mod) {
+			t.Fatalf("%s mtime moved across a 304 (%v -> %v); a 304 must write nothing under .make, "+
+				"directories included", path, mod, later)
+		}
+	}
+	for path := range after {
+		if _, present := before[path]; !present {
+			t.Fatalf("%s appeared across a 304; a 304 must write nothing under .make", path)
+		}
 	}
 }
 
@@ -436,14 +534,30 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 
 	start := time.Now()
 	var group sync.WaitGroup
+	codes := make([]int, len(servers))
+	stderrs := make([]string, len(servers))
 	for index := range servers {
 		group.Add(1)
-		go func(base string) {
+		go func(slot int, base string) {
 			defer group.Done()
-			_, _, _ = runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": base})
-		}(servers[index].CodeloadBase())
+			_, stderr, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": base})
+			codes[slot] = code
+			stderrs[slot] = stderr
+		}(index, servers[index].CodeloadBase())
 	}
 	group.Wait()
+
+	// Every parse must SUCCEED, not merely be serialized. Discarding the exit
+	// codes would let "one parse won and the other three waited out the
+	// timeout and failed" satisfy both the elapsed-time bound and the
+	// consistent-tree check below, which is serialization by rejection rather
+	// than by waiting.
+	for slot, code := range codes {
+		if code != 0 {
+			t.Fatalf("parse %d exit = %d, want 0: contenders must wait for the lock and then "+
+				"proceed, not be turned away\nstderr: %s", slot, code, stderrs[slot])
+		}
+	}
 	elapsed := time.Since(start)
 	t.Logf("%d concurrent parses took %s with a %s stall each", parallel, elapsed, stallPerParse)
 
@@ -1191,11 +1305,23 @@ func TestHelperDoesNotReuseWhenLocalSetupFailsBeforeAnyRequest(t *testing.T) {
 	if strings.Contains(stderr, "upstream unreachable") {
 		t.Fatalf("stderr = %q, want no upstream-unreachable warning: the network was never consulted, only a local setup failure occurred", stderr)
 	}
-	if !strings.Contains(stderr, "validate_upstream: could not create a temp file") {
-		t.Fatalf("stderr = %q, want validate_upstream to name its own local setup failure", stderr)
+	// Assert that a local cause is named, not which function names it. This
+	// used to require validate_upstream's and provision's specific wording,
+	// which pinned the internal call order rather than the property: the lock
+	// now runs before either of them and rejects a broken TMPDIR first, so
+	// those two never execute. Failing earlier with the real reason is the
+	// better outcome, and the rule that matters is unchanged.
+	//
+	// The path itself is the discriminator. A regression that reported a
+	// generic network complaint would satisfy a mere "some error appeared"
+	// check but not this one.
+	brokenTmp := filepath.Join(dir, "no-such-tmpdir")
+	if !strings.Contains(stderr, brokenTmp) {
+		t.Fatalf("stderr = %q, want it to name the broken TMPDIR %q: a local setup failure must "+
+			"report its own cause rather than a generic network complaint", stderr, brokenTmp)
 	}
-	if !strings.Contains(stderr, "could not create a staging directory") {
-		t.Fatalf("stderr = %q, want provision's own fallback to also name a local cause, not just a generic network complaint", stderr)
+	if !strings.Contains(stderr, "local setup problem") && !strings.Contains(stderr, "not a lock conflict") {
+		t.Fatalf("stderr = %q, want it to say the failure is local rather than remote", stderr)
 	}
 	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
 		t.Fatalf("go.mk = %q, want the warm body preserved through a failure", got)
