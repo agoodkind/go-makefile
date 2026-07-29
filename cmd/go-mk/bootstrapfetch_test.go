@@ -532,20 +532,35 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 		server.Stall(stallPerParse)
 	}
 
+	// Resolve the helper path on THIS goroutine. repoRootForTest fatals, and
+	// the goroutines below must not call anything that does.
+	helper := filepath.Join(repoRootForTest(t), "scripts", "go-mk-bootstrap.sh")
+
 	start := time.Now()
 	var group sync.WaitGroup
 	codes := make([]int, len(servers))
 	stderrs := make([]string, len(servers))
+	startErrors := make([]error, len(servers))
 	for index := range servers {
 		group.Add(1)
 		go func(slot int, base string) {
 			defer group.Done()
-			_, stderr, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": base})
+			_, stderr, code, err := runHelperFromGoroutine(helper, dir,
+				map[string]string{"GO_MK_CODELOAD_BASE": base})
 			codes[slot] = code
 			stderrs[slot] = stderr
+			startErrors[slot] = err
 		}(index, servers[index].CodeloadBase())
 	}
 	group.Wait()
+
+	// Report start failures here, on the test goroutine, rather than from the
+	// goroutines that observed them.
+	for slot, err := range startErrors {
+		if err != nil {
+			t.Fatalf("parse %d could not start: %v", slot, err)
+		}
+	}
 
 	// Every parse must SUCCEED, not merely be serialized. Discarding the exit
 	// codes would let "one parse won and the other three waited out the
@@ -706,6 +721,21 @@ func runHelper(t *testing.T, dir string, env map[string]string) (string, string,
 		defaults[key] = value
 	}
 	command.Env = testProcessEnvironment(defaults)
+	stdout, stderr, code, err := runHelperCommand(command)
+	if err != nil {
+		t.Fatalf("run helper: %v", err)
+	}
+	return stdout, stderr, code
+}
+
+// runHelperCommand runs the helper and RETURNS a start failure rather than
+// calling t.Fatalf, so a caller on another goroutine can carry it back to the
+// test goroutine. testing.T's Fatalf is only defined on the goroutine running
+// the test: elsewhere it calls runtime.Goexit on the wrong goroutine, so the
+// test does not actually stop and the failure can be lost or reported against
+// something unrelated. runHelper above is the ordinary same-goroutine path and
+// still fatals directly.
+func runHelperCommand(command *exec.Cmd) (string, string, int, error) {
 	var stdout, stderr strings.Builder
 	command.Stdout = &stdout
 	command.Stderr = &stderr
@@ -714,11 +744,28 @@ func runHelper(t *testing.T, dir string, env map[string]string) (string, string,
 	var exitErr *exec.ExitError
 	if err != nil {
 		if !asExitError(err, &exitErr) {
-			t.Fatalf("run helper: %v", err)
+			return stdout.String(), stderr.String(), 0, err
 		}
 		code = exitErr.ExitCode()
 	}
-	return stdout.String(), stderr.String(), code
+	return stdout.String(), stderr.String(), code, nil
+}
+
+// runHelperFromGoroutine is runHelper for a caller that is not the test
+// goroutine. It resolves the helper path and environment up front, on the
+// caller's goroutine, and returns every failure instead of fataling.
+func runHelperFromGoroutine(helper string, dir string, env map[string]string) (string, string, int, error) {
+	command := exec.Command("bash", helper)
+	command.Dir = dir
+	defaults := map[string]string{
+		"GO_MK_API_REPO": "agoodkind/go-makefile",
+		"GO_MK_API_REF":  "main",
+	}
+	for key, value := range env {
+		defaults[key] = value
+	}
+	command.Env = testProcessEnvironment(defaults)
+	return runHelperCommand(command)
 }
 
 func asExitError(err error, target **exec.ExitError) bool {
