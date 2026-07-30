@@ -16,8 +16,19 @@ const (
 	defaultHTTPTimeout      = 2 * time.Minute
 	defaultUpdateInterval   = 24 * time.Hour
 	defaultGitHubAPIBaseURL = "https://api.github.com"
-	maxExtractedBinaryBytes = 128 * 1024 * 1024
-	maxDownloadedAssetBytes = 256 * 1024 * 1024
+	// These two caps bound how much an update may download and unpack, so a
+	// hostile or corrupt archive cannot exhaust the disk. They are a ceiling on
+	// plausible size, not a target: a real binary should sit well under them.
+	//
+	// The extracted cap was 128 MiB, which rejected a real release. The
+	// lm-semantic-search daemon links ONNX Runtime and its tokenizers, so it
+	// unpacks to about 346 MiB, and every install of it failed with a candidate
+	// size outside the allowed range. Raise the extracted cap to 512 MiB, which
+	// clears that binary with room to grow, and raise the download cap to match
+	// so a compressed archive near the same size is not rejected one step
+	// earlier for the same reason.
+	maxExtractedBinaryBytes = 512 * 1024 * 1024
+	maxDownloadedAssetBytes = 512 * 1024 * 1024
 )
 
 var (
