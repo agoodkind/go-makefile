@@ -130,7 +130,7 @@ func VerifyReleaseAssets(ctx context.Context, options Options, tag string) error
 			return fmt.Errorf("release asset %s has no download URL", asset.Name)
 		}
 		archivePath := filepath.Join(resolvedOptions.CacheDir, filepath.Base(asset.Name))
-		if err := updateDownloadFile(ctx, resolvedOptions.Client, asset.BrowserDownloadURL, archivePath); err != nil {
+		if err := updateDownloadFile(ctx, resolvedOptions.Client, asset.BrowserDownloadURL, archivePath, resolvedOptions.Config.MaxDownloadBytes); err != nil {
 			return err
 		}
 		if err := updateVerifyChecksum(ctx, resolvedOptions, latest, asset, archivePath); err != nil {

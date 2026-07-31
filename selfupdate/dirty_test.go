@@ -81,7 +81,7 @@ func TestApplyDirtyBuildInstallsNothing(t *testing.T) {
 		return release{TagName: "202607032307-8-abcdef0", Assets: []releaseAsset{asset}}, nil
 	}
 	downloadCalled := false
-	updateDownloadFile = func(_ context.Context, _ *http.Client, _ string, _ string) error {
+	updateDownloadFile = func(_ context.Context, _ *http.Client, _ string, _ string, _ int64) error {
 		downloadCalled = true
 		return nil
 	}
