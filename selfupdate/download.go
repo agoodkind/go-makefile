@@ -13,7 +13,11 @@ import (
 	"strings"
 )
 
-func downloadFile(ctx context.Context, client *http.Client, url string, path string) error {
+// downloadFile writes url to path, refusing anything larger than maxBytes so a
+// hostile or corrupt asset cannot exhaust the disk. The caller supplies the
+// limit because a plausible asset size is a property of the consumer's binary,
+// not of this package.
+func downloadFile(ctx context.Context, client *http.Client, url string, path string, maxBytes int64) error {
 	slog.InfoContext(ctx, "update download file", "url", url, "path", path)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -31,8 +35,8 @@ func downloadFile(ctx context.Context, client *http.Client, url string, path str
 		slog.WarnContext(ctx, "update download status failed", "url", url, "status_code", resp.StatusCode, "err", err)
 		return err
 	}
-	if resp.ContentLength > maxDownloadedAssetBytes {
-		err := fmt.Errorf("download %s exceeds %d bytes", url, maxDownloadedAssetBytes)
+	if resp.ContentLength > maxBytes {
+		err := fmt.Errorf("download %s exceeds %d bytes", url, maxBytes)
 		slog.WarnContext(ctx, "update download size rejected", "url", url, "content_length", resp.ContentLength, "err", err)
 		return err
 	}
@@ -42,7 +46,7 @@ func downloadFile(ctx context.Context, client *http.Client, url string, path str
 		return fmt.Errorf("open download temp: %w", err)
 	}
 	tmpPath := out.Name()
-	limitedReader := io.LimitReader(resp.Body, maxDownloadedAssetBytes+1)
+	limitedReader := io.LimitReader(resp.Body, maxBytes+1)
 	written, copyErr := io.Copy(out, limitedReader)
 	closeErr := out.Close()
 	if copyErr != nil {
@@ -50,9 +54,9 @@ func downloadFile(ctx context.Context, client *http.Client, url string, path str
 		slog.WarnContext(ctx, "update download copy failed", "path", path, "err", copyErr)
 		return fmt.Errorf("write download temp: %w", copyErr)
 	}
-	if written > maxDownloadedAssetBytes {
+	if written > maxBytes {
 		_ = os.Remove(tmpPath)
-		err := fmt.Errorf("download %s exceeds %d bytes", url, maxDownloadedAssetBytes)
+		err := fmt.Errorf("download %s exceeds %d bytes", url, maxBytes)
 		slog.WarnContext(ctx, "update download size exceeded", "url", url, "written", written, "err", err)
 		return err
 	}
@@ -85,7 +89,7 @@ func verifyChecksum(ctx context.Context, options Options, latest release, asset 
 		// different (repo, tag) pair.
 		checksumsPath := filepath.Join(options.CacheDir, "checksums-"+checksumsCacheKey(options.Config.Repo, latest.TagName)+".txt")
 		if _, statErr := os.Stat(checksumsPath); statErr != nil {
-			if err := downloadFile(ctx, options.Client, checksums.BrowserDownloadURL, checksumsPath); err != nil {
+			if err := downloadFile(ctx, options.Client, checksums.BrowserDownloadURL, checksumsPath, options.Config.MaxDownloadBytes); err != nil {
 				return err
 			}
 		}

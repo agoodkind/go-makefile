@@ -15,11 +15,13 @@ import (
 )
 
 type installerOptions struct {
-	repo            string
-	binary          string
-	binDir          string
-	version         string
-	postInstallArgs []string
+	repo             string
+	binary           string
+	binDir           string
+	version          string
+	maxDownloadBytes int64
+	maxBinaryBytes   int64
+	postInstallArgs  []string
 }
 
 var (
@@ -69,6 +71,10 @@ func parseInstallerOptions(args []string, stderr io.Writer) (installerOptions, e
 	flagSet.StringVar(&options.binary, "binary", "", "release binary name")
 	flagSet.StringVar(&options.binDir, "bin-dir", options.binDir, "directory to install the binary into")
 	flagSet.StringVar(&options.version, "version", "", "exact release tag to install")
+	flagSet.Int64Var(&options.maxDownloadBytes, "max-download-bytes", 0,
+		"reject a release asset larger than this many bytes; 0 uses the default")
+	flagSet.Int64Var(&options.maxBinaryBytes, "max-binary-bytes", 0,
+		"reject an unpacked binary larger than this many bytes; 0 uses the default")
 	if err := flagSet.Parse(args); err != nil {
 		return installerOptions{}, err
 	}
@@ -92,9 +98,11 @@ func selfupdateOptions(options installerOptions) selfupdate.Options {
 	}
 	return selfupdate.Options{
 		Config: selfupdate.Config{
-			Repo:      options.repo,
-			Binary:    options.binary,
-			AuthToken: token,
+			Repo:             options.repo,
+			Binary:           options.binary,
+			AuthToken:        token,
+			MaxDownloadBytes: options.maxDownloadBytes,
+			MaxBinaryBytes:   options.maxBinaryBytes,
 		},
 	}
 }
