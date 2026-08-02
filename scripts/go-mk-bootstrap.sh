@@ -297,8 +297,13 @@ install_one_asset() {
     # mv with a directory target moves the temporary INSIDE it, so the loop would
     # continue and only the post-install verification would notice, long after
     # the step that actually went wrong.
-    if [[ -d "${target_path}" && ! -L "${target_path}" ]]; then
-        printf 'error: %s is a directory; refusing to install an asset over it\n' \
+    #
+    # -d follows a symlink, which is what this needs: a symlink pointing at a
+    # directory makes mv behave exactly the same way, moving the staged file into
+    # the linked directory rather than replacing the link. Both shapes are
+    # rejected here, and assets_complete separately rejects any symlink.
+    if [[ -d "${target_path}" ]]; then
+        printf 'error: %s is a directory (or a symlink to one); refusing to install an asset over it\n' \
             "${target_path}" >&2
         return 1
     fi

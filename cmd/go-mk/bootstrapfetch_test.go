@@ -239,6 +239,43 @@ func TestHelperMidInstallFailureExitsNonZero(t *testing.T) {
 	}
 }
 
+// TestHelperRefusesAnAssetPathThatSymlinksToADirectory covers the shape a
+// plain -d test with a ! -L guard lets through. mv resolves a symlink, so a
+// symlink pointing at a directory makes it move the staged temporary INSIDE
+// that directory rather than replacing the link: the asset silently lands
+// somewhere outside .make and the install still reports success for that step.
+func TestHelperRefusesAnAssetPathThatSymlinksToADirectory(t *testing.T) {
+	server := newFetchServer(t, helperFiles())
+	dir := t.TempDir()
+
+	makeDir := filepath.Join(dir, ".make")
+	if err := os.MkdirAll(makeDir, 0o755); err != nil {
+		t.Fatalf("mkdir .make: %v", err)
+	}
+	decoy := filepath.Join(dir, "decoy")
+	if err := os.MkdirAll(decoy, 0o755); err != nil {
+		t.Fatalf("mkdir decoy: %v", err)
+	}
+	if err := os.Symlink("../decoy", filepath.Join(makeDir, "golangci.yml")); err != nil {
+		t.Fatalf("symlink golangci.yml at a directory: %v", err)
+	}
+
+	_, stderr, code := runHelper(t, dir, map[string]string{
+		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+	})
+	if code == 0 {
+		t.Fatalf("helper exit = 0, want non-zero when an asset path is a symlink to a directory\nstderr: %s", stderr)
+	}
+
+	entries, err := os.ReadDir(decoy)
+	if err != nil {
+		t.Fatalf("read decoy: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("decoy directory holds %d entries; the install wrote through the symlink to a path outside .make", len(entries))
+	}
+}
+
 // TestHelperDevDirReplacesItsOwnFileAndClearsState covers the dev-dir install
 // path, which had two defects the staged path did not. It installed this
 // script with a plain copy, writing through the inode bash was reading, and it
