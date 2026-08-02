@@ -157,7 +157,7 @@ func TestVerifyReleaseAssetsDownloadsAndVerifiesMatchingArchives(t *testing.T) {
 		verifiedAttestations = append(verifiedAttestations, asset.Name)
 		return nil
 	}
-	updateExtractCandidate = func(_ string, _ string) (string, func(), error) {
+	updateExtractCandidate = func(_ string, _ string, _ int64) (string, func(), error) {
 		t.Fatal("updateExtractCandidate() should not run during release verification")
 		return "", func() {}, nil
 	}
@@ -452,7 +452,7 @@ func TestApplyDryRunIsIdempotent(t *testing.T) {
 			},
 		}, nil
 	}
-	updateDownloadFile = func(_ context.Context, _ *http.Client, _ string, path string) error {
+	updateDownloadFile = func(_ context.Context, _ *http.Client, _ string, path string, _ int64) error {
 		return os.WriteFile(path, []byte("archive"), 0o600)
 	}
 	updateVerifyChecksum = func(_ context.Context, _ Options, _ release, _ releaseAsset, _ string) error {
@@ -461,7 +461,7 @@ func TestApplyDryRunIsIdempotent(t *testing.T) {
 	updateVerifyGitHubAttestations = func(_ context.Context, _ Options, _ release, _ releaseAsset, _ string) error {
 		return nil
 	}
-	updateExtractCandidate = func(_ string, _ string) (string, func(), error) {
+	updateExtractCandidate = func(_ string, _ string, _ int64) (string, func(), error) {
 		return candidatePath, func() {}, nil
 	}
 	updateValidateCandidate = func(_ context.Context, _ Config, _ string) error {
@@ -548,7 +548,7 @@ func TestApplyCurrentIsIdempotent(t *testing.T) {
 			},
 		}, nil
 	}
-	updateDownloadFile = func(_ context.Context, _ *http.Client, _, _ string) error {
+	updateDownloadFile = func(_ context.Context, _ *http.Client, _, _ string, _ int64) error {
 		downloadCallCount++
 		return nil
 	}

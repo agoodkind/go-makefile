@@ -21,7 +21,7 @@ func TestDownloadFileDoesNotUseFixedTempPath(t *testing.T) {
 		t.Fatalf("WriteFile() error: %v", err)
 	}
 
-	err := downloadFile(context.Background(), server.Client(), server.URL, targetPath)
+	err := downloadFile(context.Background(), server.Client(), server.URL, targetPath, defaultMaxDownloadBytes)
 	if err != nil {
 		t.Fatalf("downloadFile() error: %v", err)
 	}

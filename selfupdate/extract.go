@@ -15,7 +15,12 @@ import (
 	"strings"
 )
 
-func extractCandidate(archivePath string, binary string) (string, func(), error) {
+// extractCandidate unpacks binary from archivePath, refusing a member larger
+// than maxBytes so a corrupt or hostile archive cannot exhaust the disk. The
+// size comes from the tar header, which the archive itself supplies, so the
+// limit is what keeps that claim from being trusted without bound. The caller
+// supplies it because a plausible binary size is a property of the consumer.
+func extractCandidate(archivePath string, binary string, maxBytes int64) (string, func(), error) {
 	slog.Info("update extract candidate", "archive", archivePath)
 	tmpDir, err := os.MkdirTemp("", binary+"-update-*")
 	if err != nil {
@@ -52,7 +57,7 @@ func extractCandidate(archivePath string, binary string) (string, func(), error)
 		if header.Name != binary {
 			continue
 		}
-		if header.Size <= 0 || header.Size > maxExtractedBinaryBytes {
+		if header.Size <= 0 || header.Size > maxBytes {
 			cleanup()
 			sizeErr := fmt.Errorf("candidate size %d outside allowed range", header.Size)
 			slog.Warn("update candidate size rejected", "archive", archivePath, "size", header.Size, "err", sizeErr)

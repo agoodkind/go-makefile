@@ -16,8 +16,14 @@ const (
 	defaultHTTPTimeout      = 2 * time.Minute
 	defaultUpdateInterval   = 24 * time.Hour
 	defaultGitHubAPIBaseURL = "https://api.github.com"
-	maxExtractedBinaryBytes = 128 * 1024 * 1024
-	maxDownloadedAssetBytes = 256 * 1024 * 1024
+	// These two caps bound how much an update may download and unpack, so a
+	// hostile or corrupt archive cannot exhaust the disk. Config.MaxBinaryBytes
+	// and Config.MaxDownloadBytes override them, because how large a plausible
+	// binary is depends on the consumer: a small CLI and a daemon that links an
+	// inference runtime differ by an order of magnitude, and a shared number
+	// either rejects the large one or stops bounding the small one.
+	defaultMaxBinaryBytes   int64 = 512 * 1024 * 1024
+	defaultMaxDownloadBytes int64 = 512 * 1024 * 1024
 )
 
 var (
@@ -49,6 +55,13 @@ type Config struct {
 	AuthToken         string
 	ValidateArgs      []string
 	ValidateMatch     string
+	// MaxDownloadBytes bounds one downloaded release asset and MaxBinaryBytes
+	// bounds the binary unpacked from it. Zero or negative means unset and
+	// takes the package default. A consumer whose binary is larger than the
+	// default must raise MaxBinaryBytes, and usually MaxDownloadBytes with it,
+	// or the install fails with a candidate size outside the allowed range.
+	MaxDownloadBytes int64
+	MaxBinaryBytes   int64
 	// CurrentDirty marks a dev or locally-built binary (uncommitted changes at
 	// build time). When true, Check reports no update and Apply installs
 	// nothing, so a dev build is never auto-replaced by a release. It is
@@ -176,7 +189,7 @@ func applyLatest(ctx context.Context, options Options, result *ApplyResult) erro
 		return fmt.Errorf("create update cache dir: %w", err)
 	}
 	archivePath := filepath.Join(cacheDir, filepath.Base(asset.Name))
-	if err := updateDownloadFile(ctx, options.Client, asset.BrowserDownloadURL, archivePath); err != nil {
+	if err := updateDownloadFile(ctx, options.Client, asset.BrowserDownloadURL, archivePath, options.Config.MaxDownloadBytes); err != nil {
 		return err
 	}
 	if err := updateVerifyChecksum(ctx, options, latest, asset, archivePath); err != nil {
@@ -185,7 +198,7 @@ func applyLatest(ctx context.Context, options Options, result *ApplyResult) erro
 	if err := updateVerifyGitHubAttestations(ctx, options, latest, asset, archivePath); err != nil {
 		return err
 	}
-	candidatePath, cleanup, err := updateExtractCandidate(archivePath, options.Config.Binary)
+	candidatePath, cleanup, err := updateExtractCandidate(archivePath, options.Config.Binary, options.Config.MaxBinaryBytes)
 	if err != nil {
 		return err
 	}
@@ -268,6 +281,12 @@ func (cfg Config) withDefaults() Config {
 	}
 	if cfg.ValidateMatch == "" {
 		cfg.ValidateMatch = "version:"
+	}
+	if cfg.MaxDownloadBytes <= 0 {
+		cfg.MaxDownloadBytes = defaultMaxDownloadBytes
+	}
+	if cfg.MaxBinaryBytes <= 0 {
+		cfg.MaxBinaryBytes = defaultMaxBinaryBytes
 	}
 	return cfg
 }
