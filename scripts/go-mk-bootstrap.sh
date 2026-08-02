@@ -293,6 +293,15 @@ install_one_asset() {
         printf 'error: could not create %s\n' "${target_dir}" >&2
         return 1
     fi
+    # A directory sitting at the asset path must fail this step, not be absorbed:
+    # mv with a directory target moves the temporary INSIDE it, so the loop would
+    # continue and only the post-install verification would notice, long after
+    # the step that actually went wrong.
+    if [[ -d "${target_path}" && ! -L "${target_path}" ]]; then
+        printf 'error: %s is a directory; refusing to install an asset over it\n' \
+            "${target_path}" >&2
+        return 1
+    fi
     if ! temp_path=$(mktemp "${target_path}.tmp.XXXXXX"); then
         printf 'error: could not create a temporary file beside %s\n' "${target_path}" >&2
         return 1
@@ -327,9 +336,9 @@ install_one_asset() {
 # reading the inode it started with, and the next run opens the new one. The
 # temporary is a sibling so the rename stays on one filesystem and is atomic.
 #
-# Only this one asset needs it. Every other asset is installed with cp, which
-# preserves the existing behavior that an unwritable target is an install
-# failure rather than something a rename would quietly replace.
+# install_one_asset now uses the same temp-and-rename shape for every asset;
+# this stays separate because the file being replaced here is the one bash is
+# currently executing, which install_one_asset's error paths may not assume.
 install_self() {
     local source_path="$1"
     local target_path="$2"

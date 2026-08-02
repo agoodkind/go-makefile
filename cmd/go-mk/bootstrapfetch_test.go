@@ -187,28 +187,26 @@ func TestHelperLeavesAssetsIntactWhenTarballIsIncomplete(t *testing.T) {
 	}
 }
 
-// TestHelperMidInstallFailureExitsNonZero forces install_from_stage's cp to
-// fail on a required asset that sits neither first nor last in
-// required_assets()'s order (golangci.yml, the second of six), by
-// pre-creating it read-only so cp cannot overwrite it. The assets before it
-// (go.mk) and after it (notices.txt, every scripts/* asset) install
-// successfully. Before this fix, the subshell running provision's staging
-// work executes with errexit suppressed (it inherits that from being called
-// as the condition of an if), so install_from_stage's implicit return value
-// was just whatever its last loop iteration happened to return; since that
-// last iteration (scripts/go-mk-sync.sh) still succeeds here, a naive test
-// that breaks the last asset instead of a middle one would pass even with
-// the bug present. Breaking a middle asset is what actually distinguishes
-// "every step's failure propagates" from "only the last step's failure
-// happens to be visible".
+// TestHelperMidInstallFailureExitsNonZero forces install_one_asset to fail on
+// a required asset that sits neither first nor last in required_assets()'s
+// order (golangci.yml, the second of six), by pre-creating a DIRECTORY at its
+// path, which the install refuses to replace. The assets before it (go.mk)
+// and after it (notices.txt, every scripts/* asset) install successfully.
+// The subshell running provision's staging work executes with errexit
+// suppressed (it inherits that from being called as the condition of an if),
+// so install_from_stage's implicit return value was just whatever its last
+// loop iteration happened to return; since that last iteration
+// (scripts/go-mk-sync.sh) still succeeds here, a naive test that breaks the
+// last asset instead of a middle one would pass even with the bug present.
+// Breaking a middle asset is what actually distinguishes "every step's
+// failure propagates" from "only the last step's failure happens to be
+// visible".
+//
+// A directory is the injection rather than a read-only file because the
+// install writes a sibling temporary and renames it into place, and rename
+// replaces a read-only file without error; a directory is the shape it must
+// refuse. A directory also blocks root, so this needs no root skip.
 func TestHelperMidInstallFailureExitsNonZero(t *testing.T) {
-	// The install failure below is produced by a 0444 file, and mode bits do
-	// not deny root. In a root CI container cp would overwrite it, the helper
-	// would succeed, and this test would fail for a reason unrelated to what
-	// it covers.
-	if os.Geteuid() == 0 {
-		t.Skip("runs as root, where a read-only file cannot make cp fail")
-	}
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -217,8 +215,8 @@ func TestHelperMidInstallFailureExitsNonZero(t *testing.T) {
 		t.Fatalf("mkdir .make: %v", err)
 	}
 	golangciPath := filepath.Join(makeDir, "golangci.yml")
-	if err := os.WriteFile(golangciPath, []byte("stale, read-only\n"), 0o444); err != nil {
-		t.Fatalf("seed read-only golangci.yml: %v", err)
+	if err := os.MkdirAll(golangciPath, 0o755); err != nil {
+		t.Fatalf("seed directory at golangci.yml: %v", err)
 	}
 
 	// Seed state from a previous, successful run, so the failure below has
@@ -307,9 +305,6 @@ func TestHelperDevDirReplacesItsOwnFileAndClearsState(t *testing.T) {
 // GO_MK_DEV_DIR would send its ETag, receive 304, and treat the half-replaced
 // tree as current upstream content indefinitely.
 func TestHelperDevDirPartialInstallLeavesNoState(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("runs as root, where a read-only file cannot make cp fail")
-	}
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -323,8 +318,10 @@ func TestHelperDevDirPartialInstallLeavesNoState(t *testing.T) {
 		t.Fatalf("cold provision left no state: %v", err)
 	}
 
-	// A dev dir carrying every asset, with one target made unwritable so the
-	// install fails after earlier assets have already been replaced.
+	// A dev dir carrying every asset, with a directory seeded at one target so
+	// the install fails after earlier assets have already been replaced. A
+	// read-only file would no longer do it: the install renames a sibling
+	// temporary into place, and rename replaces a read-only file without error.
 	devDir := t.TempDir()
 	for name, body := range helperFiles() {
 		path := filepath.Join(devDir, name)
@@ -335,8 +332,12 @@ func TestHelperDevDirPartialInstallLeavesNoState(t *testing.T) {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
-	if err := os.Chmod(filepath.Join(dir, ".make", "golangci.yml"), 0o444); err != nil {
-		t.Fatalf("make golangci.yml read-only: %v", err)
+	blockedPath := filepath.Join(dir, ".make", "golangci.yml")
+	if err := os.Remove(blockedPath); err != nil {
+		t.Fatalf("remove installed golangci.yml: %v", err)
+	}
+	if err := os.MkdirAll(blockedPath, 0o755); err != nil {
+		t.Fatalf("seed directory at golangci.yml: %v", err)
 	}
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
