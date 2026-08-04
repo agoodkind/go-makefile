@@ -7,12 +7,9 @@
 	baseline baseline-bin baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
 	go-mk-sync update-go-mk smoke-fetch go-mk-notice go-version-check go-mk-bin ci-changed go-mk-cache-manifest go-mk-prepare-submodules go-mk-generate
 
-GO_MK_URL       := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
-GO_MK_CACHE     := $(HOME)/.cache/go-makefile/go.mk
 GO_MK_BASE_URL  ?= https://raw.githubusercontent.com/agoodkind/go-makefile/main
 GO_MK_API_REPO  ?= agoodkind/go-makefile
 GO_MK_API_REF   ?= main
-GO_MK_CACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile
 
 GO_MK_SCRIPT_FILES := \
 	scripts/go-mk-fetch-one.sh \
@@ -24,17 +21,32 @@ GO_MK_SCRIPT_FILES := \
 # scripts and notices this file owns into .make/. It runs before GO_MK_HELPER_DIR
 # below first globs .make/scripts, so make's wildcard cache already holds the files
 # and the later require checks find them (a glob of an empty dir is cached for the
-# whole run). It removes each asset first so a failed download never leaves a stale
-# file, and only .sh and .txt land in .make/, so no go-makefile source pollutes the
-# consumer's find-based lint targets. The gh api contents path was removed; a single
-# tarball costs zero GITHUB_TOKEN core-REST.
+# whole run). Only .sh and .txt land in .make/, so no go-makefile source pollutes
+# the consumer's find-based lint targets. The gh api contents path was removed; a
+# single tarball costs zero GITHUB_TOKEN core-REST.
+#
+# Nothing is removed before its replacement exists. This used to delete every asset
+# up front, so that a failed download could not leave a stale file behind. That is
+# the same delete-then-fetch shape this branch exists to remove: with the network
+# down, a consumer lost its cached .make/scripts/*.sh and notices.txt and could not
+# build until the network returned. An asset now changes only once a verified
+# replacement has been extracted, so a failed download leaves the previous files
+# exactly as they were. Serving a stale script is the lesser failure, and it is
+# bounded anyway, because this path runs only for a consumer whose committed
+# bootstrap.mk predates the helper.
+#
+# The archive host is a variable rather than a literal so a test can point this
+# path at a local server. As a literal it always reached production
+# codeload.github.com, which made the one test covering this path depend on
+# network availability and on whatever was on main rather than on its own
+# fixture.
+GO_MK_CODELOAD_BASE ?= https://codeload.github.com
 define _go_mk_prime
 	if [ -n "$(GO_MK_DEV_DIR)" ]; then \
 		: ; \
 	else \
-		for asset in $(GO_MK_SCRIPT_FILES); do rm -f ".make/$$asset"; done; \
 		tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/go-mk.XXXXXXXX") || exit 0; \
-		if curl -fsSL --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 "https://codeload.github.com/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" 2>/dev/null | tar -xzf - -C "$$tmp" --strip-components 1 2>/dev/null; then \
+		if curl -fsSL --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 "$(GO_MK_CODELOAD_BASE)/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" 2>/dev/null | tar -xzf - -C "$$tmp" --strip-components 1 2>/dev/null; then \
 			for asset in $(GO_MK_SCRIPT_FILES); do \
 				if [ -f "$$tmp/$$asset" ]; then \
 					mkdir -p "$$(dirname ".make/$$asset")"; \
@@ -49,8 +61,14 @@ endef
 # Skip the prime entirely under GO_MK_SKIP_FETCH so air-gapped or pre-vendored
 # runs never touch the network; the require paths below then fail fast if an
 # expected asset is missing.
+#
+# The bootstrap helper provisions every asset in one extraction, so this prime
+# is only for a consumer whose committed bootstrap.mk predates the helper. It
+# is removed once the fleet has migrated.
 ifneq ($(strip $(GO_MK_SKIP_FETCH)),1)
+ifeq ($(strip $(GO_MK_PROVISION)),)
 $(shell mkdir -p .make && { $(call _go_mk_prime); } 1>&2)
+endif
 endif
 
 GO_MK_SELF      := $(lastword $(MAKEFILE_LIST))
