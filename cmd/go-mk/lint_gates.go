@@ -140,13 +140,21 @@ func runLintGolangci() int {
 	if err != nil {
 		return statusFromError(err)
 	}
+	cacheUsable := golangciCacheUsable(passed, status, len(current), dropped)
+	if cacheUsable {
+		reportGolangciRunToCI()
+	}
 	if !passed {
 		return 1
 	}
-	if toolFailedWithoutFindings(status, len(current), dropped) {
+	if !cacheUsable {
 		return reportToolFailure("golangci-lint", status, rawPath)
 	}
 	return 0
+}
+
+func golangciCacheUsable(passed bool, status int, findingCount int, dropped int) bool {
+	return !passed || !toolFailedWithoutFindings(status, findingCount, dropped)
 }
 
 // runLintGolangciScope runs and gates a single linter or rule against its slice

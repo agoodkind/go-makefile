@@ -164,6 +164,8 @@ func registerEngineCommands(root *cobra.Command) {
 		{"go-version-check", "Report whether go.mod tracks the latest Go release", runGoVersionCheck},
 		{"ci-changed", "Report whether a CI push changed anything the Go build depends on", runCIChanged},
 		{"cache-manifest", "Build the generated-output cache manifest and GitHub outputs", runCacheManifest},
+		{"ci-job-layout", "Build the reusable CI quality job matrix", runCIJobLayout},
+		{"golangci-cache-save-decision", "Verify whether CI should save the golangci-lint cache", runGolangciCacheSaveDecision},
 		{"prepare-generated-submodules", "Initialize generated-output submodules before cache restore", func() int {
 			return statusFromError(runPrepareGeneratedSubmodules())
 		}},

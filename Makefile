@@ -40,7 +40,7 @@ STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
 
 .DEFAULT_GOAL := check
 
-.PHONY: build release check lint fmt vet test govulncheck go-version-check build-check ci-changed go-mk-cache-manifest go-mk-generate \
+.PHONY: build release check lint fmt vet test govulncheck go-version-check build-check ci-changed go-mk-cache-manifest go-mk-ci-job-layout go-mk-golangci-cache-save-decision go-mk-generate \
         lint-tools lint-golangci lint-files lint-diff lint-format lint-gocyclo lint-deadcode staticcheck-extra \
         lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
         lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new \
@@ -183,6 +183,12 @@ ci-changed:
 
 go-mk-cache-manifest:
 	$(ROOT_GO_MK) go-mk-cache-manifest
+
+go-mk-ci-job-layout:
+	$(ROOT_GO_MK) go-mk-ci-job-layout
+
+go-mk-golangci-cache-save-decision:
+	$(ROOT_GO_MK) go-mk-golangci-cache-save-decision
 
 go-mk-generate:
 	$(ROOT_GO_MK) go-mk-generate

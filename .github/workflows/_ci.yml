@@ -30,6 +30,13 @@ on:
         required: false
         type: string
         default: v2.12.2
+      job_layout:
+        description: >-
+          Quality job layout: parallel keeps nine Quality jobs, split runs Test
+          and Quality jobs, and single runs one Checks job.
+        required: false
+        type: string
+        default: parallel
       go_version_file:
         description: >-
           Path to the consumer's go.mod file. Defaults to the repository root
@@ -112,6 +119,7 @@ jobs:
       run: ${{ steps.decide.outputs.run }}
       changed: ${{ steps.detect.outputs.changed }}
       releases: ${{ steps.release-detect.outputs.releases }}
+      job_matrix: ${{ steps.job-layout.outputs.matrix }}
     steps:
       # fetch-depth 0 so the detector can diff against github.event.before on the
       # default branch and compute merge-base against origin/<default> on feature
@@ -128,6 +136,12 @@ jobs:
             ${{ inputs.working_directory }}/go.sum
             ${{ inputs.working_directory }}/go.work
             ${{ inputs.working_directory }}/go.work.sum
+      - name: Configure job layout
+        id: job-layout
+        env:
+          GO_MK_JOB_LAYOUT: ${{ inputs.job_layout }}
+        run: make go-mk-ci-job-layout
+        working-directory: ${{ inputs.working_directory }}
       # make ci-changed runs only the cheap detector path. The engine uses
       # `go list -e` plus declared trigger dirs, writes changed=<bool> to
       # GITHUB_OUTPUT, and any uncertainty fails safe to changed=true.
@@ -365,7 +379,7 @@ jobs:
     name: Package
     # The per-platform package matrix. It consumes the compile artifacts and
     # signs, notarizes, archives, and attests them, throwing the archives away on
-    # a dry run. Its legs roll up into the required Release (dry run) gate.
+    # a dry run. Its legs roll up into the reported Release (dry run) check.
     needs: [prepare, compile]
     if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
     permissions:
@@ -381,10 +395,8 @@ jobs:
   release:
     name: Release (dry run)
     # The release dry run rolls up the package matrix and exercises the full
-    # package path (sign, notarize, archive, attest) without tag or publish, so
-    # a release-path regression blocks merge before it reaches the real release.
-    # It is required across consumers under this one uniform name. On a repo
-    # without a release configuration it does nothing and stays green.
+    # package path (sign, notarize, archive, attest) without tag or publish. On a
+    # repo without a release configuration it does nothing and stays green.
     needs: [prepare, release-package]
     if: ${{ !cancelled() }}
     runs-on: ${{ inputs.runs_on }}
@@ -410,11 +422,10 @@ jobs:
           echo "Release dry run succeeded: compiled, signed, archived, and attested without publishing." >> "${GITHUB_STEP_SUMMARY}"
 
   quality:
-    name: Quality / ${{ matrix.name }}
-    # Gates run in parallel with the compile matrix and the release dry run,
-    # depending on neither. They restore the generated cache the prepare job
-    # warmed. A gate failure blocks merge independently of the build and release
-    # results.
+    name: ${{ matrix.name }}
+    # The prepared matrix preserves the nine parallel gates by default and
+    # condenses them only when the caller selects split or single. Every shape
+    # restores the generated cache the prepare job warmed.
     needs: [prepare]
     if: ${{ !cancelled() }}
     runs-on: ${{ inputs.runs_on }}
@@ -423,42 +434,7 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: Vet
-            command: make vet
-            install_golangci_lint: false
-          - name: Test
-            command: make test
-            install_golangci_lint: false
-          - name: Golangci Lint
-            command: make lint-golangci
-            install_golangci_lint: true
-            # Naming a cache slug opts a gate into persisting golangci-lint's
-            # results cache. Only the analysis gate writes that cache; the format
-            # gate runs golangci-lint in its formatting mode, which produces
-            # none, so it names no slug and skips those steps. The slug must stay
-            # stable, because renaming it discards the stored analysis and the
-            # next run reanalyzes every package.
-            lint_cache_slug: golangci
-          - name: Format
-            command: make lint-format
-            install_golangci_lint: true
-          - name: Gocyclo
-            command: make lint-gocyclo
-            install_golangci_lint: false
-          - name: Deadcode
-            command: make lint-deadcode
-            install_golangci_lint: false
-          - name: Staticcheck Extra
-            command: make staticcheck-extra
-            install_golangci_lint: false
-          - name: Govulncheck
-            command: make govulncheck
-            install_golangci_lint: false
-          - name: Go Version
-            command: make go-version-check
-            install_golangci_lint: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.job_matrix) }}
     steps:
       # A prepare failure would otherwise skip every gated gate step and report
       # these required checks green, so fail loudly on it.
@@ -585,47 +561,35 @@ jobs:
           key: go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}-${{ steps.golangci-cache-generation.outputs.week }}
           restore-keys: |
             go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-
-      - if: needs.prepare.outputs.run == 'true'
+      - name: Run primary checks
+        id: primary-checks
+        if: needs.prepare.outputs.run == 'true'
+        continue-on-error: true
+        env:
+          GO_MK_CI_REPORT_GOLANGCI_RUN: ${{ matrix.command == 'make build-check' }}
         run: ${{ matrix.command }}
         working-directory: ${{ inputs.working_directory }}
-      # A gate that passed without leaving a cache directory means go-mk and this
-      # workflow disagree about where that directory lives, which would otherwise
-      # show up only as gates that stay slow forever. Fail loudly instead.
-      - name: Verify golangci-lint cache exists
-        if: needs.prepare.outputs.run == 'true' && matrix.lint_cache_slug != ''
-        shell: bash
+      - name: Run secondary checks
+        id: secondary-checks
+        if: needs.prepare.outputs.run == 'true' && matrix.secondary_command != '' && steps.primary-checks.outcome != 'skipped'
+        continue-on-error: true
+        run: ${{ matrix.secondary_command }}
+        working-directory: ${{ inputs.working_directory }}
+      # build-check can fail after golangci-lint warmed its cache because another
+      # check failed. The engine verifies the cache and exposes one save decision.
+      - name: Decide whether to save the golangci-lint cache
+        id: golangci-cache-save-decision
+        if: always() && needs.prepare.outputs.run == 'true' && matrix.lint_cache_slug != ''
         env:
-          LINT_CACHE_PATTERN: ${{ steps.go-mk-cache-prep.outputs.lint_cache_paths }}
-          LINT_GATE_COMMAND: ${{ matrix.command }}
-        run: |
-          # The manifest reports one pattern per line, so each line is expanded on
-          # its own; expanding the whole value at once would treat the newline as
-          # part of a single pattern and match nothing. compgen expands without
-          # word splitting, so a path holding a space stays one entry, and it
-          # lists nothing for a literal path that does not exist, which plain
-          # expansion would have passed through as a match. Each entry is then
-          # confirmed to be a directory. compgen takes the pattern without a --
-          # separator, which it would otherwise consume as the word to complete.
-          directories=()
-          while IFS= read -r pattern; do
-            if [ -z "${pattern}" ]; then
-              continue
-            fi
-            while IFS= read -r match; do
-              if [ -d "${match}" ]; then
-                directories+=("${match}")
-              fi
-            done < <(compgen -G "${pattern}" || true)
-          done <<< "${LINT_CACHE_PATTERN}"
-          if [ ${#directories[@]} -eq 0 ]; then
-            echo "No golangci-lint cache directory matched any of:" >&2
-            echo "${LINT_CACHE_PATTERN}" >&2
-            echo "after ${LINT_GATE_COMMAND} succeeded. go-mk and this workflow disagree about where that cache lives, so every run reanalyzes the whole module." >&2
-            exit 1
-          fi
-          printf 'golangci-lint cache: %s\n' "${directories[@]}"
+          GO_MK_CI_PRIMARY_COMMAND: ${{ matrix.command }}
+          GO_MK_CI_PRIMARY_OUTCOME: ${{ steps.primary-checks.outcome }}
+          GO_MK_CI_GOLANGCI_RAN: ${{ steps.primary-checks.outputs.golangci_ran }}
+          GO_MK_CI_LINT_CACHE_HIT: ${{ steps.golangci-cache-restore.outputs.cache-hit }}
+          GO_MK_CI_LINT_CACHE_PATHS: ${{ steps.go-mk-cache-prep.outputs.lint_cache_paths }}
+        run: make go-mk-golangci-cache-save-decision
+        working-directory: ${{ inputs.working_directory }}
       - name: Save golangci-lint cache
-        if: needs.prepare.outputs.run == 'true' && matrix.lint_cache_slug != '' && steps.golangci-cache-restore.outputs.cache-hit != 'true'
+        if: always() && needs.prepare.outputs.run == 'true' && matrix.lint_cache_slug != '' && steps.golangci-cache-save-decision.outputs.save == 'true'
         uses: actions/cache/save@v6
         with:
           path: ${{ steps.go-mk-cache-prep.outputs.lint_cache_paths }}
@@ -633,3 +597,8 @@ jobs:
       - name: Show ccache stats
         if: needs.prepare.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: ccache --show-stats || true
+      - name: Report check failures
+        if: always() && needs.prepare.outputs.run == 'true' && (steps.primary-checks.outcome == 'failure' || steps.secondary-checks.outcome == 'failure')
+        run: |
+          echo "One or more check commands failed." >&2
+          exit 1
