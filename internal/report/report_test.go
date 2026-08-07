@@ -77,3 +77,26 @@ func TestRenderPluralVerdict(t *testing.T) {
 		t.Errorf("plural verdict mismatch:\n%s", got)
 	}
 }
+
+func TestRenderAdvisoryShowsFindingsWithoutFailingVerdict(t *testing.T) {
+	got := Render(Report{
+		Title: "go-mk build-check",
+		Steps: []StepResult{
+			{
+				Name:     "govulncheck",
+				Status:   StatusAdvisory,
+				Findings: []string{"GO-2026-1234 affects example/package"},
+			},
+		},
+	})
+
+	if !strings.Contains(got, "  govulncheck  ADVISORY\n") {
+		t.Fatalf("missing advisory status row:\n%s", got)
+	}
+	if !strings.Contains(got, "  GO-2026-1234 affects example/package\n") {
+		t.Fatalf("missing advisory findings:\n%s", got)
+	}
+	if !strings.HasSuffix(got, "  All blocking checks passed.\n") {
+		t.Fatalf("advisory verdict is unclear:\n%s", got)
+	}
+}

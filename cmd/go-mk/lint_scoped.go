@@ -163,19 +163,6 @@ func testLdflagsArgs() []string {
 // carries the generic-methods fix.
 const defaultGovulncheckInstall = "golang.org/x/vuln/cmd/govulncheck@v1.3.0"
 
-// runGovulncheck installs and runs govulncheck, mirroring run_govulncheck.
-func runGovulncheck() error {
-	if err := installGoTool(lintEnvDefault("GOVULNCHECK_INSTALL", defaultGovulncheckInstall)); err != nil {
-		return err
-	}
-	gopathBin, err := goEnvPath("GOPATH")
-	if err != nil {
-		return err
-	}
-	targets := splitWords(lintEnvDefault("GOVULNCHECK_TARGETS", "./..."))
-	return runLintCPU(filepath.Join(gopathBin, "bin", "govulncheck"), targets)
-}
-
 // runCaptureGolangci is the capture-golangci dispatcher, mirroring the shell
 // case arm. It writes the raw and findings files.
 func runCaptureGolangci(args []string) error {
