@@ -125,7 +125,7 @@ func runLint(command string, args []string) (int, bool) {
 	case cmdTest:
 		return statusFromError(runTest()), true
 	case cmdGovulncheck:
-		return statusFromError(runGovulncheck()), true
+		return runStandaloneGovulncheck(), true
 	case cmdCaptureGolangci:
 		return statusFromError(runCaptureGolangci(args)), true
 	case cmdCaptureGolangciBaseline:

@@ -85,15 +85,14 @@ func runOneGate(gateName string, runner func() int) (report.StepResult, int) {
 }
 
 // buildCheckChecks lists the build-check units in order: vet, every gate in
-// LINT_GATES, govulncheck, then the cgo-stub and platform-stub checks. vet and
-// the gates fan out per declared platform when GO_MK_PLATFORMS is set;
-// govulncheck runs once on the host because the vulnerability database is
-// platform-independent, and the stub checks run once because they compare across
-// platforms themselves.
-func buildCheckChecks() []check {
+// LINT_GATES, govulncheck, Go version, then the cgo-stub and platform-stub
+// checks. vet and the gates fan out per declared platform when GO_MK_PLATFORMS
+// is set. The remaining checks run once on the host.
+func buildCheckChecks(govulncheck check) []check {
 	checks := vetChecks()
 	checks = append(checks, gateChecks()...)
-	checks = append(checks, check{name: "govulncheck", run: runGovulncheckStep})
+	checks = append(checks, govulncheck)
+	checks = append(checks, check{name: "go-version", run: runGoVersionStep})
 	checks = append(checks, check{name: "cgo-stub", run: runCgoStubCheckStep})
 	checks = append(checks, check{name: "platform-stub", run: runPlatformStubCheckStep})
 	return checks
@@ -202,8 +201,7 @@ func executeChecks(checks []check, onDone func(int, report.StepResult)) int {
 // ensures the make dir, clears the per-gate failure record, installs the lint
 // tool trio, gocyclo, and deadcode, resolves the staticcheck-extra analyzer
 // binary, and, when includeGovulncheck is set, installs govulncheck. On success
-// it sets checksToolsPrepared so the gate and govulncheck runners skip their own
-// install.
+// it sets checksToolsPrepared so gate runners skip their own install.
 func prepareChecks(includeGovulncheck bool) error {
 	if err := ensureMakeDir(); err != nil {
 		return err
@@ -256,7 +254,7 @@ func runChecksStream(title string, checks []check) int {
 	for _, result := range results {
 		writeStdout(report.FindingsBlock(result))
 	}
-	writeStdout(report.Footer(failedStepNames(results)))
+	writeStdout(report.Footer(failedStepNames(results), advisoryStepCount(results)))
 	return status
 }
 
@@ -270,4 +268,14 @@ func failedStepNames(results []report.StepResult) []string {
 		}
 	}
 	return failed
+}
+
+func advisoryStepCount(results []report.StepResult) int {
+	count := 0
+	for _, result := range results {
+		if result.Status == report.StatusAdvisory {
+			count++
+		}
+	}
+	return count
 }

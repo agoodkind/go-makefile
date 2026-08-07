@@ -1,12 +1,12 @@
-// build-check orchestration for go-mk. It runs vet, every lint gate, and
-// govulncheck in one process, collects a StepResult for each, and prints the
-// single run report. This replaces the make-level fan-out across vet, lint, and
-// govulncheck so a full build emits one clean report instead of one block per
-// tool. It lives in package main, which owns stdout, process execution, and the
-// report; the gates still recurse through make for their dependency setup.
+// build-check orchestration for go-mk. It runs vet, every lint gate,
+// govulncheck, and the Go version check in one process, collects a StepResult
+// for each, and prints one report. It lives in package main, which owns stdout,
+// process execution, and the report; the gates still recurse through make for
+// their dependency setup.
 package main
 
 import (
+	"errors"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -16,9 +16,9 @@ import (
 	"goodkind.io/go-makefile/internal/report"
 )
 
-// runBuildCheck runs vet, the lint gates, and govulncheck, then prints one
-// report. GO_MK_LOG=debug falls back to streaming each phase for troubleshooting.
-// It returns the exit code, non-zero when any step failed.
+// runBuildCheck runs vet, the lint gates, govulncheck, and the Go version check,
+// then prints one report. GO_MK_LOG=debug streams each phase for troubleshooting.
+// It returns the exit code, non-zero when any blocking step failed.
 func runBuildCheck() int {
 	// notice runs in-process here, the work the go-mk-notice make prerequisite
 	// used to do. It is best-effort and prints only to stderr.
@@ -26,14 +26,14 @@ func runBuildCheck() int {
 	if logsummary.ParseMode(os.Getenv("GO_MK_LOG")) == logsummary.ModeDebug {
 		return runBuildCheckRaw()
 	}
-	if err := prepareChecks(true); err != nil {
+	if err := prepareChecks(false); err != nil {
 		return statusFromError(err)
 	}
-	status := runChecks("go-mk build-check", buildCheckChecks())
-	return applyGoVersionNotice(status)
+	govulncheck := prepareGovulncheckCheck(defaultGovulncheckConfig())
+	return runChecks("go-mk build-check", buildCheckChecks(govulncheck))
 }
 
-// runBuildCheckRaw streams vet, the gates, and govulncheck for the
+// runBuildCheckRaw streams vet, the gates, govulncheck, and Go version for the
 // GO_MK_LOG=debug path, mirroring the historical separate-target behaviour.
 func runBuildCheckRaw() int {
 	status := 0
@@ -43,10 +43,9 @@ func runBuildCheckRaw() int {
 	if code := runLintChain(); code != 0 {
 		status = code
 	}
-	if err := runGovulncheck(); err != nil {
-		status = statusFromError(err)
-	}
-	return applyGoVersionNotice(status)
+	runStandaloneGovulncheck()
+	runGoVersionCheck()
+	return status
 }
 
 // runVetStep runs go vet as a captured build-check step.
@@ -55,20 +54,93 @@ func runVetStep() (report.StepResult, int) {
 	return toolStep("vet", "go", append([]string{"vet"}, targets...))
 }
 
-// runGovulncheckStep installs and runs govulncheck as a captured build-check
-// step, mirroring runGovulncheck but collecting a StepResult.
+// runGovulncheckStep installs and runs govulncheck as a captured advisory step.
 func runGovulncheckStep() (report.StepResult, int) {
-	if !checksToolsPrepared {
-		if err := installGoTool(lintEnvDefault("GOVULNCHECK_INSTALL", defaultGovulncheckInstall)); err != nil {
-			return toolFailure("govulncheck", err), 1
-		}
+	return runGovulncheckStepWith(defaultGovulncheckConfig()), 0
+}
+
+func prepareGovulncheckCheck(config govulncheckConfig) check {
+	installSpec := lintEnvDefault("GOVULNCHECK_INSTALL", defaultGovulncheckInstall)
+	if err := config.install(installSpec); err != nil {
+		result := advisoryToolFailure("govulncheck", "installation failed: "+err.Error())
+		return check{name: "govulncheck", run: func() (report.StepResult, int) {
+			return result, 0
+		}}
 	}
-	gopathBin, err := goEnvPath("GOPATH")
+	config.install = func(string) error { return nil }
+	return check{name: "govulncheck", run: func() (report.StepResult, int) {
+		return runGovulncheckStepWith(config), 0
+	}}
+}
+
+type govulncheckConfig struct {
+	install func(string) error
+	goPath  func(string) (string, error)
+	run     func(string, []string) ([]byte, error)
+}
+
+func defaultGovulncheckConfig() govulncheckConfig {
+	return govulncheckConfig{
+		install: installGoTool,
+		goPath:  goEnvPath,
+		run: func(binary string, args []string) ([]byte, error) {
+			slog.Info("build-check run tool", slog.String("tool", "govulncheck"))
+			command := exec.Command(binary, args...)
+			command.Env = lintEnv()
+			return command.CombinedOutput()
+		},
+	}
+}
+
+func runGovulncheckStepWith(config govulncheckConfig) report.StepResult {
+	installSpec := lintEnvDefault("GOVULNCHECK_INSTALL", defaultGovulncheckInstall)
+	if err := config.install(installSpec); err != nil {
+		return advisoryToolFailure("govulncheck", "installation failed: "+err.Error())
+	}
+	goBin, err := config.goPath("GOBIN")
 	if err != nil {
-		return toolFailure("govulncheck", err), 1
+		return advisoryToolFailure("govulncheck", "Go tool path lookup failed: "+err.Error())
+	}
+	if goBin == "" {
+		goPathList, pathErr := config.goPath("GOPATH")
+		if pathErr != nil {
+			return advisoryToolFailure("govulncheck", "Go tool path lookup failed: "+pathErr.Error())
+		}
+		goPaths := filepath.SplitList(goPathList)
+		if len(goPaths) == 0 {
+			return advisoryToolFailure("govulncheck", "Go tool path lookup failed: GOPATH has no entries")
+		}
+		goBin = filepath.Join(goPaths[0], "bin")
 	}
 	targets := splitWords(lintEnvDefault("GOVULNCHECK_TARGETS", "./..."))
-	return toolStep("govulncheck", filepath.Join(gopathBin, "bin", "govulncheck"), targets)
+	output, err := config.run(filepath.Join(goBin, "govulncheck"), targets)
+	if err == nil {
+		return report.StepResult{Name: "govulncheck", Status: report.StatusOK}
+	}
+	findings := splitOutputLines(string(output))
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) && exitError.ExitCode() == 3 {
+		return report.StepResult{
+			Name:     "govulncheck",
+			Status:   report.StatusAdvisory,
+			Findings: findings,
+		}
+	}
+	findings = append(findings, "govulncheck execution failed: "+err.Error())
+	return report.StepResult{
+		Name:     "govulncheck",
+		Status:   report.StatusAdvisory,
+		Findings: findings,
+	}
+}
+
+func runStandaloneGovulncheck() int {
+	result, _ := runGovulncheckStep()
+	writeStdout(report.Render(report.Report{
+		Title: "go-mk govulncheck",
+		Steps: []report.StepResult{result},
+	}))
+	return 0
 }
 
 // toolStep runs a captured tool and turns its outcome into a StepResult plus an
@@ -92,7 +164,10 @@ func toolStep(name, binary string, args []string) (report.StepResult, int) {
 	return report.StepResult{Name: name, Status: report.StatusFailed, Findings: lines}, code
 }
 
-// toolFailure builds a failed StepResult for a tool that could not run.
-func toolFailure(name string, err error) report.StepResult {
-	return report.StepResult{Name: name, Status: report.StatusFailed, Findings: []string{err.Error()}}
+func advisoryToolFailure(name string, finding string) report.StepResult {
+	return report.StepResult{
+		Name:     name,
+		Status:   report.StatusAdvisory,
+		Findings: []string{finding},
+	}
 }

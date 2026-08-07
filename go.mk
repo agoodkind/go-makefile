@@ -366,7 +366,7 @@ help:
 	@printf '  %-40s %s\n' 'build' 'local build-check, then compile; CI skips inline gate only with OIDC proof'
 	@printf '  %-40s %s\n' 'check' 'alias for lint'
 	@printf '  %-40s %s\n' 'lint' 'run every lint gate'
-	@printf '  %-40s %s\n' 'build-check' 'vet + lint + govulncheck'
+	@printf '  %-40s %s\n' 'build-check' 'vet + lint + govulncheck + Go version'
 	@printf '  %-40s %s\n' 'fmt' 'apply configured Go formatters'
 	@printf '  %-40s %s\n' 'test' 'go test ./...'
 	@printf '  %-40s %s\n' 'go-version-check' 'report whether go.mod tracks the latest Go release'
