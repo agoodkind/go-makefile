@@ -73,10 +73,11 @@ by one fetched file, `go.mk`.
   initial adoption. Commit `.go-mk-applied-notices` only after a notice run creates
   it. Commit baseline files only after a baseline target creates them. Changing a
   baseline requires the token gate.
-- Local `make build` runs `build-check` before compiling. The CI split is
-  CI-only: the reusable workflow reports each quality gate separately, and the
-  build job skips inline gates only after `go-mk` verifies a GitHub Actions OIDC
-  JWT for the current repository and run.
+- Local `make build` runs `build-check` before compiling. Reusable CI reports
+  each quality gate separately by default. Consumers can select `parallel` (the
+  default), `split`, or `single` through `job_layout`. The build job skips inline
+  gates only after
+  `go-mk` verifies a GitHub Actions OIDC JWT for the current repository and run.
 - The reusable CI skips the quality and build work on a push that changes nothing
   the Go build or tests depend on. A `changes` job runs `go-mk ci-changed`, which
   decides from `go list -e -deps -json ./...` (so `go:embed` payloads and cgo
