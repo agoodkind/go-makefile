@@ -49,6 +49,14 @@ on:
         required: false
         type: string
         default: ubuntu-latest
+      prepare_fetch_depth:
+        description: >-
+          Checkout depth for the prepare job. Zero keeps full history. A
+          positive depth fetches the exact comparison commit separately for
+          default-branch pushes.
+        required: false
+        type: number
+        default: 0
       timeout_minutes:
         description: Timeout in minutes for each Go job.
         required: false
@@ -121,13 +129,21 @@ jobs:
       releases: ${{ steps.release-detect.outputs.releases }}
       job_matrix: ${{ steps.job-layout.outputs.matrix }}
     steps:
-      # fetch-depth 0 so the detector can diff against github.event.before on the
-      # default branch and compute merge-base against origin/<default> on feature
-      # branches.
       - uses: actions/checkout@v7
         with:
           submodules: false
-          fetch-depth: 0
+          fetch-depth: ${{ inputs.prepare_fetch_depth }}
+      - name: Fetch comparison commit
+        id: fetch-base
+        if: inputs.prepare_fetch_depth > 0 && github.event_name == 'push' && github.ref_name == github.event.repository.default_branch && github.event.before != '0000000000000000000000000000000000000000'
+        env:
+          GO_MK_DIFF_BASE: ${{ github.event.before }}
+        run: |
+          if git fetch --no-tags --depth=1 origin "${GO_MK_DIFF_BASE}"; then
+            echo "exact=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "comparison commit fetch failed; running all gates" >&2
+          fi
       - uses: actions/setup-go@v7
         with:
           go-version-file: ${{ inputs.go_version_file }}
@@ -150,6 +166,7 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         env:
           GO_MK_DIFF_BASE: ${{ github.event.before }}
+          GO_MK_DIFF_BASE_IS_EXACT: ${{ steps.fetch-base.outputs.exact }}
           GO_MK_DIFF_HEAD: ${{ github.sha }}
           GO_MK_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GO_MK_EVENT_NAME: ${{ github.event_name }}
