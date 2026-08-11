@@ -127,9 +127,11 @@ func printHeaderOnce(corr correlation.Context) {
 	// so it satisfies the boundary-log analyzer without inflating the run's one
 	// diagnostics line.
 	slog.Debug("run header emitted", slog.String("trace_id", string(corr.TraceID)))
-	writeStderr(correlation.MarkerLine(
-		"logs", logDir,
-		"trace_id", string(corr.TraceID),
-		"span_id", string(corr.SpanID),
-	) + "\n")
+	writeStderr(runHeaderLine(corr) + "\n")
+}
+
+func runHeaderLine(corr correlation.Context) string {
+	return "logs=" + logDir +
+		" trace_id=" + string(corr.TraceID) +
+		" span_id=" + string(corr.SpanID)
 }
