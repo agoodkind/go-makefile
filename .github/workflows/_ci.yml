@@ -583,14 +583,23 @@ jobs:
         if: needs.prepare.outputs.run == 'true'
         continue-on-error: true
         env:
+          GO_MK_CI_PRIMARY_COMMAND: ${{ matrix.command }}
+          GO_MK_CI_PRIMARY_REPORT: ${{ runner.temp }}/go-mk-primary-checks.out
           GO_MK_CI_REPORT_GOLANGCI_RUN: ${{ matrix.command == 'make build-check' }}
-        run: ${{ matrix.command }}
+        run: |
+          set -o pipefail
+          bash -o pipefail -c "${GO_MK_CI_PRIMARY_COMMAND}" 2>&1 | tee "${GO_MK_CI_PRIMARY_REPORT}"
         working-directory: ${{ inputs.working_directory }}
       - name: Run secondary checks
         id: secondary-checks
         if: needs.prepare.outputs.run == 'true' && matrix.secondary_command != '' && steps.primary-checks.outcome != 'skipped'
         continue-on-error: true
-        run: ${{ matrix.secondary_command }}
+        env:
+          GO_MK_CI_SECONDARY_COMMAND: ${{ matrix.secondary_command }}
+          GO_MK_CI_SECONDARY_REPORT: ${{ runner.temp }}/go-mk-secondary-checks.out
+        run: |
+          set -o pipefail
+          bash -o pipefail -c "${GO_MK_CI_SECONDARY_COMMAND}" 2>&1 | tee "${GO_MK_CI_SECONDARY_REPORT}"
         working-directory: ${{ inputs.working_directory }}
       # build-check can fail after golangci-lint warmed its cache because another
       # check failed. The engine verifies the cache and exposes one save decision.
@@ -616,6 +625,16 @@ jobs:
         run: ccache --show-stats || true
       - name: Report check failures
         if: always() && needs.prepare.outputs.run == 'true' && (steps.primary-checks.outcome == 'failure' || steps.secondary-checks.outcome == 'failure')
+        env:
+          GO_MK_CI_PRIMARY_OUTCOME: ${{ steps.primary-checks.outcome }}
+          GO_MK_CI_PRIMARY_REPORT: ${{ runner.temp }}/go-mk-primary-checks.out
+          GO_MK_CI_SECONDARY_OUTCOME: ${{ steps.secondary-checks.outcome }}
+          GO_MK_CI_SECONDARY_REPORT: ${{ runner.temp }}/go-mk-secondary-checks.out
         run: |
-          echo "One or more check commands failed." >&2
+          if [ "${GO_MK_CI_PRIMARY_OUTCOME}" = "failure" ]; then
+            cat "${GO_MK_CI_PRIMARY_REPORT}" >&2
+          fi
+          if [ "${GO_MK_CI_SECONDARY_OUTCOME}" = "failure" ]; then
+            cat "${GO_MK_CI_SECONDARY_REPORT}" >&2
+          fi
           exit 1
