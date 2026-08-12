@@ -249,7 +249,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
-          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
+          key: ${{ steps.generated-cache-restore.outputs.cache-primary-key }}
 
   compile:
     name: Compile
@@ -384,13 +384,13 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
-          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
+          key: ${{ steps.generated-cache-restore.outputs.cache-primary-key }}
       - name: Save ccache
         if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases != 'true' && runner.os == 'Linux' && inputs.apt_packages != '' && steps.ccache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}
+          key: ${{ steps.ccache-restore.outputs.cache-primary-key }}
 
   release-package:
     name: Package
@@ -610,7 +610,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ${{ steps.go-mk-cache-prep.outputs.lint_cache_paths }}
-          key: go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}-${{ steps.golangci-cache-generation.outputs.week }}
+          key: ${{ steps.golangci-cache-restore.outputs.cache-primary-key }}
       - name: Show ccache stats
         if: needs.prepare.outputs.run == 'true' && runner.os == 'Linux' && inputs.apt_packages != ''
         run: ccache --show-stats || true
