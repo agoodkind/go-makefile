@@ -2,17 +2,16 @@
 // the same report layout the streamed and batch paths produce, with a spinner on
 // the running step, and updates each row to its result as the run reports it. The
 // first frame paints immediately with every step listed and the first one
-// spinning, so the run gives feedback the moment it launches. The final frame is
-// the full report (rows, findings, footer), so what stays on screen matches
-// report.Render.
+// spinning, so the run gives feedback the moment it launches. The final frame
+// keeps the same table height so the renderer can replace it in place.
 package main
 
 import (
 	"log/slog"
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
 
 	"goodkind.io/go-makefile/internal/report"
 )
@@ -37,12 +36,10 @@ type runFinishedMsg int
 
 // checkModel is the Bubble Tea model for a check run.
 type checkModel struct {
-	title    string
-	width    int
-	steps    []stepView
-	spinner  spinner.Model
-	finished bool
-	status   int
+	title   string
+	width   int
+	steps   []stepView
+	spinner spinner.Model
 }
 
 // newCheckModel builds the model with every step pending and a spinner ready on
@@ -73,8 +70,6 @@ func (m *checkModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case runFinishedMsg:
-		m.finished = true
-		m.status = int(message)
 		return m, tea.Quit
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -85,16 +80,10 @@ func (m *checkModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// View renders the current frame. While the run is in progress it shows the
-// title and one status row per step, with a spinner on the running step. Once
-// finished it renders the full report through report.Render, so the frame that
-// stays on screen is byte-identical to the batch and streamed output.
+// View renders the title and one status row per step. A finished view keeps the
+// same height as the live view so findings cannot push the live rows into
+// scrollback and leave a duplicate table behind.
 func (m *checkModel) View() tea.View {
-	if m.finished {
-		content := report.Render(report.Report{Title: m.title, Steps: m.resolvedSteps()})
-		return tea.NewView(strings.TrimRight(content, "\n"))
-	}
-
 	var builder strings.Builder
 	builder.WriteString(m.title)
 	builder.WriteString("\n\n")
@@ -104,20 +93,6 @@ func (m *checkModel) View() tea.View {
 		builder.WriteString("\n")
 	}
 	return tea.NewView(strings.TrimRight(builder.String(), "\n"))
-}
-
-// resolvedSteps returns the resolved StepResult for every step, naming any step
-// that has not resolved so a partial render still lists it.
-func (m *checkModel) resolvedSteps() []report.StepResult {
-	steps := make([]report.StepResult, len(m.steps))
-	for index, step := range m.steps {
-		if step.done {
-			steps[index] = step.result
-			continue
-		}
-		steps[index] = report.StepResult{Name: step.name}
-	}
-	return steps
 }
 
 // row renders one status row: the resolved label for a done step, the spinner
@@ -180,8 +155,24 @@ func runChecksTUI(title string, checks []check) int {
 	status := <-done
 	if err != nil {
 		writeStdout(report.Render(report.Report{Title: title, Steps: results}))
+	} else {
+		writeStdout(checkCompletionDetails(results))
 	}
 	return status
+}
+
+// checkCompletionDetails renders only findings and the verdict after the live
+// table has settled. Omitting status rows keeps each check visible once.
+func checkCompletionDetails(results []report.StepResult) string {
+	var builder strings.Builder
+	for _, result := range results {
+		builder.WriteString(report.FindingsBlock(result))
+	}
+	builder.WriteString(report.Footer(
+		failedStepNames(results),
+		advisoryStepCount(results),
+	))
+	return builder.String()
 }
 
 // safeSend delivers a message to the program, recovering if the program has

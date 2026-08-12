@@ -27,6 +27,7 @@ const zeroSHA = "0000000000000000000000000000000000000000"
 type ciChangedConfig struct {
 	eventName      string
 	base           string
+	baseIsExact    bool
 	head           string
 	defaultBranch  string
 	refName        string
@@ -140,6 +141,7 @@ func runCIChanged() int {
 	config := ciChangedConfig{
 		eventName:      strings.TrimSpace(os.Getenv("GO_MK_EVENT_NAME")),
 		base:           strings.TrimSpace(os.Getenv("GO_MK_DIFF_BASE")),
+		baseIsExact:    strings.EqualFold(strings.TrimSpace(os.Getenv("GO_MK_DIFF_BASE_IS_EXACT")), "true"),
 		head:           head,
 		defaultBranch:  strings.TrimSpace(os.Getenv("GO_MK_DEFAULT_BRANCH")),
 		refName:        strings.TrimSpace(os.Getenv("GO_MK_REF_NAME")),
@@ -174,7 +176,7 @@ func runCIChangedWith(config ciChangedConfig) int {
 			return emitChanged(config.outputPath, config.stdout, true,
 				"no base commit (new branch); running all gates")
 		}
-		if !config.baseInHistory(base) {
+		if !config.baseIsExact && !config.baseInHistory(base) {
 			return emitChanged(config.outputPath, config.stdout, true,
 				"base commit "+base+" is not an ancestor of head (force push or shallow clone); running all gates")
 		}

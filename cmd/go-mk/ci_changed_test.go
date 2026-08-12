@@ -225,6 +225,26 @@ func TestRunCIChangedFailsSafeWhenBaseNotAncestor(t *testing.T) {
 	}
 }
 
+func TestRunCIChangedExactBaseSkipsAncestryCheck(t *testing.T) {
+	config := baseCIChangedConfig()
+	config.baseIsExact = true
+	config.baseInHistory = func(string) bool {
+		t.Fatal("ancestry check must not run for an exact comparison commit")
+		return false
+	}
+	config.diffNames = func(base, head string) ([]string, error) {
+		if base != config.base || head != config.head {
+			t.Fatalf("diffNames(%q, %q), want %s and %s", base, head, config.base, config.head)
+		}
+		return []string{"cmd/go-mk/main.go"}, nil
+	}
+	config.sourceFiles = func() ([]string, error) { return []string{"cmd/go-mk/main.go"}, nil }
+	_, _, output := runCIChangedCapture(t, config)
+	if !strings.Contains(output, "changed=true") {
+		t.Fatalf("output = %q, want changed=true", output)
+	}
+}
+
 func TestRunCIChangedFeatureBranchUsesMergeBaseDiff(t *testing.T) {
 	config := baseCIChangedConfig()
 	config.base = "push-before"

@@ -303,25 +303,25 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
-          key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
+          key: ${{ steps.generated-cache-restore.outputs.cache-primary-key }}
       - name: Save cgo deps
         if: steps.go-mk-cache.outputs.cgo_cache_enabled == 'true' && steps.cgo-cache-restore.outputs.cache-hit != 'true' && hashFiles(format('{0}/**', steps.go-mk-cache.outputs.cgo_cache_paths)) != ''
         uses: actions/cache/save@v6
         with:
           path: ${{ steps.go-mk-cache.outputs.cgo_cache_paths }}
-          key: go-mk-cgo-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.cgo_cache_key }}
+          key: ${{ steps.cgo-cache-restore.outputs.cache-primary-key }}
       - name: Save ccache
         if: matrix.goos == 'linux' && inputs.cgo && steps.ccache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-${{ steps.submodule-pins.outputs.digest }}
+          key: ${{ steps.ccache-restore.outputs.cache-primary-key }}
       - name: Save darwin ccache
         if: matrix.cc != '' && inputs.cgo && steps.darwin-ccache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-${{ steps.submodule-pins.outputs.digest }}
+          key: ${{ steps.darwin-ccache-restore.outputs.cache-primary-key }}
       # Upload this platform's raw compiled binaries under dist/<name>_<os>_<arch>/.
       # The package job downloads them back into dist to sign and archive without
       # recompiling.
