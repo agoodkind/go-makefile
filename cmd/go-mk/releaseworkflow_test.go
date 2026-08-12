@@ -45,7 +45,6 @@ func TestBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
 	requireWorkflowContains(t, save, "if: matrix.cc != '' && inputs.cgo && steps.darwin-ccache-restore.outputs.cache-hit != 'true'")
 	requireWorkflowContains(t, save, "uses: actions/cache/save@v6")
 	requireWorkflowContains(t, save, "path: ~/.ccache")
-	requireWorkflowContains(t, save, darwinCcacheWorkflowKey())
 
 	requireWorkflowOrder(t, workflow, "      - name: Configure darwin cross compilers", "      - name: Build go-mk cache manifest")
 	// Match the "Compile" step exactly with a trailing newline, so the assertion

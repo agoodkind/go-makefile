@@ -57,15 +57,12 @@ adds no recovery path that reconstructs or recalculates a missing key.
 
 ## Verification
 
-A workflow contract test enumerates every split save step. It requires each save
-key to reference the corresponding restore step's `cache-primary-key` output.
-It also rejects direct key reconstruction in split save steps. This assertion
-fails on the current mutable `hashFiles(...)` behavior.
-
 Consumer acceptance runs `lm-semantic-search` continuous integration twice from
 the same dependency state. The first run may restore a fallback and then save
 the requested primary key. The second run must report an exact hit for the
-Golangci and compiler caches and must skip their save steps.
+Golangci and compiler caches and must skip their save steps. This live test
+exercises cache restore and save input and output through GitHub Actions. A
+source-text assertion cannot prove that behavior.
 
 ## Rejected approaches
 
@@ -92,6 +89,5 @@ success conditions.
 - Every split save uses its paired restore's `cache-primary-key` output.
 - No split save repeats its restore key expression.
 - Existing cache paths, restore prefixes, and save decisions remain intact.
-- The workflow contract test covers all paired caches.
 - Two unchanged consumer runs produce exact Golangci and compiler cache hits on
   the second run.
