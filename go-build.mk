@@ -162,10 +162,12 @@ $(GO_MK_GENERATE_OUTPUTS): | $(GO_MK_GENERATE)
 endif
 
 # Codegen inputs are not Go packages, so go list cannot see them. A consumer
-# that declares them gets them compared directly.
+# that declares them gets them compared directly. Directories are in the list
+# alongside their files: adding or removing a file changes only the timestamp
+# of the directory holding it, and a file list alone would miss that.
 ifneq ($(strip $(GO_MK_GENERATE_INPUTS)),)
-GO_MK_BUILD_SOURCES += \
-	$(shell find $(GO_MK_GENERATE_INPUTS) -name .git -prune -o -type f -print 2>/dev/null)
+GO_MK_BUILD_SOURCES += $(GO_MK_GENERATE_INPUTS) \
+	$(shell find $(GO_MK_GENERATE_INPUTS) -name .git -prune -o -print 2>/dev/null)
 endif
 
 # go list returns nothing when the module cannot load, which happens before
@@ -264,13 +266,15 @@ export GO_MK_INSTALL_POST_CMD
 # are compared through a stamp that is rewritten only when the settings differ.
 # The git stamps and BUILD_TIME stay out: they move on their own and would
 # rebuild every run. The consumer's own ldflags are in, through the value
-# captured before the git stamps extended it.
+# captured before the git stamps extended it. GOOS and GOARCH are in because
+# they select which files a package compiles, and go list reports only the
+# files the current context selects.
 GO_MK_BUILD_CONFIG_DIR := .make/build-config
 GO_MK_BUILD_CONFIG := \
 	binary=$(BINARY) cmd=$(CMD) bins=$(INSTALL_BINS) \
 	dist=$(DIST_DIR) install_dir=$(INSTALL_DIR) \
 	tags=$(GO_BUILD_TAGS) extra=$(GO_BUILD_EXTRA_FLAGS) ldflags=$(GO_MK_LDFLAGS_BASE) \
-	cgo=$(CGO_ENABLED) goflags=$(GOFLAGS) \
+	cgo=$(CGO_ENABLED) goflags=$(GOFLAGS) goos=$(GOOS) goarch=$(GOARCH) \
 	vpkg=$(VPKG) gklog_vpkg=$(GKLOG_VPKG) \
 	bundle=$(BUNDLE_ID) identity=$(CODESIGN_IDENTITY) timestamp=$(CODESIGN_TIMESTAMP) \
 	entitlements=$(CODESIGN_ENTITLEMENTS) \
@@ -322,6 +326,18 @@ install: $(GO_MK_INSTALL_PATHS)
 
 $(GO_MK_INSTALL_PRIMARY): $(GO_MK_BUILD_SOURCES) $(GO_MK_BUILD_CONFIG_STAMP) | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" install
+
+# An install hook is a side effect the consumer expects on every install, not
+# a step whose result is the installed file. Declaring one opts that repo out
+# of skipping, so a hook that restarts a service or publishes an artifact still
+# runs when the binary is already current.
+ifneq ($(strip $(GO_MK_INSTALL_PRE_CMD)$(GO_MK_INSTALL_POST_CMD)),)
+.PHONY: go-mk-install-hooks-declared
+go-mk-install-hooks-declared:
+	@:
+
+$(GO_MK_INSTALL_PRIMARY): go-mk-install-hooks-declared
+endif
 
 # The primary rule writes every declared binary, so a secondary one is normally
 # already in place by the time make reaches it. The guard covers the case where

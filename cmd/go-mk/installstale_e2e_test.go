@@ -235,3 +235,55 @@ func TestInstallRebuildsWhenBuildSettingsChange(t *testing.T) {
 	requireInstalls(t, consumer.dryRunInstall(t, "GO_BUILD_TAGS=demotag"),
 		"changed build tags should reinstall")
 }
+
+// TestInstallRebuildsForAnotherTargetPlatform covers GOOS and GOARCH, which
+// select which files a package compiles. go list reports only the files the
+// current context selects, so the target platform has to reach the stamp.
+func TestInstallRebuildsForAnotherTargetPlatform(t *testing.T) {
+	consumer := newStaleConsumer(t, "")
+	consumer.placeInstalled(t, "demo", time.Hour)
+	requireSkips(t, consumer.dryRunInstall(t), "unchanged target platform should not reinstall")
+
+	otherGOOS := "linux"
+	if strings.TrimSpace(runtimeGOOS(t, consumer)) == "linux" {
+		otherGOOS = "darwin"
+	}
+	requireInstalls(t, consumer.dryRunInstall(t, "GOOS="+otherGOOS),
+		"another target platform should reinstall")
+}
+
+func runtimeGOOS(t *testing.T, consumer staleConsumer) string {
+	t.Helper()
+	command := exec.Command("go", "env", "GOOS")
+	command.Dir = consumer.dir
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("go env GOOS: %v", err)
+	}
+	return string(output)
+}
+
+// TestInstallAlwaysRunsWhenHooksAreDeclared covers GO_MK_INSTALL_PRE_CMD and
+// GO_MK_INSTALL_POST_CMD, whose side effects a consumer expects on every
+// install rather than only when the binary changed.
+func TestInstallAlwaysRunsWhenHooksAreDeclared(t *testing.T) {
+	consumer := newStaleConsumer(t, "GO_MK_INSTALL_POST_CMD := true\n")
+	consumer.placeInstalled(t, "demo", time.Hour)
+
+	requireInstalls(t, consumer.dryRunInstall(t),
+		"a declared install hook should keep install running")
+}
+
+// TestInstallRebuildsWhenCodegenInputIsAdded covers a new file under a declared
+// codegen input directory, which changes no existing file's timestamp.
+func TestInstallRebuildsWhenCodegenInputIsAdded(t *testing.T) {
+	consumer := newStaleConsumer(t, "GO_MK_GENERATE_INPUTS := grammars\n")
+	writeConsumerFile(t, consumer.dir, "grammars/demo.json", "{}\n")
+
+	consumer.placeInstalled(t, "demo", time.Hour)
+	requireSkips(t, consumer.dryRunInstall(t), "unchanged codegen inputs should not reinstall")
+
+	writeConsumerFile(t, consumer.dir, "grammars/extra.json", "{}\n")
+	touch(t, filepath.Join(consumer.dir, "grammars"), 2*time.Hour)
+	requireInstalls(t, consumer.dryRunInstall(t), "an added codegen input should reinstall")
+}
