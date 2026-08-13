@@ -287,3 +287,15 @@ func TestInstallRebuildsWhenCodegenInputIsAdded(t *testing.T) {
 	touch(t, filepath.Join(consumer.dir, "grammars"), 2*time.Hour)
 	requireInstalls(t, consumer.dryRunInstall(t), "an added codegen input should reinstall")
 }
+
+// TestInstallRunsWhenASourcePathIsUnsupported covers a source path make cannot
+// carry as a prerequisite. Losing the skip is the safe direction, so the whole
+// discovered list is discarded and install runs every time.
+func TestInstallRunsWhenASourcePathIsUnsupported(t *testing.T) {
+	consumer := newStaleConsumer(t, "")
+	consumer.placeInstalled(t, "demo", time.Hour)
+	requireSkips(t, consumer.dryRunInstall(t), "supported paths should allow a skip")
+
+	writeConsumerFile(t, consumer.dir, "cmd/demo/extra file.go", "package main\n")
+	requireInstalls(t, consumer.dryRunInstall(t), "an unsupported source path should install")
+}

@@ -136,21 +136,25 @@ GO_MK_BUILD_PACKAGES := $(sort \
 # build, and takes about half a second on a warm cache. Deferring it would
 # require .SECONDEXPANSION:, which changes $$ handling for every rule in every
 # consumer, so the flat cost is preferred.
-GO_MK_BUILD_SOURCE_TEMPLATE := {{if and .Module .Module.Main}}{{$$d := .Dir}}\
-{{range .GoFiles}}{{$$d}}/{{.}} {{end}}\
-{{range .CgoFiles}}{{$$d}}/{{.}} {{end}}\
-{{range .CFiles}}{{$$d}}/{{.}} {{end}}\
-{{range .CXXFiles}}{{$$d}}/{{.}} {{end}}\
-{{range .HFiles}}{{$$d}}/{{.}} {{end}}\
-{{range .SFiles}}{{$$d}}/{{.}} {{end}}\
-{{range .EmbedFiles}}{{$$d}}/{{.}} {{end}}\
-{{range .TestGoFiles}}{{$$d}}/{{.}} {{end}}\
-{{range .XTestGoFiles}}{{$$d}}/{{.}} {{end}}{{end}}
+#
+# The template emits one path per line and is one physical line, because a
+# continuation would join the groups with a space and that space would land in
+# the output.
+GO_MK_BUILD_SOURCE_TEMPLATE := {{if and .Module .Module.Main}}{{$$d := .Dir}}{{range .GoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CXXFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .HFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .SFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .EmbedFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{end}}
+
+# A prerequisite list cannot carry a path holding a space, #, $, %, :, ;, =, or
+# a backslash: make would split it or read it as syntax. One such path discards
+# the whole discovered list, and the guard below then runs the engine every
+# time. Losing the skip is the safe direction; a silently short list is not.
+GO_MK_BUILD_SOURCE_FILTER := awk '{ if ($$0 ~ /[ \#$$%:;=\\]/) unsafe=1; line[NR]=$$0 } \
+	END { if (!unsafe) for (i = 1; i <= NR; i++) print line[i] }'
+
+GO_MK_BUILD_SOURCE_FILES := $(shell go list -e -deps -f '$(GO_MK_BUILD_SOURCE_TEMPLATE)' \
+	$(GO_MK_BUILD_PACKAGES) 2>/dev/null | $(GO_MK_BUILD_SOURCE_FILTER))
 
 GO_MK_BUILD_SOURCES := $(wildcard go.mod go.sum $(GO_MK_GOLANGCI_CONFIG)) \
 	$(GO_MK_GENERATE_OUTPUTS) \
-	$(shell go list -e -deps -f '$(GO_MK_BUILD_SOURCE_TEMPLATE)' \
-		$(GO_MK_BUILD_PACKAGES) 2>/dev/null)
+	$(GO_MK_BUILD_SOURCE_FILES)
 
 # Declared generated outputs are prerequisites even when absent, so a deleted
 # one runs codegen and then the compile in the same invocation. go list cannot
@@ -170,14 +174,16 @@ GO_MK_BUILD_SOURCES += $(GO_MK_GENERATE_INPUTS) \
 	$(shell find $(GO_MK_GENERATE_INPUTS) -name .git -prune -o -print 2>/dev/null)
 endif
 
-# go list returns nothing when the module cannot load, which happens before
-# codegen has produced its sources. An empty list would make every output look
-# current, so the rules fall back to running unconditionally instead.
-ifeq ($(strip $(GO_MK_BUILD_SOURCES)),)
+# The discovered list is empty when the module cannot load, which happens
+# before codegen has produced its sources, and when a path make cannot carry
+# discarded it. A short list would make every output look current, so the rules
+# run unconditionally instead. Binary mode always has at least CMD to report,
+# so an empty list is always a signal rather than a valid answer.
+ifeq ($(strip $(GO_MK_BUILD_SOURCE_FILES)),)
 .PHONY: go-mk-build-sources-unknown
 go-mk-build-sources-unknown:
 	@:
-GO_MK_BUILD_SOURCES := go-mk-build-sources-unknown
+GO_MK_BUILD_SOURCES += go-mk-build-sources-unknown
 endif
 
 # Version metadata derived from git. Single canonical scheme across all repos.
@@ -291,7 +297,10 @@ GO_MK_BUILD_CONFIG_SAFE := $(subst $$,,$(subst \,,$(subst $(GO_MK_DQUOTE),,$(sub
 # missing prerequisite. A stamp with fixed contents would need a phony trigger
 # to be re-evaluated, and that would make every target look perpetually out of
 # date to `make -n` and `make -q`.
-GO_MK_BUILD_CONFIG_ID := $(shell printf '%s' '$(GO_MK_BUILD_CONFIG_SAFE)' | cksum | tr -cd '0-9')
+# cksum reports a checksum and a byte count. Both are in the name, separated,
+# because concatenating the digits would let one pair of values spell the same
+# name as another.
+GO_MK_BUILD_CONFIG_ID := $(shell printf '%s' '$(GO_MK_BUILD_CONFIG_SAFE)' | cksum | awk '{printf "%s-%s", $$1, $$2}')
 GO_MK_BUILD_CONFIG_STAMP := $(GO_MK_BUILD_CONFIG_DIR)/$(GO_MK_BUILD_CONFIG_ID)
 
 $(GO_MK_BUILD_CONFIG_STAMP):
