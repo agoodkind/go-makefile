@@ -3,3 +3,4 @@
 # directive is "-" for an announcement, or KEY=VALUE tokens for an auto-baseline
 # scope (INTRODUCED, GATE, LINTER, RULE, PATTERN). See cmd/go-mk/notice.go for details.
 1	INTRODUCED=2026-05-25T19:38:46-07:00 GATE=golangci LINTER=revive RULE=file-length-limit	Enabled the revive file-length-limit rule (max 1000 lines per file). Files already over the limit were auto-baselined into your golangci-lint baseline; review the diff and commit it. New files over 1000 lines will fail lint.
+2	-	go-build.mk now hangs build and install off the files they produce, so an unchanged tree runs no gate, no compile, no codesign, and no copy. A changed .go, .c, or .h file, a changed go.mod, go.sum, or lint config, or a missing installed binary makes them run again. Use `make -B` to force a run anyway.

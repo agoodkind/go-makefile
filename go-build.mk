@@ -48,6 +48,9 @@ version-info:
 clean-dist:
 	@:
 
+# Targets that actually compile, for the GO_MK_PREREQS attachment below.
+GO_MK_COMPILE_TARGETS := build install
+
 else
 
 # ---------------------------------------------------------------------------
@@ -66,6 +69,22 @@ DIST_BIN := $(DIST_DIR)/$(BINARY)
 
 INSTALL_DIR ?= $(or $(XDG_BIN_HOME),$(HOME)/.local/bin)
 INSTALL_BIN := $(INSTALL_DIR)/$(BINARY)
+
+# Source set whose mtimes decide whether $(DIST_BIN) and $(INSTALL_BIN) are
+# stale. Naming those real files as targets is what lets make skip the engine
+# call outright: no gate, no compile, no codesign, no copy when nothing is
+# newer. The lint config is named explicitly because the find excludes .make/,
+# and a changed lint config has to re-run the gate. C sources are listed for
+# cgo consumers. Generated sources that do not exist yet on a fresh clone are
+# produced by GO_MK_PREREQS and enter the set on the next invocation.
+#
+# The find runs at parse time on every invocation, including goals that never
+# build. Deferring it would require .SECONDEXPANSION:, which changes $$
+# handling for every rule in every consumer, so the flat cost is preferred.
+GO_MK_BUILD_SOURCES := $(wildcard go.mod go.sum $(GO_MK_GOLANGCI_CONFIG)) \
+	$(shell find . -type f \( -name '*.go' -o -name '*.c' -o -name '*.h' \) \
+		-not -path './$(DIST_DIR)/*' -not -path './.make/*' -not -path './.git/*' \
+		2>/dev/null)
 
 # Extra binaries beyond the primary BINARY, declared as space-separated
 # name:cmd pairs (an optional third field name:cmd:dir overrides INSTALL_DIR for
@@ -160,12 +179,23 @@ export GO_MK_INSTALL_POST_CMD
 # after OIDC proof because the reusable CI workflow has a separate gate job.
 # install builds every declared binary before placing it. Signing runs inside
 # the engine on macOS only.
-build: | go-mk-bin
+#
+# build and install are name wrappers; the work hangs off the real files they
+# produce, so an unchanged tree runs no recipe at all. Both file rules depend on
+# sources rather than on each other: chaining $(INSTALL_BIN) to $(DIST_BIN)
+# would pay the gate twice on every real change, because the engine's install
+# command runs the gate and the compile itself. Running `make build install`
+# together still gates twice; either one alone gates once.
+build: $(DIST_BIN)
+
+$(DIST_BIN): $(GO_MK_BUILD_SOURCES) | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" build
 
 deploy: install
 
-install: | go-mk-bin
+install: $(INSTALL_BIN)
+
+$(INSTALL_BIN): $(GO_MK_BUILD_SOURCES) | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" install
 
 uninstall: | go-mk-bin
@@ -189,6 +219,13 @@ clean-dist:
 	@rm -rf $(DIST_DIR)
 	@echo "cleaned: $(DIST_DIR)"
 
+# Targets that actually compile, for the GO_MK_PREREQS attachment below. These
+# are the file rules, not the build/install wrappers: make orders a target's
+# recipe after its prerequisites, but leaves the order among those
+# prerequisites unspecified, so codegen hung off the wrapper could run after
+# the compile it is supposed to precede.
+GO_MK_COMPILE_TARGETS := $(DIST_BIN) $(INSTALL_BIN)
+
 endif
 
 # GO_MK_PREREQS (see go.mk): codegen and go.work routing. Attach to this
@@ -196,5 +233,5 @@ endif
 # generates its parsers/proto and materializes go.work before build and install.
 # Empty default is a no-op.
 ifneq ($(strip $(GO_MK_PREREQS)),)
-build install: | $(GO_MK_PREREQS)
+$(GO_MK_COMPILE_TARGETS): | $(GO_MK_PREREQS)
 endif
