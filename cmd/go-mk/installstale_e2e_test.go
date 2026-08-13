@@ -299,3 +299,19 @@ func TestInstallRunsWhenASourcePathIsUnsupported(t *testing.T) {
 	writeConsumerFile(t, consumer.dir, "cmd/demo/extra file.go", "package main\n")
 	requireInstalls(t, consumer.dryRunInstall(t), "an unsupported source path should install")
 }
+
+// TestInstallRebuildsWhenGitIdentityChanges covers the commit, version, and
+// dirty flag that the engine stamps into the binary. They reach no source file,
+// so the stamp is what makes the reported identity match the tree.
+func TestInstallRebuildsWhenGitIdentityChanges(t *testing.T) {
+	consumer := newStaleConsumer(t, "")
+	consumer.placeInstalled(t, "demo", time.Hour)
+	requireSkips(t, consumer.dryRunInstall(t), "an unchanged commit should not reinstall")
+
+	requireInstalls(t, consumer.dryRunInstall(t, "GIT_COMMIT=deadbee"),
+		"another commit should reinstall")
+	// The consumer is outside any git checkout, so GIT_DIRTY already reads
+	// true and false is the value that differs.
+	requireInstalls(t, consumer.dryRunInstall(t, "GIT_DIRTY=false"),
+		"another dirty state should reinstall")
+}

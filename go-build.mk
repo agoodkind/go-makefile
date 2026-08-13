@@ -272,11 +272,14 @@ export GO_MK_INSTALL_POST_CMD
 
 # Build settings change the artifact without touching a source file, so they
 # are compared through a stamp that is rewritten only when the settings differ.
-# The git stamps and BUILD_TIME stay out: they move on their own and would
-# rebuild every run. The consumer's own ldflags are in, through the value
-# captured before the git stamps extended it. GOOS and GOARCH are in because
-# they select which files a package compiles, and go list reports only the
-# files the current context selects.
+# The consumer's own ldflags are in, through the value captured before the git
+# stamps extended it. GOOS and GOARCH are in because they select which files a
+# package compiles, and go list reports only the files the current context
+# selects. The commit, version, and dirty flag are in so the identity the
+# binary reports matches the tree it was built from, which costs one rebuild
+# after a commit, a tag, or a move between a clean and a dirty tree. BUILD_TIME
+# is the one stamped value left out, because it moves every second and would
+# rebuild on every invocation.
 GO_MK_BUILD_CONFIG_DIR := .make/build-config
 GO_MK_BUILD_CONFIG := \
 	binary=$(BINARY) cmd=$(CMD) bins=$(INSTALL_BINS) \
@@ -284,6 +287,7 @@ GO_MK_BUILD_CONFIG := \
 	tags=$(GO_BUILD_TAGS) extra=$(GO_BUILD_EXTRA_FLAGS) ldflags=$(GO_MK_LDFLAGS_BASE) \
 	cgo=$(CGO_ENABLED) goflags=$(GOFLAGS) goos=$(GOOS) goarch=$(GOARCH) \
 	vpkg=$(VPKG) gklog_vpkg=$(GKLOG_VPKG) \
+	commit=$(GIT_COMMIT) version=$(GIT_VERSION) dirty=$(GIT_DIRTY) \
 	bundle=$(BUNDLE_ID) identity=$(CODESIGN_IDENTITY) timestamp=$(CODESIGN_TIMESTAMP) \
 	entitlements=$(CODESIGN_ENTITLEMENTS) \
 	pre=$(GO_MK_INSTALL_PRE_CMD) post=$(GO_MK_INSTALL_POST_CMD)
