@@ -154,6 +154,13 @@ GO_MK_BUILD_SOURCE_FILTER := awk '{ if ($$0 ~ /[ \#$$%:;=\\]/) unsafe=1; line[NR
 GO_MK_BUILD_SOURCE_FILES := $(shell go list -e -deps -f '$(GO_MK_BUILD_SOURCE_TEMPLATE)' \
 	$(GO_MK_BUILD_PACKAGES) 2>/dev/null | $(GO_MK_BUILD_SOURCE_FILTER))
 
+# GO_MK_BUILD_FORCE turns the outputs into always-run targets. Every case that
+# cannot describe the inputs honestly sets it, so a lost skip is the worst that
+# happens. A missing file is dropped from the list rather than named, because
+# make stops with "No rule to make target" on a prerequisite it cannot build,
+# and the flag is what covers the gap.
+GO_MK_BUILD_FORCE :=
+
 GO_MK_BUILD_SOURCES := $(wildcard go.mod go.sum $(GO_MK_GOLANGCI_CONFIG)) \
 	$(GO_MK_GENERATE_OUTPUTS) \
 	$(GO_MK_BUILD_SOURCE_FILES)
@@ -168,24 +175,25 @@ $(GO_MK_GENERATE_OUTPUTS): | $(GO_MK_GENERATE)
 endif
 
 # Codegen inputs are not Go packages, so go list cannot see them. A consumer
-# that declares them gets them compared directly. Directories are in the list
-# alongside their files: adding or removing a file changes only the timestamp
-# of the directory holding it, and a file list alone would miss that.
+# that declares them gets them compared directly. find prints each declared
+# directory before its contents, so adding or removing a file is seen through
+# the containing directory's timestamp. The same path filter applies, because a
+# declared path is no safer than a discovered one.
 ifneq ($(strip $(GO_MK_GENERATE_INPUTS)),)
-GO_MK_BUILD_SOURCES += $(GO_MK_GENERATE_INPUTS) \
-	$(shell find $(GO_MK_GENERATE_INPUTS) -name .git -prune -o -print 2>/dev/null)
+GO_MK_GENERATE_INPUT_FILES := $(shell find $(GO_MK_GENERATE_INPUTS) -name .git -prune -o \
+	-print 2>/dev/null | $(GO_MK_BUILD_SOURCE_FILTER))
+GO_MK_BUILD_SOURCES += $(GO_MK_GENERATE_INPUT_FILES)
+ifeq ($(strip $(GO_MK_GENERATE_INPUT_FILES)),)
+GO_MK_BUILD_FORCE := 1
+endif
 endif
 
 # The discovered list is empty when the module cannot load, which happens
 # before codegen has produced its sources, and when a path make cannot carry
-# discarded it. A short list would make every output look current, so the rules
-# run unconditionally instead. Binary mode always has at least CMD to report,
-# so an empty list is always a signal rather than a valid answer.
+# discarded it. Binary mode always has at least CMD to report, so an empty list
+# is a signal rather than a valid answer.
 ifeq ($(strip $(GO_MK_BUILD_SOURCE_FILES)),)
-.PHONY: go-mk-build-sources-unknown
-go-mk-build-sources-unknown:
-	@:
-GO_MK_BUILD_SOURCES += go-mk-build-sources-unknown
+GO_MK_BUILD_FORCE := 1
 endif
 
 # Version metadata derived from git. Single canonical scheme across all repos.
@@ -248,6 +256,25 @@ CODESIGN_TIMESTAMP ?= none
 CODESIGN_ENTITLEMENTS ?=
 GO_MK_INSTALL_PRE_CMD ?=
 GO_MK_INSTALL_POST_CMD ?=
+
+# The entitlements file is read by codesign, so its contents decide what the
+# signed binary is allowed to do. Its path is in the settings stamp; its
+# contents belong in the source list.
+ifneq ($(strip $(CODESIGN_ENTITLEMENTS)),)
+GO_MK_BUILD_SOURCES += $(wildcard $(CODESIGN_ENTITLEMENTS))
+ifeq ($(strip $(wildcard $(CODESIGN_ENTITLEMENTS))),)
+GO_MK_BUILD_FORCE := 1
+endif
+endif
+
+# One always-run prerequisite for every case that could not describe the inputs
+# honestly. It is added here, after the last contribution to the source list.
+ifneq ($(strip $(GO_MK_BUILD_FORCE)),)
+.PHONY: go-mk-build-sources-unknown
+go-mk-build-sources-unknown:
+	@:
+GO_MK_BUILD_SOURCES += go-mk-build-sources-unknown
+endif
 # Inputs the go-mk install/build/uninstall commands read from the environment.
 # go-mk assembles the build argv from the GO_BUILD_* values, stamps nothing
 # itself (the ldflags are computed above), signs on macOS from the CODESIGN_*

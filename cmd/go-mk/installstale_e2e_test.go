@@ -315,3 +315,32 @@ func TestInstallRebuildsWhenGitIdentityChanges(t *testing.T) {
 	requireInstalls(t, consumer.dryRunInstall(t, "GIT_DIRTY=false"),
 		"another dirty state should reinstall")
 }
+
+// TestInstallRebuildsWhenEntitlementsChange covers the codesign entitlements
+// file, whose contents decide what the signed binary may do.
+func TestInstallRebuildsWhenEntitlementsChange(t *testing.T) {
+	consumer := newStaleConsumer(t, "CODESIGN_ENTITLEMENTS := demo.entitlements\n")
+	writeConsumerFile(t, consumer.dir, "demo.entitlements", "<plist/>\n")
+
+	consumer.placeInstalled(t, "demo", time.Hour)
+	requireSkips(t, consumer.dryRunInstall(t), "unchanged entitlements should not reinstall")
+
+	touch(t, filepath.Join(consumer.dir, "demo.entitlements"), 2*time.Hour)
+	requireInstalls(t, consumer.dryRunInstall(t), "changed entitlements should reinstall")
+}
+
+// TestInstallRunsWhenADeclaredInputIsMissing covers a declared input that does
+// not exist. Make cannot mark an output stale against a file it cannot see, so
+// the outputs become always-run instead.
+func TestInstallRunsWhenADeclaredInputIsMissing(t *testing.T) {
+	consumer := newStaleConsumer(t, "CODESIGN_ENTITLEMENTS := demo.entitlements\n")
+	writeConsumerFile(t, consumer.dir, "demo.entitlements", "<plist/>\n")
+
+	consumer.placeInstalled(t, "demo", time.Hour)
+	requireSkips(t, consumer.dryRunInstall(t), "a present entitlements file should allow a skip")
+
+	if err := os.Remove(filepath.Join(consumer.dir, "demo.entitlements")); err != nil {
+		t.Fatalf("remove entitlements: %v", err)
+	}
+	requireInstalls(t, consumer.dryRunInstall(t), "a missing entitlements file should install")
+}
