@@ -115,9 +115,11 @@ GO_MK_INSTALL_SECONDARY := $(filter-out $(GO_MK_INSTALL_PRIMARY),$(GO_MK_INSTALL
 # main package, INSTALL_BINS names one main package per binary, and each gate
 # carries its own target pattern. The union is what a run of build or install
 # actually compiles and lints, so it is the union that decides staleness.
-# GOCYCLO_TARGETS is absent because it names files rather than packages.
+# GOCYCLO_TARGETS is absent because it names files rather than packages. CMD is
+# named directly for the single-binary case, so a repo that narrows the gate
+# patterns still reports the package its binary is built from.
 GO_MK_BUILD_PACKAGES := $(sort \
-	$(foreach spec,$(INSTALL_BINS),$(call go-mk-bin-field,$(spec),2)) \
+	$(if $(strip $(INSTALL_BINS)),$(foreach spec,$(INSTALL_BINS),$(call go-mk-bin-field,$(spec),2)),$(CMD)) \
 	$(GO_BUILD_TARGETS) \
 	$(GO_VET_TARGETS) \
 	$(GOLANGCI_LINT_TARGETS) \
@@ -349,14 +351,17 @@ $(GO_MK_INSTALL_PRIMARY): go-mk-install-hooks-declared
 endif
 
 # The primary rule writes every declared binary, so a secondary one is normally
-# already in place by the time make reaches it. The guard covers the case where
-# the primary was current and a secondary was deleted, and it runs the engine
-# at most once because the first call restores all of them.
+# already in place and no older than the primary by the time make reaches it.
+# The guard covers a secondary that was deleted or left behind while the
+# primary was current, and it runs the engine at most once, because one call
+# rewrites all of them and the engine writes the primary first.
+go-mk-secondary-guard = test -x $(2) && test -z "$$(find '$(1)' -newer '$(2)' 2>/dev/null)"
+
 $(GO_MK_DIST_SECONDARY): $(GO_MK_DIST_PRIMARY) | go-mk-bin
-	@test -x $@ || "$(GO_MK_BIN_RESOLVED)" build
+	@$(call go-mk-secondary-guard,$(GO_MK_DIST_PRIMARY),$@) || "$(GO_MK_BIN_RESOLVED)" build
 
 $(GO_MK_INSTALL_SECONDARY): $(GO_MK_INSTALL_PRIMARY) | go-mk-bin
-	@test -x $@ || "$(GO_MK_BIN_RESOLVED)" install
+	@$(call go-mk-secondary-guard,$(GO_MK_INSTALL_PRIMARY),$@) || "$(GO_MK_BIN_RESOLVED)" install
 
 uninstall: | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" uninstall
