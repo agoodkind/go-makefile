@@ -8,8 +8,8 @@ asset_list() {
     printf "go.mk\n"
     printf "golangci.yml\n"
     # The bootstrap helper is listed here rather than added to
-    # GO_MK_SCRIPT_FILES, which is the other list it could have joined.
-    # GO_MK_SCRIPT_FILES drives go.mk's own prime, and that loop removes each
+    # _GO_MK_SCRIPT_FILES, which is the other list it could have joined.
+    # _GO_MK_SCRIPT_FILES drives go.mk's own prime, and that loop removes each
     # entry before downloading its replacement, so putting the helper there
     # would let a failed download destroy it. Here it only ever gets fetched.
     #
@@ -17,7 +17,7 @@ asset_list() {
     # rebuilt a tree missing the one asset the next parse needs before it can
     # do anything, and reported success.
     printf "scripts/go-mk-bootstrap.sh\n"
-    for script_name in ${GO_MK_SCRIPT_FILES:-}; do
+    for script_name in ${_GO_MK_SCRIPT_FILES:-}; do
         printf "%s\n" "${script_name}"
     done
     for module_name in ${GO_MK_MODULES:-}; do

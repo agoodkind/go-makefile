@@ -31,7 +31,7 @@ ifeq ($(strip $(LIBRARY)),1)
 
 # Library mode: no binary to produce, but the same build gate still runs.
 build: | go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" build-gate
+	@"$(__GO_MK_ENGINE)" build-gate
 	@echo "library mode: no binary to build"
 
 deploy: install
@@ -168,15 +168,15 @@ export GO_MK_INSTALL_POST_CMD
 # install builds every declared binary before placing it. Signing runs inside
 # the engine on macOS only.
 build: | go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" build
+	@"$(__GO_MK_ENGINE)" build
 
 deploy: install
 
 install: | go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" install
+	@"$(__GO_MK_ENGINE)" install
 
 uninstall: | go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" uninstall
+	@"$(__GO_MK_ENGINE)" uninstall
 
 version-info:
 	@echo "binary:      $(BINARY)"
