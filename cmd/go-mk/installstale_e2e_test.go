@@ -445,6 +445,17 @@ func TestGenerateInputsKeepShellSyntaxLiteral(t *testing.T) {
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("a declared codegen path ran as a command: %v", err)
 	}
+
+	// A single quote in the value ends the quoting unless it is escaped. This
+	// injection holds no space, so make keeps it as one word and the quoting is
+	// the only thing standing between it and the shell.
+	quoted := filepath.Join(consumer.dir, "quoted")
+	consumer.runMake(t, "go-mk-build-config",
+		"GO_MK_GENERATE_INPUTS=grammars';>"+quoted+";true'")
+
+	if _, err := os.Stat(quoted); !os.IsNotExist(err) {
+		t.Fatalf("a quote in a declared codegen path ran as a command: %v", err)
+	}
 }
 
 // TestInstallRunsWhenADeclaredInputIsMissing covers a declared input that does

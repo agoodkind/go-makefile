@@ -147,7 +147,7 @@ GO_MK_BUILD_PACKAGES := $(sort \
 # happens while a generated package is still missing. The template marks such a
 # package so a partial list is not mistaken for a complete one.
 GO_MK_LOAD_ERROR := go-mk-load-error
-GO_MK_BUILD_SOURCE_TEMPLATE := {{if .Error}}$(GO_MK_LOAD_ERROR){{"\n"}}{{end}}{{if and .Module .Module.Main}}{{$$d := .Dir}}{{range .GoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CXXFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .HFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .SFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .EmbedFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{end}}
+GO_MK_BUILD_SOURCE_TEMPLATE := {{if .Error}}$(GO_MK_LOAD_ERROR){{"\n"}}{{end}}{{if and .Module .Module.Main}}{{$$d := .Dir}}{{range .GoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CXXFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .HFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .SFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .SysoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .EmbedFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{end}}
 
 # A prerequisite list cannot carry a path holding a space, #, $, %, :, ;, =, or
 # a backslash: make would split it or read it as syntax. One such path discards
@@ -155,6 +155,13 @@ GO_MK_BUILD_SOURCE_TEMPLATE := {{if .Error}}$(GO_MK_LOAD_ERROR){{"\n"}}{{end}}{{
 # time. Losing the skip is the safe direction; a silently short list is not.
 GO_MK_BUILD_SOURCE_FILTER := awk '{ if ($$0 ~ /[ \#$$%:;=\\]/) unsafe=1; line[NR]=$$0 } \
 	END { if (!unsafe) for (i = 1; i <= NR; i++) print line[i] }'
+
+# A declared path reaches a shell before that filter can see it, so each one is
+# single quoted with its own single quotes escaped. Without the escape a quote
+# in the value ends the quoting and the rest runs as a command.
+GO_MK_SQUOTE := '
+GO_MK_SQUOTE_ESCAPED := '\''
+go-mk-shell-quote = $(GO_MK_SQUOTE)$(subst $(GO_MK_SQUOTE),$(GO_MK_SQUOTE_ESCAPED),$(1))$(GO_MK_SQUOTE)
 
 GO_MK_BUILD_SOURCE_FILES := $(shell go list -e -deps -f '$(GO_MK_BUILD_SOURCE_TEMPLATE)' \
 	$(GO_MK_BUILD_PACKAGES) 2>/dev/null | $(GO_MK_BUILD_SOURCE_FILTER))
@@ -174,7 +181,8 @@ endif
 # The lint config is compared by content rather than by timestamp, through the
 # settings stamp below. go.mk rewrites it on every run, so its timestamp is
 # always the current one and would mark every output stale.
-GO_MK_GOLANGCI_DIGEST := $(shell cksum < '$(GO_MK_GOLANGCI_CONFIG)' 2>/dev/null | tr -cd '0-9 ' | tr ' ' '-')
+GO_MK_GOLANGCI_DIGEST := $(shell cksum < $(call go-mk-shell-quote,$(GO_MK_GOLANGCI_CONFIG)) \
+	2>/dev/null | tr -cd '0-9 ' | tr ' ' '-')
 
 GO_MK_BUILD_SOURCES := $(wildcard go.mod go.sum) \
 	$(GO_MK_BUILD_SOURCE_FILES)
@@ -185,7 +193,7 @@ GO_MK_BUILD_SOURCES := $(wildcard go.mod go.sum) \
 # than discovered. They go through the same path filter as everything else,
 # because a declared path is no safer than a discovered one.
 ifneq ($(strip $(GO_MK_GENERATE_OUTPUTS)),)
-GO_MK_QUOTED_OUTPUTS := $(foreach path,$(GO_MK_GENERATE_OUTPUTS),'$(path)')
+GO_MK_QUOTED_OUTPUTS := $(foreach path,$(GO_MK_GENERATE_OUTPUTS),$(call go-mk-shell-quote,$(path)))
 GO_MK_GENERATE_OUTPUT_FILES := $(shell printf '%s\n' $(GO_MK_QUOTED_OUTPUTS) \
 	| $(GO_MK_BUILD_SOURCE_FILTER))
 GO_MK_BUILD_SOURCES += $(GO_MK_GENERATE_OUTPUT_FILES)
@@ -205,7 +213,7 @@ endif
 # declared path is no safer than a discovered one, and each path is quoted
 # before the shell sees it so a metacharacter cannot run as a command.
 ifneq ($(strip $(GO_MK_GENERATE_INPUTS)),)
-GO_MK_QUOTED_INPUTS := $(foreach path,$(GO_MK_GENERATE_INPUTS),'$(path)')
+GO_MK_QUOTED_INPUTS := $(foreach path,$(GO_MK_GENERATE_INPUTS),$(call go-mk-shell-quote,$(path)))
 GO_MK_GENERATE_INPUT_FILES := $(shell find $(GO_MK_QUOTED_INPUTS) -name .git -prune -o \
 	-print 2>/dev/null | $(GO_MK_BUILD_SOURCE_FILTER))
 GO_MK_BUILD_SOURCES += $(GO_MK_GENERATE_INPUT_FILES)
@@ -287,8 +295,10 @@ GO_MK_INSTALL_POST_CMD ?=
 # signed binary is allowed to do. Its path is in the settings stamp; its
 # contents belong in the source list.
 ifneq ($(strip $(CODESIGN_ENTITLEMENTS)),)
-GO_MK_BUILD_SOURCES += $(wildcard $(CODESIGN_ENTITLEMENTS))
-ifeq ($(strip $(wildcard $(CODESIGN_ENTITLEMENTS))),)
+GO_MK_ENTITLEMENTS_FILE := $(shell printf '%s\n' $(call go-mk-shell-quote,$(CODESIGN_ENTITLEMENTS)) \
+	| $(GO_MK_BUILD_SOURCE_FILTER))
+GO_MK_BUILD_SOURCES += $(wildcard $(GO_MK_ENTITLEMENTS_FILE))
+ifeq ($(strip $(wildcard $(GO_MK_ENTITLEMENTS_FILE))),)
 GO_MK_BUILD_FORCE := 1
 endif
 endif
@@ -354,7 +364,6 @@ GO_MK_BUILD_CONFIG := \
 # each becomes a spelled-out token instead of disappearing. Deleting them would
 # let two different settings spell one name. The hyphen is escaped first, which
 # is what keeps the mapping reversible and so free of collisions.
-GO_MK_SQUOTE := '
 GO_MK_DQUOTE := "
 GO_MK_BUILD_CONFIG_SAFE := $(subst $$,-dl-,$(subst \,-bs-,$(subst $(GO_MK_DQUOTE),-dq-,$(subst $(GO_MK_SQUOTE),-sq-,$(subst -,-h-,$(GO_MK_BUILD_CONFIG))))))
 
