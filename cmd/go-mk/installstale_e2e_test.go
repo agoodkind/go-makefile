@@ -329,6 +329,20 @@ func TestInstallRebuildsWhenEntitlementsChange(t *testing.T) {
 	requireInstalls(t, consumer.dryRunInstall(t), "changed entitlements should reinstall")
 }
 
+// TestBuildConfigStampKeepsShellSyntaxLiteral covers consumer values that reach
+// the stamp, such as install hooks. The stamp recipe puts them in a shell
+// command, so shell syntax inside them has to stay text.
+func TestBuildConfigStampKeepsShellSyntaxLiteral(t *testing.T) {
+	consumer := newStaleConsumer(t, "")
+	marker := filepath.Join(consumer.dir, "executed")
+	hook := "echo hook `touch " + marker + "` ; touch " + marker
+	consumer.runMake(t, "go-mk-build-config", "GO_MK_INSTALL_POST_CMD="+hook)
+
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("stamp executed shell syntax from a consumer value: %v", err)
+	}
+}
+
 // TestInstallRunsWhenADeclaredInputIsMissing covers a declared input that does
 // not exist. Make cannot mark an output stale against a file it cannot see, so
 // the outputs become always-run instead.

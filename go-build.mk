@@ -386,7 +386,7 @@ endif
 # The guard covers a secondary that was deleted or left behind while the
 # primary was current, and it runs the engine at most once, because one call
 # rewrites all of them and the engine writes the primary first.
-go-mk-secondary-guard = test -x $(2) && test -z "$$(find '$(1)' -newer '$(2)' 2>/dev/null)"
+go-mk-secondary-guard = test -x '$(2)' && test -z "$$(find '$(1)' -newer '$(2)' 2>/dev/null)"
 
 $(GO_MK_DIST_SECONDARY): $(GO_MK_DIST_PRIMARY) | go-mk-bin
 	@$(call go-mk-secondary-guard,$(GO_MK_DIST_PRIMARY),$@) || "$(GO_MK_BIN_RESOLVED)" build
