@@ -9,7 +9,7 @@
 #   packaging/systemd/$(SYSTEMD_UNIT).in
 #
 # Templates use @@VAR@@ markers, replaced at install time:
-#   @@BIN_PATH@@   absolute path to installed binary ($(_GO_MK_INSTALL_BIN) from go-build.mk)
+#   @@BIN_PATH@@   absolute path to installed binary ($(__GO_MK_INSTALL_BIN) from go-build.mk)
 #   @@HOME@@       $HOME
 #   @@LABEL@@      $(LAUNCHD_LABEL) or $(SYSTEMD_UNIT) without .service
 #   @@LOG_PATH@@   $(LOG_PATH) (default ~/Library/Logs/$(BINARY).log on macOS)
@@ -38,9 +38,9 @@ SYSTEMD_TEMPLATE  ?= packaging/systemd/$(SYSTEMD_UNIT).in
 LOG_PATH ?= $(HOME)/Library/Logs/$(BINARY).log
 
 # Render a template by replacing @@VAR@@ markers via sed. $(1) source, $(2) dest.
-define _go-mk-render-service-template
+define __go-mk-render-service-template
 	@mkdir -p "$(dir $(2))"
-	@sed -e 's|@@BIN_PATH@@|$(_GO_MK_INSTALL_BIN)|g' \
+	@sed -e 's|@@BIN_PATH@@|$(__GO_MK_INSTALL_BIN)|g' \
 	     -e 's|@@HOME@@|$(HOME)|g' \
 	     -e 's|@@LABEL@@|$(if $(LAUNCHD_LABEL),$(LAUNCHD_LABEL),$(basename $(SYSTEMD_UNIT)))|g' \
 	     -e 's|@@LOG_PATH@@|$(LOG_PATH)|g' \
@@ -71,7 +71,7 @@ service-install: service-check
 		touch "$(LOG_PATH)"; \
 		tmp_plist=$$(mktemp -t $(LAUNCHD_LABEL).plist.XXXXXX); \
 		trap 'rm -f "$$tmp_plist"' EXIT; \
-		sed -e 's|@@BIN_PATH@@|$(_GO_MK_INSTALL_BIN)|g' \
+		sed -e 's|@@BIN_PATH@@|$(__GO_MK_INSTALL_BIN)|g' \
 		    -e 's|@@HOME@@|$(HOME)|g' \
 		    -e 's|@@LABEL@@|$(LAUNCHD_LABEL)|g' \
 		    -e 's|@@LOG_PATH@@|$(LOG_PATH)|g' \
@@ -90,7 +90,7 @@ service-install: service-check
 		mkdir -p "$(SYSTEMD_USER_DIR)"; \
 		tmp_unit=$$(mktemp -t $(SYSTEMD_UNIT).XXXXXX); \
 		trap 'rm -f "$$tmp_unit"' EXIT; \
-		sed -e 's|@@BIN_PATH@@|$(_GO_MK_INSTALL_BIN)|g' \
+		sed -e 's|@@BIN_PATH@@|$(__GO_MK_INSTALL_BIN)|g' \
 		    -e 's|@@HOME@@|$(HOME)|g' \
 		    -e 's|@@LABEL@@|$(basename $(SYSTEMD_UNIT))|g' \
 		    -e 's|@@LOG_PATH@@|$(LOG_PATH)|g' \
