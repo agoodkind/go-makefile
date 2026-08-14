@@ -78,6 +78,19 @@ func TestConsumerBootstrapMkKeepsRecipeHashComments(t *testing.T) {
 	}
 }
 
+func TestConsumerBootstrapMkStripsSpaceIndentedComments(t *testing.T) {
+	canonical := "FOO := 1\n" +
+		"  # space indented makefile comment\n" +
+		"BAR := 2\n"
+	stripped := string(consumerBootstrapMk([]byte(canonical)))
+	if strings.Contains(stripped, "space indented makefile comment") {
+		t.Fatalf("kept space-indented makefile comment:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "FOO := 1") || !strings.Contains(stripped, "BAR := 2") {
+		t.Fatalf("dropped assignments:\n%s", stripped)
+	}
+}
+
 func TestConsumerBootstrapMkTracksNestedDefines(t *testing.T) {
 	canonical := "# makefile comment\n" +
 		"define outer\n" +

@@ -530,7 +530,7 @@ func consumerBootstrapMk(canonical []byte) []byte {
 			lines = append(lines, line)
 			continue
 		}
-		if defineDepth == 0 && strings.HasPrefix(line, "#") {
+		if defineDepth == 0 && strings.HasPrefix(strings.TrimLeft(line, " "), "#") {
 			continue
 		}
 		lines = append(lines, line)
