@@ -168,12 +168,12 @@ func TestDevDirHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
 	}
 }
 
-// TestSkipFetchHonoredWhenSetOnTheMakeCommandLine is the same split for the
+// TestProvisionedHonoredWhenSetOnTheMakeCommandLine is the same split for the
 // flag that means "do not touch the network, the assets are already here".
 // bootstrap.mk honors it while the helper, not seeing it, fetches anyway, so
 // an air-gapped or pre-vendored build fails at parse time, which is the exact
 // case the flag exists to serve.
-func TestSkipFetchHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
+func TestProvisionedHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
 	dir := newConsumer(t)
 	for name, body := range helperFiles() {
 		// Leave the helper alone. newConsumer seeded .make with this
@@ -191,11 +191,11 @@ func TestSkipFetchHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
 	}
 
 	output, code := runMakeWithCommandLineVars(t, dir, map[string]string{
-		"GO_MK_SKIP_FETCH":    "1",
+		"_GO_MK_PROVISIONED":  "1",
 		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
 	})
 	if code != 0 {
-		t.Fatalf("parse exit = %d with GO_MK_SKIP_FETCH=1 on the command line and a complete .make, "+
+		t.Fatalf("parse exit = %d with _GO_MK_PROVISIONED=1 on the command line and a complete .make, "+
 			"want 0 (the flag must prevent every network access): %s", code, output)
 	}
 }
@@ -247,12 +247,12 @@ func TestOfflineParseDoesNotDestroyCachedAssets(t *testing.T) {
 	}
 }
 
-// TestSkipFetchRejectsAnEmptyHelper covers the skip-fetch guard, which used
+// TestProvisionedRejectsAnEmptyHelper covers the provisioned guard, which used
 // $(wildcard) and so accepted any path that exists. An empty helper satisfies
 // that, and bash exits 0 on an empty script, so GO_MK_PROVISION came back "ok"
 // and the parse continued with nothing provisioned. An interrupted earlier
 // run, a full disk, or a hand-created placeholder all produce that file.
-func TestSkipFetchRejectsAnEmptyHelper(t *testing.T) {
+func TestProvisionedRejectsAnEmptyHelper(t *testing.T) {
 	dir := newConsumer(t)
 	helperPath := filepath.Join(dir, ".make", "scripts", "go-mk-bootstrap.sh")
 	if err := os.WriteFile(helperPath, nil, 0o755); err != nil {
@@ -274,7 +274,7 @@ func TestSkipFetchRejectsAnEmptyHelper(t *testing.T) {
 	}
 
 	output, code := runMake(t, dir, map[string]string{
-		"GO_MK_SKIP_FETCH":    "1",
+		"_GO_MK_PROVISIONED":  "1",
 		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
 	})
 	if code == 0 {

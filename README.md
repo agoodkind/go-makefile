@@ -21,7 +21,8 @@ by one fetched file, `go.mk`.
 - `go.mk` and its helpers fetch into `.make/` on every run and are never
   committed; the bootstrap gitignores `.make/`. Run `make update-go-mk` to
   refetch. Set `GO_MK_DEV_DIR` to a local go-makefile checkout to fetch from
-  there instead of `main`.
+  there instead of `main`. See [docs/bootstrap.md](docs/bootstrap.md) for the
+  parse-time contract.
 - Repos that generate source before compiling (for example a tree-sitter parser
   or proto) set `GO_MK_GENERATE` to the codegen target name(s) before
   `include bootstrap.mk`. go.mk runs them as an order-only prerequisite of every

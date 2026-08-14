@@ -58,14 +58,14 @@ define _go_mk_prime
 		rm -rf "$$tmp"; \
 	fi
 endef
-# Skip the prime entirely under GO_MK_SKIP_FETCH so air-gapped or pre-vendored
+# Skip the prime entirely under _GO_MK_PROVISIONED so air-gapped or pre-vendored
 # runs never touch the network; the require paths below then fail fast if an
 # expected asset is missing.
 #
 # The bootstrap helper provisions every asset in one extraction, so this prime
 # is only for a consumer whose committed bootstrap.mk predates the helper. It
 # is removed once the fleet has migrated.
-ifneq ($(strip $(GO_MK_SKIP_FETCH)),1)
+ifneq ($(strip $(_GO_MK_PROVISIONED)),1)
 ifeq ($(strip $(GO_MK_PROVISION)),)
 $(shell mkdir -p .make && { $(call _go_mk_prime); } 1>&2)
 endif
@@ -121,10 +121,10 @@ $(if $(wildcard $(2)),,$(error go-makefile failed to fetch $(1) into $(2)))
 endef
 
 ifeq ($(GO_MK_HELPER_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
-ifeq ($(strip $(GO_MK_SKIP_FETCH)),1)
-# Honor GO_MK_SKIP_FETCH here too: require the pre-vendored fetcher rather than
+ifeq ($(strip $(_GO_MK_PROVISIONED)),1)
+# Honor _GO_MK_PROVISIONED here too: require the pre-vendored fetcher rather than
 # curling GO_MK_BASE_URL, so an offline run stays network-free.
-GO_MK_FETCHED_BOOTSTRAP := $(if $(wildcard $(CURDIR)/.make/scripts/go-mk-fetch-one.sh),,$(error go-makefile expected .make/scripts/go-mk-fetch-one.sh; rerun without GO_MK_SKIP_FETCH))
+GO_MK_FETCHED_BOOTSTRAP := $(if $(wildcard $(CURDIR)/.make/scripts/go-mk-fetch-one.sh),,$(error go-makefile expected .make/scripts/go-mk-fetch-one.sh; rerun without _GO_MK_PROVISIONED))
 else
 GO_MK_FETCHED_BOOTSTRAP := $(call go_mk_fetch_bootstrap,scripts/go-mk-fetch-one.sh,.make/scripts/go-mk-fetch-one.sh)
 endif
@@ -135,11 +135,11 @@ $(if $(filter ok,$(shell mkdir -p .make && bash "$(GO_MK_FETCH_SCRIPT)" "$(1)" "
 endef
 
 define go-mk-require-one
-$(if $(wildcard $(1)),,$(error go-makefile expected $(1); rerun without GO_MK_SKIP_FETCH))
+$(if $(wildcard $(1)),,$(error go-makefile expected $(1); rerun without _GO_MK_PROVISIONED))
 endef
 
 ifeq ($(GO_MK_HELPER_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
-ifeq ($(strip $(GO_MK_SKIP_FETCH)),1)
+ifeq ($(strip $(_GO_MK_PROVISIONED)),1)
 GO_MK_FETCHED_SCRIPTS := $(foreach s,$(GO_MK_SCRIPT_FILES),$(call go-mk-require-one,.make/$(s)))
 else
 # _go_mk_prime already copied each script from the tarball, so require it when
@@ -152,7 +152,7 @@ endif
 # GO_MK_MODULES: project sets a list of sibling .mk files to fetch and include.
 # Example: GO_MK_MODULES := go-build.mk go-release.mk go-service.mk
 GO_MK_MODULES ?=
-ifneq ($(strip $(GO_MK_BOOTSTRAP_FETCHED)$(GO_MK_SKIP_FETCH)),)
+ifneq ($(strip $(GO_MK_BOOTSTRAP_FETCHED)$(_GO_MK_PROVISIONED)),)
 GO_MK_FETCHED_MODULES := $(foreach m,$(GO_MK_MODULES),$(call go-mk-require-one,.make/$(m)))
 else
 GO_MK_FETCHED_MODULES := $(foreach m,$(GO_MK_MODULES),$(call go-mk-fetch-one,$(m)))
@@ -160,7 +160,7 @@ endif
 
 # Centralized golangci-lint config. Consumers do not maintain their own copy.
 GO_MK_GOLANGCI_CONFIG ?= .make/golangci.yml
-ifneq ($(strip $(GO_MK_BOOTSTRAP_FETCHED)$(GO_MK_SKIP_FETCH)),)
+ifneq ($(strip $(GO_MK_BOOTSTRAP_FETCHED)$(_GO_MK_PROVISIONED)),)
 GO_MK_FETCHED_GOLANGCI := $(call go-mk-require-one,$(GO_MK_GOLANGCI_CONFIG))
 else
 GO_MK_FETCHED_GOLANGCI := $(call go-mk-fetch-one,golangci.yml)

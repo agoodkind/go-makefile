@@ -59,7 +59,7 @@ func TestGoMkCgoDepsCgoHookResolvesCompilerEnvironment(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			workDir := writeCgoHookCompilerFixture(t, repoRoot)
-			cmd := exec.Command(makeBin, "go-mk-cgo-deps", "GO_MK_SKIP_FETCH=1")
+			cmd := exec.Command(makeBin, "go-mk-cgo-deps", "_GO_MK_PROVISIONED=1")
 			cmd.Dir = workDir
 			cmd.Env = cgoHookCompilerEnv(workDir, testCase.env)
 			if output, err := cmd.CombinedOutput(); err != nil {
@@ -92,7 +92,7 @@ func writeCgoHookCompilerFixture(t *testing.T, repoRoot string) string {
 	ccObservedPath := filepath.Join(workDir, "cc-observed.txt")
 	cxxObservedPath := filepath.Join(workDir, "cxx-observed.txt")
 	makefile := fmt.Sprintf(`GO_MK_DEV_DIR := %s
-GO_MK_SKIP_FETCH := 1
+_GO_MK_PROVISIONED := 1
 GO_MK_CGO_DEPS := demolib
 include %s
 
@@ -110,7 +110,7 @@ go-mk-cgo-dep-demolib:
 func cgoHookCompilerEnv(workDir string, compilerEnv []string) []string {
 	env := []string{
 		"HOME=" + workDir,
-		"GO_MK_SKIP_FETCH=1",
+		"_GO_MK_PROVISIONED=1",
 		"GO_MK_TARGET_GOOS=darwin",
 		"GO_MK_TARGET_GOARCH=arm64",
 		"PATH=" + os.Getenv("PATH"),
@@ -155,7 +155,7 @@ func TestGoMkCgoDepsFoldsIntoBuildPrereqs(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			workDir := writeCgoPrereqFixture(t, repoRoot, testCase.declareDeps)
-			cmd := exec.Command(makeBin, "-n", "build", "GO_MK_SKIP_FETCH=1")
+			cmd := exec.Command(makeBin, "-n", "build", "_GO_MK_PROVISIONED=1")
 			cmd.Dir = workDir
 			cmd.Env = cgoHookCompilerEnv(workDir, nil)
 			output, err := cmd.CombinedOutput()
@@ -189,7 +189,7 @@ func writeCgoPrereqFixture(t *testing.T, repoRoot string, declareDeps bool) stri
 		depTarget = "\ngo-mk-cgo-dep-demolib:\n\t@echo demolib-provisioned\n"
 	}
 	makefile := fmt.Sprintf(`GO_MK_DEV_DIR := %s
-GO_MK_SKIP_FETCH := 1
+_GO_MK_PROVISIONED := 1
 %sinclude %s
 %s`, repoRoot, depsLine, filepath.Join(repoRoot, "go.mk"), depTarget)
 	if err := os.WriteFile(filepath.Join(workDir, "Makefile"), []byte(makefile), 0o644); err != nil {

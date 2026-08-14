@@ -949,7 +949,7 @@ func runMakeHelp(t *testing.T, repoDir string, repoRoot string) {
 	command.Dir = repoDir
 	// Allow-list rather than inherit-and-clear, for the reason spelled out on
 	// testProcessEnvironment: an ambient MAKEFLAGS carrying a command-line
-	// variable outranks anything set here, and an ambient GO_MK_SKIP_FETCH
+	// variable outranks anything set here, and an ambient _GO_MK_PROVISIONED
 	// would make this scaffolded repo fail for a reason unrelated to what the
 	// scenario covers.
 	command.Env = testProcessEnvironment(map[string]string{"GO_MK_DEV_DIR": repoRoot})
