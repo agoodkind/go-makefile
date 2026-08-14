@@ -58,6 +58,26 @@ func TestConsumerBootstrapMkStripsComments(t *testing.T) {
 	}
 }
 
+func TestConsumerBootstrapMkKeepsRecipeHashComments(t *testing.T) {
+	canonical := "FOO := 1\n" +
+		"# makefile comment\n" +
+		"define recipe\n" +
+		"\techo start\n" +
+		"\t# shell comment in recipe\n" +
+		"\techo end\n" +
+		"endef\n"
+	stripped := string(consumerBootstrapMk([]byte(canonical)))
+	if strings.Contains(stripped, "makefile comment") {
+		t.Fatalf("stripped makefile comment:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "\t# shell comment in recipe") {
+		t.Fatalf("dropped tab-indented recipe comment:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "\techo start") || !strings.Contains(stripped, "\techo end") {
+		t.Fatalf("dropped recipe commands:\n%s", stripped)
+	}
+}
+
 func TestReconcileBootstrapMkWritesStrippedCopy(t *testing.T) {
 	repoDir := t.TempDir()
 	t.Chdir(repoDir)

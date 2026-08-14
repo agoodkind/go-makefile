@@ -514,7 +514,7 @@ func consumerBootstrapMk(canonical []byte) []byte {
 	var lines []string
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(strings.TrimLeft(line, " \t"), "#") {
+		if strings.HasPrefix(strings.TrimLeft(line, " "), "#") {
 			continue
 		}
 		lines = append(lines, line)
