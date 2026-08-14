@@ -763,9 +763,9 @@ endif
 # go-mk-cgo-deps so the C libraries exist before any target compiles the cgo
 # package; a dep recipe that needs generated inputs first declares its own
 # ordering (go-mk-cgo-dep-x: | $(GO_MK_GENERATE)).
-__GO_MK_PREREQS := go-mk-workspace $(GO_MK_GENERATE) $(if $(strip $(GO_MK_CGO_DEPS)),go-mk-cgo-deps)
-ifneq ($(strip $(__GO_MK_PREREQS)),)
-build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test govulncheck: | $(__GO_MK_PREREQS)
+GO_MK_PREREQS := go-mk-workspace $(GO_MK_GENERATE) $(if $(strip $(GO_MK_CGO_DEPS)),go-mk-cgo-deps)
+ifneq ($(strip $(GO_MK_PREREQS)),)
+build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test govulncheck: | $(GO_MK_PREREQS)
 endif
 
 # go-mk-generate runs only the consumer codegen prerequisite, so a CI prepare

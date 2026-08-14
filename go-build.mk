@@ -48,7 +48,7 @@ version-info:
 clean-dist:
 	@:
 
-# Targets that actually compile, for the __GO_MK_PREREQS attachment below.
+# Targets that actually compile, for the GO_MK_PREREQS attachment below.
 __GO_MK_COMPILE_TARGETS := build install
 
 else
@@ -458,7 +458,7 @@ clean-dist:
 	@rm -rf $(DIST_DIR)
 	@echo "cleaned: $(DIST_DIR)"
 
-# Targets that actually compile, for the __GO_MK_PREREQS attachment below. These
+# Targets that actually compile, for the GO_MK_PREREQS attachment below. These
 # are the file rules, not the build/install wrappers: make orders a target's
 # recipe after its prerequisites, but leaves the order among those
 # prerequisites unspecified, so codegen hung off the wrapper could run after
@@ -467,10 +467,10 @@ __GO_MK_COMPILE_TARGETS := $(__GO_MK_DIST_OUTPUTS) $(__GO_MK_INSTALL_OUTPUTS)
 
 endif
 
-# __GO_MK_PREREQS (see go.mk): codegen and go.work routing. Attach to this
+# GO_MK_PREREQS (see go.mk): codegen and go.work routing. Attach to this
 # module's compile targets so a consumer that opts into go-build.mk also
 # generates its parsers/proto and materializes go.work before build and install.
 # Empty default is a no-op.
-ifneq ($(strip $(__GO_MK_PREREQS)),)
-$(__GO_MK_COMPILE_TARGETS): | $(__GO_MK_PREREQS)
+ifneq ($(strip $(GO_MK_PREREQS)),)
+$(__GO_MK_COMPILE_TARGETS): | $(GO_MK_PREREQS)
 endif
