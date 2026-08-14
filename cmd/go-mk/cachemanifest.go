@@ -574,7 +574,7 @@ func collectCacheManifestImplementationHashes(config cacheManifestConfig) ([]cac
 	}
 	hashes = append(hashes, executableHash)
 	candidatePaths := []string{
-		config.getenv("_GO_MK_SELF"),
+		config.getenv("GO_MK_SELF"),
 		".make/go.mk",
 	}
 	candidateHashes, candidateErr := cacheManifestHashesForPaths(candidatePaths)

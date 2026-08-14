@@ -20,7 +20,7 @@ func TestExtractFindingsDropsOutOfTree(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "cmd", "main.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("_GO_MK_ROOT", root)
+	t.Setenv("GO_MK_ROOT", root)
 
 	rawPath := filepath.Join(root, "raw.out")
 	rawLines := "cmd/main.go:6:11: real local finding (errcheck)\n" +
