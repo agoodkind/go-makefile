@@ -48,9 +48,6 @@ version-info:
 clean-dist:
 	@:
 
-# Targets that actually compile, for the GO_MK_PREREQS attachment below.
-GO_MK_COMPILE_TARGETS := build install
-
 else
 
 # ---------------------------------------------------------------------------
@@ -82,154 +79,6 @@ INSTALL_BINS ?=
 # otherwise); the primary binary's name titles the GitHub release.
 RELEASE_BINS ?=
 
-# ---------------------------------------------------------------------------
-# Freshness inputs
-# ---------------------------------------------------------------------------
-# build and install hang off the real files they produce, so make skips the
-# engine call outright when nothing is newer: no gate, no compile, no codesign,
-# no copy. The lists below are what make compares those files against.
-
-# Every path the engine writes. An empty INSTALL_BINS means the single
-# BINARY:CMD. A non-empty one replaces that default outright and need not name
-# BINARY, so both lists are derived from it rather than assumed to contain
-# $(DIST_BIN) or $(INSTALL_BIN).
-go-mk-bin-field = $(word $(2),$(subst :, ,$(1)))
-go-mk-install-path = $(or $(call go-mk-bin-field,$(1),3),$(INSTALL_DIR))/$(call go-mk-bin-field,$(1),1)
-
-ifeq ($(strip $(INSTALL_BINS)),)
-GO_MK_DIST_PATHS    := $(DIST_BIN)
-GO_MK_INSTALL_PATHS := $(INSTALL_BIN)
-else
-GO_MK_DIST_PATHS    := $(foreach spec,$(INSTALL_BINS),$(DIST_DIR)/$(call go-mk-bin-field,$(spec),1))
-GO_MK_INSTALL_PATHS := $(foreach spec,$(INSTALL_BINS),$(call go-mk-install-path,$(spec)))
-endif
-
-# A single engine call writes every path, and GNU Make 3.81 has no grouped
-# targets, so the first path carries the rule and the rest re-check cheaply.
-GO_MK_DIST_PRIMARY      := $(firstword $(GO_MK_DIST_PATHS))
-GO_MK_DIST_SECONDARY    := $(filter-out $(GO_MK_DIST_PRIMARY),$(GO_MK_DIST_PATHS))
-GO_MK_INSTALL_PRIMARY   := $(firstword $(GO_MK_INSTALL_PATHS))
-GO_MK_INSTALL_SECONDARY := $(filter-out $(GO_MK_INSTALL_PRIMARY),$(GO_MK_INSTALL_PATHS))
-
-# The packages build and install read. Consumers declare these: CMD names the
-# main package, INSTALL_BINS names one main package per binary, and each gate
-# carries its own target pattern. The union is what a run of build or install
-# actually compiles and lints, so it is the union that decides staleness.
-# GOCYCLO_TARGETS is absent because it names files rather than packages. CMD is
-# named directly for the single-binary case, so a repo that narrows the gate
-# patterns still reports the package its binary is built from.
-GO_MK_BUILD_PACKAGES := $(sort \
-	$(if $(strip $(INSTALL_BINS)),$(foreach spec,$(INSTALL_BINS),$(call go-mk-bin-field,$(spec),2)),$(CMD)) \
-	$(GO_BUILD_TARGETS) \
-	$(GO_VET_TARGETS) \
-	$(GOLANGCI_LINT_TARGETS) \
-	$(DEADCODE_TARGETS) \
-	$(STATICCHECK_EXTRA_TARGETS) \
-	$(GOVULNCHECK_TARGETS))
-
-# Go reports the exact files each package compiles, so the file list comes from
-# go list rather than from a pattern match over the tree. Test files are in the
-# set because the lint gates read them. The template keeps only packages in the
-# main module, which drops the standard library and the module cache without
-# comparing path prefixes: go list reports a directory as it was reached, so a
-# prefix comparison disagrees with itself across symlinked checkouts.
-#
-# go list runs at parse time on every invocation, including goals that never
-# build, and takes about half a second on a warm cache. Deferring it would
-# require .SECONDEXPANSION:, which changes $$ handling for every rule in every
-# consumer, so the flat cost is preferred.
-#
-# The template emits one path per line and is one physical line, because a
-# continuation would join the groups with a space and that space would land in
-# the output.
-#
-# go list -e reports a package it could not load instead of failing, which
-# happens while a generated package is still missing. The template marks such a
-# package so a partial list is not mistaken for a complete one.
-GO_MK_LOAD_ERROR := go-mk-load-error
-GO_MK_BUILD_SOURCE_TEMPLATE := {{if .Error}}$(GO_MK_LOAD_ERROR){{"\n"}}{{end}}{{if and .Module .Module.Main}}{{$$d := .Dir}}{{range .GoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CXXFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .HFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .SFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .SysoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .EmbedFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{end}}
-
-# A prerequisite list cannot carry a path holding a space, #, $, %, :, ;, =, or
-# a backslash: make would split it or read it as syntax. One such path discards
-# the whole discovered list, and the guard below then runs the engine every
-# time. Losing the skip is the safe direction; a silently short list is not.
-GO_MK_BUILD_SOURCE_FILTER := awk '{ if ($$0 ~ /[ \#$$%:;=\\]/) unsafe=1; line[NR]=$$0 } \
-	END { if (!unsafe) for (i = 1; i <= NR; i++) print line[i] }'
-
-# A declared path reaches a shell before that filter can see it, so each one is
-# single quoted with its own single quotes escaped. Without the escape a quote
-# in the value ends the quoting and the rest runs as a command.
-GO_MK_SQUOTE := '
-GO_MK_SQUOTE_ESCAPED := '\''
-go-mk-shell-quote = $(GO_MK_SQUOTE)$(subst $(GO_MK_SQUOTE),$(GO_MK_SQUOTE_ESCAPED),$(1))$(GO_MK_SQUOTE)
-
-GO_MK_BUILD_SOURCE_FILES := $(shell go list -e -deps -f '$(GO_MK_BUILD_SOURCE_TEMPLATE)' \
-	$(GO_MK_BUILD_PACKAGES) 2>/dev/null | $(GO_MK_BUILD_SOURCE_FILTER))
-
-# GO_MK_BUILD_FORCE turns the outputs into always-run targets. Every case that
-# cannot describe the inputs honestly sets it, so a lost skip is the worst that
-# happens. A missing file is dropped from the list rather than named, because
-# make stops with "No rule to make target" on a prerequisite it cannot build,
-# and the flag is what covers the gap.
-GO_MK_BUILD_FORCE :=
-
-ifneq ($(filter $(GO_MK_LOAD_ERROR),$(GO_MK_BUILD_SOURCE_FILES)),)
-GO_MK_BUILD_FORCE := 1
-GO_MK_BUILD_SOURCE_FILES := $(filter-out $(GO_MK_LOAD_ERROR),$(GO_MK_BUILD_SOURCE_FILES))
-endif
-
-# The lint config is compared by content rather than by timestamp, through the
-# settings stamp below. go.mk rewrites it on every run, so its timestamp is
-# always the current one and would mark every output stale.
-GO_MK_GOLANGCI_DIGEST := $(shell cksum < $(call go-mk-shell-quote,$(GO_MK_GOLANGCI_CONFIG)) \
-	2>/dev/null | tr -cd '0-9 ' | tr ' ' '-')
-
-GO_MK_BUILD_SOURCES := $(wildcard go.mod go.sum) \
-	$(GO_MK_BUILD_SOURCE_FILES)
-
-# Declared generated outputs are prerequisites even when absent, so a deleted
-# one runs codegen and then the compile in the same invocation. go list cannot
-# report a file that does not exist yet, which is why these are named rather
-# than discovered. They go through the same path filter as everything else,
-# because a declared path is no safer than a discovered one.
-ifneq ($(strip $(GO_MK_GENERATE_OUTPUTS)),)
-GO_MK_QUOTED_OUTPUTS := $(foreach path,$(GO_MK_GENERATE_OUTPUTS),$(call go-mk-shell-quote,$(path)))
-GO_MK_GENERATE_OUTPUT_FILES := $(shell printf '%s\n' $(GO_MK_QUOTED_OUTPUTS) \
-	| $(GO_MK_BUILD_SOURCE_FILTER))
-GO_MK_BUILD_SOURCES += $(GO_MK_GENERATE_OUTPUT_FILES)
-
-ifeq ($(strip $(GO_MK_GENERATE_OUTPUT_FILES)),)
-GO_MK_BUILD_FORCE := 1
-else
-$(GO_MK_GENERATE_OUTPUT_FILES): | $(GO_MK_GENERATE)
-	@test -e $@ || { printf 'go-build.mk: codegen did not produce %s\n' '$@' >&2; exit 1; }
-endif
-endif
-
-# Codegen inputs are not Go packages, so go list cannot see them. A consumer
-# that declares them gets them compared directly. find prints each declared
-# directory before its contents, so adding or removing a file is seen through
-# the containing directory's timestamp. The same path filter applies, because a
-# declared path is no safer than a discovered one, and each path is quoted
-# before the shell sees it so a metacharacter cannot run as a command.
-ifneq ($(strip $(GO_MK_GENERATE_INPUTS)),)
-GO_MK_QUOTED_INPUTS := $(foreach path,$(GO_MK_GENERATE_INPUTS),$(call go-mk-shell-quote,$(path)))
-GO_MK_GENERATE_INPUT_FILES := $(shell find $(GO_MK_QUOTED_INPUTS) -name .git -prune -o \
-	-print 2>/dev/null | $(GO_MK_BUILD_SOURCE_FILTER))
-GO_MK_BUILD_SOURCES += $(GO_MK_GENERATE_INPUT_FILES)
-ifeq ($(strip $(GO_MK_GENERATE_INPUT_FILES)),)
-GO_MK_BUILD_FORCE := 1
-endif
-endif
-
-# The discovered list is empty when the module cannot load, which happens
-# before codegen has produced its sources, and when a path make cannot carry
-# discarded it. Binary mode always has at least CMD to report, so an empty list
-# is a signal rather than a valid answer.
-ifeq ($(strip $(GO_MK_BUILD_SOURCE_FILES)),)
-GO_MK_BUILD_FORCE := 1
-endif
-
 # Version metadata derived from git. Single canonical scheme across all repos.
 GIT_COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 GIT_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -246,12 +95,6 @@ BUILD_TIME  := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 # $(GO_MK); the ?= here preserves their value, and the conditional += blocks
 # below still extend it for VPKG/GKLOG_VPKG when set.
 GO_BUILD_LDFLAGS ?=
-
-# The consumer's own ldflags, captured before the git stamps below extend them.
-# The build-configuration fingerprint uses this rather than the final value,
-# because the stamps carry a commit and a timestamp that move on their own.
-GO_MK_LDFLAGS_BASE := $(GO_BUILD_LDFLAGS)
-
 ifneq ($(strip $(VPKG)),)
 GO_BUILD_LDFLAGS += \
 	-X $(VPKG).Commit=$(GIT_COMMIT) \
@@ -290,27 +133,6 @@ CODESIGN_TIMESTAMP ?= none
 CODESIGN_ENTITLEMENTS ?=
 GO_MK_INSTALL_PRE_CMD ?=
 GO_MK_INSTALL_POST_CMD ?=
-
-# The entitlements file is read by codesign, so its contents decide what the
-# signed binary is allowed to do. Its path is in the settings stamp; its
-# contents belong in the source list.
-ifneq ($(strip $(CODESIGN_ENTITLEMENTS)),)
-GO_MK_ENTITLEMENTS_FILE := $(shell printf '%s\n' $(call go-mk-shell-quote,$(CODESIGN_ENTITLEMENTS)) \
-	| $(GO_MK_BUILD_SOURCE_FILTER))
-GO_MK_BUILD_SOURCES += $(wildcard $(GO_MK_ENTITLEMENTS_FILE))
-ifeq ($(strip $(wildcard $(GO_MK_ENTITLEMENTS_FILE))),)
-GO_MK_BUILD_FORCE := 1
-endif
-endif
-
-# One always-run prerequisite for every case that could not describe the inputs
-# honestly. It is added here, after the last contribution to the source list.
-ifneq ($(strip $(GO_MK_BUILD_FORCE)),)
-.PHONY: go-mk-build-sources-unknown
-go-mk-build-sources-unknown:
-	@:
-GO_MK_BUILD_SOURCES += go-mk-build-sources-unknown
-endif
 # Inputs the go-mk install/build/uninstall commands read from the environment.
 # go-mk assembles the build argv from the GO_BUILD_* values, stamps nothing
 # itself (the ldflags are computed above), signs on macOS from the CODESIGN_*
@@ -333,108 +155,18 @@ export CODESIGN_ENTITLEMENTS
 export GO_MK_INSTALL_PRE_CMD
 export GO_MK_INSTALL_POST_CMD
 
-# Build settings change the artifact without touching a source file, so they
-# are compared through a stamp that is rewritten only when the settings differ.
-# The consumer's own ldflags are in, through the value captured before the git
-# stamps extended it. GOOS and GOARCH are in because they select which files a
-# package compiles, and go list reports only the files the current context
-# selects. The commit, version, and dirty flag are in so the identity the
-# binary reports matches the tree it was built from, which costs one rebuild
-# after a commit, a tag, or a move between a clean and a dirty tree. BUILD_TIME
-# is the one stamped value left out, because it moves every second and would
-# rebuild on every invocation.
-#
-# The source list itself is in the stamp, because a timestamp comparison sees
-# only files that still exist. Deleting a source, or adding one, changes the
-# list and so changes the stamp name.
-GO_MK_BUILD_CONFIG_DIR := .make/build-config
-GO_MK_BUILD_CONFIG := \
-	binary=$(BINARY) cmd=$(CMD) bins=$(INSTALL_BINS) \
-	dist=$(DIST_DIR) install_dir=$(INSTALL_DIR) \
-	tags=$(GO_BUILD_TAGS) extra=$(GO_BUILD_EXTRA_FLAGS) ldflags=$(GO_MK_LDFLAGS_BASE) \
-	cgo=$(CGO_ENABLED) goflags=$(GOFLAGS) goos=$(GOOS) goarch=$(GOARCH) \
-	vpkg=$(VPKG) gklog_vpkg=$(GKLOG_VPKG) \
-	commit=$(GIT_COMMIT) version=$(GIT_VERSION) dirty=$(GIT_DIRTY) \
-	files=$(sort $(GO_MK_BUILD_SOURCES)) lint=$(GO_MK_GOLANGCI_DIGEST) \
-	bundle=$(BUNDLE_ID) identity=$(CODESIGN_IDENTITY) timestamp=$(CODESIGN_TIMESTAMP) \
-	entitlements=$(CODESIGN_ENTITLEMENTS) \
-	pre=$(GO_MK_INSTALL_PRE_CMD) post=$(GO_MK_INSTALL_POST_CMD)
-
-# Quotes, backslashes, and dollars would not survive the shell round trip, so
-# each becomes a spelled-out token instead of disappearing. Deleting them would
-# let two different settings spell one name. The hyphen is escaped first, which
-# is what keeps the mapping reversible and so free of collisions.
-GO_MK_DQUOTE := "
-GO_MK_BUILD_CONFIG_SAFE := $(subst $$,-dl-,$(subst \,-bs-,$(subst $(GO_MK_DQUOTE),-dq-,$(subst $(GO_MK_SQUOTE),-sq-,$(subst -,-h-,$(GO_MK_BUILD_CONFIG))))))
-
-# The settings are carried in the stamp's name rather than its contents, so a
-# changed setting names a file that does not exist and make sees an ordinary
-# missing prerequisite. A stamp with fixed contents would need a phony trigger
-# to be re-evaluated, and that would make every target look perpetually out of
-# date to `make -n` and `make -q`.
-# cksum reports a checksum and a byte count. Both are in the name, separated,
-# because concatenating the digits would let one pair of values spell the same
-# name as another.
-GO_MK_BUILD_CONFIG_ID := $(shell printf '%s' '$(GO_MK_BUILD_CONFIG_SAFE)' | cksum | awk '{printf "%s-%s", $$1, $$2}')
-GO_MK_BUILD_CONFIG_STAMP := $(GO_MK_BUILD_CONFIG_DIR)/$(GO_MK_BUILD_CONFIG_ID)
-
-$(GO_MK_BUILD_CONFIG_STAMP):
-	@mkdir -p $(GO_MK_BUILD_CONFIG_DIR)
-	@rm -f $(GO_MK_BUILD_CONFIG_DIR)/*
-	@printf '%s\n' '$(GO_MK_BUILD_CONFIG_SAFE)' > $@
-
-# A name for the stamp, so nothing outside this file has to know the hash.
-.PHONY: go-mk-build-config
-go-mk-build-config: $(GO_MK_BUILD_CONFIG_STAMP)
-
 # build and install run the go-mk build gate before compiling. Local builds run
 # vet, lint, and govulncheck inline; GitHub Actions skips that inline gate only
 # after OIDC proof because the reusable CI workflow has a separate gate job.
 # install builds every declared binary before placing it. Signing runs inside
 # the engine on macOS only.
-#
-# build and install are name wrappers; the work hangs off the real files they
-# produce, so an unchanged tree runs no recipe at all. Both file rules depend on
-# sources rather than on each other: chaining $(INSTALL_BIN) to $(DIST_BIN)
-# would pay the gate twice on every real change, because the engine's install
-# command runs the gate and the compile itself. Running `make build install`
-# together still gates twice; either one alone gates once.
-build: $(GO_MK_DIST_PATHS)
-
-$(GO_MK_DIST_PRIMARY): $(GO_MK_BUILD_SOURCES) $(GO_MK_BUILD_CONFIG_STAMP) | go-mk-bin
+build: | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" build
 
 deploy: install
 
-install: $(GO_MK_INSTALL_PATHS)
-
-$(GO_MK_INSTALL_PRIMARY): $(GO_MK_BUILD_SOURCES) $(GO_MK_BUILD_CONFIG_STAMP) | go-mk-bin
+install: | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" install
-
-# An install hook is a side effect the consumer expects on every install, not
-# a step whose result is the installed file. Declaring one opts that repo out
-# of skipping, so a hook that restarts a service or publishes an artifact still
-# runs when the binary is already current.
-ifneq ($(strip $(GO_MK_INSTALL_PRE_CMD)$(GO_MK_INSTALL_POST_CMD)),)
-.PHONY: go-mk-install-hooks-declared
-go-mk-install-hooks-declared:
-	@:
-
-$(GO_MK_INSTALL_PRIMARY): go-mk-install-hooks-declared
-endif
-
-# The primary rule writes every declared binary, so a secondary one is normally
-# already in place and no older than the primary by the time make reaches it.
-# The guard covers a secondary that was deleted or left behind while the
-# primary was current, and it runs the engine at most once, because one call
-# rewrites all of them and the engine writes the primary first.
-go-mk-secondary-guard = test -x '$(2)' && test -z "$$(find '$(1)' -newer '$(2)' 2>/dev/null)"
-
-$(GO_MK_DIST_SECONDARY): $(GO_MK_DIST_PRIMARY) | go-mk-bin
-	@$(call go-mk-secondary-guard,$(GO_MK_DIST_PRIMARY),$@) || "$(GO_MK_BIN_RESOLVED)" build
-
-$(GO_MK_INSTALL_SECONDARY): $(GO_MK_INSTALL_PRIMARY) | go-mk-bin
-	@$(call go-mk-secondary-guard,$(GO_MK_INSTALL_PRIMARY),$@) || "$(GO_MK_BIN_RESOLVED)" install
 
 uninstall: | go-mk-bin
 	@"$(GO_MK_BIN_RESOLVED)" uninstall
@@ -457,13 +189,6 @@ clean-dist:
 	@rm -rf $(DIST_DIR)
 	@echo "cleaned: $(DIST_DIR)"
 
-# Targets that actually compile, for the GO_MK_PREREQS attachment below. These
-# are the file rules, not the build/install wrappers: make orders a target's
-# recipe after its prerequisites, but leaves the order among those
-# prerequisites unspecified, so codegen hung off the wrapper could run after
-# the compile it is supposed to precede.
-GO_MK_COMPILE_TARGETS := $(GO_MK_DIST_PATHS) $(GO_MK_INSTALL_PATHS)
-
 endif
 
 # GO_MK_PREREQS (see go.mk): codegen and go.work routing. Attach to this
@@ -471,5 +196,5 @@ endif
 # generates its parsers/proto and materializes go.work before build and install.
 # Empty default is a no-op.
 ifneq ($(strip $(GO_MK_PREREQS)),)
-$(GO_MK_COMPILE_TARGETS): | $(GO_MK_PREREQS)
+build install: | $(GO_MK_PREREQS)
 endif
