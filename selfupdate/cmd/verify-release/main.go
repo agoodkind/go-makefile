@@ -31,6 +31,7 @@ func runVerifyRelease(
 	repo := flagSet.String("repo", "", "GitHub repository as OWNER/NAME")
 	tag := flagSet.String("tag", "", "release tag to verify")
 	binary := flagSet.String("binary", "", "release binary name")
+	requireSourceArchive := flagSet.Bool("require-source-archive", false, "require go-makefile-src.tar.gz on the tag")
 	apiBaseURL := flagSet.String("api-base", "", "GitHub API base URL")
 	if err := flagSet.Parse(args); err != nil {
 		return 1
@@ -59,7 +60,8 @@ func runVerifyRelease(
 			APIBaseURL: *apiBaseURL,
 			AuthToken:  os.Getenv("GITHUB_TOKEN"),
 		},
-		Log: slog.New(handler),
+		Log:                  slog.New(handler),
+		RequireSourceArchive: *requireSourceArchive,
 	}
 	if err := verify(ctx, options, *tag); err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)

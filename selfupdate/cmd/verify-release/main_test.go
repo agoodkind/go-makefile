@@ -58,6 +58,9 @@ func TestRunVerifyReleasePassesConfigAndPrintsCount(t *testing.T) {
 	if capturedOptions.Config.AuthToken != "test-token" {
 		t.Fatalf("AuthToken = %q", capturedOptions.Config.AuthToken)
 	}
+	if capturedOptions.RequireSourceArchive {
+		t.Fatal("RequireSourceArchive = true, want false by default")
+	}
 	if stdout.String() != "verified 2 assets for v1.2.3\n" {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
@@ -84,5 +87,32 @@ func TestRunVerifyReleaseRequiresFlags(t *testing.T) {
 	}
 	if stdout.String() != "" {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
+func TestRunVerifyReleasePassesRequireSourceArchive(t *testing.T) {
+	var capturedOptions selfupdate.Options
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := runVerifyRelease(
+		context.Background(),
+		[]string{
+			"--repo", "agoodkind/go-makefile",
+			"--tag", "v1.2.3",
+			"--binary", "go-mk",
+			"--require-source-archive",
+		},
+		&stdout,
+		&stderr,
+		func(_ context.Context, options selfupdate.Options, _ string) error {
+			capturedOptions = options
+			return nil
+		},
+	)
+	if exitCode != 0 {
+		t.Fatalf("runVerifyRelease() = %d, want 0\nstderr:\n%s", exitCode, stderr.String())
+	}
+	if !capturedOptions.RequireSourceArchive {
+		t.Fatal("RequireSourceArchive = false, want true")
 	}
 }

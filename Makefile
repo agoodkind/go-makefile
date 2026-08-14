@@ -56,7 +56,7 @@ build:
 	$(STATIC_GO_MK) build
 
 release:
-	$(ROOT_GO_MK) GO_MK_MODULES=go-release.mk BINARY=go-mk CMD=./cmd/go-mk VPKG=$(GO_MK_VERSION_PKG) RELEASE_BINS="$(GO_MK_RELEASE_BINS)" INSTALL_BINS="$(GO_MK_INSTALL_BINS)" release
+	$(ROOT_GO_MK) GO_MK_MODULES=go-release.mk BINARY=go-mk CMD=./cmd/go-mk VPKG=$(GO_MK_VERSION_PKG) RELEASE_BINS="$(GO_MK_RELEASE_BINS)" INSTALL_BINS="$(GO_MK_INSTALL_BINS)" RELEASE_SOURCE_ARCHIVE=1 release
 
 build-check:
 	$(ROOT_GO_MK) build-check

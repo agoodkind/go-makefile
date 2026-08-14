@@ -276,6 +276,52 @@ func TestVerifyReleaseAssetsRequiresNamedBinaryAmongAllArchives(t *testing.T) {
 	}
 }
 
+func TestVerifyReleaseAssetsRequiresSourceArchiveWhenRequested(t *testing.T) {
+	archive := []byte("binary archive")
+	assetName := "go-mk_linux_amd64.tar.gz"
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/repos/agoodkind/go-makefile/releases/tags/v1.2.3":
+			response := release{
+				TagName: "v1.2.3",
+				Assets: []releaseAsset{
+					{
+						Name:               assetName,
+						BrowserDownloadURL: server.URL + "/downloads/" + assetName,
+						Digest:             "sha256:" + testSHA256Hex(archive),
+					},
+				},
+			}
+			if err := json.NewEncoder(writer).Encode(response); err != nil {
+				t.Errorf("encode response: %v", err)
+			}
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	options := Options{
+		Config: Config{
+			Repo:       "agoodkind/go-makefile",
+			Binary:     "go-mk",
+			APIBaseURL: server.URL,
+		},
+		Client:               server.Client(),
+		CacheDir:             t.TempDir(),
+		RequireSourceArchive: true,
+	}
+
+	err := VerifyReleaseAssets(context.Background(), options, "v1.2.3")
+	if err == nil {
+		t.Fatal("VerifyReleaseAssets() error = nil, want missing source archive error")
+	}
+	if !strings.Contains(err.Error(), "go-makefile-src.tar.gz") {
+		t.Fatalf("VerifyReleaseAssets() error = %v", err)
+	}
+}
+
 func TestVerifyReleaseAssetsKeepsDownloadsInsideCacheDir(t *testing.T) {
 	originalVerifyGitHubAttestations := updateVerifyGitHubAttestations
 	t.Cleanup(func() {

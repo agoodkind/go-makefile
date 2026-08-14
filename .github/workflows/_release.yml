@@ -47,6 +47,11 @@ on:
         required: false
         type: string
         default: ""
+      source_archive:
+        description: Require go-makefile-src.tar.gz on the published tag. go-makefile sets this; consumer callers leave it off.
+        required: false
+        type: boolean
+        default: false
       platforms:
         description: >-
           Space-separated os/arch targets to build, passed to the shared build
@@ -194,11 +199,16 @@ jobs:
         env:
           RELEASE_BINARIES: ${{ inputs.binary }}
           RELEASE_TAG: ${{ needs.tag.outputs.tag }}
+          REQUIRE_SOURCE_ARCHIVE: ${{ inputs.source_archive }}
         run: |
+          extra=""
+          if [ "${REQUIRE_SOURCE_ARCHIVE}" = "true" ]; then
+            extra="--require-source-archive"
+          fi
           for binary in ${RELEASE_BINARIES}; do
             attempt=1
             while [ "${attempt}" -le 5 ]; do
-              if go run goodkind.io/go-makefile/selfupdate/cmd/verify-release@main --repo "${GITHUB_REPOSITORY}" --tag "${RELEASE_TAG}" --binary "${binary}"; then
+              if go run goodkind.io/go-makefile/selfupdate/cmd/verify-release@main --repo "${GITHUB_REPOSITORY}" --tag "${RELEASE_TAG}" --binary "${binary}" ${extra}; then
                 break
               fi
               if [ "${attempt}" -eq 5 ]; then

@@ -205,11 +205,19 @@ func publishStage(cfg releaseConfig) error {
 	if err != nil {
 		return err
 	}
+	archives, err = appendSourceArchiveIfEnabled(cfg.distDir, archives)
+	if err != nil {
+		return err
+	}
 	checksums, err := writeChecksums(cfg, archives)
 	if err != nil {
 		return err
 	}
-	return publishRelease(cfg, append(archives, checksums))
+	publishAssets := append(archives, checksums)
+	if err := publishRelease(cfg, publishAssets); err != nil {
+		return err
+	}
+	return retargetRollingRelease(cfg, publishAssets)
 }
 
 // distArchives returns the sorted tar.gz archives present in the dist directory,
@@ -387,11 +395,19 @@ func executeRelease(cfg releaseConfig) error {
 	if err != nil {
 		return err
 	}
+	archives, err = appendSourceArchiveIfEnabled(cfg.distDir, archives)
+	if err != nil {
+		return err
+	}
 	checksums, err := writeChecksums(cfg, archives)
 	if err != nil {
 		return err
 	}
-	return publishRelease(cfg, append(archives, checksums))
+	publishAssets := append(archives, checksums)
+	if err := publishRelease(cfg, publishAssets); err != nil {
+		return err
+	}
+	return retargetRollingRelease(cfg, publishAssets)
 }
 
 // pushReleaseTag creates the computed prerelease tag at the target commit and

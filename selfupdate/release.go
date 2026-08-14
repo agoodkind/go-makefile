@@ -28,6 +28,11 @@ type releaseAsset struct {
 	Digest             string `json:"digest"`
 }
 
+// sourceArchiveAssetName is the consumer extract published on go-makefile's own
+// release. verify-release requires this asset when Options.RequireSourceArchive
+// is set.
+const sourceArchiveAssetName = "go-makefile-src.tar.gz"
+
 func fetchLatestRelease(ctx context.Context, options Options) (release, error) {
 	log := options.Log
 	repo := options.Config.Repo
@@ -107,7 +112,8 @@ func fetchReleaseList(ctx context.Context, options Options, repo string) ([]rele
 
 // VerifyReleaseAssets downloads every archive asset of the release tagged tag
 // and verifies its checksum and GitHub attestations. It also requires the named
-// binary to be present so a misconfigured caller fails loudly.
+// binary to be present so a misconfigured caller fails loudly. When
+// RequireSourceArchive is set it also requires go-makefile-src.tar.gz.
 func VerifyReleaseAssets(ctx context.Context, options Options, tag string) error {
 	resolvedOptions := resolveOptions(options)
 	if err := validateReleaseVerificationInput(resolvedOptions.Config, tag); err != nil {
@@ -119,6 +125,11 @@ func VerifyReleaseAssets(ctx context.Context, options Options, tag string) error
 	}
 	if !releaseHasNamedBinaryAssets(latest.Assets, resolvedOptions.Config.Binary) {
 		return fmt.Errorf("no release assets matched %s_*.tar.gz in %s", resolvedOptions.Config.Binary, tag)
+	}
+	if resolvedOptions.RequireSourceArchive {
+		if _, ok := findAsset(latest.Assets, sourceArchiveAssetName); !ok {
+			return fmt.Errorf("no release asset named %s in %s", sourceArchiveAssetName, tag)
+		}
 	}
 	assets := releaseVerificationAssets(latest.Assets)
 	if err := os.MkdirAll(resolvedOptions.CacheDir, 0o700); err != nil {

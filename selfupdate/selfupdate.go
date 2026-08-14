@@ -78,6 +78,9 @@ type Options struct {
 	StatePath   string
 	DryRun      bool
 	Log         *slog.Logger
+	// RequireSourceArchive fails verification when go-makefile-src.tar.gz is
+	// missing. go-makefile's own release sets this; consumer callers stay off.
+	RequireSourceArchive bool
 }
 
 // CheckResult describes the current and latest release view.
