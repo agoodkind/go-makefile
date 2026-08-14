@@ -512,21 +512,25 @@ func isGoMakefileEngineRepo() bool {
 func consumerBootstrapMk(canonical []byte) []byte {
 	scanner := bufio.NewScanner(bytes.NewReader(canonical))
 	var lines []string
-	inDefine := false
+	defineDepth := 0
 	for scanner.Scan() {
 		line := scanner.Text()
+		if strings.HasPrefix(line, "\t") {
+			lines = append(lines, line)
+			continue
+		}
 		fields := strings.Fields(line)
 		if len(fields) > 0 && fields[0] == "define" {
-			inDefine = true
+			defineDepth++
 			lines = append(lines, line)
 			continue
 		}
-		if len(fields) == 1 && fields[0] == "endef" {
-			inDefine = false
+		if len(fields) == 1 && fields[0] == "endef" && defineDepth > 0 {
+			defineDepth--
 			lines = append(lines, line)
 			continue
 		}
-		if !inDefine && strings.HasPrefix(strings.TrimLeft(line, " "), "#") {
+		if defineDepth == 0 && strings.HasPrefix(line, "#") {
 			continue
 		}
 		lines = append(lines, line)

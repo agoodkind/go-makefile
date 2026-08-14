@@ -78,6 +78,47 @@ func TestConsumerBootstrapMkKeepsRecipeHashComments(t *testing.T) {
 	}
 }
 
+func TestConsumerBootstrapMkTracksNestedDefines(t *testing.T) {
+	canonical := "# makefile comment\n" +
+		"define outer\n" +
+		"# outer before nested\n" +
+		"define inner\n" +
+		"# inner hash\n" +
+		"endef\n" +
+		"# outer after nested\n" +
+		"endef\n"
+	stripped := string(consumerBootstrapMk([]byte(canonical)))
+	if strings.Contains(stripped, "makefile comment") {
+		t.Fatalf("stripped makefile comment:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "# outer before nested") {
+		t.Fatalf("dropped outer hash before nested define:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "# inner hash") {
+		t.Fatalf("dropped nested define hash:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "# outer after nested") {
+		t.Fatalf("dropped outer hash after nested endef:\n%s", stripped)
+	}
+}
+
+func TestConsumerBootstrapMkIgnoresRecipeDefine(t *testing.T) {
+	canonical := "target:\n" +
+		"\tdefine FOO\n" +
+		"# makefile comment after recipe define\n" +
+		"FOO := 1\n"
+	stripped := string(consumerBootstrapMk([]byte(canonical)))
+	if !strings.Contains(stripped, "\tdefine FOO") {
+		t.Fatalf("dropped recipe define:\n%s", stripped)
+	}
+	if strings.Contains(stripped, "makefile comment after recipe define") {
+		t.Fatalf("recipe define left comment stripping off:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "FOO := 1") {
+		t.Fatalf("dropped assignment after recipe define:\n%s", stripped)
+	}
+}
+
 func TestConsumerBootstrapMkKeepsDefineHashComments(t *testing.T) {
 	canonical := "# makefile comment\n" +
 		"FOO := 1\n" +
