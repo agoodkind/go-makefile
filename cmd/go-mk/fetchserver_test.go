@@ -21,7 +21,7 @@ import (
 )
 
 func TestFetchServerServesTarballAndHonorsIfNoneMatch(t *testing.T) {
-	server := newFetchServer(t, map[string]string{"go.mk": "GO_MK := 1\n"})
+	server := newFetchServer(t, map[string]string{"go.mk": "__GO_MK_FILE := 1\n"})
 
 	url := server.CodeloadBase() + "/agoodkind/go-makefile/tar.gz/main"
 	first, err := http.Get(url)
@@ -54,7 +54,7 @@ func TestFetchServerServesTarballAndHonorsIfNoneMatch(t *testing.T) {
 		t.Fatalf("conditional status = %d, want 304", second.StatusCode)
 	}
 
-	server.SetFiles(map[string]string{"go.mk": "GO_MK := 2\n"})
+	server.SetFiles(map[string]string{"go.mk": "__GO_MK_FILE := 2\n"})
 	third, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("post-advance GET: %v", err)
@@ -99,7 +99,7 @@ func tarEntryNames(t *testing.T, body io.Reader) string {
 // only inspects entry names in Go would not catch an archive that Go's
 // writer produced but the system tar rejects or extracts incorrectly.
 func TestFetchServerTarballExtractsWithSystemTar(t *testing.T) {
-	server := newFetchServer(t, map[string]string{"go.mk": "GO_MK := 1\n"})
+	server := newFetchServer(t, map[string]string{"go.mk": "__GO_MK_FILE := 1\n"})
 
 	url := server.CodeloadBase() + "/agoodkind/go-makefile/tar.gz/main"
 	response, err := http.Get(url)
@@ -132,7 +132,7 @@ func TestFetchServerTarballExtractsWithSystemTar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read extracted file: %v", err)
 	}
-	if got, want := string(extractedContent), "GO_MK := 1\n"; got != want {
+	if got, want := string(extractedContent), "__GO_MK_FILE := 1\n"; got != want {
 		t.Fatalf("extracted go.mk = %q, want %q", got, want)
 	}
 }

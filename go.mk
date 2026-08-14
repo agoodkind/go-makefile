@@ -11,14 +11,14 @@ GO_MK_BASE_URL  ?= https://raw.githubusercontent.com/agoodkind/go-makefile/main
 GO_MK_API_REPO  ?= agoodkind/go-makefile
 GO_MK_API_REF   ?= main
 
-GO_MK_SCRIPT_FILES := \
+_GO_MK_SCRIPT_FILES := \
 	scripts/go-mk-fetch-one.sh \
 	scripts/go-mk-bin.sh \
 	scripts/go-mk-sync.sh \
 	notices.txt
 
 # _go_mk_prime downloads the go-makefile archive once and copies only the helper
-# scripts and notices this file owns into .make/. It runs before GO_MK_HELPER_DIR
+# scripts and notices this file owns into .make/. It runs before _GO_MK_HELPER_DIR
 # below first globs .make/scripts, so make's wildcard cache already holds the files
 # and the later require checks find them (a glob of an empty dir is cached for the
 # whole run). Only .sh and .txt land in .make/, so no go-makefile source pollutes
@@ -41,13 +41,13 @@ GO_MK_SCRIPT_FILES := \
 # network availability and on whatever was on main rather than on its own
 # fixture.
 GO_MK_CODELOAD_BASE ?= https://codeload.github.com
-define _go_mk_prime
+define __go_mk_prime
 	if [ -n "$(GO_MK_DEV_DIR)" ]; then \
 		: ; \
 	else \
 		tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/go-mk.XXXXXXXX") || exit 0; \
 		if curl -fsSL --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 "$(GO_MK_CODELOAD_BASE)/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" 2>/dev/null | tar -xzf - -C "$$tmp" --strip-components 1 2>/dev/null; then \
-			for asset in $(GO_MK_SCRIPT_FILES); do \
+			for asset in $(_GO_MK_SCRIPT_FILES); do \
 				if [ -f "$$tmp/$$asset" ]; then \
 					mkdir -p "$$(dirname ".make/$$asset")"; \
 					cp "$$tmp/$$asset" ".make/$$asset"; \
@@ -65,27 +65,36 @@ endef
 # The bootstrap helper provisions every asset in one extraction, so this prime
 # is only for a consumer whose committed bootstrap.mk predates the helper. It
 # is removed once the fleet has migrated.
+#
+# GO_MK_PROVISION and GO_MK_BOOTSTRAP_FETCHED keep their public spelling
+# because bootstrap.mk is consumer-committed: every consumer's copy assigns
+# them, and that copy upgrades only when the consumer commits a new one.
+#
+# Non-empty once every asset is already on disk, so the paths below require an
+# asset rather than fetching it.
+__GO_MK_ASSETS_PROVISIONED := $(filter 1,$(GO_MK_BOOTSTRAP_FETCHED) $(_GO_MK_PROVISIONED))
+
 ifneq ($(strip $(_GO_MK_PROVISIONED)),1)
 ifeq ($(strip $(GO_MK_PROVISION)),)
-$(shell mkdir -p .make && { $(call _go_mk_prime); } 1>&2)
+$(shell mkdir -p .make && { $(call __go_mk_prime); } 1>&2)
 endif
 endif
 
-GO_MK_SELF      := $(lastword $(MAKEFILE_LIST))
-GO_MK_SELF_DIR  := $(patsubst %/,%,$(dir $(abspath $(GO_MK_SELF))))
-GO_MK_LOCAL_SCRIPT_DIR := $(if $(strip $(GO_MK_DEV_DIR)),$(GO_MK_DEV_DIR)/scripts,$(GO_MK_SELF_DIR)/scripts)
-GO_MK_FETCHED_SCRIPT_DIR := $(CURDIR)/.make/scripts
-GO_MK_HELPER_DIR := $(if $(wildcard $(GO_MK_LOCAL_SCRIPT_DIR)/go-mk-bin.sh),$(GO_MK_LOCAL_SCRIPT_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
-GO_MK_FETCH_SCRIPT := $(GO_MK_HELPER_DIR)/go-mk-fetch-one.sh
-GO_MK_LOCAL_NOTICES := $(if $(strip $(GO_MK_DEV_DIR)),$(GO_MK_DEV_DIR)/notices.txt,$(GO_MK_SELF_DIR)/notices.txt)
-GO_MK_NOTICES_FILE := $(if $(wildcard $(GO_MK_LOCAL_NOTICES)),$(GO_MK_LOCAL_NOTICES),$(CURDIR)/.make/notices.txt)
+_GO_MK_SELF      := $(lastword $(MAKEFILE_LIST))
+_GO_MK_SELF_DIR  := $(patsubst %/,%,$(dir $(abspath $(_GO_MK_SELF))))
+__GO_MK_LOCAL_SCRIPT_DIR := $(if $(strip $(GO_MK_DEV_DIR)),$(GO_MK_DEV_DIR)/scripts,$(_GO_MK_SELF_DIR)/scripts)
+__GO_MK_FETCHED_SCRIPT_DIR := $(CURDIR)/.make/scripts
+_GO_MK_HELPER_DIR := $(if $(wildcard $(__GO_MK_LOCAL_SCRIPT_DIR)/go-mk-bin.sh),$(__GO_MK_LOCAL_SCRIPT_DIR),$(__GO_MK_FETCHED_SCRIPT_DIR))
+__GO_MK_FETCH_SCRIPT := $(_GO_MK_HELPER_DIR)/go-mk-fetch-one.sh
+__GO_MK_LOCAL_NOTICES := $(if $(strip $(GO_MK_DEV_DIR)),$(GO_MK_DEV_DIR)/notices.txt,$(_GO_MK_SELF_DIR)/notices.txt)
+_GO_MK_NOTICES_FILE := $(if $(wildcard $(__GO_MK_LOCAL_NOTICES)),$(__GO_MK_LOCAL_NOTICES),$(CURDIR)/.make/notices.txt)
 
 # go.mk still contains this small bootstrap fetcher because old consumers only
 # fetch go.mk first. Once helper scripts are present, every larger shell and
 # awk body lives under scripts/. Fetch order: dev override > files _go_mk_prime
 # already extracted from one codeload tarball into .make/ > raw URL. The gh api
 # contents path was removed; a single tarball costs zero GITHUB_TOKEN core-REST.
-define _go_mk_fetch_bootstrap_commands
+define __go_mk_fetch_bootstrap_commands
 	if [ -n "$(3)" ] && [ -f "$(3)/$(1)" ]; then \
 		mkdir -p "$$(dirname "$(2)")"; \
 		cp "$(3)/$(1)" "$(2)"; \
@@ -115,61 +124,61 @@ define _go_mk_fetch_bootstrap_commands
 	fi
 endef
 
-define go_mk_fetch_bootstrap
-$(shell mkdir -p .make && $(call _go_mk_fetch_bootstrap_commands,$(1),$(2),$(GO_MK_DEV_DIR)) > .make/go-mk-bootstrap-fetch.log)
+define __go_mk_fetch_bootstrap
+$(shell mkdir -p .make && $(call __go_mk_fetch_bootstrap_commands,$(1),$(2),$(GO_MK_DEV_DIR)) > .make/go-mk-bootstrap-fetch.log)
 $(if $(wildcard $(2)),,$(error go-makefile failed to fetch $(1) into $(2)))
 endef
 
-ifeq ($(GO_MK_HELPER_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
+ifeq ($(_GO_MK_HELPER_DIR),$(__GO_MK_FETCHED_SCRIPT_DIR))
 ifeq ($(strip $(_GO_MK_PROVISIONED)),1)
 # Honor _GO_MK_PROVISIONED here too: require the pre-vendored fetcher rather than
 # curling GO_MK_BASE_URL, so an offline run stays network-free.
-GO_MK_FETCHED_BOOTSTRAP := $(if $(wildcard $(CURDIR)/.make/scripts/go-mk-fetch-one.sh),,$(error go-makefile expected .make/scripts/go-mk-fetch-one.sh; rerun without _GO_MK_PROVISIONED))
+__GO_MK_FETCHED_BOOTSTRAP := $(if $(wildcard $(CURDIR)/.make/scripts/go-mk-fetch-one.sh),,$(error go-makefile expected .make/scripts/go-mk-fetch-one.sh; rerun without _GO_MK_PROVISIONED))
 else
-GO_MK_FETCHED_BOOTSTRAP := $(call go_mk_fetch_bootstrap,scripts/go-mk-fetch-one.sh,.make/scripts/go-mk-fetch-one.sh)
+__GO_MK_FETCHED_BOOTSTRAP := $(call __go_mk_fetch_bootstrap,scripts/go-mk-fetch-one.sh,.make/scripts/go-mk-fetch-one.sh)
 endif
 endif
 
-define go-mk-fetch-one
-$(if $(filter ok,$(shell mkdir -p .make && bash "$(GO_MK_FETCH_SCRIPT)" "$(1)" ".make/$(1)" "$(GO_MK_DEV_DIR)" > .make/go-mk-fetch.log 2>&1; test -s ".make/$(1)" && echo ok)),,$(error go-makefile failed to fetch $(1)))
+define __go-mk-fetch-one
+$(if $(filter ok,$(shell mkdir -p .make && bash "$(__GO_MK_FETCH_SCRIPT)" "$(1)" ".make/$(1)" "$(GO_MK_DEV_DIR)" > .make/go-mk-fetch.log 2>&1; test -s ".make/$(1)" && echo ok)),,$(error go-makefile failed to fetch $(1)))
 endef
 
-define go-mk-require-one
+define __go-mk-require-one
 $(if $(wildcard $(1)),,$(error go-makefile expected $(1); rerun without _GO_MK_PROVISIONED))
 endef
 
-ifeq ($(GO_MK_HELPER_DIR),$(GO_MK_FETCHED_SCRIPT_DIR))
+ifeq ($(_GO_MK_HELPER_DIR),$(__GO_MK_FETCHED_SCRIPT_DIR))
 ifeq ($(strip $(_GO_MK_PROVISIONED)),1)
-GO_MK_FETCHED_SCRIPTS := $(foreach s,$(GO_MK_SCRIPT_FILES),$(call go-mk-require-one,.make/$(s)))
+__GO_MK_FETCHED_SCRIPTS := $(foreach s,$(_GO_MK_SCRIPT_FILES),$(call __go-mk-require-one,.make/$(s)))
 else
 # _go_mk_prime already copied each script from the tarball, so require it when
 # present and fall back to a per-file fetch (raw) only when the archive was
 # unavailable.
-GO_MK_FETCHED_SCRIPTS := $(foreach s,$(GO_MK_SCRIPT_FILES),$(if $(wildcard $(CURDIR)/.make/$(s)),$(call go-mk-require-one,.make/$(s)),$(call go-mk-fetch-one,$(s))))
+__GO_MK_FETCHED_SCRIPTS := $(foreach s,$(_GO_MK_SCRIPT_FILES),$(if $(wildcard $(CURDIR)/.make/$(s)),$(call __go-mk-require-one,.make/$(s)),$(call __go-mk-fetch-one,$(s))))
 endif
 endif
 
 # GO_MK_MODULES: project sets a list of sibling .mk files to fetch and include.
 # Example: GO_MK_MODULES := go-build.mk go-release.mk go-service.mk
 GO_MK_MODULES ?=
-ifneq ($(filter 1,$(GO_MK_BOOTSTRAP_FETCHED) $(_GO_MK_PROVISIONED)),)
-GO_MK_FETCHED_MODULES := $(foreach m,$(GO_MK_MODULES),$(call go-mk-require-one,.make/$(m)))
+ifneq ($(__GO_MK_ASSETS_PROVISIONED),)
+__GO_MK_FETCHED_MODULES := $(foreach m,$(GO_MK_MODULES),$(call __go-mk-require-one,.make/$(m)))
 else
-GO_MK_FETCHED_MODULES := $(foreach m,$(GO_MK_MODULES),$(call go-mk-fetch-one,$(m)))
+__GO_MK_FETCHED_MODULES := $(foreach m,$(GO_MK_MODULES),$(call __go-mk-fetch-one,$(m)))
 endif
 
 # Centralized golangci-lint config. Consumers do not maintain their own copy.
 GO_MK_GOLANGCI_CONFIG ?= .make/golangci.yml
-ifneq ($(filter 1,$(GO_MK_BOOTSTRAP_FETCHED) $(_GO_MK_PROVISIONED)),)
-GO_MK_FETCHED_GOLANGCI := $(call go-mk-require-one,$(GO_MK_GOLANGCI_CONFIG))
+ifneq ($(__GO_MK_ASSETS_PROVISIONED),)
+__GO_MK_FETCHED_GOLANGCI := $(call __go-mk-require-one,$(GO_MK_GOLANGCI_CONFIG))
 else
-GO_MK_FETCHED_GOLANGCI := $(call go-mk-fetch-one,golangci.yml)
+__GO_MK_FETCHED_GOLANGCI := $(call __go-mk-fetch-one,golangci.yml)
 endif
 
 GOLANGCI_LINT          ?= golangci-lint
 GOLANGCI_LINT_TARGETS  ?= ./...
 LINT_CONCURRENCY       ?= auto
-GO_MK_COMMA            := ,
+__GO_MK_COMMA            := ,
 GOLANGCI_LINT_FLAGS    ?= -c $(GO_MK_GOLANGCI_CONFIG)
 GOLANGCI_LINT_RUN_FLAGS ?= $(GOLANGCI_LINT_FLAGS) --allow-parallel-runners $(if $(filter-out 0 auto,$(strip $(LINT_CONCURRENCY))),--concurrency=$(LINT_CONCURRENCY))
 GOLANGCI_LINT_BASELINE ?= .golangci-lint-baseline.txt
@@ -274,15 +283,15 @@ GO_MK_INSTALL      ?= goodkind.io/go-makefile/cmd/go-mk@main
 # Path to the resolved go-mk engine binary. go-mk-bin.sh prints the configured
 # GO_MK_BIN or the on-demand .make/go-mk build output. The lint targets depend
 # on the go-mk-bin target so the binary is built before they invoke it.
-GO_MK_BIN_RESOLVED := $(if $(strip $(GO_MK_BIN)),$(GO_MK_BIN),$(CURDIR)/.make/go-mk)
+__GO_MK_BIN_RESOLVED := $(if $(strip $(GO_MK_BIN)),$(GO_MK_BIN),$(CURDIR)/.make/go-mk)
 
-export GO_MK_ROOT := $(CURDIR)
-export GO_MK_SELF
-export GO_MK_SELF_DIR
+export _GO_MK_ROOT := $(CURDIR)
+export _GO_MK_SELF
+export _GO_MK_SELF_DIR
 export GO_MK_DEV_DIR
-export GO_MK_HELPER_DIR
-export GO_MK_NOTICES_FILE
-export GO_MK_SCRIPT_FILES
+export _GO_MK_HELPER_DIR
+export _GO_MK_NOTICES_FILE
+export _GO_MK_SCRIPT_FILES
 export GO_MK_BASE_URL
 export GO_MK_API_REPO
 export GO_MK_API_REF
@@ -348,7 +357,7 @@ export GO_MK_PLATFORMS
 
 ifeq ($(filter go-build.mk,$(GO_MK_MODULES)),)
 build: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" build-gate
+	@"$(__GO_MK_BIN_RESOLVED)" build-gate
 	go build $(GO_BUILD_OUTPUT_FLAGS) $(GO_BUILD_FLAGS) $(GO_BUILD_TARGETS)
 
 deploy:
@@ -389,154 +398,154 @@ help:
 	@printf '  %-40s %s\n' 'smoke-fetch' 'force a fetch-path smoke run'
 
 lint: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" lint
+	@"$(__GO_MK_BIN_RESOLVED)" lint
 
 go-mk-notice: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" notice || true
+	@"$(__GO_MK_BIN_RESOLVED)" notice || true
 
 lint-tools: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" lint-tools
+	@"$(__GO_MK_BIN_RESOLVED)" lint-tools
 
 lint-golangci: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" lint-golangci
+	@"$(__GO_MK_BIN_RESOLVED)" lint-golangci
 
 lint-format: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" lint-format
+	@"$(__GO_MK_BIN_RESOLVED)" lint-format
 
 lint-gocyclo: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" lint-gocyclo
+	@"$(__GO_MK_BIN_RESOLVED)" lint-gocyclo
 
 lint-gocyclo-baseline: go-mk-bin
-	@BASELINE_UPDATE_MODE=sync "$(GO_MK_BIN_RESOLVED)" baseline gocyclo
+	@BASELINE_UPDATE_MODE=sync "$(__GO_MK_BIN_RESOLVED)" baseline gocyclo
 
 lint-gocyclo-baseline-prune-fixed: go-mk-bin
-	@BASELINE_UPDATE_MODE=prune-fixed "$(GO_MK_BIN_RESOLVED)" baseline gocyclo
+	@BASELINE_UPDATE_MODE=prune-fixed "$(__GO_MK_BIN_RESOLVED)" baseline gocyclo
 
 lint-gocyclo-baseline-remove-fixed: lint-gocyclo-baseline-prune-fixed
 
 lint-gocyclo-baseline-accept-new: go-mk-bin
-	@BASELINE_UPDATE_MODE=accept-new "$(GO_MK_BIN_RESOLVED)" baseline gocyclo
+	@BASELINE_UPDATE_MODE=accept-new "$(__GO_MK_BIN_RESOLVED)" baseline gocyclo
 
 lint-files: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" lint-files
+	@"$(__GO_MK_BIN_RESOLVED)" lint-files
 
 lint-diff: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" lint-diff
+	@"$(__GO_MK_BIN_RESOLVED)" lint-diff
 
 fmt: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" fmt
+	@"$(__GO_MK_BIN_RESOLVED)" fmt
 
 vet: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" vet
+	@"$(__GO_MK_BIN_RESOLVED)" vet
 
 test: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" test
+	@"$(__GO_MK_BIN_RESOLVED)" test
 
 govulncheck: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" govulncheck
+	@"$(__GO_MK_BIN_RESOLVED)" govulncheck
 
 go-version-check: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" go-version-check
+	@"$(__GO_MK_BIN_RESOLVED)" go-version-check
 
 # ci-changed reports whether a CI push touched anything the Go build depends on,
 # writing changed=<bool> to GITHUB_OUTPUT. It only runs the go-mk engine, which
 # uses `go list -e` plus declared trigger dirs and fails safe to changed=true on
 # uncertainty, so detection stays cheap and never runs codegen.
 ci-changed: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" ci-changed
+	@"$(__GO_MK_BIN_RESOLVED)" ci-changed
 
 go-mk-cache-manifest: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" cache-manifest
+	@"$(__GO_MK_BIN_RESOLVED)" cache-manifest
 
 go-mk-ci-job-layout: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" ci-job-layout
+	@"$(__GO_MK_BIN_RESOLVED)" ci-job-layout
 
 go-mk-golangci-cache-save-decision: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" golangci-cache-save-decision
+	@"$(__GO_MK_BIN_RESOLVED)" golangci-cache-save-decision
 
 go-mk-prepare-submodules: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" prepare-generated-submodules
+	@"$(__GO_MK_BIN_RESOLVED)" prepare-generated-submodules
 
 lint-deadcode: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" lint-deadcode
+	@"$(__GO_MK_BIN_RESOLVED)" lint-deadcode
 
 baseline-bin go-mk-bin:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-bin.sh" bin
+	@bash "$(_GO_MK_HELPER_DIR)/go-mk-bin.sh" bin
 
 staticcheck-extra-bin: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" staticcheck-extra-bin
+	@"$(__GO_MK_BIN_RESOLVED)" staticcheck-extra-bin
 
 staticcheck-extra: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" staticcheck-extra
+	@"$(__GO_MK_BIN_RESOLVED)" staticcheck-extra
 
 lint-golangci-baseline: go-mk-bin
-	@BASELINE_UPDATE_MODE=sync "$(GO_MK_BIN_RESOLVED)" baseline golangci
+	@BASELINE_UPDATE_MODE=sync "$(__GO_MK_BIN_RESOLVED)" baseline golangci
 
 lint-golangci-baseline-prune-fixed: go-mk-bin
-	@BASELINE_UPDATE_MODE=prune-fixed "$(GO_MK_BIN_RESOLVED)" baseline golangci
+	@BASELINE_UPDATE_MODE=prune-fixed "$(__GO_MK_BIN_RESOLVED)" baseline golangci
 
 lint-golangci-baseline-remove-fixed: lint-golangci-baseline-prune-fixed
 
 lint-golangci-baseline-accept-new: go-mk-bin
-	@BASELINE_UPDATE_MODE=accept-new "$(GO_MK_BIN_RESOLVED)" baseline golangci
+	@BASELINE_UPDATE_MODE=accept-new "$(__GO_MK_BIN_RESOLVED)" baseline golangci
 
 lint-golangci-scope: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" lint-golangci-scope
+	@"$(__GO_MK_BIN_RESOLVED)" lint-golangci-scope
 
 lint-golangci-baseline-scope: go-mk-bin
-	@BASELINE_UPDATE_MODE=sync "$(GO_MK_BIN_RESOLVED)" baseline golangci-scope
+	@BASELINE_UPDATE_MODE=sync "$(__GO_MK_BIN_RESOLVED)" baseline golangci-scope
 
 lint-golangci-baseline-scope-accept-new: go-mk-bin
-	@BASELINE_UPDATE_MODE=accept-new "$(GO_MK_BIN_RESOLVED)" baseline golangci-scope
+	@BASELINE_UPDATE_MODE=accept-new "$(__GO_MK_BIN_RESOLVED)" baseline golangci-scope
 
 lint-deadcode-baseline: go-mk-bin
-	@BASELINE_UPDATE_MODE=sync "$(GO_MK_BIN_RESOLVED)" baseline deadcode
+	@BASELINE_UPDATE_MODE=sync "$(__GO_MK_BIN_RESOLVED)" baseline deadcode
 
 lint-deadcode-baseline-prune-fixed: go-mk-bin
-	@BASELINE_UPDATE_MODE=prune-fixed "$(GO_MK_BIN_RESOLVED)" baseline deadcode
+	@BASELINE_UPDATE_MODE=prune-fixed "$(__GO_MK_BIN_RESOLVED)" baseline deadcode
 
 lint-deadcode-baseline-remove-fixed: lint-deadcode-baseline-prune-fixed
 
 lint-deadcode-baseline-accept-new: go-mk-bin
-	@BASELINE_UPDATE_MODE=accept-new "$(GO_MK_BIN_RESOLVED)" baseline deadcode
+	@BASELINE_UPDATE_MODE=accept-new "$(__GO_MK_BIN_RESOLVED)" baseline deadcode
 
 staticcheck-extra-baseline: go-mk-bin
-	@BASELINE_UPDATE_MODE=sync "$(GO_MK_BIN_RESOLVED)" baseline staticcheck-extra
+	@BASELINE_UPDATE_MODE=sync "$(__GO_MK_BIN_RESOLVED)" baseline staticcheck-extra
 
 staticcheck-extra-baseline-prune-fixed: go-mk-bin
-	@BASELINE_UPDATE_MODE=prune-fixed "$(GO_MK_BIN_RESOLVED)" baseline staticcheck-extra
+	@BASELINE_UPDATE_MODE=prune-fixed "$(__GO_MK_BIN_RESOLVED)" baseline staticcheck-extra
 
 staticcheck-extra-baseline-remove-fixed: staticcheck-extra-baseline-prune-fixed
 
 staticcheck-extra-baseline-accept-new: go-mk-bin
-	@BASELINE_UPDATE_MODE=accept-new "$(GO_MK_BIN_RESOLVED)" baseline staticcheck-extra
+	@BASELINE_UPDATE_MODE=accept-new "$(__GO_MK_BIN_RESOLVED)" baseline staticcheck-extra
 
 build-check: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" build-check
+	@"$(__GO_MK_BIN_RESOLVED)" build-check
 
 build-gate: go-mk-bin
-	@"$(GO_MK_BIN_RESOLVED)" build-gate
+	@"$(__GO_MK_BIN_RESOLVED)" build-gate
 
 check: lint
 
 baseline: go-mk-bin
-	@BASELINE_UPDATE_MODE=sync "$(GO_MK_BIN_RESOLVED)" baseline all
+	@BASELINE_UPDATE_MODE=sync "$(__GO_MK_BIN_RESOLVED)" baseline all
 
 baseline-prune-fixed: go-mk-bin
-	@BASELINE_UPDATE_MODE=prune-fixed "$(GO_MK_BIN_RESOLVED)" baseline all
+	@BASELINE_UPDATE_MODE=prune-fixed "$(__GO_MK_BIN_RESOLVED)" baseline all
 
 baseline-remove-fixed: baseline-prune-fixed
 
 baseline-accept-new: go-mk-bin
-	@BASELINE_UPDATE_MODE=accept-new "$(GO_MK_BIN_RESOLVED)" baseline all
+	@BASELINE_UPDATE_MODE=accept-new "$(__GO_MK_BIN_RESOLVED)" baseline all
 
 baseline-add-new: baseline-accept-new
 
 update-go-mk go-mk-sync:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-sync.sh" update
+	@bash "$(_GO_MK_HELPER_DIR)/go-mk-sync.sh" update
 
 smoke-fetch:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-sync.sh" smoke-fetch
+	@bash "$(_GO_MK_HELPER_DIR)/go-mk-sync.sh" smoke-fetch
 
 # GO_MK_GENERATE: opt-in codegen prerequisite. A consumer sets this BEFORE
 # `include bootstrap.mk` to the name(s) of codegen target(s) that must run
@@ -625,7 +634,7 @@ GO_MK_TARGET_GOARCH ?=
 # instead of .make/cgo/-. The fallback is all-or-nothing: a half-set tuple keys
 # the prefix verbatim, so the misconfiguration stays visible instead of
 # silently mixing a declared os with a host arch.
-GO_MK_CGO_PREFIX ?= $(CURDIR)/.make/cgo/$(if $(strip $(GO_MK_TARGET_GOOS)$(GO_MK_TARGET_GOARCH)),$(GO_MK_TARGET_GOOS)-$(GO_MK_TARGET_GOARCH),$(GO_MK_HOST_GOOS)-$(GO_MK_HOST_GOARCH))
+GO_MK_CGO_PREFIX ?= $(CURDIR)/.make/cgo/$(if $(strip $(GO_MK_TARGET_GOOS)$(GO_MK_TARGET_GOARCH)),$(GO_MK_TARGET_GOOS)-$(GO_MK_TARGET_GOARCH),$(__GO_MK_HOST_GOOS)-$(__GO_MK_HOST_GOARCH))
 
 export GO_MK_CGO_DEPS
 export GO_MK_CGO_CACHE_VERSIONS
@@ -639,8 +648,8 @@ ifneq ($(strip $(GO_MK_CGO_DEPS)),)
 # The fallback os/arch (go env GOOS/GOARCH) resolve once per parse, and only for
 # a cgo consumer, so a consumer without declared cgo deps pays no `go env` shell
 # cost at parse time.
-GO_MK_HOST_GOOS   := $(shell go env GOOS)
-GO_MK_HOST_GOARCH := $(shell go env GOARCH)
+__GO_MK_HOST_GOOS   := $(shell go env GOOS)
+__GO_MK_HOST_GOARCH := $(shell go env GOARCH)
 
 # go-mk-cgo-deps runs each consumer go-mk-cgo-dep-<dep> target with a per-target
 # environment: GO_MK_TARGET_GOOS/GOARCH name the build target, GO_MK_CGO_PREFIX is

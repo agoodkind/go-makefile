@@ -38,7 +38,7 @@ SYSTEMD_TEMPLATE  ?= packaging/systemd/$(SYSTEMD_UNIT).in
 LOG_PATH ?= $(HOME)/Library/Logs/$(BINARY).log
 
 # Render a template by replacing @@VAR@@ markers via sed. $(1) source, $(2) dest.
-define render_service_template
+define __go-mk-render-service-template
 	@mkdir -p "$(dir $(2))"
 	@sed -e 's|@@BIN_PATH@@|$(INSTALL_BIN)|g' \
 	     -e 's|@@HOME@@|$(HOME)|g' \
