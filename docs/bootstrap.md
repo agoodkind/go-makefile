@@ -22,7 +22,7 @@ After the helper is present, the shim runs it. A non-zero exit stops the parse. 
 
 ## Use a pre-provisioned tree
 
-Set `_GO_MK_PROVISIONED=1` when every required asset is already on disk and the parse must not touch the network. Helper acquisition is skipped. A non-empty helper must already be present. An empty file does not count as provisioned.
+When every required asset is already on disk, the parse does not touch the network. Helper acquisition is skipped. A non-empty helper must already be present. An empty file does not count as provisioned.
 
 ## Forward variables to the helper
 
