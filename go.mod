@@ -15,7 +15,7 @@ require (
 	golang.org/x/mod v0.38.0
 	golang.org/x/term v0.45.0
 	goodkind.io/gklog v0.4.4
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
