@@ -588,10 +588,18 @@ func reconcileBootstrapMk(stdout io.Writer) error {
 		return err
 	}
 	if bytes.Equal(existing, consumerContents) {
+		info, err := os.Stat("bootstrap.mk")
+		if err != nil {
+			return err
+		}
+		if info.Mode().Perm() == 0o644 {
+			fmt.Fprintln(stdout, "skipping bootstrap.mk (already current)")
+			return nil
+		}
 		if err := os.Chmod("bootstrap.mk", 0o644); err != nil {
 			return err
 		}
-		fmt.Fprintln(stdout, "skipping bootstrap.mk (already current)")
+		fmt.Fprintln(stdout, "updated bootstrap.mk")
 		return nil
 	}
 	if err := writeConsumerBootstrapMk(consumerContents); err != nil {

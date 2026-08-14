@@ -247,6 +247,35 @@ func TestReconcileBootstrapMkResetsMode(t *testing.T) {
 	}
 }
 
+func TestReconcileBootstrapMkResetsModeWhenCurrent(t *testing.T) {
+	repoDir := t.TempDir()
+	t.Chdir(repoDir)
+
+	var firstStdout bytes.Buffer
+	if err := reconcileBootstrapMk(&firstStdout); err != nil {
+		t.Fatalf("first reconcileBootstrapMk returned error: %v", err)
+	}
+	if err := os.Chmod("bootstrap.mk", 0o444); err != nil {
+		t.Fatalf("chmod 0444: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := reconcileBootstrapMk(&stdout); err != nil {
+		t.Fatalf("reconcileBootstrapMk returned error: %v", err)
+	}
+	if stdout.String() != "updated bootstrap.mk\n" {
+		t.Fatalf("stdout = %q, want updated message", stdout.String())
+	}
+
+	info, err := os.Stat("bootstrap.mk")
+	if err != nil {
+		t.Fatalf("stat bootstrap.mk: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o644 {
+		t.Fatalf("bootstrap.mk mode = %04o, want 0644", perm)
+	}
+}
+
 func TestReconcileBootstrapMkSkipsEngineRepo(t *testing.T) {
 	repoRoot := testRepoRoot(t)
 	before := mustReadFile(t, filepath.Join(repoRoot, "bootstrap.mk"))
