@@ -425,12 +425,12 @@ func outOfTreeNotice(dropped int) string {
 		" finding(s) with out-of-tree paths (stale lint cache; run golangci-lint cache clean to clear)"
 }
 
-// lintRoot returns the normalization root, mirroring the shell _GO_MK_ROOT
+// lintRoot returns the normalization root, mirroring the shell GO_MK_ROOT
 // default of PWD with a trailing slash. The findings package strips a leading
-// pwd then cwd prefix; the shell passes pwd=$PWD/ and cwd=$_GO_MK_ROOT/, which
+// pwd then cwd prefix; the shell passes pwd=$PWD/ and cwd=$GO_MK_ROOT/, which
 // are the same directory here, so a single trailing-slashed root suffices.
 func lintRoot() string {
-	root := os.Getenv("_GO_MK_ROOT")
+	root := os.Getenv("GO_MK_ROOT")
 	if root == "" {
 		if wd, err := os.Getwd(); err == nil {
 			root = wd

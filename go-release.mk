@@ -35,7 +35,7 @@ export RELEASE_ENTITLEMENTS
 export REQUIRE_DARWIN_CODESIGN
 
 release: | go-mk-bin
-	@"$(__GO_MK_BIN_RESOLVED)" release
+	@"$(GO_MK_BIN_RESOLVED)" release
 
 # GO_MK_PREREQS (see go.mk): codegen and go.work routing. Only the stages that
 # compile the module (compile, the transitional fused build stage, or the
