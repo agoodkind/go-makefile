@@ -28,8 +28,12 @@ func TestCacheManifestSkipsTrackedGeneratedOutputs(t *testing.T) {
 	if result.outputs["generated_cache_enabled"] != "true" {
 		t.Fatalf("generated_cache_enabled = %q, want true", result.outputs["generated_cache_enabled"])
 	}
-	if result.outputs["generated_cache_paths"] != "cache/out" {
-		t.Fatalf("generated_cache_paths = %q, want cache/out", result.outputs["generated_cache_paths"])
+	wantCachePath, wantCachePathErr := filepath.Abs("cache/out")
+	if wantCachePathErr != nil {
+		t.Fatalf("resolve want cache path: %v", wantCachePathErr)
+	}
+	if result.outputs["generated_cache_paths"] != filepath.ToSlash(wantCachePath) {
+		t.Fatalf("generated_cache_paths = %q, want %q", result.outputs["generated_cache_paths"], filepath.ToSlash(wantCachePath))
 	}
 	if result.outputs["generated_cache_warnings"] != "tracked output skipped: gen/checked.txt" {
 		t.Fatalf("generated_cache_warnings = %q, want tracked output warning", result.outputs["generated_cache_warnings"])
@@ -144,10 +148,14 @@ func TestCacheManifestWritesGitHubOutputHeredocs(t *testing.T) {
 			t.Fatalf("GITHUB_OUTPUT missing heredoc header %q:\n%s", header, result.githubOutput)
 		}
 	}
+	wantCachePath, wantCachePathErr := filepath.Abs("cache/out")
+	if wantCachePathErr != nil {
+		t.Fatalf("resolve want cache path: %v", wantCachePathErr)
+	}
 	expectedStdout := "go-mk-cache-manifest: generated_cache_enabled=true\n" +
 		"go-mk-cache-manifest: generated_cache_requires_submodules=false\n" +
 		"go-mk-cache-manifest: generated output paths:\n" +
-		"cache/out\n"
+		filepath.ToSlash(wantCachePath) + "\n"
 	if result.stdout != expectedStdout {
 		t.Fatalf("stdout mismatch\nwant:\n%s\ngot:\n%s", expectedStdout, result.stdout)
 	}
@@ -299,8 +307,12 @@ func TestCacheManifestCgoKeyStableAndChangesWithInputFile(t *testing.T) {
 	if first.outputs["cgo_cache_enabled"] != "true" {
 		t.Fatalf("cgo_cache_enabled = %q, want true", first.outputs["cgo_cache_enabled"])
 	}
-	if first.outputs["cgo_cache_paths"] != ".make/cgo/darwin-arm64" {
-		t.Fatalf("cgo_cache_paths = %q, want .make/cgo/darwin-arm64", first.outputs["cgo_cache_paths"])
+	wantCgoCachePath, wantCgoCachePathErr := filepath.Abs(filepath.Join(".make", "cgo", "darwin-arm64"))
+	if wantCgoCachePathErr != nil {
+		t.Fatalf("resolve want cgo cache path: %v", wantCgoCachePathErr)
+	}
+	if first.outputs["cgo_cache_paths"] != filepath.ToSlash(wantCgoCachePath) {
+		t.Fatalf("cgo_cache_paths = %q, want %q", first.outputs["cgo_cache_paths"], filepath.ToSlash(wantCgoCachePath))
 	}
 	if first.outputs["cgo_cache_key"] == "" {
 		t.Fatal("cgo_cache_key is empty")

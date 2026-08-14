@@ -154,6 +154,10 @@ func normalizeCacheManifestConfig(config cacheManifestConfig) cacheManifestConfi
 	return config
 }
 
+// filterCacheManifestGeneratedOutputs drops any declared output that git
+// already tracks (codegen must never overwrite a tracked file from a restored
+// cache) and resolves the rest to absolute paths; see cacheManifestAbsolutePath
+// for why.
 func filterCacheManifestGeneratedOutputs(rawOutputs string, stderr func(string)) (string, []string) {
 	outputs := make([]string, 0)
 	warnings := make([]string, 0)
@@ -166,7 +170,7 @@ func filterCacheManifestGeneratedOutputs(rawOutputs string, stderr func(string))
 			warnings = append(warnings, "tracked output skipped: "+output)
 			continue
 		}
-		outputs = append(outputs, output)
+		outputs = append(outputs, cacheManifestAbsolutePath(output))
 	}
 	return strings.Join(outputs, "\n"), warnings
 }
@@ -249,13 +253,32 @@ func cgoCacheManifestEnabled(config cacheManifestConfig) string {
 	return "true"
 }
 
+// cacheManifestAbsolutePath resolves path relative to this process's working
+// directory. A consumer's targets can run from a working directory that need
+// not be the workspace root (the working_directory input on the reusable CI,
+// release, build, and package workflows), so a relative cache path would be
+// misresolved once handed to actions/cache, which always resolves its path:
+// input from the workspace root regardless of any run step's
+// working-directory. Falling back to the unresolved, slash-normalized form on
+// a filepath.Abs error keeps the manifest usable instead of failing outright.
+func cacheManifestAbsolutePath(path string) string {
+	absolute, absErr := filepath.Abs(path)
+	if absErr != nil {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(absolute)
+}
+
+// cgoCacheManifestPath returns the absolute cgo dependency-cache directory for
+// the given target os/arch, or "" when either is unset. See
+// cacheManifestAbsolutePath for why the path is absolute.
 func cgoCacheManifestPath(config cacheManifestConfig) string {
 	goos := strings.TrimSpace(config.getenv("GO_MK_TARGET_GOOS"))
 	goarch := strings.TrimSpace(config.getenv("GO_MK_TARGET_GOARCH"))
 	if goos == "" || goarch == "" {
 		return ""
 	}
-	return filepath.ToSlash(filepath.Join(".make", "cgo", goos+"-"+goarch))
+	return cacheManifestAbsolutePath(filepath.Join(".make", "cgo", goos+"-"+goarch))
 }
 
 // lintCacheManifestPaths reports where golangci-lint keeps its results cache, so
@@ -264,12 +287,9 @@ func cgoCacheManifestPath(config cacheManifestConfig) string {
 // plain cache directory, the per-target directories a platform-matrix pass
 // creates, and the directories a nested module creates.
 //
-// The path is absolute. A consumer runs its targets from a working directory
-// that need not be the workspace root, and a caller may pin the cache somewhere
-// else entirely, so a relative value would have to be recombined by whoever
-// reads it and would be recombined wrongly for an already-absolute pin. A
-// caller that pins GOLANGCI_LINT_CACHE gets that path back, because lintEnv
-// leaves such a value alone and the cache lives wherever it points.
+// A caller that pins GOLANGCI_LINT_CACHE gets that path back (resolved to an
+// absolute form by cacheManifestAbsolutePath), because lintEnv leaves such a
+// value alone and the cache lives wherever it points.
 func lintCacheManifestPaths(config cacheManifestConfig) string {
 	patterns := golangciCachePatterns()
 	if pinned := strings.TrimSpace(config.getenv("GOLANGCI_LINT_CACHE")); pinned != "" {
@@ -277,12 +297,7 @@ func lintCacheManifestPaths(config cacheManifestConfig) string {
 	}
 	resolved := make([]string, 0, len(patterns))
 	for _, pattern := range patterns {
-		absolute, absErr := filepath.Abs(pattern)
-		if absErr != nil {
-			resolved = append(resolved, filepath.ToSlash(pattern))
-			continue
-		}
-		resolved = append(resolved, filepath.ToSlash(absolute))
+		resolved = append(resolved, cacheManifestAbsolutePath(pattern))
 	}
 	return strings.Join(resolved, "\n")
 }
