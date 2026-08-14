@@ -389,6 +389,33 @@ func TestInstallRebuildsWhenASourceIsDeleted(t *testing.T) {
 	requireInstalls(t, consumer.dryRunInstall(t), "a deleted source should reinstall")
 }
 
+// TestInstallRunsWhenAPackageFailsToLoad covers a package go list cannot load.
+// go list -e reports it instead of failing, so the remaining packages would
+// otherwise look like the whole answer.
+func TestInstallRunsWhenAPackageFailsToLoad(t *testing.T) {
+	consumer := newStaleConsumer(t, "")
+	writeConsumerFile(t, consumer.dir, "broken/broken.go", "package broken\n\nimport \"demo/absent\"\n\nvar _ = absent.Name\n")
+
+	consumer.placeInstalled(t, "demo", time.Hour)
+	requireInstalls(t, consumer.dryRunInstall(t), "a package that fails to load should install")
+}
+
+// TestGenerateInputsKeepShellSyntaxLiteral covers a declared codegen path that
+// carries shell syntax. Paths reach a shell before the filter sees them, so
+// each one is quoted.
+func TestGenerateInputsKeepShellSyntaxLiteral(t *testing.T) {
+	consumer := newStaleConsumer(t, "")
+	marker := filepath.Join(consumer.dir, "executed")
+	// The trailing `true` swallows the find arguments that follow the injected
+	// command, so the touch would run if the path reached the shell unquoted.
+	consumer.runMake(t, "go-mk-build-config",
+		"GO_MK_GENERATE_INPUTS=grammars;touch "+marker+";true")
+
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("a declared codegen path ran as a command: %v", err)
+	}
+}
+
 // TestInstallRunsWhenADeclaredInputIsMissing covers a declared input that does
 // not exist. Make cannot mark an output stale against a file it cannot see, so
 // the outputs become always-run instead.

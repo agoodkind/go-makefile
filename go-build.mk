@@ -142,7 +142,12 @@ GO_MK_BUILD_PACKAGES := $(sort \
 # The template emits one path per line and is one physical line, because a
 # continuation would join the groups with a space and that space would land in
 # the output.
-GO_MK_BUILD_SOURCE_TEMPLATE := {{if and .Module .Module.Main}}{{$$d := .Dir}}{{range .GoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CXXFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .HFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .SFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .EmbedFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{end}}
+#
+# go list -e reports a package it could not load instead of failing, which
+# happens while a generated package is still missing. The template marks such a
+# package so a partial list is not mistaken for a complete one.
+GO_MK_LOAD_ERROR := go-mk-load-error
+GO_MK_BUILD_SOURCE_TEMPLATE := {{if .Error}}$(GO_MK_LOAD_ERROR){{"\n"}}{{end}}{{if and .Module .Module.Main}}{{$$d := .Dir}}{{range .GoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CXXFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .HFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .SFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .EmbedFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{end}}
 
 # A prerequisite list cannot carry a path holding a space, #, $, %, :, ;, =, or
 # a backslash: make would split it or read it as syntax. One such path discards
@@ -161,6 +166,11 @@ GO_MK_BUILD_SOURCE_FILES := $(shell go list -e -deps -f '$(GO_MK_BUILD_SOURCE_TE
 # and the flag is what covers the gap.
 GO_MK_BUILD_FORCE :=
 
+ifneq ($(filter $(GO_MK_LOAD_ERROR),$(GO_MK_BUILD_SOURCE_FILES)),)
+GO_MK_BUILD_FORCE := 1
+GO_MK_BUILD_SOURCE_FILES := $(filter-out $(GO_MK_LOAD_ERROR),$(GO_MK_BUILD_SOURCE_FILES))
+endif
+
 GO_MK_BUILD_SOURCES := $(wildcard go.mod go.sum $(GO_MK_GOLANGCI_CONFIG)) \
 	$(GO_MK_BUILD_SOURCE_FILES)
 
@@ -170,7 +180,8 @@ GO_MK_BUILD_SOURCES := $(wildcard go.mod go.sum $(GO_MK_GOLANGCI_CONFIG)) \
 # than discovered. They go through the same path filter as everything else,
 # because a declared path is no safer than a discovered one.
 ifneq ($(strip $(GO_MK_GENERATE_OUTPUTS)),)
-GO_MK_GENERATE_OUTPUT_FILES := $(shell printf '%s' '$(GO_MK_GENERATE_OUTPUTS)' | tr ' ' '\n' \
+GO_MK_QUOTED_OUTPUTS := $(foreach path,$(GO_MK_GENERATE_OUTPUTS),'$(path)')
+GO_MK_GENERATE_OUTPUT_FILES := $(shell printf '%s\n' $(GO_MK_QUOTED_OUTPUTS) \
 	| $(GO_MK_BUILD_SOURCE_FILTER))
 GO_MK_BUILD_SOURCES += $(GO_MK_GENERATE_OUTPUT_FILES)
 
@@ -186,9 +197,11 @@ endif
 # that declares them gets them compared directly. find prints each declared
 # directory before its contents, so adding or removing a file is seen through
 # the containing directory's timestamp. The same path filter applies, because a
-# declared path is no safer than a discovered one.
+# declared path is no safer than a discovered one, and each path is quoted
+# before the shell sees it so a metacharacter cannot run as a command.
 ifneq ($(strip $(GO_MK_GENERATE_INPUTS)),)
-GO_MK_GENERATE_INPUT_FILES := $(shell find $(GO_MK_GENERATE_INPUTS) -name .git -prune -o \
+GO_MK_QUOTED_INPUTS := $(foreach path,$(GO_MK_GENERATE_INPUTS),'$(path)')
+GO_MK_GENERATE_INPUT_FILES := $(shell find $(GO_MK_QUOTED_INPUTS) -name .git -prune -o \
 	-print 2>/dev/null | $(GO_MK_BUILD_SOURCE_FILTER))
 GO_MK_BUILD_SOURCES += $(GO_MK_GENERATE_INPUT_FILES)
 ifeq ($(strip $(GO_MK_GENERATE_INPUT_FILES)),)
