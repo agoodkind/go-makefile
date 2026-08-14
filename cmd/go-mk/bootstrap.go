@@ -512,9 +512,21 @@ func isGoMakefileEngineRepo() bool {
 func consumerBootstrapMk(canonical []byte) []byte {
 	scanner := bufio.NewScanner(bytes.NewReader(canonical))
 	var lines []string
+	inDefine := false
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(strings.TrimLeft(line, " "), "#") {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == "define" {
+			inDefine = true
+			lines = append(lines, line)
+			continue
+		}
+		if len(fields) == 1 && fields[0] == "endef" {
+			inDefine = false
+			lines = append(lines, line)
+			continue
+		}
+		if !inDefine && strings.HasPrefix(strings.TrimLeft(line, " "), "#") {
 			continue
 		}
 		lines = append(lines, line)
@@ -539,6 +551,15 @@ func consumerBootstrapMk(canonical []byte) []byte {
 	return []byte(consumerBootstrapMkHeader + "\n" + body + "\n")
 }
 
+func writeConsumerBootstrapMk(contents []byte) error {
+	if fileExists("bootstrap.mk") {
+		if err := os.Chmod("bootstrap.mk", 0o644); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile("bootstrap.mk", contents, 0o644)
+}
+
 func reconcileBootstrapMk(stdout io.Writer) error {
 	slog.Info("bootstrap reconcile bootstrap.mk")
 	contents, err := bootstrapAssetFS.ReadFile(bootstrapMkAssetPath)
@@ -551,7 +572,7 @@ func reconcileBootstrapMk(stdout io.Writer) error {
 	}
 	consumerContents := consumerBootstrapMk(contents)
 	if !fileExists("bootstrap.mk") {
-		if err := os.WriteFile("bootstrap.mk", consumerContents, 0o644); err != nil {
+		if err := writeConsumerBootstrapMk(consumerContents); err != nil {
 			return err
 		}
 		fmt.Fprintln(stdout, "created bootstrap.mk")
@@ -562,10 +583,13 @@ func reconcileBootstrapMk(stdout io.Writer) error {
 		return err
 	}
 	if bytes.Equal(existing, consumerContents) {
+		if err := os.Chmod("bootstrap.mk", 0o644); err != nil {
+			return err
+		}
 		fmt.Fprintln(stdout, "skipping bootstrap.mk (already current)")
 		return nil
 	}
-	if err := os.WriteFile("bootstrap.mk", consumerContents, 0o644); err != nil {
+	if err := writeConsumerBootstrapMk(consumerContents); err != nil {
 		return err
 	}
 	fmt.Fprintln(stdout, "updated bootstrap.mk")

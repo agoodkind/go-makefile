@@ -78,6 +78,27 @@ func TestConsumerBootstrapMkKeepsRecipeHashComments(t *testing.T) {
 	}
 }
 
+func TestConsumerBootstrapMkKeepsDefineHashComments(t *testing.T) {
+	canonical := "# makefile comment\n" +
+		"FOO := 1\n" +
+		"define recipe\n" +
+		"\techo start\n" +
+		"# unindented in define\n" +
+		"  # space indented in define\n" +
+		"\techo end\n" +
+		"endef\n"
+	stripped := string(consumerBootstrapMk([]byte(canonical)))
+	if strings.Contains(stripped, "makefile comment") {
+		t.Fatalf("stripped makefile comment:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "# unindented in define") {
+		t.Fatalf("dropped unindented define comment:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "  # space indented in define") {
+		t.Fatalf("dropped space-indented define comment:\n%s", stripped)
+	}
+}
+
 func TestReconcileBootstrapMkWritesStrippedCopy(t *testing.T) {
 	repoDir := t.TempDir()
 	t.Chdir(repoDir)
@@ -141,6 +162,34 @@ func TestReconcileBootstrapMkUpdatesCommentedCanonical(t *testing.T) {
 	got := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk"))
 	if got != string(want) {
 		t.Fatalf("bootstrap.mk mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
+func TestReconcileBootstrapMkResetsMode(t *testing.T) {
+	repoDir := t.TempDir()
+	t.Chdir(repoDir)
+
+	if err := os.WriteFile("bootstrap.mk", []byte("stale\n"), 0o755); err != nil {
+		t.Fatalf("write stale bootstrap.mk: %v", err)
+	}
+	if err := os.Chmod("bootstrap.mk", 0o444); err != nil {
+		t.Fatalf("chmod 0444: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := reconcileBootstrapMk(&stdout); err != nil {
+		t.Fatalf("reconcileBootstrapMk returned error: %v", err)
+	}
+	if stdout.String() != "updated bootstrap.mk\n" {
+		t.Fatalf("stdout = %q, want updated message", stdout.String())
+	}
+
+	info, err := os.Stat("bootstrap.mk")
+	if err != nil {
+		t.Fatalf("stat bootstrap.mk: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o644 {
+		t.Fatalf("bootstrap.mk mode = %04o, want 0644", perm)
 	}
 }
 
