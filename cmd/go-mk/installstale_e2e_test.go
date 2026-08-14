@@ -339,11 +339,11 @@ func TestInstallRebuildsWhenGitIdentityChanges(t *testing.T) {
 	consumer.placeInstalled(t, "demo", time.Hour)
 	requireSkips(t, consumer.dryRunInstall(t), "an unchanged commit should not reinstall")
 
-	requireInstalls(t, consumer.dryRunInstall(t, "GIT_COMMIT=deadbee"),
+	requireInstalls(t, consumer.dryRunInstall(t, "_GO_MK_GIT_COMMIT=deadbee"),
 		"another commit should reinstall")
 	// The consumer is outside any git checkout, so GIT_DIRTY already reads
 	// true and false is the value that differs.
-	requireInstalls(t, consumer.dryRunInstall(t, "GIT_DIRTY=false"),
+	requireInstalls(t, consumer.dryRunInstall(t, "_GO_MK_GIT_DIRTY=false"),
 		"another dirty state should reinstall")
 }
 
