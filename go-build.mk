@@ -171,7 +171,12 @@ GO_MK_BUILD_FORCE := 1
 GO_MK_BUILD_SOURCE_FILES := $(filter-out $(GO_MK_LOAD_ERROR),$(GO_MK_BUILD_SOURCE_FILES))
 endif
 
-GO_MK_BUILD_SOURCES := $(wildcard go.mod go.sum $(GO_MK_GOLANGCI_CONFIG)) \
+# The lint config is compared by content rather than by timestamp, through the
+# settings stamp below. go.mk rewrites it on every run, so its timestamp is
+# always the current one and would mark every output stale.
+GO_MK_GOLANGCI_DIGEST := $(shell cksum < '$(GO_MK_GOLANGCI_CONFIG)' 2>/dev/null | tr -cd '0-9 ' | tr ' ' '-')
+
+GO_MK_BUILD_SOURCES := $(wildcard go.mod go.sum) \
 	$(GO_MK_BUILD_SOURCE_FILES)
 
 # Declared generated outputs are prerequisites even when absent, so a deleted
@@ -340,7 +345,7 @@ GO_MK_BUILD_CONFIG := \
 	cgo=$(CGO_ENABLED) goflags=$(GOFLAGS) goos=$(GOOS) goarch=$(GOARCH) \
 	vpkg=$(VPKG) gklog_vpkg=$(GKLOG_VPKG) \
 	commit=$(GIT_COMMIT) version=$(GIT_VERSION) dirty=$(GIT_DIRTY) \
-	files=$(sort $(GO_MK_BUILD_SOURCES)) \
+	files=$(sort $(GO_MK_BUILD_SOURCES)) lint=$(GO_MK_GOLANGCI_DIGEST) \
 	bundle=$(BUNDLE_ID) identity=$(CODESIGN_IDENTITY) timestamp=$(CODESIGN_TIMESTAMP) \
 	entitlements=$(CODESIGN_ENTITLEMENTS) \
 	pre=$(GO_MK_INSTALL_PRE_CMD) post=$(GO_MK_INSTALL_POST_CMD)

@@ -170,7 +170,6 @@ func requireSkips(t *testing.T, output, reason string) {
 func TestInstallRebuildsOnlyWhenSourcesAreNewer(t *testing.T) {
 	consumer := newStaleConsumer(t, "")
 	mainGo := filepath.Join(consumer.dir, "cmd", "demo", "main.go")
-	lintConfig := filepath.Join(consumer.dir, ".make", "golangci.yml")
 
 	output := consumer.dryRunInstall(t)
 	requireInstalls(t, output, "missing installed binary should install")
@@ -188,10 +187,6 @@ func TestInstallRebuildsOnlyWhenSourcesAreNewer(t *testing.T) {
 
 	touch(t, mainGo, 2*time.Hour)
 	requireInstalls(t, consumer.dryRunInstall(t), "changed source should reinstall")
-
-	touch(t, installedBin, 3*time.Hour)
-	touch(t, lintConfig, 4*time.Hour)
-	requireInstalls(t, consumer.dryRunInstall(t), "changed lint config should reinstall")
 
 	touch(t, installedBin, 5*time.Hour)
 	if err := os.Remove(installedBin); err != nil {
