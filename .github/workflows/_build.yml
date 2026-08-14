@@ -54,9 +54,8 @@ on:
         type: string
         default: ""
 
-# The go-mk bootstrap fetch (bootstrap.mk / go.mk) downloads a single codeload
-# tarball, which spends no GITHUB_TOKEN core-REST budget, with a
-# raw.githubusercontent.com per-file fallback. GH_TOKEN stays set for any gh CLI
+# The go-mk bootstrap fetch downloads the rolling release source archive and a
+# signed go-mk binary. GH_TOKEN stays set for any gh CLI
 # step but is no longer required by the fetch.
 env:
   GH_TOKEN: ${{ github.token }}

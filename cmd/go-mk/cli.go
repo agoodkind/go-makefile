@@ -169,6 +169,7 @@ func registerEngineCommands(root *cobra.Command) {
 		{"prepare-generated-submodules", "Initialize generated-output submodules before cache restore", func() int {
 			return statusFromError(runPrepareGeneratedSubmodules())
 		}},
+		{"provision", "Provision go-makefile assets into .make from the release stream", runProvision},
 	}
 	for _, entry := range commands {
 		handler := entry.run
@@ -189,6 +190,15 @@ func registerEngineCommands(root *cobra.Command) {
 		Hidden: true,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			recordedExit = runBuildGate()
+			return nil
+		},
+	})
+	root.AddCommand(&cobra.Command{
+		Use:                "resolve-bin",
+		Short:              "Resolve or install the go-mk engine binary",
+		DisableFlagParsing: true,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			recordedExit = runResolveBin()
 			return nil
 		},
 	})

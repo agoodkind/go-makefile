@@ -40,21 +40,35 @@ GO_MK_SCRIPT_FILES := \
 # codeload.github.com, which made the one test covering this path depend on
 # network availability and on whatever was on main rather than on its own
 # fixture.
+GO_MK_RELEASE_BASE ?= https://github.com
 GO_MK_CODELOAD_BASE ?= https://codeload.github.com
 define _go_mk_prime
 	if [ -n "$(GO_MK_DEV_DIR)" ]; then \
 		: ; \
 	else \
+		case "$(GO_MK_API_REF)" in \
+			""|main|rolling) release_tag=rolling ;; \
+			*) release_tag="$(GO_MK_API_REF)" ;; \
+		esac; \
 		tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/go-mk.XXXXXXXX") || exit 0; \
-		if curl -fsSL --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 "$(GO_MK_CODELOAD_BASE)/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" 2>/dev/null | tar -xzf - -C "$$tmp" --strip-components 1 2>/dev/null; then \
-			for asset in $(GO_MK_SCRIPT_FILES); do \
-				if [ -f "$$tmp/$$asset" ]; then \
-					mkdir -p "$$(dirname ".make/$$asset")"; \
-					cp "$$tmp/$$asset" ".make/$$asset"; \
-					case "$$asset" in *.sh) chmod +x ".make/$$asset" ;; esac; \
-				fi; \
-			done; \
+		archive_url="$(GO_MK_RELEASE_BASE)/$(GO_MK_API_REPO)/releases/download/$$release_tag/go-makefile-src.tar.gz"; \
+		if curl -fsSL --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 "$$archive_url" -o "$$tmp/snapshot.tar.gz" 2>/dev/null \
+			&& tar -xzf "$$tmp/snapshot.tar.gz" -C "$$tmp" --strip-components 1 2>/dev/null; then \
+			: ; \
+		elif curl -fsSL --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 "$(GO_MK_CODELOAD_BASE)/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" 2>/dev/null \
+			| tar -xzf - -C "$$tmp" --strip-components 1 2>/dev/null; then \
+			: ; \
+		else \
+			rm -rf "$$tmp"; \
+			exit 0; \
 		fi; \
+		for asset in $(GO_MK_SCRIPT_FILES); do \
+			if [ -f "$$tmp/$$asset" ]; then \
+				mkdir -p "$$(dirname ".make/$$asset")"; \
+				cp "$$tmp/$$asset" ".make/$$asset"; \
+				case "$$asset" in *.sh) chmod +x ".make/$$asset" ;; esac; \
+			fi; \
+		done; \
 		rm -rf "$$tmp"; \
 	fi
 endef
@@ -70,6 +84,18 @@ ifeq ($(strip $(GO_MK_PROVISION)),)
 $(shell mkdir -p .make && { $(call _go_mk_prime); } 1>&2)
 endif
 endif
+
+# The first go-mk of this parse minted TRACEPARENT into .make/logs/.traceparent.
+# Export it so recipe-spawned go-mk processes join that run, the same way child
+# processes inherit os.Setenv("TRACEPARENT"). Drop a leftover file when this
+# include did not run provision, so a later go-mk does not join a prior make.
+ifeq ($(strip $(GO_MK_PROVISION)),)
+$(shell rm -f .make/logs/.traceparent)
+endif
+ifndef TRACEPARENT
+TRACEPARENT = $(shell cat .make/logs/.traceparent 2>/dev/null || true)
+endif
+export TRACEPARENT
 
 GO_MK_SELF      := $(lastword $(MAKEFILE_LIST))
 GO_MK_SELF_DIR  := $(patsubst %/,%,$(dir $(abspath $(GO_MK_SELF))))

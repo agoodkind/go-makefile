@@ -79,11 +79,11 @@ func helperFiles() map[string]string {
 }
 
 func TestHelperColdProvisionWritesEveryAsset(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 
 	stdout, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	})
 	if code != 0 {
 		t.Fatalf("helper exit = %d, want 0\nstdout: %s\nstderr: %s", code, stdout, stderr)
@@ -105,7 +105,7 @@ func TestHelperColdProvisionWritesEveryAsset(t *testing.T) {
 	// every path with the same fixture, so a helper pointed at the wrong
 	// repository or the wrong ref would still get a normal 200 and every other
 	// assertion here would still pass.
-	const wantPath = "/agoodkind/go-makefile/tar.gz/main"
+	const wantPath = "/agoodkind/go-makefile/releases/download/rolling/go-makefile-src.tar.gz"
 	if requests[0].Path != wantPath {
 		t.Fatalf("cold provision requested %q, want %q", requests[0].Path, wantPath)
 	}
@@ -130,7 +130,7 @@ func TestHelperLeavesAssetsIntactWhenUpstreamIsUnreachable(t *testing.T) {
 	writeAsset(t, dir, "scripts/go-mk-sync.sh", "#!/usr/bin/env bash\nexit 0\n")
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		"GO_MK_RELEASE_BASE": unreachableCodeloadBase(t),
 	})
 	if code != 1 {
 		t.Fatalf("helper exit = %d, want 1 (the script's own failure exit, not e.g. 127 from a missing script)\nstderr: %s", code, stderr)
@@ -156,7 +156,7 @@ func TestHelperLeavesAssetsIntactWhenTarballIsIncomplete(t *testing.T) {
 	files := helperFiles()
 	delete(files, "notices.txt")
 	delete(files, "scripts/go-mk-sync.sh")
-	server := newFetchServer(t, files)
+	server := newReleaseServer(t, files)
 
 	dir := t.TempDir()
 	writeAsset(t, dir, "go.mk", "# warm go.mk\n")
@@ -167,7 +167,7 @@ func TestHelperLeavesAssetsIntactWhenTarballIsIncomplete(t *testing.T) {
 	writeAsset(t, dir, "scripts/go-mk-sync.sh", "#!/usr/bin/env bash\nexit 0\n")
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	})
 	if code == 0 {
 		t.Fatalf("helper exit = 0, want non-zero when the served tarball is missing required assets\nstderr: %s", stderr)
@@ -207,7 +207,7 @@ func TestHelperLeavesAssetsIntactWhenTarballIsIncomplete(t *testing.T) {
 // replaces a read-only file without error; a directory is the shape it must
 // refuse. A directory also blocks root, so this needs no root skip.
 func TestHelperMidInstallFailureExitsNonZero(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 
 	makeDir := filepath.Join(dir, ".make")
@@ -224,7 +224,7 @@ func TestHelperMidInstallFailureExitsNonZero(t *testing.T) {
 	writeState(t, dir, "main", `"old-etag"`, time.Now().Add(-10*time.Minute).Unix())
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	})
 	if code == 0 {
 		t.Fatalf("helper exit = 0, want non-zero when a middle install step (golangci.yml) fails while the surrounding steps succeed\nstderr: %s", stderr)
@@ -245,7 +245,7 @@ func TestHelperMidInstallFailureExitsNonZero(t *testing.T) {
 // that directory rather than replacing the link: the asset silently lands
 // somewhere outside .make and the install still reports success for that step.
 func TestHelperRefusesAnAssetPathThatSymlinksToADirectory(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 
 	makeDir := filepath.Join(dir, ".make")
@@ -261,7 +261,7 @@ func TestHelperRefusesAnAssetPathThatSymlinksToADirectory(t *testing.T) {
 	}
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	})
 	if code == 0 {
 		t.Fatalf("helper exit = 0, want non-zero when an asset path is a symlink to a directory\nstderr: %s", stderr)
@@ -282,11 +282,11 @@ func TestHelperRefusesAnAssetPathThatSymlinksToADirectory(t *testing.T) {
 // left the recorded ETag in place even though .make now holds local edits that
 // never came from upstream.
 func TestHelperDevDirReplacesItsOwnFileAndClearsState(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 
 	if _, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	}); code != 0 {
 		t.Fatalf("cold provision exit = %d, want 0: %s", code, stderr)
 	}
@@ -316,7 +316,7 @@ func TestHelperDevDirReplacesItsOwnFileAndClearsState(t *testing.T) {
 
 	if _, stderr, code := runHelper(t, dir, map[string]string{
 		"GO_MK_DEV_DIR":       devDir,
-		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		"GO_MK_RELEASE_BASE": unreachableCodeloadBase(t),
 	}); code != 0 {
 		t.Fatalf("dev-dir run exit = %d, want 0: %s", code, stderr)
 	}
@@ -342,11 +342,11 @@ func TestHelperDevDirReplacesItsOwnFileAndClearsState(t *testing.T) {
 // GO_MK_DEV_DIR would send its ETag, receive 304, and treat the half-replaced
 // tree as current upstream content indefinitely.
 func TestHelperDevDirPartialInstallLeavesNoState(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 
 	if _, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	}); code != 0 {
 		t.Fatalf("cold provision exit = %d, want 0: %s", code, stderr)
 	}
@@ -379,7 +379,7 @@ func TestHelperDevDirPartialInstallLeavesNoState(t *testing.T) {
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
 		"GO_MK_DEV_DIR":       devDir,
-		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		"GO_MK_RELEASE_BASE": unreachableCodeloadBase(t),
 	})
 	if code == 0 {
 		t.Fatalf("dev-dir run exit = 0, want non-zero when an install step fails: %s", stderr)
@@ -414,11 +414,11 @@ func TestHelperRefusesToInstallWhenStateCannotBeCleared(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("runs as root, where an unwritable directory cannot block removal")
 	}
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 
 	if _, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	}); code != 0 {
 		t.Fatalf("cold provision exit = %d, want 0: %s", code, stderr)
 	}
@@ -445,7 +445,7 @@ func TestHelperRefusesToInstallWhenStateCannotBeCleared(t *testing.T) {
 	})
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	})
 	if code == 0 {
 		t.Fatalf("helper exit = 0, want non-zero when the state file cannot be removed: %s", stderr)
@@ -465,12 +465,15 @@ func TestHelperRefusesToInstallWhenStateCannotBeCleared(t *testing.T) {
 // including a run that touches no asset. That shipped: measured against real
 // codeload, two consecutive warm parses moved .make's mtime while every file
 // under it stayed identical.
+//
+// Diagnostic files under .make/logs are excluded. go-mk writes them on every
+// process, including a 304 reuse, and they are not provisioned assets.
 func TestHelperTouchesNothingUnderMakeOnNotModified(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 
 	if _, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	}); code != 0 {
 		t.Fatalf("cold provision exit = %d, want 0: %s", code, stderr)
 	}
@@ -479,9 +482,16 @@ func TestHelperTouchesNothingUnderMakeOnNotModified(t *testing.T) {
 	makeDir := filepath.Join(dir, ".make")
 	snapshot := func() map[string]time.Time {
 		seen := map[string]time.Time{}
+		logsDir := filepath.Join(makeDir, "logs")
 		if err := filepath.Walk(makeDir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
+			}
+			if path == logsDir || strings.HasPrefix(path, logsDir+string(os.PathSeparator)) {
+				if info.IsDir() && path == logsDir {
+					return filepath.SkipDir
+				}
+				return nil
 			}
 			seen[path] = info.ModTime()
 			return nil
@@ -497,7 +507,7 @@ func TestHelperTouchesNothingUnderMakeOnNotModified(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond)
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	})
 	if code != 0 {
 		t.Fatalf("warm parse exit = %d, want 0: %s", code, stderr)
@@ -537,10 +547,13 @@ func TestHelperTouchesNothingUnderMakeOnNotModified(t *testing.T) {
 func TestHelperSerializesConcurrentParses(t *testing.T) {
 	const parallel = 4
 	dir := t.TempDir()
+	if err := seedProvisionBinary(t, dir); err != nil {
+		t.Fatalf("seedProvisionBinary: %v", err)
+	}
 
 	// Each server serves a distinct generation, so an interleaved install is
 	// visible as assets from different generations landing together.
-	servers := make([]*fetchServer, parallel)
+	servers := make([]*releaseServer, parallel)
 	for index := range servers {
 		generation := fmt.Sprintf("gen%d", index)
 		files := map[string]string{
@@ -552,7 +565,7 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 			"scripts/go-mk-sync.sh":      "#!/usr/bin/env bash\n# " + generation + "\nexit 0\n",
 			"scripts/go-mk-bootstrap.sh": "#!/usr/bin/env bash\n# " + generation + "\nexit 0\n",
 		}
-		servers[index] = newFetchServer(t, files)
+		servers[index] = newReleaseServer(t, files)
 	}
 
 	// Each server holds its response for stallPerParse, which makes the
@@ -584,11 +597,11 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 		go func(slot int, base string) {
 			defer group.Done()
 			_, stderr, code, err := runHelperFromGoroutine(helper, dir,
-				map[string]string{"GO_MK_CODELOAD_BASE": base})
+				map[string]string{"GO_MK_RELEASE_BASE": base})
 			codes[slot] = code
 			stderrs[slot] = stderr
 			startErrors[slot] = err
-		}(index, servers[index].CodeloadBase())
+		}(index, servers[index].ReleaseBase())
 	}
 	group.Wait()
 
@@ -669,7 +682,7 @@ func TestHelperProvisionedRejectsDirectoryInPlaceOfAsset(t *testing.T) {
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
 		"_GO_MK_PROVISIONED":  "1",
-		"GO_MK_CODELOAD_BASE": "http://127.0.0.1:9",
+		"GO_MK_RELEASE_BASE": "http://127.0.0.1:9",
 	})
 	if code == 0 {
 		t.Fatalf("helper exit = 0, want non-zero when a required asset path is a directory rather than a file\nstderr: %s", stderr)
@@ -748,6 +761,9 @@ func testProcessEnvironment(overrides map[string]string) []string {
 // minimal environment, and returns its output and exit code.
 func runHelper(t *testing.T, dir string, env map[string]string) (string, string, int) {
 	t.Helper()
+	if err := seedProvisionBinary(t, dir); err != nil {
+		t.Fatalf("seedProvisionBinary: %v", err)
+	}
 	helper := filepath.Join(repoRootForTest(t), "scripts", "go-mk-bootstrap.sh")
 	command := exec.Command("bash", helper)
 	command.Dir = dir
@@ -846,11 +862,11 @@ func repoRootForTest(t *testing.T) string {
 }
 
 func TestHelperColdProvisionRecordsState(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	})
 	if code != 0 {
 		t.Fatalf("helper exit = %d, want 0: %s", code, stderr)
@@ -873,11 +889,11 @@ func TestHelperColdProvisionRecordsState(t *testing.T) {
 }
 
 func TestHelperServesDiskWhenUpstreamReturnsNotModified(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 
 	// Cold run populates .make and records the ETag.
-	_, _, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	_, _, code := runHelper(t, dir, map[string]string{"GO_MK_RELEASE_BASE": server.ReleaseBase()})
 	if code != 0 {
 		t.Fatalf("cold run exit = %d, want 0", code)
 	}
@@ -886,7 +902,7 @@ func TestHelperServesDiskWhenUpstreamReturnsNotModified(t *testing.T) {
 	stateBefore := readStateFile(t, dir)
 	modTimeBefore := statStateFile(t, dir).ModTime()
 
-	_, stderr, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	_, stderr, code := runHelper(t, dir, map[string]string{"GO_MK_RELEASE_BASE": server.ReleaseBase()})
 	if code != 0 {
 		t.Fatalf("warm run exit = %d, want 0: %s", code, stderr)
 	}
@@ -951,10 +967,10 @@ func statStateFile(t *testing.T, dir string) os.FileInfo {
 }
 
 func TestHelperReprovisionsWhenUpstreamMoved(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 
-	_, _, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	_, _, code := runHelper(t, dir, map[string]string{"GO_MK_RELEASE_BASE": server.ReleaseBase()})
 	if code != 0 {
 		t.Fatalf("cold run exit = %d, want 0", code)
 	}
@@ -964,7 +980,7 @@ func TestHelperReprovisionsWhenUpstreamMoved(t *testing.T) {
 	moved["go.mk"] = "# go.mk v2\n"
 	server.SetFiles(moved)
 
-	_, stderr, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	_, stderr, code := runHelper(t, dir, map[string]string{"GO_MK_RELEASE_BASE": server.ReleaseBase()})
 	if code != 0 {
 		t.Fatalf("moved run exit = %d, want 0: %s", code, stderr)
 	}
@@ -990,12 +1006,12 @@ func TestHelperReprovisionsWhenUpstreamMoved(t *testing.T) {
 // rather than validating against content this run never confirmed), warns
 // loudly, and still returns success.
 func TestHelperDegradesWhenUpstreamServesNoETag(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	server.SetETagEnabled(false)
 	dir := t.TempDir()
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	})
 	if code != 0 {
 		t.Fatalf("helper exit = %d, want 0 when upstream serves a 200 with no ETag header (degrade, don't fail): %s", code, stderr)
@@ -1020,10 +1036,10 @@ func TestHelperDegradesWhenUpstreamServesNoETag(t *testing.T) {
 // verified against that leftover etag). The fix must remove the stale
 // state file, not merely skip writing a new one.
 func TestHelperClearsStaleStateWhenUpstreamStopsServingETag(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 
-	_, _, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	_, _, code := runHelper(t, dir, map[string]string{"GO_MK_RELEASE_BASE": server.ReleaseBase()})
 	if code != 0 {
 		t.Fatalf("cold run exit = %d, want 0", code)
 	}
@@ -1036,7 +1052,7 @@ func TestHelperClearsStaleStateWhenUpstreamStopsServingETag(t *testing.T) {
 	server.SetFiles(moved)
 	server.SetETagEnabled(false)
 
-	_, stderr, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	_, stderr, code := runHelper(t, dir, map[string]string{"GO_MK_RELEASE_BASE": server.ReleaseBase()})
 	if code != 0 {
 		t.Fatalf("no-etag run exit = %d, want 0: %s", code, stderr)
 	}
@@ -1056,11 +1072,13 @@ func TestHelperClearsStaleStateWhenUpstreamStopsServingETag(t *testing.T) {
 // does not match the current ref, forcing a real fetch instead of a
 // conditional probe.
 func TestHelperDoesNotReuseETagAcrossRef(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
+	server.SetCodeloadRef("other-ref", helperFiles())
 	dir := t.TempDir()
 
 	_, _, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
+		"GO_MK_CODELOAD_BASE": server.ReleaseBase(),
 		"GO_MK_API_REF":       "main",
 	})
 	if code != 0 {
@@ -1068,7 +1086,8 @@ func TestHelperDoesNotReuseETagAcrossRef(t *testing.T) {
 	}
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
+		"GO_MK_CODELOAD_BASE": server.ReleaseBase(),
 		"GO_MK_API_REF":       "other-ref",
 	})
 	if code != 0 {
@@ -1076,23 +1095,26 @@ func TestHelperDoesNotReuseETagAcrossRef(t *testing.T) {
 	}
 
 	requests := server.Requests()
-	if len(requests) != 2 {
-		t.Fatalf("server saw %d requests, want 2 (a changed ref must skip the validation probe and fetch fresh)", len(requests))
+	if len(requests) != 3 {
+		t.Fatalf("server saw %d requests, want 3 (rolling fetch, pin-ref release miss, then codeload)", len(requests))
 	}
-	if requests[1].Method != "GET" {
-		t.Fatalf("second request method = %q, want GET (a changed ref must go straight to provision, not a HEAD validation probe)", requests[1].Method)
+	if requests[1].Method != "GET" || requests[2].Method != "GET" {
+		t.Fatalf("pin-ref methods = %q %q, want GET GET", requests[1].Method, requests[2].Method)
 	}
-	if requests[1].IfNoneMatch != "" {
-		t.Fatalf("second request If-None-Match = %q, want empty (the stored etag belongs to a different ref and must not be reused)", requests[1].IfNoneMatch)
+	if requests[1].IfNoneMatch != "" || requests[2].IfNoneMatch != "" {
+		t.Fatalf("pin-ref If-None-Match = %q %q, want empty (the stored etag belongs to a different ref and must not be reused)", requests[1].IfNoneMatch, requests[2].IfNoneMatch)
 	}
 	// The ref must reach the URL, not just the state file. Without this a
 	// helper that recorded the new ref while still fetching the old one would
 	// satisfy every other assertion in this test.
-	if want := "/agoodkind/go-makefile/tar.gz/main"; requests[0].Path != want {
+	if want := "/agoodkind/go-makefile/releases/download/rolling/go-makefile-src.tar.gz"; requests[0].Path != want {
 		t.Fatalf("first request path = %q, want %q", requests[0].Path, want)
 	}
-	if want := "/agoodkind/go-makefile/tar.gz/other-ref"; requests[1].Path != want {
-		t.Fatalf("second request path = %q, want %q (the changed ref never reached the URL)", requests[1].Path, want)
+	if want := "/agoodkind/go-makefile/releases/download/other-ref/go-makefile-src.tar.gz"; requests[1].Path != want {
+		t.Fatalf("second request path = %q, want %q (pin ref tries the release asset first)", requests[1].Path, want)
+	}
+	if want := "/agoodkind/go-makefile/tar.gz/other-ref"; requests[2].Path != want {
+		t.Fatalf("third request path = %q, want %q (404 on the pin-ref release asset falls back to codeload)", requests[2].Path, want)
 	}
 
 	secondState := readState(t, dir)
@@ -1147,7 +1169,7 @@ func warmMake(t *testing.T, dir string) {
 }
 
 func TestHelperServesDiskWhenUpstreamTimesOutAndStateIsRecent(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(-10*time.Minute).Unix())
@@ -1156,7 +1178,7 @@ func TestHelperServesDiskWhenUpstreamTimesOutAndStateIsRecent(t *testing.T) {
 	modTimeBefore := statStateFile(t, dir).ModTime()
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	})
 	if code != 0 {
 		t.Fatalf("helper exit = %d, want 0 when state is recent: %s", code, stderr)
@@ -1218,7 +1240,7 @@ func unreachableCodeloadBase(t *testing.T) string {
 // long the stall actually lasts; --retry still applies on top of that (see
 // TestHelperBoundsRetryTimeWhenUpstreamStalls for the measured total).
 func TestHelperFailsWhenUpstreamTimesOutAndStateIsStale(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(-2*time.Hour).Unix())
@@ -1229,7 +1251,7 @@ func TestHelperFailsWhenUpstreamTimesOutAndStateIsStale(t *testing.T) {
 	server.Stall(10 * time.Second)
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	})
 	if code == 0 {
 		t.Fatal("helper exit = 0, want non-zero when state is older than the reuse window")
@@ -1241,7 +1263,7 @@ func TestHelperFailsWhenUpstreamTimesOutAndStateIsStale(t *testing.T) {
 	// excerpt of its stderr) must stay visible on this fall-through path,
 	// not just on the reuse-serving path: a probe failing on every run is
 	// otherwise invisible once main proceeds straight to provision.
-	if !strings.Contains(stderr, "validate_upstream: curl exited") {
+	if !strings.Contains(stderr, "validate_upstream:") {
 		t.Fatalf("stderr = %q, want the validation probe's own failure reason on the stale fall-through path", stderr)
 	}
 	// Even on the failing path, nothing may be destroyed.
@@ -1260,7 +1282,7 @@ func TestHelperTreatsFutureTimestampAsStale(t *testing.T) {
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(2*time.Hour).Unix())
 
 	_, _, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		"GO_MK_RELEASE_BASE": unreachableCodeloadBase(t),
 	})
 	if code == 0 {
 		t.Fatal("helper exit = 0, want non-zero for a future timestamp")
@@ -1284,7 +1306,7 @@ func TestHelperTreatsFutureTimestampAsStale(t *testing.T) {
 // this asserts a wall-clock ceiling tuned to the current architecture, not
 // just eventual failure.
 func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 	// Long enough that the speed-limit abort (not the stall ending) is what
 	// stops each attempt; kept short (rather than merely "longer than
@@ -1298,7 +1320,7 @@ func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
 
 	start := time.Now()
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	})
 	elapsed := time.Since(start)
 	// Logged unconditionally (not just on failure) because the overall test
@@ -1341,14 +1363,14 @@ func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
 func TestHelperCompletesWhenUpstreamTricklesAboveSpeedLimit(t *testing.T) {
 	files := helperFiles()
 	files["notices.txt"] = randomAssetBody(12 * 1024)
-	server := newFetchServer(t, files)
+	server := newReleaseServer(t, files)
 	dir := t.TempDir()
 	const trickleBytesPerSecond = 2048
 	server.Trickle(trickleBytesPerSecond)
 
 	start := time.Now()
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 	})
 	elapsed := time.Since(start)
 	t.Logf("helper took %s against a %d B/s trickling upstream", elapsed, trickleBytesPerSecond)
@@ -1375,13 +1397,13 @@ func TestHelperCompletesWhenUpstreamTricklesAboveSpeedLimit(t *testing.T) {
 // through to provision, which fails loudly with its own local-cause
 // message when the same broken TMPDIR blocks its staging directory too.
 func TestHelperDoesNotReuseWhenLocalSetupFailsBeforeAnyRequest(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(-10*time.Minute).Unix())
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 		"TMPDIR":              filepath.Join(dir, "no-such-tmpdir"),
 	})
 	if code == 0 {
@@ -1421,14 +1443,14 @@ func TestHelperDoesNotReuseWhenLocalSetupFailsBeforeAnyRequest(t *testing.T) {
 // If-None-Match and must be a real 200, not a 304 the helper then trusts
 // without having downloaded anything this run.
 func TestHelperAlwaysProvisionsUnconditionallyInCI(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 	warmMake(t, dir)
 	// Fresh state that would produce a 304 and a disk serve off CI.
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Unix())
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 		"GITHUB_ACTIONS":      "true",
 		"GITHUB_RUN_ID":       "1",
 	})
@@ -1473,7 +1495,7 @@ func TestHelperFailsInCIWhenUpstreamIsUnreachableDespiteFreshState(t *testing.T)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Unix())
 
 	_, _, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": "http://127.0.0.1:9",
+		"GO_MK_RELEASE_BASE": "http://127.0.0.1:9",
 		"GITHUB_ACTIONS":      "true",
 		"GITHUB_RUN_ID":       "1",
 	})
@@ -1489,16 +1511,16 @@ func TestHelperFailsInCIWhenUpstreamIsUnreachableDespiteFreshState(t *testing.T)
 // ordinary conditional-validation behavior, not the unconditional-fetch
 // path meant for a real GitHub Actions job.
 func TestHelperTreatsGithubActionsWithoutRunIdAsLocal(t *testing.T) {
-	server := newFetchServer(t, helperFiles())
+	server := newReleaseServer(t, helperFiles())
 	dir := t.TempDir()
 
-	_, _, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	_, _, code := runHelper(t, dir, map[string]string{"GO_MK_RELEASE_BASE": server.ReleaseBase()})
 	if code != 0 {
 		t.Fatalf("cold run exit = %d, want 0", code)
 	}
 
 	_, _, code = runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		"GO_MK_RELEASE_BASE": server.ReleaseBase(),
 		"GITHUB_ACTIONS":      "true",
 		// No GITHUB_RUN_ID, so this is not a CI run.
 	})

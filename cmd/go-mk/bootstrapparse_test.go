@@ -45,6 +45,9 @@ func newConsumer(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(dir, ".make", "scripts", "go-mk-bootstrap.sh"), helperBody, 0o755); err != nil {
 		t.Fatalf("seed .make/scripts/go-mk-bootstrap.sh: %v", err)
 	}
+	if err := seedProvisionBinary(t, dir); err != nil {
+		t.Fatalf("seed .make/go-mk: %v", err)
+	}
 
 	makefile := "BINARY := probe\nCMD := ./cmd/probe\ninclude bootstrap.mk\n"
 	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0o644); err != nil {
@@ -224,10 +227,10 @@ func consumerFiles(t *testing.T) map[string]string {
 }
 
 func TestOfflineParseDoesNotDestroyCachedAssets(t *testing.T) {
-	server := newFetchServer(t, consumerFiles(t))
+	server := newReleaseServer(t, consumerFiles(t))
 	dir := newConsumer(t)
 
-	output, code := runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	output, code := runMake(t, dir, map[string]string{"GO_MK_RELEASE_BASE": server.ReleaseBase()})
 	if code != 0 {
 		t.Fatalf("warm parse exit = %d, want 0: %s", code, output)
 	}
@@ -237,7 +240,7 @@ func TestOfflineParseDoesNotDestroyCachedAssets(t *testing.T) {
 	}
 
 	// Upstream disappears. The parse may fail, but it must not remove assets.
-	_, _ = runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": "http://127.0.0.1:9"})
+	_, _ = runMake(t, dir, map[string]string{"GO_MK_RELEASE_BASE": "http://127.0.0.1:9"})
 
 	if after := readAsset(t, dir, "go.mk"); after != before {
 		t.Fatalf("go.mk = %q after an offline parse, want the cached body %q preserved", after, before)
@@ -415,15 +418,15 @@ func TestOldBootstrapPrimePreservesCachedAssetsOffline(t *testing.T) {
 }
 
 func TestWarmParseIssuesOneRequestTotal(t *testing.T) {
-	server := newFetchServer(t, consumerFiles(t))
+	server := newReleaseServer(t, consumerFiles(t))
 	dir := newConsumer(t)
 
-	if output, code := runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()}); code != 0 {
+	if output, code := runMake(t, dir, map[string]string{"GO_MK_RELEASE_BASE": server.ReleaseBase()}); code != 0 {
 		t.Fatalf("cold parse exit = %d: %s", code, output)
 	}
 	coldRequests := len(server.Requests())
 
-	if output, code := runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()}); code != 0 {
+	if output, code := runMake(t, dir, map[string]string{"GO_MK_RELEASE_BASE": server.ReleaseBase()}); code != 0 {
 		t.Fatalf("warm parse exit = %d: %s", code, output)
 	}
 
@@ -737,10 +740,10 @@ func TestGoMkSkipsItsOwnPrimeWhenHelperProvisioned(t *testing.T) {
 		t.Fatalf("read go.mk: %v", err)
 	}
 	files["go.mk"] = string(realGoMk)
-	server := newFetchServer(t, files)
+	server := newReleaseServer(t, files)
 	dir := newConsumer(t)
 
-	output, code := runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	output, code := runMake(t, dir, map[string]string{"GO_MK_RELEASE_BASE": server.ReleaseBase()})
 	if code != 0 {
 		t.Fatalf("parse exit = %d, want 0: %s", code, output)
 	}

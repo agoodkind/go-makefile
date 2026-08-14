@@ -30,6 +30,11 @@ const logDir = ".make/logs"
 // inherited traceparent).
 const runSentinel = ".make/logs/.run"
 
+// traceparentFile is the W3C TRACEPARENT the first go-mk of a make parse mints.
+// go.mk exports it into recipe environments so later go-mk processes join the
+// same run, matching os.Setenv("TRACEPARENT") for in-process children.
+const traceparentFile = ".make/logs/.traceparent"
+
 // headerlessCommands are auxiliary subcommands that run as make prerequisites
 // and are not user-facing runs, so they do not print the run header.
 var headerlessCommands = map[string]bool{
@@ -42,6 +47,9 @@ var headerlessCommands = map[string]bool{
 // subcommand name.
 func headerless() bool {
 	for _, arg := range os.Args[1:] {
+		if arg == "-flags" || arg == "--flags" {
+			return true
+		}
 		if strings.HasPrefix(arg, "-") {
 			continue
 		}
@@ -74,6 +82,12 @@ func setupLogging() func() {
 	})
 
 	inherited := os.Getenv("TRACEPARENT")
+	if inherited == "" {
+		inherited = loadMakeTraceparent()
+		if inherited != "" {
+			_ = os.Setenv("TRACEPARENT", inherited)
+		}
+	}
 	ctx := context.Background()
 	if inherited != "" {
 		ctx = otel.GetTextMapPropagator().Extract(
@@ -99,7 +113,14 @@ func setupLogging() func() {
 	})
 	slog.SetDefault(slog.New(handler.WithAttrs(corr.Attrs())))
 
-	if !headerless() {
+	if inherited == "" {
+		persistTraceparent(os.Getenv("TRACEPARENT"))
+	}
+
+	// Only the process that minted the trace prints the header. Joiners inherit
+	// TRACEPARENT (from the environment, including a sibling make -C) and stay
+	// quiet even when they do not share this process's .make/logs/.run sentinel.
+	if inherited == "" && !headerless() {
 		printHeaderOnce(corr)
 	}
 
@@ -128,6 +149,42 @@ func printHeaderOnce(corr correlation.Context) {
 	// diagnostics line.
 	slog.Debug("run header emitted", slog.String("trace_id", string(corr.TraceID)))
 	writeStderr(runHeaderLine(corr) + "\n")
+}
+
+func persistTraceparent(traceparent string) {
+	if strings.TrimSpace(traceparent) == "" {
+		return
+	}
+	_ = os.MkdirAll(logDir, 0o755)
+	slog.Debug("persist traceparent", slog.String("path", traceparentFile))
+	_ = os.WriteFile(traceparentFile, []byte(traceparent+"\n"), 0o644)
+}
+
+func loadMakeTraceparent() string {
+	if os.Getenv("MAKEFLAGS") == "" && !joinsPersistedTraceparent() {
+		return ""
+	}
+	body, err := os.ReadFile(traceparentFile)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(body))
+}
+
+// joinsPersistedTraceparent reports whether this process runs during a make
+// parse even when MAKEFLAGS is missing. The bootstrap helper execs provision
+// without exporting MAKEFLAGS, and a 304 reuse must not rewrite .make/logs.
+func joinsPersistedTraceparent() bool {
+	for _, arg := range os.Args[1:] {
+		if arg == "-flags" || arg == "--flags" {
+			return false
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg == "provision" || arg == "resolve-bin"
+	}
+	return false
 }
 
 func runHeaderLine(corr correlation.Context) string {

@@ -118,14 +118,16 @@ endif
 #   _GO_MK_PROVISIONED  this file honors it while the helper fetches anyway,
 #                       so an air-gapped or pre-vendored build fails at parse
 #                       time, the exact case the flag exists to serve
-#   GO_MK_CODELOAD_BASE the redirect is silently ineffective and the helper
-#                       reaches real codeload while appearing redirected, so
-#                       a test written that way passes against production
+#   GO_MK_RELEASE_BASE  the redirect is silently ineffective and the helper
+#                       reaches real GitHub releases while appearing redirected
+#   GO_MK_CODELOAD_BASE pin-ref codeload fallback in go-mk provision is silently
+#                       ineffective when the redirect is not forwarded
 #   GO_MK_API_REPO      the helper falls back to its own defaults and fetches
 #   GO_MK_API_REF       the wrong repository or ref's assets
 #
 # Adding a GO_MK_* variable that the helper reads means adding it here too.
-GO_MK_PROVISION := $(shell GO_MK_API_REPO="$(GO_MK_API_REPO)" GO_MK_API_REF="$(GO_MK_API_REF)" GO_MK_MODULES="$(GO_MK_MODULES)" GO_MK_CODELOAD_BASE="$(GO_MK_CODELOAD_BASE)" GO_MK_DEV_DIR="$(GO_MK_DEV_DIR)" _GO_MK_PROVISIONED="$(_GO_MK_PROVISIONED)" bash "$(GO_MK_BOOTSTRAP)" >&2 && printf ok)
+GO_MK_RELEASE_BASE ?= https://github.com
+GO_MK_PROVISION := $(shell GO_MK_API_REPO="$(GO_MK_API_REPO)" GO_MK_API_REF="$(GO_MK_API_REF)" GO_MK_MODULES="$(GO_MK_MODULES)" GO_MK_RELEASE_BASE="$(GO_MK_RELEASE_BASE)" GO_MK_CODELOAD_BASE="$(GO_MK_CODELOAD_BASE)" GO_MK_DEV_DIR="$(GO_MK_DEV_DIR)" _GO_MK_PROVISIONED="$(_GO_MK_PROVISIONED)" bash "$(GO_MK_BOOTSTRAP)" >&2 && printf ok)
 $(if $(filter ok,$(GO_MK_PROVISION)),,$(error go-makefile failed to provision its assets))
 
 # go.mk handles -including the modules at its tail (after all its variables

@@ -36,7 +36,10 @@ ROOT_LINT_ARGS  += $(GO_MK_LOCAL_ARGS)
 STATIC_LINT_ARGS += $(GO_MK_LOCAL_ARGS)
 
 ROOT_GO_MK   := $(MAKE) -f $(GO_MK) $(ROOT_LINT_ARGS)
-STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
+# The staticcheck make joins the root run's TRACEPARENT so a dual-module
+# target such as `make build` prints one header. The file is written by the
+# first go-mk of the root make; the shell expands cat when this recipe line runs.
+STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS) TRACEPARENT="$$(cat '$(CURDIR)/.make/logs/.traceparent' 2>/dev/null | tr -d '\n')"
 
 .DEFAULT_GOAL := check
 

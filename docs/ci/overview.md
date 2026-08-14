@@ -1,6 +1,6 @@
 # CI
 
-go-makefile ships a reusable CI workflow that every consumer runs against its own repository. The workflow is a three-stage pipeline defined in [.github/workflows/_ci.yml](../../.github/workflows/_ci.yml): `prepare` detects changes and warms the generated-output cache. The compile matrix and configured quality jobs run in parallel next. The release dry run then consumes the compiled binaries. A consumer enters it through its own `ci.yml`, which calls this workflow at `@main`, so a change here reaches every consumer on its next push.
+go-makefile ships a reusable CI workflow that every consumer runs against its own repository. Unpinned consumers provision from the rolling GitHub Release at parse time. The workflow is a three-stage pipeline defined in [.github/workflows/_ci.yml](../../.github/workflows/_ci.yml): `prepare` detects changes and warms the generated-output cache. The compile matrix and configured quality jobs run in parallel next. The release dry run then consumes the compiled binaries. A consumer enters it through its own `ci.yml`, which calls this workflow at `@main`, so a change here reaches every consumer on its next push.
 
 ## The prepare gate
 

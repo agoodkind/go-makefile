@@ -72,9 +72,8 @@ concurrency:
   cancel-in-progress: false
 
 # GH_TOKEN authenticates the gh CLI used by the publish and verify jobs. The go-mk
-# bootstrap fetch (bootstrap.mk / go.mk) no longer needs it: it downloads a single
-# codeload tarball (zero GITHUB_TOKEN core-REST budget) with a
-# raw.githubusercontent.com per-file fallback.
+# bootstrap fetch downloads the rolling release source archive and a signed go-mk
+# binary, with a raw helper fallback for the committed bootstrap shim.
 env:
   GH_TOKEN: ${{ github.token }}
 

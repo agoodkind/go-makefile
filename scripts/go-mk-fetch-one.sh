@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-# Fetch one go-makefile asset to a destination path. Resolution order: a developer
-# directory override, then the raw CDN (cache-busted first, then plain). The gh api
-# contents path was removed; the tarball prime in bootstrap.mk and go.mk is the
-# primary fetch now, so this script is the per-file fallback.
-
 relative_path="${1:?relative path is required}"
 destination_path="${2:?destination path is required}"
 developer_dir="${3:-${GO_MK_DEV_DIR:-}}"
@@ -35,8 +30,6 @@ fetch_from_url() {
 }
 
 fetch_from_raw_cdn() {
-    # Cache-bust first so a stale CDN copy cannot win, then fall back to the plain
-    # URL in case the query string is rejected.
     local cache_bust="${EPOCHSECONDS:-$(date +%s)}"
     fetch_from_url "${base_url}/${relative_path}?v=${cache_bust}" ||
         fetch_from_url "${base_url}/${relative_path}"
