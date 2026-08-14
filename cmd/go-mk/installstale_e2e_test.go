@@ -78,7 +78,7 @@ func (consumer staleConsumer) placeInstalled(t *testing.T, name string, offset t
 	// The build-settings stamp is named for the settings and the source list,
 	// so it has to be written after the case has seeded its files and before
 	// any output can look current.
-	consumer.runMake(t, "go-mk-build-config")
+	consumer.runMake(t, "_go-mk-settings-stamp")
 	path := filepath.Join(consumer.installDir, name)
 	if err := os.MkdirAll(consumer.installDir, 0o755); err != nil {
 		t.Fatalf("create install directory: %v", err)
@@ -367,7 +367,7 @@ func TestBuildConfigStampKeepsShellSyntaxLiteral(t *testing.T) {
 	consumer := newStaleConsumer(t, "")
 	marker := filepath.Join(consumer.dir, "executed")
 	hook := "echo hook `touch " + marker + "` ; touch " + marker
-	consumer.runMake(t, "go-mk-build-config", "GO_MK_INSTALL_POST_CMD="+hook)
+	consumer.runMake(t, "_go-mk-settings-stamp", "GO_MK_INSTALL_POST_CMD="+hook)
 
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("stamp executed shell syntax from a consumer value: %v", err)
@@ -378,7 +378,7 @@ func TestBuildConfigStampKeepsShellSyntaxLiteral(t *testing.T) {
 // carries the settings.
 func (consumer staleConsumer) stampName(t *testing.T, makeArgs ...string) string {
 	t.Helper()
-	consumer.runMake(t, append([]string{"go-mk-build-config"}, makeArgs...)...)
+	consumer.runMake(t, append([]string{"_go-mk-settings-stamp"}, makeArgs...)...)
 	entries, err := os.ReadDir(filepath.Join(consumer.dir, ".make", "build-config"))
 	if err != nil {
 		t.Fatalf("read build-config directory: %v", err)
@@ -439,7 +439,7 @@ func TestGenerateInputsKeepShellSyntaxLiteral(t *testing.T) {
 	marker := filepath.Join(consumer.dir, "executed")
 	// The trailing `true` swallows the find arguments that follow the injected
 	// command, so the touch would run if the path reached the shell unquoted.
-	consumer.runMake(t, "go-mk-build-config",
+	consumer.runMake(t, "_go-mk-settings-stamp",
 		"GO_MK_GENERATE_INPUTS=grammars;touch "+marker+";true")
 
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
@@ -450,7 +450,7 @@ func TestGenerateInputsKeepShellSyntaxLiteral(t *testing.T) {
 	// injection holds no space, so make keeps it as one word and the quoting is
 	// the only thing standing between it and the shell.
 	quoted := filepath.Join(consumer.dir, "quoted")
-	consumer.runMake(t, "go-mk-build-config",
+	consumer.runMake(t, "_go-mk-settings-stamp",
 		"GO_MK_GENERATE_INPUTS=grammars';>"+quoted+";true'")
 
 	if _, err := os.Stat(quoted); !os.IsNotExist(err) {
