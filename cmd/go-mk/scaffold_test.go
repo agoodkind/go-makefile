@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -27,16 +28,303 @@ func TestReadModulePathAllowsTrailingComment(t *testing.T) {
 	}
 }
 
-func TestBootstrapAssetsMatchCanonicalFiles(t *testing.T) {
+func TestScaffoldAssetsMatchCanonicalFiles(t *testing.T) {
 	repoRoot := testRepoRoot(t)
 	assertFilesEqual(t,
 		filepath.Join(repoRoot, "bootstrap.mk"),
-		filepath.Join(filepath.Dir(testFilePath(t)), "bootstrap_assets", "bootstrap.mk"),
+		filepath.Join(filepath.Dir(testFilePath(t)), "scaffold_assets", "bootstrap.mk"),
 	)
 	assertFilesEqual(t,
 		filepath.Join(repoRoot, "templates", "Makefile.tmpl"),
-		filepath.Join(filepath.Dir(testFilePath(t)), "bootstrap_assets", "Makefile.tmpl"),
+		filepath.Join(filepath.Dir(testFilePath(t)), "scaffold_assets", "Makefile.tmpl"),
 	)
+}
+
+func TestConsumerBootstrapMkStripsComments(t *testing.T) {
+	canonical := mustReadFile(t, filepath.Join(testRepoRoot(t), "bootstrap.mk"))
+	stripped := string(consumerBootstrapMk([]byte(canonical)))
+
+	if !strings.HasPrefix(stripped, "# DO NOT MODIFY.") {
+		t.Fatalf("stripped bootstrap.mk missing DO NOT MODIFY header:\n%s", stripped)
+	}
+	if strings.Contains(stripped, "tiny shim") {
+		t.Fatalf("stripped bootstrap.mk still contains prose comment:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "GO_MK_BOOTSTRAP_FETCHED := 1") {
+		t.Fatalf("stripped bootstrap.mk missing GO_MK_BOOTSTRAP_FETCHED:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "define _go_mk_get_bootstrap") {
+		t.Fatalf("stripped bootstrap.mk missing helper define:\n%s", stripped)
+	}
+}
+
+func TestConsumerBootstrapMkKeepsRecipeHashComments(t *testing.T) {
+	canonical := "FOO := 1\n" +
+		"# makefile comment\n" +
+		"define recipe\n" +
+		"\techo start\n" +
+		"\t# shell comment in recipe\n" +
+		"\techo end\n" +
+		"endef\n"
+	stripped := string(consumerBootstrapMk([]byte(canonical)))
+	if strings.Contains(stripped, "makefile comment") {
+		t.Fatalf("stripped makefile comment:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "\t# shell comment in recipe") {
+		t.Fatalf("dropped tab-indented recipe comment:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "\techo start") || !strings.Contains(stripped, "\techo end") {
+		t.Fatalf("dropped recipe commands:\n%s", stripped)
+	}
+}
+
+func TestConsumerBootstrapMkStripsSpaceIndentedComments(t *testing.T) {
+	canonical := "FOO := 1\n" +
+		"  # space indented makefile comment\n" +
+		"BAR := 2\n"
+	stripped := string(consumerBootstrapMk([]byte(canonical)))
+	if strings.Contains(stripped, "space indented makefile comment") {
+		t.Fatalf("kept space-indented makefile comment:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "FOO := 1") || !strings.Contains(stripped, "BAR := 2") {
+		t.Fatalf("dropped assignments:\n%s", stripped)
+	}
+}
+
+func TestConsumerBootstrapMkTracksNestedDefines(t *testing.T) {
+	canonical := "# makefile comment\n" +
+		"define outer\n" +
+		"# outer before nested\n" +
+		"define inner\n" +
+		"# inner hash\n" +
+		"endef\n" +
+		"# outer after nested\n" +
+		"endef\n"
+	stripped := string(consumerBootstrapMk([]byte(canonical)))
+	if strings.Contains(stripped, "makefile comment") {
+		t.Fatalf("stripped makefile comment:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "# outer before nested") {
+		t.Fatalf("dropped outer hash before nested define:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "# inner hash") {
+		t.Fatalf("dropped nested define hash:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "# outer after nested") {
+		t.Fatalf("dropped outer hash after nested endef:\n%s", stripped)
+	}
+}
+
+func TestConsumerBootstrapMkIgnoresRecipeDefine(t *testing.T) {
+	canonical := "target:\n" +
+		"\tdefine FOO\n" +
+		"# makefile comment after recipe define\n" +
+		"FOO := 1\n"
+	stripped := string(consumerBootstrapMk([]byte(canonical)))
+	if !strings.Contains(stripped, "\tdefine FOO") {
+		t.Fatalf("dropped recipe define:\n%s", stripped)
+	}
+	if strings.Contains(stripped, "makefile comment after recipe define") {
+		t.Fatalf("recipe define left comment stripping off:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "FOO := 1") {
+		t.Fatalf("dropped assignment after recipe define:\n%s", stripped)
+	}
+}
+
+func TestConsumerBootstrapMkKeepsDefineHashComments(t *testing.T) {
+	canonical := "# makefile comment\n" +
+		"FOO := 1\n" +
+		"define recipe\n" +
+		"\techo start\n" +
+		"# unindented in define\n" +
+		"  # space indented in define\n" +
+		"\techo end\n" +
+		"endef\n"
+	stripped := string(consumerBootstrapMk([]byte(canonical)))
+	if strings.Contains(stripped, "makefile comment") {
+		t.Fatalf("stripped makefile comment:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "# unindented in define") {
+		t.Fatalf("dropped unindented define comment:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "  # space indented in define") {
+		t.Fatalf("dropped space-indented define comment:\n%s", stripped)
+	}
+}
+
+func TestReconcileBootstrapMkWritesStrippedCopy(t *testing.T) {
+	repoDir := t.TempDir()
+	t.Chdir(repoDir)
+
+	var stdout bytes.Buffer
+	if err := reconcileBootstrapMk(&stdout); err != nil {
+		t.Fatalf("reconcileBootstrapMk returned error: %v", err)
+	}
+	if stdout.String() != "created bootstrap.mk\n" {
+		t.Fatalf("stdout = %q, want created message", stdout.String())
+	}
+
+	canonical := mustReadFile(t, filepath.Join(testRepoRoot(t), "bootstrap.mk"))
+	want := consumerBootstrapMk([]byte(canonical))
+	got := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk"))
+	if got != string(want) {
+		t.Fatalf("bootstrap.mk mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
+func TestReconcileBootstrapMkSkipsWhenCurrent(t *testing.T) {
+	repoDir := t.TempDir()
+	t.Chdir(repoDir)
+
+	var firstStdout bytes.Buffer
+	if err := reconcileBootstrapMk(&firstStdout); err != nil {
+		t.Fatalf("first reconcileBootstrapMk returned error: %v", err)
+	}
+	before := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk"))
+
+	var secondStdout bytes.Buffer
+	if err := reconcileBootstrapMk(&secondStdout); err != nil {
+		t.Fatalf("second reconcileBootstrapMk returned error: %v", err)
+	}
+	if secondStdout.String() != "skipping bootstrap.mk (already current)\n" {
+		t.Fatalf("stdout = %q, want skip message", secondStdout.String())
+	}
+	if after := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk")); after != before {
+		t.Fatalf("second run changed bootstrap.mk\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+func TestReconcileBootstrapMkUpdatesCommentedCanonical(t *testing.T) {
+	repoDir := t.TempDir()
+	t.Chdir(repoDir)
+
+	canonical := mustReadFile(t, filepath.Join(testRepoRoot(t), "bootstrap.mk"))
+	if err := os.WriteFile("bootstrap.mk", []byte(canonical), 0o644); err != nil {
+		t.Fatalf("write commented bootstrap.mk: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := reconcileBootstrapMk(&stdout); err != nil {
+		t.Fatalf("reconcileBootstrapMk returned error: %v", err)
+	}
+	if stdout.String() != "updated bootstrap.mk\n" {
+		t.Fatalf("stdout = %q, want updated message", stdout.String())
+	}
+
+	want := consumerBootstrapMk([]byte(canonical))
+	got := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk"))
+	if got != string(want) {
+		t.Fatalf("bootstrap.mk mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
+func TestReconcileBootstrapMkResetsMode(t *testing.T) {
+	repoDir := t.TempDir()
+	t.Chdir(repoDir)
+
+	if err := os.WriteFile("bootstrap.mk", []byte("stale\n"), 0o755); err != nil {
+		t.Fatalf("write stale bootstrap.mk: %v", err)
+	}
+	if err := os.Chmod("bootstrap.mk", 0o444); err != nil {
+		t.Fatalf("chmod 0444: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := reconcileBootstrapMk(&stdout); err != nil {
+		t.Fatalf("reconcileBootstrapMk returned error: %v", err)
+	}
+	if stdout.String() != "updated bootstrap.mk\n" {
+		t.Fatalf("stdout = %q, want updated message", stdout.String())
+	}
+
+	info, err := os.Stat("bootstrap.mk")
+	if err != nil {
+		t.Fatalf("stat bootstrap.mk: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o644 {
+		t.Fatalf("bootstrap.mk mode = %04o, want 0644", perm)
+	}
+}
+
+func TestReconcileBootstrapMkResetsModeWhenCurrent(t *testing.T) {
+	repoDir := t.TempDir()
+	t.Chdir(repoDir)
+
+	var firstStdout bytes.Buffer
+	if err := reconcileBootstrapMk(&firstStdout); err != nil {
+		t.Fatalf("first reconcileBootstrapMk returned error: %v", err)
+	}
+	if err := os.Chmod("bootstrap.mk", 0o444); err != nil {
+		t.Fatalf("chmod 0444: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := reconcileBootstrapMk(&stdout); err != nil {
+		t.Fatalf("reconcileBootstrapMk returned error: %v", err)
+	}
+	if stdout.String() != "updated bootstrap.mk\n" {
+		t.Fatalf("stdout = %q, want updated message", stdout.String())
+	}
+
+	info, err := os.Stat("bootstrap.mk")
+	if err != nil {
+		t.Fatalf("stat bootstrap.mk: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o644 {
+		t.Fatalf("bootstrap.mk mode = %04o, want 0644", perm)
+	}
+}
+
+func TestReconcileBootstrapMkSkipsEngineRepo(t *testing.T) {
+	repoRoot := testRepoRoot(t)
+	before := mustReadFile(t, filepath.Join(repoRoot, "bootstrap.mk"))
+	t.Chdir(repoRoot)
+
+	var stdout bytes.Buffer
+	if err := reconcileBootstrapMk(&stdout); err != nil {
+		t.Fatalf("reconcileBootstrapMk returned error: %v", err)
+	}
+	if stdout.String() != "skipping bootstrap.mk (go-makefile engine repo)\n" {
+		t.Fatalf("stdout = %q, want engine-repo skip message", stdout.String())
+	}
+	if after := mustReadFile(t, filepath.Join(repoRoot, "bootstrap.mk")); after != before {
+		t.Fatalf("engine-repo reconcile changed bootstrap.mk\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+func TestScaffoldCommandDispatches(t *testing.T) {
+	repoDir := filepath.Join(t.TempDir(), "scaffold-cmd")
+	mustMkdirAll(t, repoDir)
+	t.Chdir(repoDir)
+
+	root := newRootCommand()
+	root.SetArgs([]string{"scaffold", "--module", "goodkind.io/scaffold-cmd", "--library", "--yes"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext(scaffold) error: %v", err)
+	}
+	if recordedExit != 0 {
+		t.Fatalf("recordedExit = %d, want 0", recordedExit)
+	}
+	assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
+	assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "DO NOT MODIFY")
+}
+
+func TestBootstrapAliasDispatches(t *testing.T) {
+	repoDir := filepath.Join(t.TempDir(), "bootstrap-alias")
+	mustMkdirAll(t, repoDir)
+	t.Chdir(repoDir)
+
+	root := newRootCommand()
+	root.SetArgs([]string{"bootstrap", "--module", "goodkind.io/bootstrap-alias", "--library", "--yes"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext(bootstrap) error: %v", err)
+	}
+	if recordedExit != 0 {
+		t.Fatalf("recordedExit = %d, want 0", recordedExit)
+	}
+	assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
+	assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "DO NOT MODIFY")
 }
 
 func TestReconcileGoModToolsStripsManagedTools(t *testing.T) {
@@ -50,7 +338,7 @@ func TestReconcileGoModToolsStripsManagedTools(t *testing.T) {
 		"\tgolang.org/x/vuln/cmd/govulncheck\n" +
 		"\tgithub.com/bufbuild/buf/cmd/buf\n" +
 		")\n"
-	writeBootstrapTestFile(t, filepath.Join(repoDir, "go.mod"), goModContent)
+	writeScaffoldTestFile(t, filepath.Join(repoDir, "go.mod"), goModContent)
 
 	var stdout bytes.Buffer
 	if err := reconcileGoModTools(&stdout); err != nil {
@@ -78,7 +366,7 @@ func TestReconcileGoModToolsStripsManagedTools(t *testing.T) {
 	}
 }
 
-func TestBootstrapScenarios(t *testing.T) {
+func TestScaffoldScenarios(t *testing.T) {
 	repoRoot := testRepoRoot(t)
 
 	t.Run("new binary repo", func(t *testing.T) {
@@ -88,7 +376,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		setGitRemote(t, repoDir, "git@github.com:agoodkind/bootstrap-probe.git")
 		t.Chdir(repoDir)
 
-		runBootstrapForTest(t, bootstrapOptions{
+		runScaffoldForTest(t, scaffoldOptions{
 			modulePath:  "goodkind.io/bootstrap-probe",
 			forceBinary: true,
 			yes:         true,
@@ -109,12 +397,14 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileContains(t, releaseWorkflow, "id-token: write")
 		assertFileContains(t, releaseWorkflow, "attestations: write")
 		assertFileContains(t, releaseWorkflow, "      binary: bootstrap-probe")
-		assertBootstrapTrackedFilesAbsent(t, repoDir)
+		assertScaffoldTrackedFilesAbsent(t, repoDir)
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "BINARY := bootstrap-probe")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk go-release.mk")
 		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "GO_MK_BOOTSTRAP_FETCHED := 1")
+		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "DO NOT MODIFY")
+		assertFileNotContains(t, filepath.Join(repoDir, "bootstrap.mk"), "tiny shim")
 		assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
-		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
+		assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
 		runMakeHelp(t, repoDir, repoRoot)
 	})
 
@@ -123,7 +413,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		mustMkdirAll(t, repoDir)
 		t.Chdir(repoDir)
 
-		runBootstrapForTest(t, bootstrapOptions{
+		runScaffoldForTest(t, scaffoldOptions{
 			modulePath:   "goodkind.io/bootstrap-library",
 			forceLibrary: true,
 			yes:          true,
@@ -133,27 +423,27 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk")
 		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
 		assertFileDoesNotExist(t, filepath.Join(repoDir, "install.sh"))
-		assertBootstrapTrackedFilesAbsent(t, repoDir)
-		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
+		assertScaffoldTrackedFilesAbsent(t, repoDir)
+		assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
 	})
 
 	t.Run("custom Makefile is preserved", func(t *testing.T) {
 		repoDir := filepath.Join(t.TempDir(), "custom")
 		mustMkdirAll(t, repoDir)
-		writeBootstrapTestGoMod(t, repoDir, "goodkind.io/custom")
-		writeBootstrapTestFile(t, filepath.Join(repoDir, "Makefile"), "custom:\n\t@echo custom\n")
+		writeScaffoldTestGoMod(t, repoDir, "goodkind.io/custom")
+		writeScaffoldTestFile(t, filepath.Join(repoDir, "Makefile"), "custom:\n\t@echo custom\n")
 		originalMakefile := mustReadFile(t, filepath.Join(repoDir, "Makefile"))
 		t.Chdir(repoDir)
 
-		runBootstrapForTest(t, bootstrapOptions{yes: true})
+		runScaffoldForTest(t, scaffoldOptions{yes: true})
 
 		if currentMakefile := mustReadFile(t, filepath.Join(repoDir, "Makefile")); currentMakefile != originalMakefile {
 			t.Fatalf("custom Makefile changed\nbefore:\n%s\nafter:\n%s", originalMakefile, currentMakefile)
 		}
 		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
 		assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
-		assertBootstrapTrackedFilesAbsent(t, repoDir)
-		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
+		assertScaffoldTrackedFilesAbsent(t, repoDir)
+		assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
 	})
 
 	t.Run("generated rerun is stable", func(t *testing.T) {
@@ -163,7 +453,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		setGitRemote(t, repoDir, "git@github.com:agoodkind/rerun.git")
 		t.Chdir(repoDir)
 
-		runBootstrapForTest(t, bootstrapOptions{
+		runScaffoldForTest(t, scaffoldOptions{
 			modulePath:  "goodkind.io/rerun",
 			forceBinary: true,
 			yes:         true,
@@ -177,7 +467,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		beforeCIWorkflow := mustReadFile(t, ciWorkflow)
 		beforeReleaseWorkflow := mustReadFile(t, releaseWorkflow)
 
-		runBootstrapForTest(t, bootstrapOptions{
+		runScaffoldForTest(t, scaffoldOptions{
 			modulePath:  "goodkind.io/rerun",
 			forceBinary: true,
 			yes:         true,
@@ -193,14 +483,14 @@ func TestBootstrapScenarios(t *testing.T) {
 	t.Run("custom ci.yml is preserved", func(t *testing.T) {
 		repoDir := filepath.Join(t.TempDir(), "custom-ci")
 		mustMkdirAll(t, repoDir)
-		writeBootstrapTestGoMod(t, repoDir, "goodkind.io/custom-ci")
+		writeScaffoldTestGoMod(t, repoDir, "goodkind.io/custom-ci")
 		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
 		mustMkdirAll(t, filepath.Dir(ciWorkflow))
 		customWorkflow := "name: CI\non:\n  push:\n    branches: [main]\njobs:\n  custom:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo custom\n"
-		writeBootstrapTestFile(t, ciWorkflow, customWorkflow)
+		writeScaffoldTestFile(t, ciWorkflow, customWorkflow)
 		t.Chdir(repoDir)
 
-		runBootstrapForTest(t, bootstrapOptions{yes: true})
+		runScaffoldForTest(t, scaffoldOptions{yes: true})
 
 		assertFileText(t, ciWorkflow, customWorkflow)
 	})
@@ -210,7 +500,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		mustMkdirAll(t, repoDir)
 		t.Chdir(repoDir)
 
-		runBootstrapForTest(t, bootstrapOptions{
+		runScaffoldForTest(t, scaffoldOptions{
 			modulePath:  "goodkind.io/repair",
 			forceBinary: true,
 			yes:         true,
@@ -218,9 +508,9 @@ func TestBootstrapScenarios(t *testing.T) {
 
 		makefilePath := filepath.Join(repoDir, "Makefile")
 		withoutInclude := strings.ReplaceAll(mustReadFile(t, makefilePath), "include bootstrap.mk\n", "")
-		writeBootstrapTestFile(t, makefilePath, withoutInclude)
+		writeScaffoldTestFile(t, makefilePath, withoutInclude)
 
-		runBootstrapForTest(t, bootstrapOptions{
+		runScaffoldForTest(t, scaffoldOptions{
 			modulePath:  "goodkind.io/repair",
 			forceBinary: true,
 			yes:         true,
@@ -234,17 +524,17 @@ func TestBootstrapScenarios(t *testing.T) {
 		mustMkdirAll(t, repoDir)
 		initGitRepo(t, repoDir)
 		t.Setenv("GOLANGCI_LINT_BASELINE", "baselines/golangci.txt")
-		writeBootstrapTestFile(t, filepath.Join(repoDir, ".gitignore"), "*.txt\nbaselines/\n.*\n")
+		writeScaffoldTestFile(t, filepath.Join(repoDir, ".gitignore"), "*.txt\nbaselines/\n.*\n")
 		t.Chdir(repoDir)
 
-		runBootstrapForTest(t, bootstrapOptions{
+		runScaffoldForTest(t, scaffoldOptions{
 			modulePath:   "goodkind.io/unignored",
 			forceLibrary: true,
 			yes:          true,
 		})
 
-		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
-		for _, trackedFile := range configuredBootstrapTrackedFiles() {
+		assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
+		for _, trackedFile := range configuredScaffoldTrackedFiles() {
 			assertPathNotGitIgnored(t, repoDir, trackedFile)
 		}
 	})
@@ -312,7 +602,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"    with:\n" +
 			"      cgo: true\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, drifted)
+		writeScaffoldTestFile(t, releaseWorkflow, drifted)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -362,7 +652,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"    with:\n" +
 			"      cgo: true\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, drifted)
+		writeScaffoldTestFile(t, releaseWorkflow, drifted)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -402,7 +692,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"  release:\n" +
 			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, withoutPermissions)
+		writeScaffoldTestFile(t, releaseWorkflow, withoutPermissions)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -429,7 +719,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
 		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
 		custom := "name: Release\non:\n  push:\n    tags: ['v*']\njobs:\n  release:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo release\n"
-		writeBootstrapTestFile(t, releaseWorkflow, custom)
+		writeScaffoldTestFile(t, releaseWorkflow, custom)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -450,7 +740,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
 			"    permissions: write-all\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, scalar)
+		writeScaffoldTestFile(t, releaseWorkflow, scalar)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -481,7 +771,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
 			"    permissions: { contents: write }\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, inline)
+		writeScaffoldTestFile(t, releaseWorkflow, inline)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -512,7 +802,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"    permissions:\n" +
 			"      contents: read\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, wrongValue)
+		writeScaffoldTestFile(t, releaseWorkflow, wrongValue)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -554,7 +844,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"        binary: nested\n" +
 			"      cgo: true\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, nested)
+		writeScaffoldTestFile(t, releaseWorkflow, nested)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -599,7 +889,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"    permissions:\n" +
 			"      contents: write\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, drifted)
+		writeScaffoldTestFile(t, releaseWorkflow, drifted)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -676,7 +966,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 			"      id-token: write\n" +
 			"    with:\n" +
 			"      apt_packages: libpcre2-dev\n"
-		writeBootstrapTestFile(t, ciWorkflow, drifted)
+		writeScaffoldTestFile(t, ciWorkflow, drifted)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -720,7 +1010,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 			"jobs:\n" +
 			"  go:\n" +
 			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n"
-		writeBootstrapTestFile(t, ciWorkflow, withoutGrants)
+		writeScaffoldTestFile(t, ciWorkflow, withoutGrants)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -754,7 +1044,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 			"      id-token: write\n" +
 			"      attestations: write\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, ciWorkflow, missingContents)
+		writeScaffoldTestFile(t, ciWorkflow, missingContents)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -793,7 +1083,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 			"    secrets: inherit\n" +
 			"    with:\n" +
 			"      apt_packages: libpcre2-dev\n"
-		writeBootstrapTestFile(t, ciWorkflow, current)
+		writeScaffoldTestFile(t, ciWorkflow, current)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -816,7 +1106,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 			"      contents: read\n" +
 			"      id-token: write\n" +
 			"      attestations: write\n"
-		writeBootstrapTestFile(t, ciWorkflow, commented)
+		writeScaffoldTestFile(t, ciWorkflow, commented)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -846,7 +1136,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
 		mustMkdirAll(t, filepath.Dir(ciWorkflow))
 		custom := "name: CI\non:\n  push:\n    branches: ['**']\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo test\n"
-		writeBootstrapTestFile(t, ciWorkflow, custom)
+		writeScaffoldTestFile(t, ciWorkflow, custom)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -880,7 +1170,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 			"    with:\n" +
 			"      go_version_file: mwan/go/go.mod\n" +
 			"      working_directory: mwan/go\n"
-		writeBootstrapTestFile(t, ciWorkflow, drifted)
+		writeScaffoldTestFile(t, ciWorkflow, drifted)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -923,22 +1213,22 @@ func TestReconcileCIWorkflow(t *testing.T) {
 	})
 }
 
-func runBootstrapForTest(t *testing.T, options bootstrapOptions) {
+func runScaffoldForTest(t *testing.T, options scaffoldOptions) {
 	t.Helper()
-	stdout, stderr := runBootstrapForTestOutput(t, options)
+	stdout, stderr := runScaffoldForTestOutput(t, options)
 	if t.Failed() {
 		t.Fatalf("bootstrap failed\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
 	}
 }
 
-func runBootstrapForTestOutput(t *testing.T, options bootstrapOptions) (string, string) {
+func runScaffoldForTestOutput(t *testing.T, options scaffoldOptions) (string, string) {
 	t.Helper()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	options.stdout = &stdout
 	options.stderr = &stderr
-	if err := runBootstrap(options); err != nil {
-		t.Fatalf("runBootstrap returned error: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	if err := runScaffold(options); err != nil {
+		t.Fatalf("runScaffold returned error: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
 	}
 	return stdout.String(), stderr.String()
 }
@@ -1038,9 +1328,17 @@ func assertFileContains(t *testing.T, filePath string, expectedText string) {
 	}
 }
 
-func assertBootstrapTrackedFilesAbsent(t *testing.T, repoDir string) {
+func assertFileNotContains(t *testing.T, filePath string, unexpectedText string) {
 	t.Helper()
-	for _, trackedFile := range configuredBootstrapTrackedFiles() {
+	contents := mustReadFile(t, filePath)
+	if strings.Contains(contents, unexpectedText) {
+		t.Fatalf("%s contains %q\ncontents:\n%s", filePath, unexpectedText, contents)
+	}
+}
+
+func assertScaffoldTrackedFilesAbsent(t *testing.T, repoDir string) {
+	t.Helper()
+	for _, trackedFile := range configuredScaffoldTrackedFiles() {
 		filePath := filepath.Join(repoDir, trackedFile)
 		if _, err := os.Stat(filePath); !os.IsNotExist(err) {
 			t.Fatalf("stat %s = %v, want not exist", filePath, err)
@@ -1048,10 +1346,10 @@ func assertBootstrapTrackedFilesAbsent(t *testing.T, repoDir string) {
 	}
 }
 
-func assertGitignoreContainsBootstrapEntries(t *testing.T, repoDir string, baselineFiles []string) {
+func assertGitignoreContainsScaffoldEntries(t *testing.T, repoDir string, baselineFiles []string) {
 	t.Helper()
 	gitignorePath := filepath.Join(repoDir, ".gitignore")
-	for _, entry := range bootstrapGitignoreEntries(baselineFiles) {
+	for _, entry := range scaffoldGitignoreEntries(baselineFiles) {
 		assertFileContains(t, gitignorePath, entry)
 	}
 }
@@ -1087,16 +1385,16 @@ func mustReadFile(t *testing.T, filePath string) string {
 	return string(contents)
 }
 
-func writeBootstrapTestFile(t *testing.T, filePath string, contents string) {
+func writeScaffoldTestFile(t *testing.T, filePath string, contents string) {
 	t.Helper()
 	if err := os.WriteFile(filePath, []byte(contents), 0o644); err != nil {
 		t.Fatalf("write %s: %v", filePath, err)
 	}
 }
 
-func writeBootstrapTestGoMod(t *testing.T, repoDir string, modulePath string) {
+func writeScaffoldTestGoMod(t *testing.T, repoDir string, modulePath string) {
 	t.Helper()
-	writeBootstrapTestFile(t, filepath.Join(repoDir, "go.mod"), "module "+modulePath+"\n\ngo 1.26.4\n")
+	writeScaffoldTestFile(t, filepath.Join(repoDir, "go.mod"), "module "+modulePath+"\n\ngo 1.26.4\n")
 }
 
 func mustMkdirAll(t *testing.T, directoryPath string) {

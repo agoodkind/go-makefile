@@ -640,7 +640,7 @@ func TestMoratoriumWordingIsGone(t *testing.T) {
 	root := repoRootForTest(t)
 	for _, relative := range []string{
 		"bootstrap.mk",
-		"cmd/go-mk/bootstrap_assets/bootstrap.mk",
+		"cmd/go-mk/scaffold_assets/bootstrap.mk",
 		"scripts/go-mk-fetch-one.sh",
 	} {
 		body, err := os.ReadFile(filepath.Join(root, relative))

@@ -21,25 +21,31 @@ import (
 	"golang.org/x/term"
 )
 
-//go:embed bootstrap_assets/bootstrap.mk bootstrap_assets/Makefile.tmpl bootstrap_assets/ci.yml bootstrap_assets/release.yml
-var bootstrapAssetFS embed.FS
+//go:embed scaffold_assets/bootstrap.mk scaffold_assets/Makefile.tmpl scaffold_assets/ci.yml scaffold_assets/release.yml
+var scaffoldAssetFS embed.FS
 
-var bootstrapBinaryNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+var scaffoldBinaryNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 const (
-	defaultBootstrapVanityRoot = "goodkind.io"
-	makefileAssetPath          = "bootstrap_assets/Makefile.tmpl"
-	bootstrapMkAssetPath       = "bootstrap_assets/bootstrap.mk"
-	ciWorkflowAssetPath        = "bootstrap_assets/ci.yml"
+	defaultScaffoldVanityRoot = "goodkind.io"
+	goMakefileEngineModule     = "goodkind.io/go-makefile"
+	makefileAssetPath          = "scaffold_assets/Makefile.tmpl"
+	bootstrapMkAssetPath       = "scaffold_assets/bootstrap.mk"
+	ciWorkflowAssetPath        = "scaffold_assets/ci.yml"
 	ciWorkflowPath             = ".github/workflows/ci.yml"
-	releaseWorkflowAssetPath   = "bootstrap_assets/release.yml"
+	releaseWorkflowAssetPath   = "scaffold_assets/release.yml"
 	releaseWorkflowPath        = ".github/workflows/release.yml"
 	releaseReusableWorkflowRef = "agoodkind/go-makefile/.github/workflows/_release.yml"
 	ciReusableWorkflowRef      = "agoodkind/go-makefile/.github/workflows/_ci.yml"
 	generatedMakefileFirstLine = "# `make help` is the canonical source of truth for every target this repo"
+	consumerBootstrapMkHeader  = "# DO NOT MODIFY.\n" +
+		"#\n" +
+		"# Owned by go-makefile. This shim fetches the engine and includes go.mk.\n" +
+		"# Refresh with: go-mk scaffold\n" +
+		"# https://github.com/agoodkind/go-makefile\n"
 )
 
-type bootstrapOptions struct {
+type scaffoldOptions struct {
 	modulePath   string
 	vanityRoot   string
 	forceLibrary bool
@@ -50,7 +56,7 @@ type bootstrapOptions struct {
 	stderr       io.Writer
 }
 
-type bootstrapContext struct {
+type scaffoldContext struct {
 	Binary  string
 	Cmd     string
 	Layout  string
@@ -68,17 +74,18 @@ const (
 	generatedKeyGoMkModules generatedMakefileKey = "GO_MK_MODULES"
 )
 
-func registerBootstrapCommand(root *cobra.Command) {
-	options := bootstrapOptions{}
+func registerScaffoldCommand(root *cobra.Command) {
+	options := scaffoldOptions{}
 	command := &cobra.Command{
-		Use:   "bootstrap",
-		Short: "Scaffold or repair a Go repo against go-makefile",
-		Args:  cobra.NoArgs,
+		Use:     "scaffold",
+		Aliases: []string{"bootstrap"},
+		Short:   "Scaffold or repair a Go repo against go-makefile",
+		Args:    cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			options.stdin = os.Stdin
 			options.stdout = os.Stdout
 			options.stderr = os.Stderr
-			recordedExit = statusFromError(runBootstrap(options))
+			recordedExit = statusFromError(runScaffold(options))
 			return nil
 		},
 	}
@@ -90,8 +97,8 @@ func registerBootstrapCommand(root *cobra.Command) {
 	root.AddCommand(command)
 }
 
-func runBootstrap(options bootstrapOptions) error {
-	slog.Info("bootstrap repo")
+func runScaffold(options scaffoldOptions) error {
+	slog.Info("scaffold repo")
 	if options.stdout == nil {
 		options.stdout = io.Discard
 	}
@@ -108,21 +115,21 @@ func runBootstrap(options bootstrapOptions) error {
 	if err != nil {
 		return err
 	}
-	layout, err := resolveBootstrapLayout(options)
+	layout, err := resolveScaffoldLayout(options)
 	if err != nil {
 		return err
 	}
-	context, err := buildBootstrapContext(modulePath, layout)
+	context, err := buildScaffoldContext(modulePath, layout)
 	if err != nil {
 		return err
 	}
 	releaseBinary := releaseWorkflowBinary(context)
-	if releaseBinary != "" && !isSafeBootstrapBinaryName(releaseBinary) {
+	if releaseBinary != "" && !isSafeScaffoldBinaryName(releaseBinary) {
 		fmt.Fprintf(options.stderr, "warning: unsafe BINARY %q; skipping release workflow binary input\n", releaseBinary)
 		releaseBinary = ""
 	}
-	futureTrackedFiles := bootstrapManagedTrackedFiles(options.stderr)
-	printBootstrapSummary(options.stdout, modulePath, context)
+	futureTrackedFiles := scaffoldManagedTrackedFiles(options.stderr)
+	printScaffoldSummary(options.stdout, modulePath, context)
 	if err := reconcileMakefile(context, options.stdout, options.stderr); err != nil {
 		return err
 	}
@@ -142,11 +149,11 @@ func runBootstrap(options bootstrapOptions) error {
 	if err := reconcileGoModTools(options.stdout); err != nil {
 		return err
 	}
-	printBootstrapDone(options.stdout)
+	printScaffoldDone(options.stdout)
 	return nil
 }
 
-func ensureGoModule(options bootstrapOptions) (string, error) {
+func ensureGoModule(options scaffoldOptions) (string, error) {
 	if fileExists("go.mod") {
 		return readModulePath("go.mod")
 	}
@@ -161,13 +168,13 @@ func ensureGoModule(options bootstrapOptions) (string, error) {
 		return "", errors.New("go command not found on PATH")
 	}
 	fmt.Fprintf(options.stdout, "running: go mod init %s\n", modulePath)
-	if err := runBootstrapProcess("go", []string{"mod", "init", modulePath}, options.stdout, options.stderr); err != nil {
+	if err := runScaffoldProcess("go", []string{"mod", "init", modulePath}, options.stdout, options.stderr); err != nil {
 		return "", err
 	}
 	return readModulePath("go.mod")
 }
 
-func resolveNewModulePath(options bootstrapOptions) (string, error) {
+func resolveNewModulePath(options scaffoldOptions) (string, error) {
 	if strings.TrimSpace(options.modulePath) != "" {
 		return strings.TrimSpace(options.modulePath), nil
 	}
@@ -190,19 +197,19 @@ func resolveNewModulePath(options bootstrapOptions) (string, error) {
 	return inferred, nil
 }
 
-func resolveVanityRoot(options bootstrapOptions) string {
+func resolveVanityRoot(options scaffoldOptions) string {
 	if strings.TrimSpace(options.vanityRoot) != "" {
 		return strings.TrimSpace(options.vanityRoot)
 	}
 	if vanityRoot := strings.TrimSpace(os.Getenv("GO_VANITY_ROOT")); vanityRoot != "" {
 		return vanityRoot
 	}
-	return defaultBootstrapVanityRoot
+	return defaultScaffoldVanityRoot
 }
 
 func inferModulePath(vanityRoot string) (string, error) {
 	if isInsideGitWorkTree() {
-		remote, err := bootstrapGitOutput("config", "--get", "remote.origin.url")
+		remote, err := scaffoldGitOutput("config", "--get", "remote.origin.url")
 		if err == nil {
 			normalized := normalizeGitRemote(remote)
 			if normalized != "" {
@@ -244,7 +251,7 @@ func normalizeGitRemote(remoteURL string) string {
 }
 
 func isInsideGitWorkTree() bool {
-	slog.Info("bootstrap inspect git work tree")
+	slog.Info("scaffold inspect git work tree")
 	command := exec.Command("git", "rev-parse", "--is-inside-work-tree")
 	command.Stderr = io.Discard
 	if err := command.Run(); err != nil {
@@ -299,7 +306,7 @@ func readModulePath(filePath string) (string, error) {
 	return "", errors.New("could not read module from go.mod")
 }
 
-func resolveBootstrapLayout(options bootstrapOptions) (string, error) {
+func resolveScaffoldLayout(options scaffoldOptions) (string, error) {
 	if options.forceLibrary {
 		return "library", nil
 	}
@@ -316,8 +323,8 @@ func resolveBootstrapLayout(options bootstrapOptions) (string, error) {
 	return "library", nil
 }
 
-func buildBootstrapContext(modulePath string, layout string) (bootstrapContext, error) {
-	context := bootstrapContext{
+func buildScaffoldContext(modulePath string, layout string) (scaffoldContext, error) {
+	context := scaffoldContext{
 		Layout:  layout,
 		BaseURL: "https://raw.githubusercontent.com/agoodkind/go-makefile/main",
 	}
@@ -328,7 +335,7 @@ func buildBootstrapContext(modulePath string, layout string) (bootstrapContext, 
 	cmdPath := "./cmd/" + binaryName
 	directories, err := immediateSubdirectories("cmd")
 	if err != nil {
-		return bootstrapContext{}, err
+		return scaffoldContext{}, err
 	}
 	if directoryExists(filepath.Join("cmd", binaryName)) {
 		cmdPath = "./cmd/" + binaryName
@@ -344,7 +351,7 @@ func buildBootstrapContext(modulePath string, layout string) (bootstrapContext, 
 	return context, nil
 }
 
-func printBootstrapSummary(writer io.Writer, modulePath string, context bootstrapContext) {
+func printScaffoldSummary(writer io.Writer, modulePath string, context scaffoldContext) {
 	fmt.Fprintf(writer, "module:  %s\n", modulePath)
 	fmt.Fprintf(writer, "layout:  %s\n", context.Layout)
 	if context.Layout == "binary" {
@@ -354,8 +361,8 @@ func printBootstrapSummary(writer io.Writer, modulePath string, context bootstra
 	fmt.Fprintln(writer)
 }
 
-func reconcileMakefile(context bootstrapContext, stdout io.Writer, stderr io.Writer) error {
-	slog.Info("bootstrap reconcile Makefile", slog.String("layout", context.Layout))
+func reconcileMakefile(context scaffoldContext, stdout io.Writer, stderr io.Writer) error {
+	slog.Info("scaffold reconcile Makefile", slog.String("layout", context.Layout))
 	rendered, err := renderMakefile(context)
 	if err != nil {
 		return err
@@ -390,8 +397,8 @@ func reconcileMakefile(context bootstrapContext, stdout io.Writer, stderr io.Wri
 	return nil
 }
 
-func renderMakefile(context bootstrapContext) (string, error) {
-	templateBytes, err := bootstrapAssetFS.ReadFile(makefileAssetPath)
+func renderMakefile(context scaffoldContext) (string, error) {
+	templateBytes, err := scaffoldAssetFS.ReadFile(makefileAssetPath)
 	if err != nil {
 		return "", err
 	}
@@ -450,15 +457,15 @@ func isGeneratedAssignment(line string) bool {
 	}
 }
 
-func releaseWorkflowBinary(context bootstrapContext) string {
+func releaseWorkflowBinary(context scaffoldContext) string {
 	if binary, ok := readMakefileAssignment("Makefile", "BINARY"); ok {
 		return binary
 	}
 	return context.Binary
 }
 
-func isSafeBootstrapBinaryName(binary string) bool {
-	return bootstrapBinaryNamePattern.MatchString(binary)
+func isSafeScaffoldBinaryName(binary string) bool {
+	return scaffoldBinaryNamePattern.MatchString(binary)
 }
 
 func readMakefileAssignment(filePath string, key string) (string, bool) {
@@ -488,14 +495,89 @@ func readMakefileAssignment(filePath string, key string) (string, bool) {
 	return "", false
 }
 
+func isGoMakefileEngineRepo() bool {
+	if !fileExists("cmd/go-mk/scaffold_assets/bootstrap.mk") {
+		return false
+	}
+	if !fileExists("go.mod") {
+		return false
+	}
+	modulePath, err := readModulePath("go.mod")
+	if err != nil {
+		return false
+	}
+	return modulePath == goMakefileEngineModule
+}
+
+func consumerBootstrapMk(canonical []byte) []byte {
+	scanner := bufio.NewScanner(bytes.NewReader(canonical))
+	var lines []string
+	defineDepth := 0
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "\t") {
+			lines = append(lines, line)
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == "define" {
+			defineDepth++
+			lines = append(lines, line)
+			continue
+		}
+		if len(fields) == 1 && fields[0] == "endef" && defineDepth > 0 {
+			defineDepth--
+			lines = append(lines, line)
+			continue
+		}
+		if defineDepth == 0 && strings.HasPrefix(strings.TrimLeft(line, " "), "#") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return canonical
+	}
+	var collapsed []string
+	prevBlank := false
+	for _, line := range lines {
+		isBlank := strings.TrimSpace(line) == ""
+		if isBlank && prevBlank {
+			continue
+		}
+		collapsed = append(collapsed, line)
+		prevBlank = isBlank
+	}
+	body := strings.TrimRight(strings.Join(collapsed, "\n"), "\n")
+	if body == "" {
+		return []byte(consumerBootstrapMkHeader + "\n")
+	}
+	return []byte(consumerBootstrapMkHeader + "\n" + body + "\n")
+}
+
+func writeConsumerBootstrapMk(contents []byte) error {
+	slog.Info("scaffold write bootstrap.mk")
+	if fileExists("bootstrap.mk") {
+		if err := os.Chmod("bootstrap.mk", 0o644); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile("bootstrap.mk", contents, 0o644)
+}
+
 func reconcileBootstrapMk(stdout io.Writer) error {
-	slog.Info("bootstrap reconcile bootstrap.mk")
-	contents, err := bootstrapAssetFS.ReadFile(bootstrapMkAssetPath)
+	slog.Info("scaffold reconcile bootstrap.mk")
+	contents, err := scaffoldAssetFS.ReadFile(bootstrapMkAssetPath)
 	if err != nil {
 		return err
 	}
+	if isGoMakefileEngineRepo() {
+		fmt.Fprintln(stdout, "skipping bootstrap.mk (go-makefile engine repo)")
+		return nil
+	}
+	consumerContents := consumerBootstrapMk(contents)
 	if !fileExists("bootstrap.mk") {
-		if err := os.WriteFile("bootstrap.mk", contents, 0o644); err != nil {
+		if err := writeConsumerBootstrapMk(consumerContents); err != nil {
 			return err
 		}
 		fmt.Fprintln(stdout, "created bootstrap.mk")
@@ -505,11 +587,22 @@ func reconcileBootstrapMk(stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if bytes.Equal(existing, contents) {
-		fmt.Fprintln(stdout, "skipping bootstrap.mk (already current)")
+	if bytes.Equal(existing, consumerContents) {
+		info, err := os.Stat("bootstrap.mk")
+		if err != nil {
+			return err
+		}
+		if info.Mode().Perm() == 0o644 {
+			fmt.Fprintln(stdout, "skipping bootstrap.mk (already current)")
+			return nil
+		}
+		if err := os.Chmod("bootstrap.mk", 0o644); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "updated bootstrap.mk")
 		return nil
 	}
-	if err := os.WriteFile("bootstrap.mk", contents, 0o644); err != nil {
+	if err := writeConsumerBootstrapMk(consumerContents); err != nil {
 		return err
 	}
 	fmt.Fprintln(stdout, "updated bootstrap.mk")
@@ -525,9 +618,9 @@ func reconcileBootstrapMk(stdout io.Writer) error {
 // comments, and formatting. A ci.yml that does not reference the reusable
 // workflow is left untouched, matching the custom-workflow rule for release.yml.
 func reconcileCIWorkflow(stdout io.Writer) error {
-	slog.Info("bootstrap reconcile ci workflow")
+	slog.Info("scaffold reconcile ci workflow")
 	if !fileExists(ciWorkflowPath) {
-		contents, err := bootstrapAssetFS.ReadFile(ciWorkflowAssetPath)
+		contents, err := scaffoldAssetFS.ReadFile(ciWorkflowAssetPath)
 		if err != nil {
 			return err
 		}
@@ -571,7 +664,7 @@ type workflowPermission struct {
 // requiredReleasePermissions are the permission keys the reusable release
 // workflow's attestation steps need. Consumers that granted only contents:write
 // failed at startup because the id-token and attestations grants were missing,
-// so bootstrap repairs the release caller to grant all three.
+// so scaffold repairs the release caller to grant all three.
 var requiredReleasePermissions = []workflowPermission{
 	{"contents", "write"},
 	{"id-token", "write"},
@@ -601,9 +694,9 @@ var ciCallerPermissions = []workflowPermission{
 // reusable workflow is left untouched, matching the custom-workflow rule for
 // ci.yml.
 func reconcileReleaseWorkflow(releaseBinary string, stdout io.Writer) error {
-	slog.Info("bootstrap reconcile release workflow")
+	slog.Info("scaffold reconcile release workflow")
 	if !fileExists(releaseWorkflowPath) {
-		contents, err := bootstrapAssetFS.ReadFile(releaseWorkflowAssetPath)
+		contents, err := scaffoldAssetFS.ReadFile(releaseWorkflowAssetPath)
 		if err != nil {
 			return err
 		}
@@ -1022,19 +1115,19 @@ func configuredAppliedNoticesFile() string {
 	return lintEnvDefault("GO_MK_APPLIED_NOTICES", ".go-mk-applied-notices")
 }
 
-func configuredBootstrapTrackedFiles() []string {
+func configuredScaffoldTrackedFiles() []string {
 	trackedFiles := append([]string{}, configuredBaselineFiles()...)
 	trackedFiles = append(trackedFiles, configuredAppliedNoticesFile())
 	return trackedFiles
 }
 
-func bootstrapManagedTrackedFiles(stderr io.Writer) []string {
-	managedFiles := make([]string, 0, len(configuredBootstrapTrackedFiles()))
-	seen := make(map[string]bool, len(configuredBootstrapTrackedFiles()))
-	for _, trackedFile := range configuredBootstrapTrackedFiles() {
-		managedPath, ok := sanitizeBootstrapManagedPath(trackedFile)
+func scaffoldManagedTrackedFiles(stderr io.Writer) []string {
+	managedFiles := make([]string, 0, len(configuredScaffoldTrackedFiles()))
+	seen := make(map[string]bool, len(configuredScaffoldTrackedFiles()))
+	for _, trackedFile := range configuredScaffoldTrackedFiles() {
+		managedPath, ok := sanitizeScaffoldManagedPath(trackedFile)
 		if !ok {
-			fmt.Fprintf(stderr, "warning: bootstrap skips non-repo tracked file %s; keep it tracked manually\n", trackedFile)
+			fmt.Fprintf(stderr, "warning: scaffold skips non-repo tracked file %s; keep it tracked manually\n", trackedFile)
 			continue
 		}
 		if seen[managedPath] {
@@ -1046,7 +1139,7 @@ func bootstrapManagedTrackedFiles(stderr io.Writer) []string {
 	return managedFiles
 }
 
-func sanitizeBootstrapManagedPath(filePath string) (string, bool) {
+func sanitizeScaffoldManagedPath(filePath string) (string, bool) {
 	trimmedPath := strings.TrimSpace(filePath)
 	if trimmedPath == "" {
 		return "", false
@@ -1069,15 +1162,15 @@ func sanitizeBootstrapManagedPath(filePath string) (string, bool) {
 }
 
 func warnIfLocalGolangCI(stderr io.Writer) {
-	slog.Info("bootstrap inspect golangci config")
+	slog.Info("scaffold inspect golangci config")
 	if fileExists(".golangci.yml") {
 		fmt.Fprintln(stderr, "warning: .golangci.yml exists in project root. The central go-makefile/golangci.yml fetched into .make/golangci.yml is the canonical config; the per-repo file is ignored by GOLANGCI_LINT_FLAGS. Remove it or move overrides upstream into go-makefile.")
 	}
 }
 
 func reconcileGitignore(trackedFiles []string, stdout io.Writer) error {
-	slog.Info("bootstrap reconcile gitignore")
-	managedEntries := bootstrapGitignoreEntries(trackedFiles)
+	slog.Info("scaffold reconcile gitignore")
+	managedEntries := scaffoldGitignoreEntries(trackedFiles)
 	if !fileExists(".gitignore") {
 		if err := os.WriteFile(".gitignore", []byte(strings.Join(managedEntries, "\n")+"\n"), 0o644); err != nil {
 			return err
@@ -1129,7 +1222,7 @@ var goMakefileManagedTools = []string{
 }
 
 func reconcileGoModTools(stdout io.Writer) error {
-	slog.Info("bootstrap reconcile go.mod tool directives")
+	slog.Info("scaffold reconcile go.mod tool directives")
 	if !fileExists("go.mod") {
 		return nil
 	}
@@ -1163,7 +1256,7 @@ func reconcileGoModTools(stdout io.Writer) error {
 // goModToolDirectives returns the tool directive paths declared in the current
 // module's go.mod, read via `go mod edit -json`.
 func goModToolDirectives() ([]string, error) {
-	slog.Info("bootstrap read go.mod tool directives")
+	slog.Info("scaffold read go.mod tool directives")
 	output, err := exec.Command("go", "mod", "edit", "-json").Output()
 	if err != nil {
 		return nil, err
@@ -1183,7 +1276,7 @@ func goModToolDirectives() ([]string, error) {
 	return toolPaths, nil
 }
 
-func bootstrapGitignoreEntries(trackedFiles []string) []string {
+func scaffoldGitignoreEntries(trackedFiles []string) []string {
 	// go.work stays untracked: it is per-developer, and go.mk regenerates it on
 	// demand from GO_MK_WORKSPACE_USE for routing the module proxy cannot resolve
 	// on its own, so the workspace file is never committed.
@@ -1245,7 +1338,7 @@ func hasLine(contents string, expected string) bool {
 	return false
 }
 
-func printBootstrapDone(writer io.Writer) {
+func printScaffoldDone(writer io.Writer) {
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "done.")
 	fmt.Fprintln(writer)
@@ -1297,14 +1390,14 @@ func fileExists(filePath string) bool {
 	return !info.IsDir()
 }
 
-func runBootstrapProcess(name string, args []string, stdout io.Writer, stderr io.Writer) error {
-	slog.Info("bootstrap run process", slog.String("command", name), slog.Int("args", len(args)))
+func runScaffoldProcess(name string, args []string, stdout io.Writer, stderr io.Writer) error {
+	slog.Info("scaffold run process", slog.String("command", name), slog.Int("args", len(args)))
 	command := exec.Command(name, args...)
 	command.Stdout = stdout
 	command.Stderr = stderr
 	return command.Run()
 }
 
-func bootstrapGitOutput(args ...string) (string, error) {
-	return loggedGitOutput("bootstrap git", args...)
+func scaffoldGitOutput(args ...string) (string, error) {
+	return loggedGitOutput("scaffold git", args...)
 }
