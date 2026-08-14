@@ -9,19 +9,19 @@
 
 GO_MK_DEV_DIR  ?=
 GO_MK_MODULES  ?=
-GO_MK          := .make/go.mk
+__GO_MK_FILE          := .make/go.mk
 GO_MK_BASE_URL ?= https://raw.githubusercontent.com/agoodkind/go-makefile/main
 GO_MK_API_REPO ?= agoodkind/go-makefile
 GO_MK_API_REF  ?= main
 
-GO_MK_BOOTSTRAP := .make/scripts/go-mk-bootstrap.sh
-# GO_MK_BOOTSTRAP_BASE_URL is an internal override in the same category as
-# GO_MK_CODELOAD_BASE in go-mk-bootstrap.sh: tests point it at a local server,
+__GO_MK_BOOTSTRAP_SCRIPT := .make/scripts/go-mk-bootstrap.sh
+# _GO_MK_BOOTSTRAP_BASE_URL is an internal override in the same category as
+# _GO_MK_CODELOAD_BASE in go-mk-bootstrap.sh: tests point it at a local server,
 # consumers never set it. The helper URL itself follows GO_MK_API_REF so a
 # ref-pinned consumer gets that ref's helper. GO_MK_BASE_URL ends in /main and
 # would pin the helper to main, so it is not used here.
-GO_MK_BOOTSTRAP_BASE_URL ?= https://raw.githubusercontent.com
-GO_MK_BOOTSTRAP_URL := $(GO_MK_BOOTSTRAP_BASE_URL)/$(GO_MK_API_REPO)/$(GO_MK_API_REF)/scripts/go-mk-bootstrap.sh
+_GO_MK_BOOTSTRAP_BASE_URL ?= https://raw.githubusercontent.com
+__GO_MK_BOOTSTRAP_URL := $(_GO_MK_BOOTSTRAP_BASE_URL)/$(GO_MK_API_REPO)/$(GO_MK_API_REF)/scripts/go-mk-bootstrap.sh
 
 # Obtaining the helper is the only fetch rule left in consumer-committed code.
 # It never removes an existing helper, so a warm checkout stays usable when the
@@ -40,52 +40,52 @@ GO_MK_BOOTSTRAP_URL := $(GO_MK_BOOTSTRAP_BASE_URL)/$(GO_MK_API_REPO)/$(GO_MK_API
 # stall detection, and this is the very first network call a cold consumer
 # makes, so it must not fail a slow-but-working link before retrying has a
 # chance to help.
-define _go_mk_get_bootstrap
+define __go_mk_get_bootstrap
 	if [ -n "$(GO_MK_DEV_DIR)" ] && [ -f "$(GO_MK_DEV_DIR)/scripts/go-mk-bootstrap.sh" ]; then \
 		mkdir -p .make/scripts; \
-		devtmp=$$(mktemp "$(GO_MK_BOOTSTRAP).tmp.XXXXXX") || exit 1; \
-		if cp "$(GO_MK_DEV_DIR)/scripts/go-mk-bootstrap.sh" "$$devtmp" && mv "$$devtmp" "$(GO_MK_BOOTSTRAP)"; then \
+		devtmp=$$(mktemp "$(__GO_MK_BOOTSTRAP_SCRIPT).tmp.XXXXXX") || exit 1; \
+		if cp "$(GO_MK_DEV_DIR)/scripts/go-mk-bootstrap.sh" "$$devtmp" && mv "$$devtmp" "$(__GO_MK_BOOTSTRAP_SCRIPT)"; then \
 			: ; \
 		else \
 			rm -f "$$devtmp"; \
-			printf '%s\n' "error: could not install $(GO_MK_BOOTSTRAP) from GO_MK_DEV_DIR=$(GO_MK_DEV_DIR)" >&2; \
+			printf '%s\n' "error: could not install $(__GO_MK_BOOTSTRAP_SCRIPT) from GO_MK_DEV_DIR=$(GO_MK_DEV_DIR)" >&2; \
 			exit 1; \
 		fi; \
-	elif [ -s "$(GO_MK_BOOTSTRAP)" ]; then \
+	elif [ -s "$(__GO_MK_BOOTSTRAP_SCRIPT)" ]; then \
 		: ; \
 	else \
 		mkdir -p .make/scripts; \
-		tmp=$$(mktemp "$(GO_MK_BOOTSTRAP).tmp.XXXXXX") || exit 1; \
+		tmp=$$(mktemp "$(__GO_MK_BOOTSTRAP_SCRIPT).tmp.XXXXXX") || exit 1; \
 		if curl -fsSL --connect-timeout 5 --max-time 15 \
 			--speed-limit 1024 --speed-time 3 \
 			--retry 3 --retry-delay 2 --retry-max-time 4 \
-			"$(GO_MK_BOOTSTRAP_URL)" -o "$$tmp" 2>/dev/null && [ -s "$$tmp" ]; then \
-			mv "$$tmp" "$(GO_MK_BOOTSTRAP)"; \
+			"$(__GO_MK_BOOTSTRAP_URL)" -o "$$tmp" 2>/dev/null && [ -s "$$tmp" ]; then \
+			mv "$$tmp" "$(__GO_MK_BOOTSTRAP_SCRIPT)"; \
 		else \
 			rm -f "$$tmp"; \
-			printf '%s\n' "error: could not obtain $(GO_MK_BOOTSTRAP). Set GO_MK_DEV_DIR, or check network access to $(GO_MK_BOOTSTRAP_BASE_URL)" >&2; \
+			printf '%s\n' "error: could not obtain $(__GO_MK_BOOTSTRAP_SCRIPT). Set GO_MK_DEV_DIR, or check network access to $(_GO_MK_BOOTSTRAP_BASE_URL)" >&2; \
 			exit 1; \
 		fi; \
 	fi; \
-	chmod +x "$(GO_MK_BOOTSTRAP)"
+	chmod +x "$(__GO_MK_BOOTSTRAP_SCRIPT)"
 endef
 
-GO_MK_BOOTSTRAP_FETCHED := 1
+__GO_MK_BOOTSTRAP_FETCHED := 1
 
 ifeq ($(strip $(_GO_MK_PROVISIONED)),1)
 # Test for a non-empty regular file, not merely an existing path. $(wildcard)
 # reports any name that exists, including a zero-byte file, and bash exits 0 on
-# an empty script, so GO_MK_PROVISION would come back `ok` and the parse would
+# an empty script, so __GO_MK_PROVISION would come back `ok` and the parse would
 # continue with no engine provisioned at all. That is reachable: the fetch path
 # below writes a temp file and renames it, but an interrupted earlier run, a
 # full disk, or a hand-created placeholder all leave an empty helper that this
 # guard is the only thing standing in front of. -s matches the same test the
 # fetch path uses on the cached helper, so both paths agree on what counts as
 # present.
-GO_MK_BOOTSTRAP_PRESENT := $(shell test -s "$(GO_MK_BOOTSTRAP)" && printf yes)
-$(if $(GO_MK_BOOTSTRAP_PRESENT),,$(error go-makefile expected a non-empty $(GO_MK_BOOTSTRAP); rerun without _GO_MK_PROVISIONED))
+__GO_MK_BOOTSTRAP_PRESENT := $(shell test -s "$(__GO_MK_BOOTSTRAP_SCRIPT)" && printf yes)
+$(if $(__GO_MK_BOOTSTRAP_PRESENT),,$(error go-makefile expected a non-empty $(__GO_MK_BOOTSTRAP_SCRIPT); rerun without _GO_MK_PROVISIONED))
 else
-$(shell { $(call _go_mk_get_bootstrap); } 1>&2)
+$(shell { $(call __go_mk_get_bootstrap); } 1>&2)
 endif
 
 # The helper provisions every asset and owns the validation, reuse, and failure
@@ -95,9 +95,9 @@ endif
 # Every GO_MK_* variable THE HELPER READS is forwarded explicitly. That is the
 # six below, which is the complete set the helper references.
 #
-# GO_MK_BASE_URL and GO_MK_BOOTSTRAP_BASE_URL are deliberately not among them:
+# GO_MK_BASE_URL and _GO_MK_BOOTSTRAP_BASE_URL are deliberately not among them:
 # the helper never reads either. GO_MK_BASE_URL belongs to go.mk's own fetch
-# path, and GO_MK_BOOTSTRAP_BASE_URL is consumed by this file when it acquires
+# path, and _GO_MK_BOOTSTRAP_BASE_URL is consumed by this file when it acquires
 # the helper, before the helper runs. Forwarding a variable the helper ignores
 # would suggest it has an effect there.
 #
@@ -118,17 +118,17 @@ endif
 #   _GO_MK_PROVISIONED  this file honors it while the helper fetches anyway,
 #                       so an air-gapped or pre-vendored build fails at parse
 #                       time, the exact case the flag exists to serve
-#   GO_MK_CODELOAD_BASE the redirect is silently ineffective and the helper
+#   _GO_MK_CODELOAD_BASE the redirect is silently ineffective and the helper
 #                       reaches real codeload while appearing redirected, so
 #                       a test written that way passes against production
 #   GO_MK_API_REPO      the helper falls back to its own defaults and fetches
 #   GO_MK_API_REF       the wrong repository or ref's assets
 #
 # Adding a GO_MK_* variable that the helper reads means adding it here too.
-GO_MK_PROVISION := $(shell GO_MK_API_REPO="$(GO_MK_API_REPO)" GO_MK_API_REF="$(GO_MK_API_REF)" GO_MK_MODULES="$(GO_MK_MODULES)" GO_MK_CODELOAD_BASE="$(GO_MK_CODELOAD_BASE)" GO_MK_DEV_DIR="$(GO_MK_DEV_DIR)" _GO_MK_PROVISIONED="$(_GO_MK_PROVISIONED)" bash "$(GO_MK_BOOTSTRAP)" >&2 && printf ok)
-$(if $(filter ok,$(GO_MK_PROVISION)),,$(error go-makefile failed to provision its assets))
+__GO_MK_PROVISION := $(shell GO_MK_API_REPO="$(GO_MK_API_REPO)" GO_MK_API_REF="$(GO_MK_API_REF)" GO_MK_MODULES="$(GO_MK_MODULES)" _GO_MK_CODELOAD_BASE="$(_GO_MK_CODELOAD_BASE)" GO_MK_DEV_DIR="$(GO_MK_DEV_DIR)" _GO_MK_PROVISIONED="$(_GO_MK_PROVISIONED)" bash "$(__GO_MK_BOOTSTRAP_SCRIPT)" >&2 && printf ok)
+$(if $(filter ok,$(__GO_MK_PROVISION)),,$(error go-makefile failed to provision its assets))
 
 # go.mk handles -including the modules at its tail (after all its variables
 # are defined), so the modules see build-check etc. Don't duplicate
 # the include here or every module target gets overriding-commands warnings.
--include $(GO_MK)
+-include $(__GO_MK_FILE)

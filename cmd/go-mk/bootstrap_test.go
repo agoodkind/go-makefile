@@ -112,7 +112,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertBootstrapTrackedFilesAbsent(t, repoDir)
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "BINARY := bootstrap-probe")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk go-release.mk")
-		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "GO_MK_BOOTSTRAP_FETCHED := 1")
+		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "__GO_MK_BOOTSTRAP_FETCHED := 1")
 		assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
 		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
 		runMakeHelp(t, repoDir, repoRoot)

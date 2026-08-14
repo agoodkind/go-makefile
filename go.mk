@@ -40,13 +40,13 @@ _GO_MK_SCRIPT_FILES := \
 # codeload.github.com, which made the one test covering this path depend on
 # network availability and on whatever was on main rather than on its own
 # fixture.
-GO_MK_CODELOAD_BASE ?= https://codeload.github.com
+_GO_MK_CODELOAD_BASE ?= https://codeload.github.com
 define __go_mk_prime
 	if [ -n "$(GO_MK_DEV_DIR)" ]; then \
 		: ; \
 	else \
 		tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/go-mk.XXXXXXXX") || exit 0; \
-		if curl -fsSL --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 "$(GO_MK_CODELOAD_BASE)/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" 2>/dev/null | tar -xzf - -C "$$tmp" --strip-components 1 2>/dev/null; then \
+		if curl -fsSL --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 "$(_GO_MK_CODELOAD_BASE)/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" 2>/dev/null | tar -xzf - -C "$$tmp" --strip-components 1 2>/dev/null; then \
 			for asset in $(_GO_MK_SCRIPT_FILES); do \
 				if [ -f "$$tmp/$$asset" ]; then \
 					mkdir -p "$$(dirname ".make/$$asset")"; \
@@ -66,7 +66,7 @@ endef
 # is only for a consumer whose committed bootstrap.mk predates the helper. It
 # is removed once the fleet has migrated.
 ifneq ($(strip $(_GO_MK_PROVISIONED)),1)
-ifeq ($(strip $(GO_MK_PROVISION)),)
+ifeq ($(strip $(__GO_MK_PROVISION)),)
 $(shell mkdir -p .make && { $(call __go_mk_prime); } 1>&2)
 endif
 endif
@@ -152,7 +152,7 @@ endif
 # GO_MK_MODULES: project sets a list of sibling .mk files to fetch and include.
 # Example: GO_MK_MODULES := go-build.mk go-release.mk go-service.mk
 GO_MK_MODULES ?=
-ifneq ($(filter 1,$(GO_MK_BOOTSTRAP_FETCHED) $(_GO_MK_PROVISIONED)),)
+ifneq ($(filter 1,$(__GO_MK_BOOTSTRAP_FETCHED) $(_GO_MK_PROVISIONED)),)
 __GO_MK_FETCHED_MODULES := $(foreach m,$(GO_MK_MODULES),$(call __go-mk-require-one,.make/$(m)))
 else
 __GO_MK_FETCHED_MODULES := $(foreach m,$(GO_MK_MODULES),$(call __go-mk-fetch-one,$(m)))
@@ -160,7 +160,7 @@ endif
 
 # Centralized golangci-lint config. Consumers do not maintain their own copy.
 GO_MK_GOLANGCI_CONFIG ?= .make/golangci.yml
-ifneq ($(filter 1,$(GO_MK_BOOTSTRAP_FETCHED) $(_GO_MK_PROVISIONED)),)
+ifneq ($(filter 1,$(__GO_MK_BOOTSTRAP_FETCHED) $(_GO_MK_PROVISIONED)),)
 __GO_MK_FETCHED_GOLANGCI := $(call __go-mk-require-one,$(GO_MK_GOLANGCI_CONFIG))
 else
 __GO_MK_FETCHED_GOLANGCI := $(call __go-mk-fetch-one,golangci.yml)
