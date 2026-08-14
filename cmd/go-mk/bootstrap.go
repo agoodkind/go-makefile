@@ -28,6 +28,7 @@ var bootstrapBinaryNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 const (
 	defaultBootstrapVanityRoot = "goodkind.io"
+	goMakefileEngineModule     = "goodkind.io/go-makefile"
 	makefileAssetPath          = "bootstrap_assets/Makefile.tmpl"
 	bootstrapMkAssetPath       = "bootstrap_assets/bootstrap.mk"
 	ciWorkflowAssetPath        = "bootstrap_assets/ci.yml"
@@ -37,6 +38,11 @@ const (
 	releaseReusableWorkflowRef = "agoodkind/go-makefile/.github/workflows/_release.yml"
 	ciReusableWorkflowRef      = "agoodkind/go-makefile/.github/workflows/_ci.yml"
 	generatedMakefileFirstLine = "# `make help` is the canonical source of truth for every target this repo"
+	consumerBootstrapMkHeader  = "# DO NOT MODIFY.\n" +
+		"#\n" +
+		"# Owned by go-makefile. This shim fetches the engine and includes go.mk.\n" +
+		"# Refresh with: go-mk scaffold\n" +
+		"# https://github.com/agoodkind/go-makefile\n"
 )
 
 type bootstrapOptions struct {
@@ -71,9 +77,10 @@ const (
 func registerBootstrapCommand(root *cobra.Command) {
 	options := bootstrapOptions{}
 	command := &cobra.Command{
-		Use:   "bootstrap",
-		Short: "Scaffold or repair a Go repo against go-makefile",
-		Args:  cobra.NoArgs,
+		Use:     "scaffold",
+		Aliases: []string{"bootstrap"},
+		Short:   "Scaffold or repair a Go repo against go-makefile",
+		Args:    cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			options.stdin = os.Stdin
 			options.stdout = os.Stdout
@@ -488,14 +495,63 @@ func readMakefileAssignment(filePath string, key string) (string, bool) {
 	return "", false
 }
 
+func isGoMakefileEngineRepo() bool {
+	if !fileExists("cmd/go-mk/bootstrap_assets/bootstrap.mk") {
+		return false
+	}
+	if !fileExists("go.mod") {
+		return false
+	}
+	modulePath, err := readModulePath("go.mod")
+	if err != nil {
+		return false
+	}
+	return modulePath == goMakefileEngineModule
+}
+
+func consumerBootstrapMk(canonical []byte) []byte {
+	scanner := bufio.NewScanner(bytes.NewReader(canonical))
+	var lines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(strings.TrimLeft(line, " \t"), "#") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return canonical
+	}
+	var collapsed []string
+	prevBlank := false
+	for _, line := range lines {
+		isBlank := strings.TrimSpace(line) == ""
+		if isBlank && prevBlank {
+			continue
+		}
+		collapsed = append(collapsed, line)
+		prevBlank = isBlank
+	}
+	body := strings.TrimRight(strings.Join(collapsed, "\n"), "\n")
+	if body == "" {
+		return []byte(consumerBootstrapMkHeader + "\n")
+	}
+	return []byte(consumerBootstrapMkHeader + "\n" + body + "\n")
+}
+
 func reconcileBootstrapMk(stdout io.Writer) error {
 	slog.Info("bootstrap reconcile bootstrap.mk")
 	contents, err := bootstrapAssetFS.ReadFile(bootstrapMkAssetPath)
 	if err != nil {
 		return err
 	}
+	if isGoMakefileEngineRepo() {
+		fmt.Fprintln(stdout, "skipping bootstrap.mk (go-makefile engine repo)")
+		return nil
+	}
+	consumerContents := consumerBootstrapMk(contents)
 	if !fileExists("bootstrap.mk") {
-		if err := os.WriteFile("bootstrap.mk", contents, 0o644); err != nil {
+		if err := os.WriteFile("bootstrap.mk", consumerContents, 0o644); err != nil {
 			return err
 		}
 		fmt.Fprintln(stdout, "created bootstrap.mk")
@@ -505,11 +561,11 @@ func reconcileBootstrapMk(stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if bytes.Equal(existing, contents) {
+	if bytes.Equal(existing, consumerContents) {
 		fmt.Fprintln(stdout, "skipping bootstrap.mk (already current)")
 		return nil
 	}
-	if err := os.WriteFile("bootstrap.mk", contents, 0o644); err != nil {
+	if err := os.WriteFile("bootstrap.mk", consumerContents, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintln(stdout, "updated bootstrap.mk")

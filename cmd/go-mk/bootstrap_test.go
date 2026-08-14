@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -37,6 +38,141 @@ func TestBootstrapAssetsMatchCanonicalFiles(t *testing.T) {
 		filepath.Join(repoRoot, "templates", "Makefile.tmpl"),
 		filepath.Join(filepath.Dir(testFilePath(t)), "bootstrap_assets", "Makefile.tmpl"),
 	)
+}
+
+func TestConsumerBootstrapMkStripsComments(t *testing.T) {
+	canonical := mustReadFile(t, filepath.Join(testRepoRoot(t), "bootstrap.mk"))
+	stripped := string(consumerBootstrapMk([]byte(canonical)))
+
+	if !strings.HasPrefix(stripped, "# DO NOT MODIFY.") {
+		t.Fatalf("stripped bootstrap.mk missing DO NOT MODIFY header:\n%s", stripped)
+	}
+	if strings.Contains(stripped, "tiny shim") {
+		t.Fatalf("stripped bootstrap.mk still contains prose comment:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "GO_MK_BOOTSTRAP_FETCHED := 1") {
+		t.Fatalf("stripped bootstrap.mk missing GO_MK_BOOTSTRAP_FETCHED:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "define _go_mk_get_bootstrap") {
+		t.Fatalf("stripped bootstrap.mk missing helper define:\n%s", stripped)
+	}
+}
+
+func TestReconcileBootstrapMkWritesStrippedCopy(t *testing.T) {
+	repoDir := t.TempDir()
+	t.Chdir(repoDir)
+
+	var stdout bytes.Buffer
+	if err := reconcileBootstrapMk(&stdout); err != nil {
+		t.Fatalf("reconcileBootstrapMk returned error: %v", err)
+	}
+	if stdout.String() != "created bootstrap.mk\n" {
+		t.Fatalf("stdout = %q, want created message", stdout.String())
+	}
+
+	canonical := mustReadFile(t, filepath.Join(testRepoRoot(t), "bootstrap.mk"))
+	want := consumerBootstrapMk([]byte(canonical))
+	got := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk"))
+	if got != string(want) {
+		t.Fatalf("bootstrap.mk mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
+func TestReconcileBootstrapMkSkipsWhenCurrent(t *testing.T) {
+	repoDir := t.TempDir()
+	t.Chdir(repoDir)
+
+	var firstStdout bytes.Buffer
+	if err := reconcileBootstrapMk(&firstStdout); err != nil {
+		t.Fatalf("first reconcileBootstrapMk returned error: %v", err)
+	}
+	before := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk"))
+
+	var secondStdout bytes.Buffer
+	if err := reconcileBootstrapMk(&secondStdout); err != nil {
+		t.Fatalf("second reconcileBootstrapMk returned error: %v", err)
+	}
+	if secondStdout.String() != "skipping bootstrap.mk (already current)\n" {
+		t.Fatalf("stdout = %q, want skip message", secondStdout.String())
+	}
+	if after := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk")); after != before {
+		t.Fatalf("second run changed bootstrap.mk\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+func TestReconcileBootstrapMkUpdatesCommentedCanonical(t *testing.T) {
+	repoDir := t.TempDir()
+	t.Chdir(repoDir)
+
+	canonical := mustReadFile(t, filepath.Join(testRepoRoot(t), "bootstrap.mk"))
+	if err := os.WriteFile("bootstrap.mk", []byte(canonical), 0o644); err != nil {
+		t.Fatalf("write commented bootstrap.mk: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := reconcileBootstrapMk(&stdout); err != nil {
+		t.Fatalf("reconcileBootstrapMk returned error: %v", err)
+	}
+	if stdout.String() != "updated bootstrap.mk\n" {
+		t.Fatalf("stdout = %q, want updated message", stdout.String())
+	}
+
+	want := consumerBootstrapMk([]byte(canonical))
+	got := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk"))
+	if got != string(want) {
+		t.Fatalf("bootstrap.mk mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
+func TestReconcileBootstrapMkSkipsEngineRepo(t *testing.T) {
+	repoRoot := testRepoRoot(t)
+	before := mustReadFile(t, filepath.Join(repoRoot, "bootstrap.mk"))
+	t.Chdir(repoRoot)
+
+	var stdout bytes.Buffer
+	if err := reconcileBootstrapMk(&stdout); err != nil {
+		t.Fatalf("reconcileBootstrapMk returned error: %v", err)
+	}
+	if stdout.String() != "skipping bootstrap.mk (go-makefile engine repo)\n" {
+		t.Fatalf("stdout = %q, want engine-repo skip message", stdout.String())
+	}
+	if after := mustReadFile(t, filepath.Join(repoRoot, "bootstrap.mk")); after != before {
+		t.Fatalf("engine-repo reconcile changed bootstrap.mk\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+func TestScaffoldCommandDispatches(t *testing.T) {
+	repoDir := filepath.Join(t.TempDir(), "scaffold-cmd")
+	mustMkdirAll(t, repoDir)
+	t.Chdir(repoDir)
+
+	root := newRootCommand()
+	root.SetArgs([]string{"scaffold", "--module", "goodkind.io/scaffold-cmd", "--library", "--yes"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext(scaffold) error: %v", err)
+	}
+	if recordedExit != 0 {
+		t.Fatalf("recordedExit = %d, want 0", recordedExit)
+	}
+	assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
+	assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "DO NOT MODIFY")
+}
+
+func TestBootstrapAliasDispatches(t *testing.T) {
+	repoDir := filepath.Join(t.TempDir(), "bootstrap-alias")
+	mustMkdirAll(t, repoDir)
+	t.Chdir(repoDir)
+
+	root := newRootCommand()
+	root.SetArgs([]string{"bootstrap", "--module", "goodkind.io/bootstrap-alias", "--library", "--yes"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext(bootstrap) error: %v", err)
+	}
+	if recordedExit != 0 {
+		t.Fatalf("recordedExit = %d, want 0", recordedExit)
+	}
+	assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
+	assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "DO NOT MODIFY")
 }
 
 func TestReconcileGoModToolsStripsManagedTools(t *testing.T) {
@@ -113,6 +249,8 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "BINARY := bootstrap-probe")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk go-release.mk")
 		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "GO_MK_BOOTSTRAP_FETCHED := 1")
+		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "DO NOT MODIFY")
+		assertFileNotContains(t, filepath.Join(repoDir, "bootstrap.mk"), "tiny shim")
 		assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
 		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
 		runMakeHelp(t, repoDir, repoRoot)
@@ -1035,6 +1173,14 @@ func assertFileContains(t *testing.T, filePath string, expectedText string) {
 	contents := mustReadFile(t, filePath)
 	if !strings.Contains(contents, expectedText) {
 		t.Fatalf("%s does not contain %q\ncontents:\n%s", filePath, expectedText, contents)
+	}
+}
+
+func assertFileNotContains(t *testing.T, filePath string, unexpectedText string) {
+	t.Helper()
+	contents := mustReadFile(t, filePath)
+	if strings.Contains(contents, unexpectedText) {
+		t.Fatalf("%s contains %q\ncontents:\n%s", filePath, unexpectedText, contents)
 	}
 }
 

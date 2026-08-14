@@ -10,9 +10,9 @@ The caller job must grant `attestations: write`. Without it the run fails at sta
 
 The caller sets `secrets: inherit` so the reusable workflow's release dry run receives the consumer's signing material and signs the same way a real release does. A caller without it still passes CI, but its release dry run skips signing and stops exercising that path.
 
-## Bootstrap owns the caller
+## Scaffold owns the caller
 
-`go-mk bootstrap` scaffolds this caller when none exists and repairs an existing caller that calls the reusable CI workflow, so a drifted caller is fixed by re-running bootstrap rather than by hand. The [canonical caller](../../cmd/go-mk/bootstrap_assets/ci.yml) is the shape bootstrap scaffolds and repairs toward.
+`go-mk scaffold` scaffolds this caller when none exists and repairs an existing caller that calls the reusable CI workflow, so a drifted caller is fixed by re-running scaffold rather than by hand. The [canonical caller](../../cmd/go-mk/bootstrap_assets/ci.yml) is the shape scaffold scaffolds and repairs toward.
 
 ## Test environment
 
