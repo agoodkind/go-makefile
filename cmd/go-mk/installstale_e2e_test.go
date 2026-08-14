@@ -101,11 +101,47 @@ func (consumer staleConsumer) runMake(t *testing.T, makeArgs ...string) string {
 	t.Helper()
 	command := exec.Command("make", makeArgs...)
 	command.Dir = consumer.dir
+	command.Env = consumerEnv()
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("make %s: %v\n%s", strings.Join(makeArgs, " "), err, output)
 	}
 	return string(output)
+}
+
+// inheritedPrefixes name the variables go.mk exports for its own run. The suite
+// itself runs under `make test`, so they are in this process's environment, and
+// a `?=` assignment in the consumer would lose to them. Passing the repository's
+// lint and vet targets into a temporary consumer makes go list report a package
+// that does not exist there.
+var inheritedPrefixes = []string{
+	"GO_MK_", "GO_BUILD_", "GO_TEST_", "GO_VET_", "GO_INSTALL_",
+	"GOLANGCI_", "GOCYCLO_", "DEADCODE_", "STATICCHECK_", "GOVULNCHECK_",
+	"BASELINE_", "MAKEFLAGS", "MFLAGS", "MAKELEVEL",
+}
+
+// consumerEnv returns this process's environment without the variables go.mk
+// exports, so a generated consumer resolves its own settings. GOWORK is off
+// because the consumer is a standalone module outside any inherited workspace.
+func consumerEnv() []string {
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, entry := range os.Environ() {
+		name, _, found := strings.Cut(entry, "=")
+		if !found {
+			continue
+		}
+		inherited := false
+		for _, prefix := range inheritedPrefixes {
+			if strings.HasPrefix(name, prefix) {
+				inherited = true
+				break
+			}
+		}
+		if !inherited {
+			env = append(env, entry)
+		}
+	}
+	return append(env, "GOWORK=off")
 }
 
 // touch dates a path forward without the test waiting for real clock movement.
