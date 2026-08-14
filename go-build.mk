@@ -77,6 +77,13 @@ INSTALL_BINS ?=
 # name:cmd pairs. Empty defaults to the single BINARY:CMD. When set it replaces
 # that default and MUST include the primary BINARY (the release fails loudly
 # otherwise); the primary binary's name titles the GitHub release.
+#
+# An entry may carry a third field, a comma-separated key=value list, to differ
+# from the release-wide build settings. cgo=1 builds that binary alone with
+# CGO_ENABLED=1, and platforms=<os>/<arch> restricts it to the listed targets
+# and may repeat. That pair is what lets one release ship a pure-Go binary and
+# a cgo variant of the same command, for example:
+#   RELEASE_BINS := app:./cmd/app app-full:./cmd/app:cgo=1,platforms=linux/amd64
 RELEASE_BINS ?=
 
 # Version metadata derived from git. Single canonical scheme across all repos.
