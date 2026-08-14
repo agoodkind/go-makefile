@@ -57,11 +57,7 @@ func newStaleConsumer(t *testing.T, extraMakefileLines string) staleConsumer {
 		"include " + filepath.Join(repoRoot, "go.mk") + "\n"
 	writeConsumerFile(t, consumerDir, "Makefile", makefile)
 
-	consumer := staleConsumer{dir: consumerDir, installDir: installDir}
-	// The build-settings stamp is named for the settings, so it has to exist
-	// before any output can look current.
-	consumer.runMake(t, "go-mk-build-config")
-	return consumer
+	return staleConsumer{dir: consumerDir, installDir: installDir}
 }
 
 func writeConsumerFile(t *testing.T, consumerDir, relativePath, content string) {
@@ -79,6 +75,10 @@ func writeConsumerFile(t *testing.T, consumerDir, relativePath, content string) 
 // so make sees it as newer than everything written before it.
 func (consumer staleConsumer) placeInstalled(t *testing.T, name string, offset time.Duration) string {
 	t.Helper()
+	// The build-settings stamp is named for the settings and the source list,
+	// so it has to be written after the case has seeded its files and before
+	// any output can look current.
+	consumer.runMake(t, "go-mk-build-config")
 	path := filepath.Join(consumer.installDir, name)
 	if err := os.MkdirAll(consumer.installDir, 0o755); err != nil {
 		t.Fatalf("create install directory: %v", err)
@@ -369,6 +369,24 @@ func TestBuildConfigStampSeparatesEscapedCharacters(t *testing.T) {
 	if plain == escaped {
 		t.Fatalf("settings differing by a backslash share the stamp name %q", plain)
 	}
+}
+
+// TestInstallRebuildsWhenASourceIsDeleted covers a deleted source file. A
+// timestamp comparison sees only files that still exist, so the source list is
+// part of the stamp.
+func TestInstallRebuildsWhenASourceIsDeleted(t *testing.T) {
+	consumer := newStaleConsumer(t, "")
+	writeConsumerFile(t, consumer.dir, "cmd/demo/extra.go", "package main\n\nconst extra = 1\n")
+	writeConsumerFile(t, consumer.dir, "cmd/demo/main.go",
+		"package main\n\nimport \"log/slog\"\n\nfunc main() {\n\tslog.Info(\"demo\", slog.Int(\"extra\", extra))\n}\n")
+
+	consumer.placeInstalled(t, "demo", time.Hour)
+	requireSkips(t, consumer.dryRunInstall(t), "an unchanged source set should not reinstall")
+
+	if err := os.Remove(filepath.Join(consumer.dir, "cmd", "demo", "extra.go")); err != nil {
+		t.Fatalf("remove source: %v", err)
+	}
+	requireInstalls(t, consumer.dryRunInstall(t), "a deleted source should reinstall")
 }
 
 // TestInstallRunsWhenADeclaredInputIsMissing covers a declared input that does

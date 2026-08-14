@@ -162,16 +162,24 @@ GO_MK_BUILD_SOURCE_FILES := $(shell go list -e -deps -f '$(GO_MK_BUILD_SOURCE_TE
 GO_MK_BUILD_FORCE :=
 
 GO_MK_BUILD_SOURCES := $(wildcard go.mod go.sum $(GO_MK_GOLANGCI_CONFIG)) \
-	$(GO_MK_GENERATE_OUTPUTS) \
 	$(GO_MK_BUILD_SOURCE_FILES)
 
 # Declared generated outputs are prerequisites even when absent, so a deleted
 # one runs codegen and then the compile in the same invocation. go list cannot
 # report a file that does not exist yet, which is why these are named rather
-# than discovered.
+# than discovered. They go through the same path filter as everything else,
+# because a declared path is no safer than a discovered one.
 ifneq ($(strip $(GO_MK_GENERATE_OUTPUTS)),)
-$(GO_MK_GENERATE_OUTPUTS): | $(GO_MK_GENERATE)
+GO_MK_GENERATE_OUTPUT_FILES := $(shell printf '%s' '$(GO_MK_GENERATE_OUTPUTS)' | tr ' ' '\n' \
+	| $(GO_MK_BUILD_SOURCE_FILTER))
+GO_MK_BUILD_SOURCES += $(GO_MK_GENERATE_OUTPUT_FILES)
+
+ifeq ($(strip $(GO_MK_GENERATE_OUTPUT_FILES)),)
+GO_MK_BUILD_FORCE := 1
+else
+$(GO_MK_GENERATE_OUTPUT_FILES): | $(GO_MK_GENERATE)
 	@test -e $@ || { printf 'go-build.mk: codegen did not produce %s\n' '$@' >&2; exit 1; }
+endif
 endif
 
 # Codegen inputs are not Go packages, so go list cannot see them. A consumer
@@ -307,6 +315,10 @@ export GO_MK_INSTALL_POST_CMD
 # after a commit, a tag, or a move between a clean and a dirty tree. BUILD_TIME
 # is the one stamped value left out, because it moves every second and would
 # rebuild on every invocation.
+#
+# The source list itself is in the stamp, because a timestamp comparison sees
+# only files that still exist. Deleting a source, or adding one, changes the
+# list and so changes the stamp name.
 GO_MK_BUILD_CONFIG_DIR := .make/build-config
 GO_MK_BUILD_CONFIG := \
 	binary=$(BINARY) cmd=$(CMD) bins=$(INSTALL_BINS) \
@@ -315,6 +327,7 @@ GO_MK_BUILD_CONFIG := \
 	cgo=$(CGO_ENABLED) goflags=$(GOFLAGS) goos=$(GOOS) goarch=$(GOARCH) \
 	vpkg=$(VPKG) gklog_vpkg=$(GKLOG_VPKG) \
 	commit=$(GIT_COMMIT) version=$(GIT_VERSION) dirty=$(GIT_DIRTY) \
+	files=$(sort $(GO_MK_BUILD_SOURCES)) \
 	bundle=$(BUNDLE_ID) identity=$(CODESIGN_IDENTITY) timestamp=$(CODESIGN_TIMESTAMP) \
 	entitlements=$(CODESIGN_ENTITLEMENTS) \
 	pre=$(GO_MK_INSTALL_PRE_CMD) post=$(GO_MK_INSTALL_POST_CMD)
