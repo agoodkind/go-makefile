@@ -152,7 +152,7 @@ endif
 # GO_MK_MODULES: project sets a list of sibling .mk files to fetch and include.
 # Example: GO_MK_MODULES := go-build.mk go-release.mk go-service.mk
 GO_MK_MODULES ?=
-ifneq ($(strip $(GO_MK_BOOTSTRAP_FETCHED)$(_GO_MK_PROVISIONED)),)
+ifneq ($(filter 1,$(GO_MK_BOOTSTRAP_FETCHED) $(_GO_MK_PROVISIONED)),)
 GO_MK_FETCHED_MODULES := $(foreach m,$(GO_MK_MODULES),$(call go-mk-require-one,.make/$(m)))
 else
 GO_MK_FETCHED_MODULES := $(foreach m,$(GO_MK_MODULES),$(call go-mk-fetch-one,$(m)))
@@ -160,7 +160,7 @@ endif
 
 # Centralized golangci-lint config. Consumers do not maintain their own copy.
 GO_MK_GOLANGCI_CONFIG ?= .make/golangci.yml
-ifneq ($(strip $(GO_MK_BOOTSTRAP_FETCHED)$(_GO_MK_PROVISIONED)),)
+ifneq ($(filter 1,$(GO_MK_BOOTSTRAP_FETCHED) $(_GO_MK_PROVISIONED)),)
 GO_MK_FETCHED_GOLANGCI := $(call go-mk-require-one,$(GO_MK_GOLANGCI_CONFIG))
 else
 GO_MK_FETCHED_GOLANGCI := $(call go-mk-fetch-one,golangci.yml)

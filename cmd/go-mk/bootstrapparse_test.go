@@ -287,6 +287,32 @@ func TestProvisionedRejectsAnEmptyHelper(t *testing.T) {
 	}
 }
 
+// TestProvisionedZeroStillFetchesGolangci covers go.mk's module and golangci
+// require-or-fetch guards. Concatenating GO_MK_BOOTSTRAP_FETCHED with
+// _GO_MK_PROVISIONED treats any non-empty value, including 0, as provisioned.
+// Including go.mk directly leaves GO_MK_BOOTSTRAP_FETCHED unset, so 0 must
+// still fetch rather than fail on a missing .make/golangci.yml.
+func TestProvisionedZeroStillFetchesGolangci(t *testing.T) {
+	repoRoot := repoRootForTest(t)
+	dir := t.TempDir()
+	makefile := "GO_MK_DEV_DIR := " + repoRoot + "\n" +
+		"include " + filepath.Join(repoRoot, "go.mk") + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	output, code := runMakeWithCommandLineVars(t, dir, map[string]string{
+		"_GO_MK_PROVISIONED": "0",
+	})
+	if code != 0 {
+		t.Fatalf("parse exit = %d with _GO_MK_PROVISIONED=0 and no local golangci.yml, "+
+			"want 0 (0 is not provisioned, so go.mk must fetch): %s", code, output)
+	}
+	if strings.Contains(output, "rerun without _GO_MK_PROVISIONED") {
+		t.Fatalf("go.mk treated _GO_MK_PROVISIONED=0 as provisioned:\n%s", output)
+	}
+}
+
 // TestDevDirHelperAcquisitionReplacesRatherThanOverwrites covers bootstrap.mk's
 // own dev-dir acquisition, which copied the dev copy over the cached helper in
 // place. cp writes through the existing inode, so a concurrent parse executing
