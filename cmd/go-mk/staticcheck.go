@@ -30,11 +30,11 @@ const errStaticcheckBin sentinelError = "staticcheck-extra bin resolution failed
 const staticcheckInstallDefault = "goodkind.io/go-makefile/staticcheck/cmd/staticcheck-extra@latest"
 
 // staticcheckOutputPath returns the resolved binary path under the repository
-// root, mirroring staticcheck_output_path: ${_GO_MK_ROOT:-${PWD}}/.make/
+// root, mirroring staticcheck_output_path: ${GO_MK_ROOT:-${PWD}}/.make/
 // staticcheck-extra. It is absolute so a dev build with the working directory
 // set to the source repo still writes into the consumer's .make.
 func staticcheckOutputPath() (string, error) {
-	root := os.Getenv("_GO_MK_ROOT")
+	root := os.Getenv("GO_MK_ROOT")
 	if root == "" {
 		wd, err := os.Getwd()
 		if err != nil {

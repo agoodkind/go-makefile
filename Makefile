@@ -41,7 +41,7 @@ STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
 .DEFAULT_GOAL := check
 
 .PHONY: build release check lint fmt vet test govulncheck go-version-check build-check ci-changed go-mk-cache-manifest go-mk-ci-job-layout go-mk-golangci-cache-save-decision go-mk-generate \
-        lint-tools lint-golangci lint-files lint-diff lint-format lint-gocyclo lint-deadcode staticcheck-extra \
+        lint-tools lint-golangci lint-files lint-diff lint-format lint-gocyclo lint-deadcode lint-make-vars staticcheck-extra \
         lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
         lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new \
         lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
@@ -215,7 +215,14 @@ go-mk-sync update-go-mk:
 smoke-fetch:
 	$(ROOT_GO_MK) smoke-fetch
 
-check: lint
+# A rename that moves a definition without moving its uses leaves the uses
+# expanding to nothing, which make reports as a recipe running an empty
+# command rather than as an error. Only this repo owns these files, so the
+# check lives here rather than in the pipeline every consumer fetches.
+lint-make-vars:
+	@perl scripts/dangling-make-vars.pl go.mk go-build.mk go-release.mk go-service.mk bootstrap.mk
+
+check: lint-make-vars lint
 
 help:
 	$(ROOT_GO_MK) help
