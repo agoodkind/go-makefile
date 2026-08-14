@@ -319,11 +319,13 @@ GO_MK_BUILD_CONFIG := \
 	entitlements=$(CODESIGN_ENTITLEMENTS) \
 	pre=$(GO_MK_INSTALL_PRE_CMD) post=$(GO_MK_INSTALL_POST_CMD)
 
-# Quotes, backslashes, and dollars would not survive the shell round trip, and
-# the stamp only has to differ when the settings differ, so they are dropped.
+# Quotes, backslashes, and dollars would not survive the shell round trip, so
+# each becomes a spelled-out token instead of disappearing. Deleting them would
+# let two different settings spell one name. The hyphen is escaped first, which
+# is what keeps the mapping reversible and so free of collisions.
 GO_MK_SQUOTE := '
 GO_MK_DQUOTE := "
-GO_MK_BUILD_CONFIG_SAFE := $(subst $$,,$(subst \,,$(subst $(GO_MK_DQUOTE),,$(subst $(GO_MK_SQUOTE),,$(GO_MK_BUILD_CONFIG)))))
+GO_MK_BUILD_CONFIG_SAFE := $(subst $$,-dl-,$(subst \,-bs-,$(subst $(GO_MK_DQUOTE),-dq-,$(subst $(GO_MK_SQUOTE),-sq-,$(subst -,-h-,$(GO_MK_BUILD_CONFIG))))))
 
 # The settings are carried in the stamp's name rather than its contents, so a
 # changed setting names a file that does not exist and make sees an ordinary

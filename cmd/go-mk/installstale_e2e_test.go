@@ -343,6 +343,34 @@ func TestBuildConfigStampKeepsShellSyntaxLiteral(t *testing.T) {
 	}
 }
 
+// stampName returns the single file in the build-config directory, whose name
+// carries the settings.
+func (consumer staleConsumer) stampName(t *testing.T, makeArgs ...string) string {
+	t.Helper()
+	consumer.runMake(t, append([]string{"go-mk-build-config"}, makeArgs...)...)
+	entries, err := os.ReadDir(filepath.Join(consumer.dir, ".make", "build-config"))
+	if err != nil {
+		t.Fatalf("read build-config directory: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("build-config holds %d files, want 1", len(entries))
+	}
+	return entries[0].Name()
+}
+
+// TestBuildConfigStampSeparatesEscapedCharacters covers settings that differ
+// only by a character the stamp cannot pass through a shell unchanged. Those
+// characters are spelled out rather than dropped, so the names stay distinct.
+func TestBuildConfigStampSeparatesEscapedCharacters(t *testing.T) {
+	consumer := newStaleConsumer(t, "")
+
+	plain := consumer.stampName(t, `GO_BUILD_EXTRA_FLAGS=-X a=b`)
+	escaped := consumer.stampName(t, `GO_BUILD_EXTRA_FLAGS=-X a=\b`)
+	if plain == escaped {
+		t.Fatalf("settings differing by a backslash share the stamp name %q", plain)
+	}
+}
+
 // TestInstallRunsWhenADeclaredInputIsMissing covers a declared input that does
 // not exist. Make cannot mark an output stale against a file it cannot see, so
 // the outputs become always-run instead.
