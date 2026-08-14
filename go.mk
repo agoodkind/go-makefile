@@ -65,8 +65,21 @@ endef
 # The bootstrap helper provisions every asset in one extraction, so this prime
 # is only for a consumer whose committed bootstrap.mk predates the helper. It
 # is removed once the fleet has migrated.
+#
+# bootstrap.mk is consumer-committed, so its half of this handshake upgrades
+# whenever each consumer commits a new copy, not when this file changes. Both
+# spellings are read until the fleet has migrated. Reading only the new one
+# would send every consumer with an older copy down the legacy prime path, and
+# it would take that path silently.
+__GO_MK_PROVISION_STATE := $(strip $(__GO_MK_PROVISION)$(GO_MK_PROVISION))
+
+# Non-empty once every asset is already on disk, so the paths below require an
+# asset rather than fetching it. Both spellings of the committed marker count,
+# for the same reason.
+__GO_MK_ASSETS_PROVISIONED := $(filter 1,$(__GO_MK_BOOTSTRAP_FETCHED) $(GO_MK_BOOTSTRAP_FETCHED) $(_GO_MK_PROVISIONED))
+
 ifneq ($(strip $(_GO_MK_PROVISIONED)),1)
-ifeq ($(strip $(__GO_MK_PROVISION)),)
+ifeq ($(__GO_MK_PROVISION_STATE),)
 $(shell mkdir -p .make && { $(call __go_mk_prime); } 1>&2)
 endif
 endif
@@ -152,7 +165,7 @@ endif
 # GO_MK_MODULES: project sets a list of sibling .mk files to fetch and include.
 # Example: GO_MK_MODULES := go-build.mk go-release.mk go-service.mk
 GO_MK_MODULES ?=
-ifneq ($(filter 1,$(__GO_MK_BOOTSTRAP_FETCHED) $(_GO_MK_PROVISIONED)),)
+ifneq ($(__GO_MK_ASSETS_PROVISIONED),)
 __GO_MK_FETCHED_MODULES := $(foreach m,$(GO_MK_MODULES),$(call __go-mk-require-one,.make/$(m)))
 else
 __GO_MK_FETCHED_MODULES := $(foreach m,$(GO_MK_MODULES),$(call __go-mk-fetch-one,$(m)))
@@ -160,7 +173,7 @@ endif
 
 # Centralized golangci-lint config. Consumers do not maintain their own copy.
 GO_MK_GOLANGCI_CONFIG ?= .make/golangci.yml
-ifneq ($(filter 1,$(__GO_MK_BOOTSTRAP_FETCHED) $(_GO_MK_PROVISIONED)),)
+ifneq ($(__GO_MK_ASSETS_PROVISIONED),)
 __GO_MK_FETCHED_GOLANGCI := $(call __go-mk-require-one,$(GO_MK_GOLANGCI_CONFIG))
 else
 __GO_MK_FETCHED_GOLANGCI := $(call __go-mk-fetch-one,golangci.yml)
