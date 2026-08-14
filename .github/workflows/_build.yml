@@ -73,9 +73,13 @@ jobs:
           PLATFORMS: ${{ inputs.platforms }}
           DARWIN_RUNNER: ${{ inputs.darwin_runner }}
         # Emit one matrix row per requested platform. linux rows run natively
-        # per-arch. darwin rows either cross-compile in the goreleaser-cross
-        # container (default) or run natively on the requested macOS runner;
-        # only cross rows carry cc/cxx, which the cross-specific steps key on.
+        # per-arch. freebsd rows are a pure-Go cross-compile from the same
+        # ubuntu-24.04 runner linux/amd64 uses, for both arches: unlike
+        # linux/arm64 there is no freebsd cgo cross toolchain to run natively,
+        # so a native arm64 runner buys nothing. darwin rows either
+        # cross-compile in the goreleaser-cross container (default) or run
+        # natively on the requested macOS runner; only cross rows carry
+        # cc/cxx, which the cross-specific steps key on.
         run: |
           rows='[]'
           for platform in ${PLATFORMS}; do
@@ -87,6 +91,12 @@ jobs:
                 ;;
               linux/arm64)
                 row='{"goos":"linux","goarch":"arm64","runner":"ubuntu-24.04-arm","container":"","cc":"","cxx":""}'
+                ;;
+              freebsd/amd64)
+                row='{"goos":"freebsd","goarch":"amd64","runner":"ubuntu-24.04","container":"","cc":"","cxx":""}'
+                ;;
+              freebsd/arm64)
+                row='{"goos":"freebsd","goarch":"arm64","runner":"ubuntu-24.04","container":"","cc":"","cxx":""}'
                 ;;
               darwin/amd64)
                 if [ -n "${DARWIN_RUNNER}" ]; then
