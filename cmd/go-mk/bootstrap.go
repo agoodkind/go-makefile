@@ -552,6 +552,7 @@ func consumerBootstrapMk(canonical []byte) []byte {
 }
 
 func writeConsumerBootstrapMk(contents []byte) error {
+	slog.Info("bootstrap write bootstrap.mk")
 	if fileExists("bootstrap.mk") {
 		if err := os.Chmod("bootstrap.mk", 0o644); err != nil {
 			return err
