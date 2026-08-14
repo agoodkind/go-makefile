@@ -4,7 +4,7 @@ go-makefile ships one root Go module. The `selfupdate` package lives at [selfupd
 
 ## Binaries
 
-`go-mk` is the build, lint, release, bootstrap, and self-update engine. Its command tree includes `selfupdate`, `selfupdate watch`, and `selfupdate install-service` in [cmd/go-mk/selfupdate_command.go](../../cmd/go-mk/selfupdate_command.go). The one-shot command calls `selfupdate.RunUpdateCommand`; the watch command calls `selfupdate.RunScheduler`; the service command installs a launchd or systemd user service that runs `go-mk selfupdate watch`.
+`go-mk` is the build, lint, release, scaffold, and self-update engine. Its command tree includes `selfupdate`, `selfupdate watch`, and `selfupdate install-service` in [cmd/go-mk/selfupdate_command.go](../../cmd/go-mk/selfupdate_command.go). The one-shot command calls `selfupdate.RunUpdateCommand`; the watch command calls `selfupdate.RunScheduler`; the service command installs a launchd or systemd user service that runs `go-mk selfupdate watch`.
 
 `go-mk-install` is the standalone first-install bootstrapper. [cmd/go-mk-install/main.go](../../cmd/go-mk-install/main.go) accepts `--repo OWNER/NAME`, `--binary NAME`, `--bin-dir DIR`, `--version TAG`, `--require-attestation`, and post-install arguments after `--`. It resolves the release tag through `selfupdate.ResolveReleaseTag`, installs through `selfupdate.InstallReleaseBinary`, and then execs the installed consumer binary when post-install arguments are present.
 

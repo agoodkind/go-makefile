@@ -12,7 +12,7 @@ The caller sets `secrets: inherit` so the reusable workflow's release dry run re
 
 ## Scaffold owns the caller
 
-`go-mk scaffold` scaffolds this caller when none exists and repairs an existing caller that calls the reusable CI workflow, so a drifted caller is fixed by re-running scaffold rather than by hand. The [canonical caller](../../cmd/go-mk/bootstrap_assets/ci.yml) is the shape scaffold scaffolds and repairs toward.
+`go-mk scaffold` scaffolds this caller when none exists and repairs an existing caller that calls the reusable CI workflow, so a drifted caller is fixed by re-running scaffold rather than by hand. The [canonical caller](../../cmd/go-mk/scaffold_assets/ci.yml) is the shape scaffold scaffolds and repairs toward.
 
 ## Test environment
 

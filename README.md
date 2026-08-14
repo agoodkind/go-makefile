@@ -95,7 +95,7 @@ by one fetched file, `go.mk`.
   `skip_unchanged: false` to always run the gates. A consumer's own Go job can
   ride the same signal with `needs: <reusable job>` and
   `if: needs.<job>.outputs.changed == 'true'`.
-- Specifics live in source: `cmd/go-mk/bootstrap.go` (what scaffold writes),
+- Specifics live in source: `cmd/go-mk/scaffold.go` (what scaffold writes),
   `go.mk` (targets and their knobs), `golangci.yml` (lint config),
   `staticcheck/` (bundled analyzers), `.github/workflows/` (CI and release
   jobs).

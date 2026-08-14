@@ -28,15 +28,15 @@ func TestReadModulePathAllowsTrailingComment(t *testing.T) {
 	}
 }
 
-func TestBootstrapAssetsMatchCanonicalFiles(t *testing.T) {
+func TestScaffoldAssetsMatchCanonicalFiles(t *testing.T) {
 	repoRoot := testRepoRoot(t)
 	assertFilesEqual(t,
 		filepath.Join(repoRoot, "bootstrap.mk"),
-		filepath.Join(filepath.Dir(testFilePath(t)), "bootstrap_assets", "bootstrap.mk"),
+		filepath.Join(filepath.Dir(testFilePath(t)), "scaffold_assets", "bootstrap.mk"),
 	)
 	assertFilesEqual(t,
 		filepath.Join(repoRoot, "templates", "Makefile.tmpl"),
-		filepath.Join(filepath.Dir(testFilePath(t)), "bootstrap_assets", "Makefile.tmpl"),
+		filepath.Join(filepath.Dir(testFilePath(t)), "scaffold_assets", "Makefile.tmpl"),
 	)
 }
 
@@ -255,7 +255,7 @@ func TestReconcileGoModToolsStripsManagedTools(t *testing.T) {
 		"\tgolang.org/x/vuln/cmd/govulncheck\n" +
 		"\tgithub.com/bufbuild/buf/cmd/buf\n" +
 		")\n"
-	writeBootstrapTestFile(t, filepath.Join(repoDir, "go.mod"), goModContent)
+	writeScaffoldTestFile(t, filepath.Join(repoDir, "go.mod"), goModContent)
 
 	var stdout bytes.Buffer
 	if err := reconcileGoModTools(&stdout); err != nil {
@@ -283,7 +283,7 @@ func TestReconcileGoModToolsStripsManagedTools(t *testing.T) {
 	}
 }
 
-func TestBootstrapScenarios(t *testing.T) {
+func TestScaffoldScenarios(t *testing.T) {
 	repoRoot := testRepoRoot(t)
 
 	t.Run("new binary repo", func(t *testing.T) {
@@ -293,7 +293,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		setGitRemote(t, repoDir, "git@github.com:agoodkind/bootstrap-probe.git")
 		t.Chdir(repoDir)
 
-		runBootstrapForTest(t, bootstrapOptions{
+		runScaffoldForTest(t, scaffoldOptions{
 			modulePath:  "goodkind.io/bootstrap-probe",
 			forceBinary: true,
 			yes:         true,
@@ -314,14 +314,14 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileContains(t, releaseWorkflow, "id-token: write")
 		assertFileContains(t, releaseWorkflow, "attestations: write")
 		assertFileContains(t, releaseWorkflow, "      binary: bootstrap-probe")
-		assertBootstrapTrackedFilesAbsent(t, repoDir)
+		assertScaffoldTrackedFilesAbsent(t, repoDir)
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "BINARY := bootstrap-probe")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk go-release.mk")
 		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "GO_MK_BOOTSTRAP_FETCHED := 1")
 		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "DO NOT MODIFY")
 		assertFileNotContains(t, filepath.Join(repoDir, "bootstrap.mk"), "tiny shim")
 		assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
-		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
+		assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
 		runMakeHelp(t, repoDir, repoRoot)
 	})
 
@@ -330,7 +330,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		mustMkdirAll(t, repoDir)
 		t.Chdir(repoDir)
 
-		runBootstrapForTest(t, bootstrapOptions{
+		runScaffoldForTest(t, scaffoldOptions{
 			modulePath:   "goodkind.io/bootstrap-library",
 			forceLibrary: true,
 			yes:          true,
@@ -340,27 +340,27 @@ func TestBootstrapScenarios(t *testing.T) {
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk")
 		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
 		assertFileDoesNotExist(t, filepath.Join(repoDir, "install.sh"))
-		assertBootstrapTrackedFilesAbsent(t, repoDir)
-		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
+		assertScaffoldTrackedFilesAbsent(t, repoDir)
+		assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
 	})
 
 	t.Run("custom Makefile is preserved", func(t *testing.T) {
 		repoDir := filepath.Join(t.TempDir(), "custom")
 		mustMkdirAll(t, repoDir)
-		writeBootstrapTestGoMod(t, repoDir, "goodkind.io/custom")
-		writeBootstrapTestFile(t, filepath.Join(repoDir, "Makefile"), "custom:\n\t@echo custom\n")
+		writeScaffoldTestGoMod(t, repoDir, "goodkind.io/custom")
+		writeScaffoldTestFile(t, filepath.Join(repoDir, "Makefile"), "custom:\n\t@echo custom\n")
 		originalMakefile := mustReadFile(t, filepath.Join(repoDir, "Makefile"))
 		t.Chdir(repoDir)
 
-		runBootstrapForTest(t, bootstrapOptions{yes: true})
+		runScaffoldForTest(t, scaffoldOptions{yes: true})
 
 		if currentMakefile := mustReadFile(t, filepath.Join(repoDir, "Makefile")); currentMakefile != originalMakefile {
 			t.Fatalf("custom Makefile changed\nbefore:\n%s\nafter:\n%s", originalMakefile, currentMakefile)
 		}
 		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
 		assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
-		assertBootstrapTrackedFilesAbsent(t, repoDir)
-		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
+		assertScaffoldTrackedFilesAbsent(t, repoDir)
+		assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
 	})
 
 	t.Run("generated rerun is stable", func(t *testing.T) {
@@ -370,7 +370,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		setGitRemote(t, repoDir, "git@github.com:agoodkind/rerun.git")
 		t.Chdir(repoDir)
 
-		runBootstrapForTest(t, bootstrapOptions{
+		runScaffoldForTest(t, scaffoldOptions{
 			modulePath:  "goodkind.io/rerun",
 			forceBinary: true,
 			yes:         true,
@@ -384,7 +384,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		beforeCIWorkflow := mustReadFile(t, ciWorkflow)
 		beforeReleaseWorkflow := mustReadFile(t, releaseWorkflow)
 
-		runBootstrapForTest(t, bootstrapOptions{
+		runScaffoldForTest(t, scaffoldOptions{
 			modulePath:  "goodkind.io/rerun",
 			forceBinary: true,
 			yes:         true,
@@ -400,14 +400,14 @@ func TestBootstrapScenarios(t *testing.T) {
 	t.Run("custom ci.yml is preserved", func(t *testing.T) {
 		repoDir := filepath.Join(t.TempDir(), "custom-ci")
 		mustMkdirAll(t, repoDir)
-		writeBootstrapTestGoMod(t, repoDir, "goodkind.io/custom-ci")
+		writeScaffoldTestGoMod(t, repoDir, "goodkind.io/custom-ci")
 		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
 		mustMkdirAll(t, filepath.Dir(ciWorkflow))
 		customWorkflow := "name: CI\non:\n  push:\n    branches: [main]\njobs:\n  custom:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo custom\n"
-		writeBootstrapTestFile(t, ciWorkflow, customWorkflow)
+		writeScaffoldTestFile(t, ciWorkflow, customWorkflow)
 		t.Chdir(repoDir)
 
-		runBootstrapForTest(t, bootstrapOptions{yes: true})
+		runScaffoldForTest(t, scaffoldOptions{yes: true})
 
 		assertFileText(t, ciWorkflow, customWorkflow)
 	})
@@ -417,7 +417,7 @@ func TestBootstrapScenarios(t *testing.T) {
 		mustMkdirAll(t, repoDir)
 		t.Chdir(repoDir)
 
-		runBootstrapForTest(t, bootstrapOptions{
+		runScaffoldForTest(t, scaffoldOptions{
 			modulePath:  "goodkind.io/repair",
 			forceBinary: true,
 			yes:         true,
@@ -425,9 +425,9 @@ func TestBootstrapScenarios(t *testing.T) {
 
 		makefilePath := filepath.Join(repoDir, "Makefile")
 		withoutInclude := strings.ReplaceAll(mustReadFile(t, makefilePath), "include bootstrap.mk\n", "")
-		writeBootstrapTestFile(t, makefilePath, withoutInclude)
+		writeScaffoldTestFile(t, makefilePath, withoutInclude)
 
-		runBootstrapForTest(t, bootstrapOptions{
+		runScaffoldForTest(t, scaffoldOptions{
 			modulePath:  "goodkind.io/repair",
 			forceBinary: true,
 			yes:         true,
@@ -441,17 +441,17 @@ func TestBootstrapScenarios(t *testing.T) {
 		mustMkdirAll(t, repoDir)
 		initGitRepo(t, repoDir)
 		t.Setenv("GOLANGCI_LINT_BASELINE", "baselines/golangci.txt")
-		writeBootstrapTestFile(t, filepath.Join(repoDir, ".gitignore"), "*.txt\nbaselines/\n.*\n")
+		writeScaffoldTestFile(t, filepath.Join(repoDir, ".gitignore"), "*.txt\nbaselines/\n.*\n")
 		t.Chdir(repoDir)
 
-		runBootstrapForTest(t, bootstrapOptions{
+		runScaffoldForTest(t, scaffoldOptions{
 			modulePath:   "goodkind.io/unignored",
 			forceLibrary: true,
 			yes:          true,
 		})
 
-		assertGitignoreContainsBootstrapEntries(t, repoDir, configuredBootstrapTrackedFiles())
-		for _, trackedFile := range configuredBootstrapTrackedFiles() {
+		assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
+		for _, trackedFile := range configuredScaffoldTrackedFiles() {
 			assertPathNotGitIgnored(t, repoDir, trackedFile)
 		}
 	})
@@ -519,7 +519,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"    with:\n" +
 			"      cgo: true\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, drifted)
+		writeScaffoldTestFile(t, releaseWorkflow, drifted)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -569,7 +569,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"    with:\n" +
 			"      cgo: true\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, drifted)
+		writeScaffoldTestFile(t, releaseWorkflow, drifted)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -609,7 +609,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"  release:\n" +
 			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, withoutPermissions)
+		writeScaffoldTestFile(t, releaseWorkflow, withoutPermissions)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -636,7 +636,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
 		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
 		custom := "name: Release\non:\n  push:\n    tags: ['v*']\njobs:\n  release:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo release\n"
-		writeBootstrapTestFile(t, releaseWorkflow, custom)
+		writeScaffoldTestFile(t, releaseWorkflow, custom)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -657,7 +657,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
 			"    permissions: write-all\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, scalar)
+		writeScaffoldTestFile(t, releaseWorkflow, scalar)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -688,7 +688,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
 			"    permissions: { contents: write }\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, inline)
+		writeScaffoldTestFile(t, releaseWorkflow, inline)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -719,7 +719,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"    permissions:\n" +
 			"      contents: read\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, wrongValue)
+		writeScaffoldTestFile(t, releaseWorkflow, wrongValue)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -761,7 +761,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"        binary: nested\n" +
 			"      cgo: true\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, nested)
+		writeScaffoldTestFile(t, releaseWorkflow, nested)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -806,7 +806,7 @@ func TestReconcileReleaseWorkflow(t *testing.T) {
 			"    permissions:\n" +
 			"      contents: write\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, releaseWorkflow, drifted)
+		writeScaffoldTestFile(t, releaseWorkflow, drifted)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -883,7 +883,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 			"      id-token: write\n" +
 			"    with:\n" +
 			"      apt_packages: libpcre2-dev\n"
-		writeBootstrapTestFile(t, ciWorkflow, drifted)
+		writeScaffoldTestFile(t, ciWorkflow, drifted)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -927,7 +927,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 			"jobs:\n" +
 			"  go:\n" +
 			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n"
-		writeBootstrapTestFile(t, ciWorkflow, withoutGrants)
+		writeScaffoldTestFile(t, ciWorkflow, withoutGrants)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -961,7 +961,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 			"      id-token: write\n" +
 			"      attestations: write\n" +
 			"    secrets: inherit\n"
-		writeBootstrapTestFile(t, ciWorkflow, missingContents)
+		writeScaffoldTestFile(t, ciWorkflow, missingContents)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -1000,7 +1000,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 			"    secrets: inherit\n" +
 			"    with:\n" +
 			"      apt_packages: libpcre2-dev\n"
-		writeBootstrapTestFile(t, ciWorkflow, current)
+		writeScaffoldTestFile(t, ciWorkflow, current)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -1023,7 +1023,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 			"      contents: read\n" +
 			"      id-token: write\n" +
 			"      attestations: write\n"
-		writeBootstrapTestFile(t, ciWorkflow, commented)
+		writeScaffoldTestFile(t, ciWorkflow, commented)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -1053,7 +1053,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
 		mustMkdirAll(t, filepath.Dir(ciWorkflow))
 		custom := "name: CI\non:\n  push:\n    branches: ['**']\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo test\n"
-		writeBootstrapTestFile(t, ciWorkflow, custom)
+		writeScaffoldTestFile(t, ciWorkflow, custom)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -1087,7 +1087,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 			"    with:\n" +
 			"      go_version_file: mwan/go/go.mod\n" +
 			"      working_directory: mwan/go\n"
-		writeBootstrapTestFile(t, ciWorkflow, drifted)
+		writeScaffoldTestFile(t, ciWorkflow, drifted)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
@@ -1130,22 +1130,22 @@ func TestReconcileCIWorkflow(t *testing.T) {
 	})
 }
 
-func runBootstrapForTest(t *testing.T, options bootstrapOptions) {
+func runScaffoldForTest(t *testing.T, options scaffoldOptions) {
 	t.Helper()
-	stdout, stderr := runBootstrapForTestOutput(t, options)
+	stdout, stderr := runScaffoldForTestOutput(t, options)
 	if t.Failed() {
 		t.Fatalf("bootstrap failed\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
 	}
 }
 
-func runBootstrapForTestOutput(t *testing.T, options bootstrapOptions) (string, string) {
+func runScaffoldForTestOutput(t *testing.T, options scaffoldOptions) (string, string) {
 	t.Helper()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	options.stdout = &stdout
 	options.stderr = &stderr
-	if err := runBootstrap(options); err != nil {
-		t.Fatalf("runBootstrap returned error: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	if err := runScaffold(options); err != nil {
+		t.Fatalf("runScaffold returned error: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
 	}
 	return stdout.String(), stderr.String()
 }
@@ -1253,9 +1253,9 @@ func assertFileNotContains(t *testing.T, filePath string, unexpectedText string)
 	}
 }
 
-func assertBootstrapTrackedFilesAbsent(t *testing.T, repoDir string) {
+func assertScaffoldTrackedFilesAbsent(t *testing.T, repoDir string) {
 	t.Helper()
-	for _, trackedFile := range configuredBootstrapTrackedFiles() {
+	for _, trackedFile := range configuredScaffoldTrackedFiles() {
 		filePath := filepath.Join(repoDir, trackedFile)
 		if _, err := os.Stat(filePath); !os.IsNotExist(err) {
 			t.Fatalf("stat %s = %v, want not exist", filePath, err)
@@ -1263,10 +1263,10 @@ func assertBootstrapTrackedFilesAbsent(t *testing.T, repoDir string) {
 	}
 }
 
-func assertGitignoreContainsBootstrapEntries(t *testing.T, repoDir string, baselineFiles []string) {
+func assertGitignoreContainsScaffoldEntries(t *testing.T, repoDir string, baselineFiles []string) {
 	t.Helper()
 	gitignorePath := filepath.Join(repoDir, ".gitignore")
-	for _, entry := range bootstrapGitignoreEntries(baselineFiles) {
+	for _, entry := range scaffoldGitignoreEntries(baselineFiles) {
 		assertFileContains(t, gitignorePath, entry)
 	}
 }
@@ -1302,16 +1302,16 @@ func mustReadFile(t *testing.T, filePath string) string {
 	return string(contents)
 }
 
-func writeBootstrapTestFile(t *testing.T, filePath string, contents string) {
+func writeScaffoldTestFile(t *testing.T, filePath string, contents string) {
 	t.Helper()
 	if err := os.WriteFile(filePath, []byte(contents), 0o644); err != nil {
 		t.Fatalf("write %s: %v", filePath, err)
 	}
 }
 
-func writeBootstrapTestGoMod(t *testing.T, repoDir string, modulePath string) {
+func writeScaffoldTestGoMod(t *testing.T, repoDir string, modulePath string) {
 	t.Helper()
-	writeBootstrapTestFile(t, filepath.Join(repoDir, "go.mod"), "module "+modulePath+"\n\ngo 1.26.4\n")
+	writeScaffoldTestFile(t, filepath.Join(repoDir, "go.mod"), "module "+modulePath+"\n\ngo 1.26.4\n")
 }
 
 func mustMkdirAll(t *testing.T, directoryPath string) {
