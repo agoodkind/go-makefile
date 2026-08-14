@@ -55,7 +55,7 @@ var noticeAdoptionSentinelPaths = []string{
 // failure must never fail a consumer build, matching the shell's `|| true`
 // invocation in go.mk.
 func runNotice() int {
-	noticesFile := lintEnvDefault("GO_MK_NOTICES_FILE", filepath.Join(makeDir, "notices.txt"))
+	noticesFile := lintEnvDefault("_GO_MK_NOTICES_FILE", filepath.Join(makeDir, "notices.txt"))
 	appliedFile := lintEnvDefault("GO_MK_APPLIED_NOTICES", ".go-mk-applied-notices")
 	seenFile := filepath.Join(makeDir, ".go-mk-notice-seen")
 

@@ -11,14 +11,14 @@ GO_MK_BASE_URL  ?= https://raw.githubusercontent.com/agoodkind/go-makefile/main
 GO_MK_API_REPO  ?= agoodkind/go-makefile
 GO_MK_API_REF   ?= main
 
-GO_MK_SCRIPT_FILES := \
+_GO_MK_SCRIPT_FILES := \
 	scripts/go-mk-fetch-one.sh \
 	scripts/go-mk-bin.sh \
 	scripts/go-mk-sync.sh \
 	notices.txt
 
 # _go_mk_prime downloads the go-makefile archive once and copies only the helper
-# scripts and notices this file owns into .make/. It runs before GO_MK_HELPER_DIR
+# scripts and notices this file owns into .make/. It runs before _GO_MK_HELPER_DIR
 # below first globs .make/scripts, so make's wildcard cache already holds the files
 # and the later require checks find them (a glob of an empty dir is cached for the
 # whole run). Only .sh and .txt land in .make/, so no go-makefile source pollutes
@@ -47,7 +47,7 @@ define __go_mk_prime
 	else \
 		tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/go-mk.XXXXXXXX") || exit 0; \
 		if curl -fsSL --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 "$(GO_MK_CODELOAD_BASE)/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" 2>/dev/null | tar -xzf - -C "$$tmp" --strip-components 1 2>/dev/null; then \
-			for asset in $(GO_MK_SCRIPT_FILES); do \
+			for asset in $(_GO_MK_SCRIPT_FILES); do \
 				if [ -f "$$tmp/$$asset" ]; then \
 					mkdir -p "$$(dirname ".make/$$asset")"; \
 					cp "$$tmp/$$asset" ".make/$$asset"; \
@@ -71,14 +71,14 @@ $(shell mkdir -p .make && { $(call __go_mk_prime); } 1>&2)
 endif
 endif
 
-GO_MK_SELF      := $(lastword $(MAKEFILE_LIST))
-GO_MK_SELF_DIR  := $(patsubst %/,%,$(dir $(abspath $(GO_MK_SELF))))
-__GO_MK_LOCAL_SCRIPT_DIR := $(if $(strip $(GO_MK_DEV_DIR)),$(GO_MK_DEV_DIR)/scripts,$(GO_MK_SELF_DIR)/scripts)
+_GO_MK_SELF      := $(lastword $(MAKEFILE_LIST))
+_GO_MK_SELF_DIR  := $(patsubst %/,%,$(dir $(abspath $(_GO_MK_SELF))))
+__GO_MK_LOCAL_SCRIPT_DIR := $(if $(strip $(GO_MK_DEV_DIR)),$(GO_MK_DEV_DIR)/scripts,$(_GO_MK_SELF_DIR)/scripts)
 __GO_MK_FETCHED_SCRIPT_DIR := $(CURDIR)/.make/scripts
-GO_MK_HELPER_DIR := $(if $(wildcard $(__GO_MK_LOCAL_SCRIPT_DIR)/go-mk-bin.sh),$(__GO_MK_LOCAL_SCRIPT_DIR),$(__GO_MK_FETCHED_SCRIPT_DIR))
-__GO_MK_FETCH_SCRIPT := $(GO_MK_HELPER_DIR)/go-mk-fetch-one.sh
-__GO_MK_LOCAL_NOTICES := $(if $(strip $(GO_MK_DEV_DIR)),$(GO_MK_DEV_DIR)/notices.txt,$(GO_MK_SELF_DIR)/notices.txt)
-GO_MK_NOTICES_FILE := $(if $(wildcard $(__GO_MK_LOCAL_NOTICES)),$(__GO_MK_LOCAL_NOTICES),$(CURDIR)/.make/notices.txt)
+_GO_MK_HELPER_DIR := $(if $(wildcard $(__GO_MK_LOCAL_SCRIPT_DIR)/go-mk-bin.sh),$(__GO_MK_LOCAL_SCRIPT_DIR),$(__GO_MK_FETCHED_SCRIPT_DIR))
+__GO_MK_FETCH_SCRIPT := $(_GO_MK_HELPER_DIR)/go-mk-fetch-one.sh
+__GO_MK_LOCAL_NOTICES := $(if $(strip $(GO_MK_DEV_DIR)),$(GO_MK_DEV_DIR)/notices.txt,$(_GO_MK_SELF_DIR)/notices.txt)
+_GO_MK_NOTICES_FILE := $(if $(wildcard $(__GO_MK_LOCAL_NOTICES)),$(__GO_MK_LOCAL_NOTICES),$(CURDIR)/.make/notices.txt)
 
 # go.mk still contains this small bootstrap fetcher because old consumers only
 # fetch go.mk first. Once helper scripts are present, every larger shell and
@@ -120,7 +120,7 @@ $(shell mkdir -p .make && $(call __go_mk_fetch_bootstrap_commands,$(1),$(2),$(GO
 $(if $(wildcard $(2)),,$(error go-makefile failed to fetch $(1) into $(2)))
 endef
 
-ifeq ($(GO_MK_HELPER_DIR),$(__GO_MK_FETCHED_SCRIPT_DIR))
+ifeq ($(_GO_MK_HELPER_DIR),$(__GO_MK_FETCHED_SCRIPT_DIR))
 ifeq ($(strip $(_GO_MK_PROVISIONED)),1)
 # Honor _GO_MK_PROVISIONED here too: require the pre-vendored fetcher rather than
 # curling GO_MK_BASE_URL, so an offline run stays network-free.
@@ -138,14 +138,14 @@ define __go-mk-require-one
 $(if $(wildcard $(1)),,$(error go-makefile expected $(1); rerun without _GO_MK_PROVISIONED))
 endef
 
-ifeq ($(GO_MK_HELPER_DIR),$(__GO_MK_FETCHED_SCRIPT_DIR))
+ifeq ($(_GO_MK_HELPER_DIR),$(__GO_MK_FETCHED_SCRIPT_DIR))
 ifeq ($(strip $(_GO_MK_PROVISIONED)),1)
-__GO_MK_FETCHED_SCRIPTS := $(foreach s,$(GO_MK_SCRIPT_FILES),$(call __go-mk-require-one,.make/$(s)))
+__GO_MK_FETCHED_SCRIPTS := $(foreach s,$(_GO_MK_SCRIPT_FILES),$(call __go-mk-require-one,.make/$(s)))
 else
 # _go_mk_prime already copied each script from the tarball, so require it when
 # present and fall back to a per-file fetch (raw) only when the archive was
 # unavailable.
-__GO_MK_FETCHED_SCRIPTS := $(foreach s,$(GO_MK_SCRIPT_FILES),$(if $(wildcard $(CURDIR)/.make/$(s)),$(call __go-mk-require-one,.make/$(s)),$(call __go-mk-fetch-one,$(s))))
+__GO_MK_FETCHED_SCRIPTS := $(foreach s,$(_GO_MK_SCRIPT_FILES),$(if $(wildcard $(CURDIR)/.make/$(s)),$(call __go-mk-require-one,.make/$(s)),$(call __go-mk-fetch-one,$(s))))
 endif
 endif
 
@@ -267,8 +267,8 @@ STATICCHECK_EXTRA_EXCLUDE_PATHS ?=
 # default install spec tracks the main branch tip (@main) so every consumer
 # resolves the current engine with no version pin.
 GO_MK_BIN          ?=
-GO_MK_BUILD_REPO   ?= $(if $(and $(GO_MK_DEV_DIR),$(wildcard $(GO_MK_DEV_DIR)/cmd/go-mk)),$(GO_MK_DEV_DIR))
-GO_MK_BUILD_PKG    ?= $(if $(GO_MK_BUILD_REPO),./cmd/go-mk)
+_GO_MK_BUILD_REPO   ?= $(if $(and $(GO_MK_DEV_DIR),$(wildcard $(GO_MK_DEV_DIR)/cmd/go-mk)),$(GO_MK_DEV_DIR))
+_GO_MK_BUILD_PKG    ?= $(if $(_GO_MK_BUILD_REPO),./cmd/go-mk)
 GO_MK_INSTALL      ?= goodkind.io/go-makefile/cmd/go-mk@main
 
 # Path to the resolved go-mk engine binary. go-mk-bin.sh prints the configured
@@ -276,13 +276,13 @@ GO_MK_INSTALL      ?= goodkind.io/go-makefile/cmd/go-mk@main
 # on the go-mk-bin target so the binary is built before they invoke it.
 __GO_MK_BIN_RESOLVED := $(if $(strip $(GO_MK_BIN)),$(GO_MK_BIN),$(CURDIR)/.make/go-mk)
 
-export GO_MK_ROOT := $(CURDIR)
-export GO_MK_SELF
-export GO_MK_SELF_DIR
+export _GO_MK_ROOT := $(CURDIR)
+export _GO_MK_SELF
+export _GO_MK_SELF_DIR
 export GO_MK_DEV_DIR
-export GO_MK_HELPER_DIR
-export GO_MK_NOTICES_FILE
-export GO_MK_SCRIPT_FILES
+export _GO_MK_HELPER_DIR
+export _GO_MK_NOTICES_FILE
+export _GO_MK_SCRIPT_FILES
 export GO_MK_BASE_URL
 export GO_MK_API_REPO
 export GO_MK_API_REF
@@ -336,8 +336,8 @@ export STATICCHECK_EXTRA_BASELINE
 export STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS
 export STATICCHECK_EXTRA_EXCLUDE_PATHS
 export GO_MK_BIN
-export GO_MK_BUILD_REPO
-export GO_MK_BUILD_PKG
+export _GO_MK_BUILD_REPO
+export _GO_MK_BUILD_PKG
 export GO_MK_INSTALL
 # GO_MK_PLATFORMS is the optional "goos/goarch ..." matrix. When a consumer sets
 # it (for example a daemon built for linux/amd64 and freebsd/amd64), the analysis
@@ -461,7 +461,7 @@ lint-deadcode: go-mk-bin
 	@"$(__GO_MK_BIN_RESOLVED)" lint-deadcode
 
 baseline-bin go-mk-bin:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-bin.sh" bin
+	@bash "$(_GO_MK_HELPER_DIR)/go-mk-bin.sh" bin
 
 staticcheck-extra-bin: go-mk-bin
 	@"$(__GO_MK_BIN_RESOLVED)" staticcheck-extra-bin
@@ -533,10 +533,10 @@ baseline-accept-new: go-mk-bin
 baseline-add-new: baseline-accept-new
 
 update-go-mk go-mk-sync:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-sync.sh" update
+	@bash "$(_GO_MK_HELPER_DIR)/go-mk-sync.sh" update
 
 smoke-fetch:
-	@bash "$(GO_MK_HELPER_DIR)/go-mk-sync.sh" smoke-fetch
+	@bash "$(_GO_MK_HELPER_DIR)/go-mk-sync.sh" smoke-fetch
 
 # GO_MK_GENERATE: opt-in codegen prerequisite. A consumer sets this BEFORE
 # `include bootstrap.mk` to the name(s) of codegen target(s) that must run
