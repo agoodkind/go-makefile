@@ -1,6 +1,6 @@
 # Workspace routing
 
-go-makefile routes a dependency that the Go module proxy cannot build through a generated `go.work` file, which the build creates from the `GO_MK_WORKSPACE_USE` hook and never commits. The hook, the codegen it depends on, and the gitignore that keeps the file out of version control live in [go.mk](../../go.mk) and [cmd/go-mk/scaffold.go](../../cmd/go-mk/scaffold.go), and the consumer-facing summary lives in the [README](../../README.md).
+go-makefile routes a dependency that the Go module proxy cannot build through a generated `go.work` file, which the build creates from the `GO_MK_WORKSPACE_USE` hook and never commits. The hook, the codegen it depends on, and the gitignore that keeps the file out of version control live in [go.mk](../../go.mk) and [cmd/go-mk/bootstrap.go](../../cmd/go-mk/bootstrap.go), and the consumer-facing summary lives in the [README](../../README.md).
 
 ## Why a workspace is needed
 

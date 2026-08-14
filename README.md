@@ -6,20 +6,20 @@ by one fetched file, `go.mk`.
 ## Adopt it in your repo
 
 1. Run from the repo root:
-   `curl -fsSL https://raw.githubusercontent.com/agoodkind/go-makefile/main/scaffold.sh | bash -s -- --yes`
+   `curl -fsSL https://raw.githubusercontent.com/agoodkind/go-makefile/main/bootstrap.sh | bash -s -- --yes`
 2. Commit the generated or repaired `Makefile`, `bootstrap.mk`, `.github/workflows/ci.yml`, and `.gitignore`.
-3. CI: scaffold scaffolds `.github/workflows/ci.yml` when none exists, calling `uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main`. When a `ci.yml` already calls that workflow, scaffold repairs the caller job's permissions in place (granting `contents: read`, `id-token: write`, and `attestations: write`) and adds `secrets: inherit`, while preserving the job's inputs, comments, and formatting. See [docs/ci/caller.md](docs/ci/caller.md) for why each grant is required and for the `GH_TOKEN` test-environment note. The scaffolded workflow triggers on `push` to every branch (`branches: ['**']`) with a `concurrency` cancel group, so every branch runs CI exactly once with no duplicate `pull_request` run; same-repo PRs still show these checks because GitHub matches checks to the head commit SHA, and `'**'` excludes tags so releases are untouched. A `ci.yml` that does not call the reusable workflow is left unchanged, so a repo with a fully custom workflow keeps it. A repo that accepts fork PRs can add a fork-guarded `pull_request` trigger.
+3. CI: bootstrap scaffolds `.github/workflows/ci.yml` when none exists, calling `uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main`. When a `ci.yml` already calls that workflow, bootstrap repairs the caller job's permissions in place (granting `contents: read`, `id-token: write`, and `attestations: write`) and adds `secrets: inherit`, while preserving the job's inputs, comments, and formatting. See [docs/ci/caller.md](docs/ci/caller.md) for why each grant is required and for the `GH_TOKEN` test-environment note. The scaffolded workflow triggers on `push` to every branch (`branches: ['**']`) with a `concurrency` cancel group, so every branch runs CI exactly once with no duplicate `pull_request` run; same-repo PRs still show these checks because GitHub matches checks to the head commit SHA, and `'**'` excludes tags so releases are untouched. A `ci.yml` that does not call the reusable workflow is left unchanged, so a repo with a fully custom workflow keeps it. A repo that accepts fork PRs can add a fork-guarded `pull_request` trigger.
 4. Releases: add a workflow that sets `uses: agoodkind/go-makefile/.github/workflows/_release.yml@main` with `permissions: contents: write, id-token: write, attestations: write` and `secrets: inherit`. A consumer that ships darwin release artifacts and wants the whole release to fail closed when Apple signing material is absent can also pass `with: require_darwin_codesign: true`. Linux-only releases are unaffected because the check only applies when `RELEASE_PLATFORMS` includes `darwin`.
 5. Run `make help` to list targets. `make check` is the default.
 
 ## Notes
 
-- `scaffold.sh` is a thin wrapper around
-  `go run goodkind.io/go-makefile/cmd/go-mk@main scaffold`. Pass
+- `bootstrap.sh` is a thin wrapper around
+  `go run goodkind.io/go-makefile/cmd/go-mk@main bootstrap`. Pass
   `--module=<path>` for a new repo when inference from git remote or directory
   name is not enough.
 - `go.mk` and its helpers fetch into `.make/` on every run and are never
-  committed; scaffold gitignores `.make/`. Run `make update-go-mk` to
+  committed; the bootstrap gitignores `.make/`. Run `make update-go-mk` to
   refetch. Set `GO_MK_DEV_DIR` to a local go-makefile checkout to fetch from
   there instead of `main`.
 - Repos that generate source before compiling (for example a tree-sitter parser
@@ -35,7 +35,7 @@ by one fetched file, `go.mk`.
   `GO_MK_GENERATE_INPUTS` is empty, `ci-changed` fails safe to `changed=true`
   and always runs. Multiple targets or dirs are space-separated; unset is a
   no-op.
-- Do not commit `go.work`; scaffold gitignores `go.work` and `go.work.sum`.
+- Do not commit `go.work`; the bootstrap gitignores `go.work` and `go.work.sum`.
   When a repo depends on a module the proxy cannot build on its own (for example
   `gksyntax`), set `GO_MK_WORKSPACE_USE` to the workspace use-paths (for example
   `. third_party/gksyntax`) before `include bootstrap.mk`, and go.mk generates a
@@ -64,11 +64,11 @@ by one fetched file, `go.mk`.
   gofumpt, goimports, staticcheck-extra) with a go.mod `tool` directive; go.mk
   installs them itself with versions it controls via the `*_INSTALL` variables,
   and a duplicate directive only drags each tool's transitive graph into the
-  module. Scaffold removes these managed tool directives on every run and leaves
+  module. Bootstrap removes these managed tool directives on every run and leaves
   project-specific tools alone; run `go mod tidy` afterward to prune their
   dependencies.
 - Lint gates diff tool findings against committed baseline files and fail only on
-  new findings. Scaffold adds repo-local `.gitignore` allowlist rules for future
+  new findings. Bootstrap adds repo-local `.gitignore` allowlist rules for future
   baseline files and `.go-mk-applied-notices`, but it does not create them during
   initial adoption. Commit `.go-mk-applied-notices` only after a notice run creates
   it. Commit baseline files only after a baseline target creates them. Changing a
@@ -95,7 +95,7 @@ by one fetched file, `go.mk`.
   `skip_unchanged: false` to always run the gates. A consumer's own Go job can
   ride the same signal with `needs: <reusable job>` and
   `if: needs.<job>.outputs.changed == 'true'`.
-- Specifics live in source: `cmd/go-mk/scaffold.go` (what scaffold writes),
+- Specifics live in source: `cmd/go-mk/bootstrap.go` (what bootstrap writes),
   `go.mk` (targets and their knobs), `golangci.yml` (lint config),
   `staticcheck/` (bundled analyzers), `.github/workflows/` (CI and release
   jobs).

@@ -1,4 +1,4 @@
-// Command render applies go-makefile scaffold templates to JSON context
+// Command render applies go-makefile bootstrap templates to JSON context
 // from stdin.
 package main
 

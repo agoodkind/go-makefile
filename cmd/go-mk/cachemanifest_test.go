@@ -11,8 +11,8 @@ import (
 func TestCacheManifestSkipsTrackedGeneratedOutputs(t *testing.T) {
 	repoDir := cacheManifestTestRepo(t)
 	mustMkdirAll(t, filepath.Join(repoDir, "gen"))
-	writeScaffoldTestFile(t, filepath.Join(repoDir, "gen", "checked.txt"), "tracked\n")
-	writeScaffoldTestFile(t, filepath.Join(repoDir, "Makefile"), "all:\n\t@true\n")
+	writeBootstrapTestFile(t, filepath.Join(repoDir, "gen", "checked.txt"), "tracked\n")
+	writeBootstrapTestFile(t, filepath.Join(repoDir, "Makefile"), "all:\n\t@true\n")
 	cacheManifestGit(t, repoDir, "add", "gen/checked.txt", "Makefile")
 	t.Chdir(repoDir)
 
@@ -98,7 +98,7 @@ func TestCacheManifestEnabledTruthTable(t *testing.T) {
 
 func TestCacheManifestRequiresSubmodules(t *testing.T) {
 	repoDir := cacheManifestTestRepo(t)
-	writeScaffoldTestFile(t, filepath.Join(repoDir, ".gitmodules"), "[submodule \"vendor/lib\"]\n\tpath = vendor/lib\n\turl = https://example.invalid/lib.git\n")
+	writeBootstrapTestFile(t, filepath.Join(repoDir, ".gitmodules"), "[submodule \"vendor/lib\"]\n\tpath = vendor/lib\n\turl = https://example.invalid/lib.git\n")
 	cacheManifestGit(t, repoDir, "add", ".gitmodules")
 	t.Chdir(repoDir)
 
@@ -276,10 +276,10 @@ func lintCachePatternMatches(t *testing.T, reported string, want string) bool {
 
 func TestCacheManifestCgoKeyStableAndChangesWithInputFile(t *testing.T) {
 	repoDir := cacheManifestTestRepo(t)
-	writeScaffoldTestFile(t, filepath.Join(repoDir, "Makefile"), "all:\n\t@true\n")
+	writeBootstrapTestFile(t, filepath.Join(repoDir, "Makefile"), "all:\n\t@true\n")
 	mustMkdirAll(t, filepath.Join(repoDir, "scripts"))
 	inputPath := filepath.Join(repoDir, "scripts", "build-pcre2.sh")
-	writeScaffoldTestFile(t, inputPath, "printf 'pcre2 10.45\\n'\n")
+	writeBootstrapTestFile(t, inputPath, "printf 'pcre2 10.45\\n'\n")
 	fakeCompiler := writeFakeCacheManifestCompiler(t, repoDir)
 	cacheManifestGit(t, repoDir, "add", "Makefile")
 	t.Chdir(repoDir)
@@ -309,7 +309,7 @@ func TestCacheManifestCgoKeyStableAndChangesWithInputFile(t *testing.T) {
 		t.Fatalf("cgo key changed across stable runs\nfirst: %s\nsecond: %s", first.outputs["cgo_cache_key"], second.outputs["cgo_cache_key"])
 	}
 
-	writeScaffoldTestFile(t, inputPath, "printf 'pcre2 10.46\\n'\n")
+	writeBootstrapTestFile(t, inputPath, "printf 'pcre2 10.46\\n'\n")
 	after := runCacheManifestForTest(t, env)
 	if first.outputs["cgo_cache_key"] == after.outputs["cgo_cache_key"] {
 		t.Fatalf("cgo key did not change after cache input changed: %s", first.outputs["cgo_cache_key"])
@@ -337,7 +337,7 @@ func TestCgoCacheCompilerProbeRunsTwoWordCommand(t *testing.T) {
 
 func TestCacheManifestKeyStable(t *testing.T) {
 	repoDir := cacheManifestTestRepo(t)
-	writeScaffoldTestFile(t, filepath.Join(repoDir, "Makefile"), "all:\n\t@true\n")
+	writeBootstrapTestFile(t, filepath.Join(repoDir, "Makefile"), "all:\n\t@true\n")
 	cacheManifestGit(t, repoDir, "add", "Makefile")
 	t.Chdir(repoDir)
 
@@ -360,7 +360,7 @@ func TestCacheManifestKeyStable(t *testing.T) {
 func TestCacheManifestKeyChangesWhenTrackedInputChanges(t *testing.T) {
 	repoDir := cacheManifestTestRepo(t)
 	makefilePath := filepath.Join(repoDir, "Makefile")
-	writeScaffoldTestFile(t, makefilePath, "all:\n\t@true\n")
+	writeBootstrapTestFile(t, makefilePath, "all:\n\t@true\n")
 	cacheManifestGit(t, repoDir, "add", "Makefile")
 	t.Chdir(repoDir)
 
@@ -370,7 +370,7 @@ func TestCacheManifestKeyChangesWhenTrackedInputChanges(t *testing.T) {
 		"GO_MK_GENERATE_OUTPUTS": "cache/out",
 	}
 	before := runCacheManifestForTest(t, env)
-	writeScaffoldTestFile(t, makefilePath, "all:\n\t@printf changed\\n\n")
+	writeBootstrapTestFile(t, makefilePath, "all:\n\t@printf changed\\n\n")
 	after := runCacheManifestForTest(t, env)
 
 	if before.outputs["generated_cache_key"] == after.outputs["generated_cache_key"] {
