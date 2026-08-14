@@ -72,7 +72,7 @@ func newRootCommand() *cobra.Command {
 	registerLintCommands(root)
 	registerEngineCommands(root)
 	registerSelfUpdateCommand(root)
-	registerBootstrapCommand(root)
+	registerScaffoldCommand(root)
 	registerInputCommands(root)
 	return root
 }

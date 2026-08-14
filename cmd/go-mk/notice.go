@@ -119,7 +119,7 @@ func shouldAutoBaselineDirective(directive noticeDirective) bool {
 }
 
 // anyConfiguredBaselineFileHasContent reports whether any configured baseline
-// file is non-empty. Empty files created during initial bootstrap should not
+// file is non-empty. Empty files created during initial scaffold should not
 // make a consumer look historical when git history is unavailable.
 func anyConfiguredBaselineFileHasContent() bool {
 	for _, baselineFile := range configuredBaselineFiles() {

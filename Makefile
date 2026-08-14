@@ -4,7 +4,7 @@
 # (build/check/lint/fmt) and per-linter sub-targets.
 #
 # Layout: two Go modules in this tree.
-#   .            render.go (bootstrap renderer) plus the project README/configs.
+#   .            render.go (scaffold renderer) plus the project README/configs.
 #   staticcheck/ the custom analyzer set (clyde-staticcheck-style strict checks).
 # Each gate runs the central go.mk pipeline against all modules.
 
