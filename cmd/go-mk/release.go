@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -53,9 +54,43 @@ type releaseConfig struct {
 	prerelease            bool
 }
 
+// releaseBinary is one binary the release ships. cgo forces CGO_ENABLED=1 for
+// this binary alone, and platforms is an optional space-separated os/arch
+// filter; an empty filter builds the binary for every configured platform.
+// Both come from the optional third field of a RELEASE_BINS entry, so a
+// consumer can ship a pure-Go binary and a cgo variant of the same command
+// from one release.
 type releaseBinary struct {
-	name    string
-	mainPkg string
+	name      string
+	mainPkg   string
+	cgo       bool
+	platforms string
+}
+
+// buildsFor reports whether this binary is built for the given os/arch target.
+func (binary releaseBinary) buildsFor(platform string) bool {
+	if binary.platforms == "" {
+		return true
+	}
+	return slices.Contains(strings.Fields(binary.platforms), platform)
+}
+
+// buildEnv returns the build environment for this binary, forcing cgo on when
+// the entry asked for it. The forced value replaces any inherited CGO_ENABLED
+// rather than shadowing it, because a duplicate key in an exec environment
+// resolves inconsistently across platforms.
+func (binary releaseBinary) buildEnv(platformEnv []string) []string {
+	if !binary.cgo {
+		return platformEnv
+	}
+	env := make([]string, 0, len(platformEnv)+1)
+	for _, entry := range platformEnv {
+		if strings.HasPrefix(entry, "CGO_ENABLED=") {
+			continue
+		}
+		env = append(env, entry)
+	}
+	return append(env, "CGO_ENABLED=1")
 }
 
 var (
@@ -313,15 +348,23 @@ func parseReleaseBinaries(binary string, mainPkg string, releaseBinsText string)
 	binaries := make([]releaseBinary, 0, len(fields))
 	for _, field := range fields {
 		parts := strings.Split(field, ":")
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("release: malformed RELEASE_BINS entry %q (want name:cmd)", field)
+		if len(parts) != 2 && len(parts) != 3 {
+			return nil, fmt.Errorf("release: malformed RELEASE_BINS entry %q (want name:cmd[:opts])", field)
 		}
 		name := strings.TrimSpace(parts[0])
 		mainPackage := strings.TrimSpace(parts[1])
 		if name == "" || mainPackage == "" {
-			return nil, fmt.Errorf("release: malformed RELEASE_BINS entry %q (want name:cmd)", field)
+			return nil, fmt.Errorf("release: malformed RELEASE_BINS entry %q (want name:cmd[:opts])", field)
 		}
-		binaries = append(binaries, releaseBinary{name: name, mainPkg: mainPackage})
+		entry := releaseBinary{name: name, mainPkg: mainPackage}
+		if len(parts) == 3 {
+			parsed, err := parseReleaseBinaryOptions(entry, field, parts[2])
+			if err != nil {
+				return nil, err
+			}
+			entry = parsed
+		}
+		binaries = append(binaries, entry)
 	}
 	// RELEASE_BINS is the full set of binaries the release ships, not an
 	// addition to BINARY. Require it to include the primary BINARY so an
@@ -344,6 +387,56 @@ func parseReleaseBinaries(binary string, mainPkg string, releaseBinsText string)
 		binaries = append([]releaseBinary{primary}, binaries...)
 	}
 	return binaries, nil
+}
+
+// releaseBinaryOption is a recognized key in the optional third field of a
+// RELEASE_BINS entry.
+type releaseBinaryOption string
+
+const (
+	// releaseBinaryOptionCgo forces CGO_ENABLED=1 for one binary.
+	releaseBinaryOptionCgo releaseBinaryOption = "cgo"
+	// releaseBinaryOptionPlatforms restricts one binary to the listed
+	// os/arch targets. It may repeat.
+	releaseBinaryOptionPlatforms releaseBinaryOption = "platforms"
+)
+
+// parseReleaseBinaryOptions applies the optional third field of a RELEASE_BINS
+// entry, a comma-separated key=value list. Two keys are recognized: cgo forces
+// CGO_ENABLED=1 for that binary, and platforms restricts it to the listed
+// os/arch targets. platforms may repeat to list several targets. An unknown key
+// is an error so a typo fails the release instead of silently building the
+// wrong artifact.
+func parseReleaseBinaryOptions(entry releaseBinary, field string, optionsText string) (releaseBinary, error) {
+	platforms := make([]string, 0, 2)
+	for _, option := range strings.Split(optionsText, ",") {
+		option = strings.TrimSpace(option)
+		if option == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(option, "=")
+		if !ok {
+			return releaseBinary{}, fmt.Errorf(
+				"release: malformed RELEASE_BINS option %q in entry %q (want key=value)", option, field)
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		switch releaseBinaryOption(key) {
+		case releaseBinaryOptionCgo:
+			entry.cgo = envTruthy(value)
+		case releaseBinaryOptionPlatforms:
+			if value == "" {
+				return releaseBinary{}, fmt.Errorf(
+					"release: empty platforms value in RELEASE_BINS entry %q", field)
+			}
+			platforms = append(platforms, value)
+		default:
+			return releaseBinary{}, fmt.Errorf(
+				"release: unknown RELEASE_BINS option %q in entry %q (want cgo or platforms)", key, field)
+		}
+	}
+	entry.platforms = strings.Join(platforms, " ")
+	return entry, nil
 }
 
 func envTruthy(value string) bool {
@@ -429,7 +522,10 @@ func buildPlatform(cfg releaseConfig, platform string) error {
 	}
 	env := buildPlatformEnv(osName, arch, pkgConfigDir, os.Getenv("PKG_CONFIG_PATH"))
 	for _, binary := range releaseBinaries(cfg) {
-		if err := buildReleaseBinary(cfg, binary, osName, arch, env); err != nil {
+		if !binary.buildsFor(platform) {
+			continue
+		}
+		if err := buildReleaseBinary(cfg, binary, osName, arch, binary.buildEnv(env)); err != nil {
 			return err
 		}
 	}
@@ -649,6 +745,9 @@ func signDarwinBinaries(cfg releaseConfig) error {
 			continue
 		}
 		for _, binary := range releaseBinaries(cfg) {
+			if !binary.buildsFor(platform) {
+				continue
+			}
 			bin := filepath.Join(cfg.distDir, fmt.Sprintf("%s_%s_%s", binary.name, osName, arch), binary.name)
 			if err := signAndNotarizeDarwinBinary(quill, bin, cfg.entitlements); err != nil {
 				return err
@@ -718,6 +817,9 @@ func archivePlatforms(cfg releaseConfig) ([]string, error) {
 			return nil, fmt.Errorf("release: malformed platform %q", platform)
 		}
 		for _, binary := range binaries {
+			if !binary.buildsFor(platform) {
+				continue
+			}
 			name := fmt.Sprintf("%s_%s_%s", binary.name, osName, arch)
 			dir := filepath.Join(cfg.distDir, name)
 			archivePath := filepath.Join(cfg.distDir, name+".tar.gz")
