@@ -151,5 +151,5 @@ func requireWorkflowOrder(t *testing.T, workflow string, before string, after st
 }
 
 func darwinCcacheWorkflowKey() string {
-	return "ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-${{ steps.submodule-pins.outputs.digest }}"
+	return "ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles(format('{0}/go.mod', inputs.working_directory), format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}-${{ steps.submodule-pins.outputs.digest }}"
 }
