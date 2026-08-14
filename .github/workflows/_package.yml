@@ -69,7 +69,7 @@ jobs:
             goos="${platform%%/*}"
             goarch="${platform##*/}"
             case "${goos}/${goarch}" in
-              linux/amd64|linux/arm64|darwin/amd64|darwin/arm64)
+              linux/amd64|linux/arm64|darwin/amd64|darwin/arm64|freebsd/amd64|freebsd/arm64)
                 row=$(jq -nc --arg goos "${goos}" --arg goarch "${goarch}" '{goos:$goos,goarch:$goarch}')
                 ;;
               *)
