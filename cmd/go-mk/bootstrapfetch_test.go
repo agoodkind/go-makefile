@@ -648,7 +648,7 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 	}
 }
 
-func TestHelperProvisionedRejectsDirectoryInPlaceOfAsset(t *testing.T) {
+func TestHelperSkipFetchRejectsDirectoryInPlaceOfAsset(t *testing.T) {
 	dir := t.TempDir()
 	// Seed every required asset, then replace exactly one with a directory.
 	// Listing the assets by hand here is what made this test pass for the
@@ -668,7 +668,7 @@ func TestHelperProvisionedRejectsDirectoryInPlaceOfAsset(t *testing.T) {
 	}
 
 	_, stderr, code := runHelper(t, dir, map[string]string{
-		"_GO_MK_PROVISIONED":  "1",
+		"GO_MK_SKIP_FETCH":    "1",
 		"GO_MK_CODELOAD_BASE": "http://127.0.0.1:9",
 	})
 	if code == 0 {

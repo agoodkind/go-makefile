@@ -28,18 +28,18 @@ GO_MK_BOOTSTRAP_URL := $(GO_MK_BOOTSTRAP_BASE_URL)/$(GO_MK_API_REPO)/$(GO_MK_API
 # network is gone, and only a cold offline start fails here.
 #
 # This is a consumer-committed fetch, so it cannot be hardened later the way
-# a fetched file can: any future change here needs another consumer PR. The
-# curl flags below give it the same treatment provision() in go-mk-bootstrap.sh
-# got. --speed-limit/--speed-time abort a stalled connection by lack of
-# progress rather than elapsed time (a stall dies in ~3s instead of riding
-# --max-time out), and --retry-max-time caps the retry cascade at two attempts
-# instead of leaving it unbounded (curl treats a speed-limit or max-time abort
-# as a retriable transient error, so uncapped retries would cost roughly 4x
-# --max-time). --connect-timeout is 5, not tighter, for the same reason
-# provision()'s is: connect time (DNS, TCP, TLS setup) has nothing to do with
-# stall detection, and this is the very first network call a cold consumer
-# makes, so it must not fail a slow-but-working link before retrying has a
-# chance to help.
+# a fetched file can: any future change here needs another consumer PR, which
+# is exactly the round this task exists to end. The curl flags below give it
+# the same treatment provision() in go-mk-bootstrap.sh got. --speed-limit/
+# --speed-time abort a stalled connection by lack of progress rather than
+# elapsed time (a stall dies in ~3s instead of riding --max-time out), and
+# --retry-max-time caps the retry cascade at two attempts instead of leaving
+# it unbounded (curl treats a speed-limit or max-time abort as a retriable
+# transient error, so uncapped retries would cost roughly 4x --max-time).
+# --connect-timeout is 5, not tighter, for the same reason provision()'s is:
+# connect time (DNS, TCP, TLS setup) has nothing to do with stall detection,
+# and this is the very first network call a cold consumer makes, so it must
+# not fail a slow-but-working link before retrying has a chance to help.
 define _go_mk_get_bootstrap
 	if [ -n "$(GO_MK_DEV_DIR)" ] && [ -f "$(GO_MK_DEV_DIR)/scripts/go-mk-bootstrap.sh" ]; then \
 		mkdir -p .make/scripts; \
@@ -72,7 +72,7 @@ endef
 
 GO_MK_BOOTSTRAP_FETCHED := 1
 
-ifeq ($(strip $(_GO_MK_PROVISIONED)),1)
+ifeq ($(strip $(GO_MK_SKIP_FETCH)),1)
 # Test for a non-empty regular file, not merely an existing path. $(wildcard)
 # reports any name that exists, including a zero-byte file, and bash exits 0 on
 # an empty script, so GO_MK_PROVISION would come back `ok` and the parse would
@@ -83,7 +83,7 @@ ifeq ($(strip $(_GO_MK_PROVISIONED)),1)
 # fetch path uses on the cached helper, so both paths agree on what counts as
 # present.
 GO_MK_BOOTSTRAP_PRESENT := $(shell test -s "$(GO_MK_BOOTSTRAP)" && printf yes)
-$(if $(GO_MK_BOOTSTRAP_PRESENT),,$(error go-makefile expected a non-empty $(GO_MK_BOOTSTRAP); rerun without _GO_MK_PROVISIONED))
+$(if $(GO_MK_BOOTSTRAP_PRESENT),,$(error go-makefile expected a non-empty $(GO_MK_BOOTSTRAP); rerun without GO_MK_SKIP_FETCH))
 else
 $(shell { $(call _go_mk_get_bootstrap); } 1>&2)
 endif
@@ -115,7 +115,7 @@ endif
 #                       downloads upstream over the developer's own checkout,
 #                       so they build and lint against main believing they
 #                       are testing local edits
-#   _GO_MK_PROVISIONED  this file honors it while the helper fetches anyway,
+#   GO_MK_SKIP_FETCH    this file honors it while the helper fetches anyway,
 #                       so an air-gapped or pre-vendored build fails at parse
 #                       time, the exact case the flag exists to serve
 #   GO_MK_CODELOAD_BASE the redirect is silently ineffective and the helper
@@ -125,7 +125,7 @@ endif
 #   GO_MK_API_REF       the wrong repository or ref's assets
 #
 # Adding a GO_MK_* variable that the helper reads means adding it here too.
-GO_MK_PROVISION := $(shell GO_MK_API_REPO="$(GO_MK_API_REPO)" GO_MK_API_REF="$(GO_MK_API_REF)" GO_MK_MODULES="$(GO_MK_MODULES)" GO_MK_CODELOAD_BASE="$(GO_MK_CODELOAD_BASE)" GO_MK_DEV_DIR="$(GO_MK_DEV_DIR)" _GO_MK_PROVISIONED="$(_GO_MK_PROVISIONED)" bash "$(GO_MK_BOOTSTRAP)" >&2 && printf ok)
+GO_MK_PROVISION := $(shell GO_MK_API_REPO="$(GO_MK_API_REPO)" GO_MK_API_REF="$(GO_MK_API_REF)" GO_MK_MODULES="$(GO_MK_MODULES)" GO_MK_CODELOAD_BASE="$(GO_MK_CODELOAD_BASE)" GO_MK_DEV_DIR="$(GO_MK_DEV_DIR)" GO_MK_SKIP_FETCH="$(GO_MK_SKIP_FETCH)" bash "$(GO_MK_BOOTSTRAP)" >&2 && printf ok)
 $(if $(filter ok,$(GO_MK_PROVISION)),,$(error go-makefile failed to provision its assets))
 
 # go.mk handles -including the modules at its tail (after all its variables

@@ -24,7 +24,7 @@ func TestGolangciCacheSaveDecision(t *testing.T) {
 		t.Fatalf("seed golangci configuration: %v", err)
 	}
 	makefile := "GO_MK_DEV_DIR := " + repoRoot + "\n" +
-		"_GO_MK_PROVISIONED := 1\n" +
+		"GO_MK_SKIP_FETCH := 1\n" +
 		"include " + filepath.Join(repoRoot, "go.mk") + "\n"
 	if err := os.WriteFile(filepath.Join(consumerDir, "Makefile"), []byte(makefile), 0o644); err != nil {
 		t.Fatalf("write consumer Makefile: %v", err)

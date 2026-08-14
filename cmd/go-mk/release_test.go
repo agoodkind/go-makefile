@@ -805,7 +805,7 @@ func TestProvisionCgoDepsDoesNotWriteStampWhenKeyIsEmpty(t *testing.T) {
 
 // TestGoMkCgoDepsHookProvisionsConsumerTarget runs the real go.mk go-mk-cgo-deps
 // target against a hermetic fixture consumer (no network: GO_MK_DEV_DIR plus
-// _GO_MK_PROVISIONED), proving the loop runs a consumer go-mk-cgo-dep-<dep> target
+// GO_MK_SKIP_FETCH), proving the loop runs a consumer go-mk-cgo-dep-<dep> target
 // with GO_MK_CGO_PREFIX and PKG_CONFIG_PATH reaching the recipe so a .pc file
 // lands under the per-target prefix.
 func TestGoMkCgoDepsHookProvisionsConsumerTarget(t *testing.T) {
@@ -825,7 +825,7 @@ func TestGoMkCgoDepsHookProvisionsConsumerTarget(t *testing.T) {
 		t.Fatalf("seed golangci.yml: %v", err)
 	}
 	makefile := "GO_MK_DEV_DIR := " + repoRoot + "\n" +
-		"_GO_MK_PROVISIONED := 1\n" +
+		"GO_MK_SKIP_FETCH := 1\n" +
 		"GO_MK_CGO_DEPS := demolib\n" +
 		"include " + filepath.Join(repoRoot, "go.mk") + "\n\n" +
 		".PHONY: go-mk-cgo-dep-demolib\n" +
@@ -836,7 +836,7 @@ func TestGoMkCgoDepsHookProvisionsConsumerTarget(t *testing.T) {
 		t.Fatalf("write Makefile: %v", err)
 	}
 	cmd := exec.Command(makeBin, "go-mk-cgo-deps",
-		"GO_MK_TARGET_GOOS=darwin", "GO_MK_TARGET_GOARCH=arm64", "_GO_MK_PROVISIONED=1")
+		"GO_MK_TARGET_GOOS=darwin", "GO_MK_TARGET_GOARCH=arm64", "GO_MK_SKIP_FETCH=1")
 	cmd.Dir = workDir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("make go-mk-cgo-deps failed: %v\n%s", err, out)

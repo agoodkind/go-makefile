@@ -70,7 +70,7 @@ LOCK_WAIT_SECONDS=30
 # That is the intended trade. This runs at Makefile parse time on every build,
 # where a bounded failure a developer can see and retry beats an unbounded
 # wait, and 15 is already about 6x a real cold download (measured 2.06-2.4s).
-# A consumer on a genuinely slow link has _GO_MK_PROVISIONED once .make is warm.
+# A consumer on a genuinely slow link has GO_MK_SKIP_FETCH once .make is warm.
 FETCH_MAX_TIME=15
 # FETCH_SPEED_LIMIT/FETCH_SPEED_TIME give curl a progress-based abort:
 # --speed-limit bytes/sec sustained for less than --speed-time seconds
@@ -594,7 +594,7 @@ serve_from_disk_with_warning() {
     else
         age_display="an unknown time"
     fi
-    printf 'go-makefile: upstream unreachable; serving .make assets validated %s ago (etag %s). Set _GO_MK_PROVISIONED=1 to silence, or check network access to %s\n' \
+    printf 'go-makefile: upstream unreachable; serving .make assets validated %s ago (etag %s). Set GO_MK_SKIP_FETCH=1 to silence, or check network access to %s\n' \
         "${age_display}" "${etag_value}" "${GO_MK_CODELOAD_BASE}" >&2
 }
 
@@ -787,11 +787,11 @@ main() {
         return 0
     fi
 
-    if [[ "${_GO_MK_PROVISIONED:-}" == "1" ]]; then
+    if [[ "${GO_MK_SKIP_FETCH:-}" == "1" ]]; then
         if assets_complete "${MAKE_DIR}"; then
             return 0
         fi
-        printf '%s\n' "error: _GO_MK_PROVISIONED=1 but .make is missing a required asset" >&2
+        printf '%s\n' "error: GO_MK_SKIP_FETCH=1 but .make is missing a required asset" >&2
         return 1
     fi
 

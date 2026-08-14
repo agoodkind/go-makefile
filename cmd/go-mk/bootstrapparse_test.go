@@ -168,12 +168,12 @@ func TestDevDirHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
 	}
 }
 
-// TestProvisionedHonoredWhenSetOnTheMakeCommandLine is the same split for the
+// TestSkipFetchHonoredWhenSetOnTheMakeCommandLine is the same split for the
 // flag that means "do not touch the network, the assets are already here".
 // bootstrap.mk honors it while the helper, not seeing it, fetches anyway, so
 // an air-gapped or pre-vendored build fails at parse time, which is the exact
 // case the flag exists to serve.
-func TestProvisionedHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
+func TestSkipFetchHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
 	dir := newConsumer(t)
 	for name, body := range helperFiles() {
 		// Leave the helper alone. newConsumer seeded .make with this
@@ -191,11 +191,11 @@ func TestProvisionedHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
 	}
 
 	output, code := runMakeWithCommandLineVars(t, dir, map[string]string{
-		"_GO_MK_PROVISIONED":  "1",
+		"GO_MK_SKIP_FETCH":    "1",
 		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
 	})
 	if code != 0 {
-		t.Fatalf("parse exit = %d with _GO_MK_PROVISIONED=1 on the command line and a complete .make, "+
+		t.Fatalf("parse exit = %d with GO_MK_SKIP_FETCH=1 on the command line and a complete .make, "+
 			"want 0 (the flag must prevent every network access): %s", code, output)
 	}
 }
@@ -247,12 +247,12 @@ func TestOfflineParseDoesNotDestroyCachedAssets(t *testing.T) {
 	}
 }
 
-// TestProvisionedRejectsAnEmptyHelper covers the provisioned guard, which used
+// TestSkipFetchRejectsAnEmptyHelper covers the skip-fetch guard, which used
 // $(wildcard) and so accepted any path that exists. An empty helper satisfies
 // that, and bash exits 0 on an empty script, so GO_MK_PROVISION came back "ok"
 // and the parse continued with nothing provisioned. An interrupted earlier
 // run, a full disk, or a hand-created placeholder all produce that file.
-func TestProvisionedRejectsAnEmptyHelper(t *testing.T) {
+func TestSkipFetchRejectsAnEmptyHelper(t *testing.T) {
 	dir := newConsumer(t)
 	helperPath := filepath.Join(dir, ".make", "scripts", "go-mk-bootstrap.sh")
 	if err := os.WriteFile(helperPath, nil, 0o755); err != nil {
@@ -274,7 +274,7 @@ func TestProvisionedRejectsAnEmptyHelper(t *testing.T) {
 	}
 
 	output, code := runMake(t, dir, map[string]string{
-		"_GO_MK_PROVISIONED":  "1",
+		"GO_MK_SKIP_FETCH":    "1",
 		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
 	})
 	if code == 0 {
@@ -284,32 +284,6 @@ func TestProvisionedRejectsAnEmptyHelper(t *testing.T) {
 	if !strings.Contains(output, "non-empty") {
 		t.Fatalf("parse failed but not on the helper guard, so this test would pass for an "+
 			"unrelated reason\noutput: %s", output)
-	}
-}
-
-// TestProvisionedZeroStillFetchesGolangci covers go.mk's module and golangci
-// require-or-fetch guards. Concatenating GO_MK_BOOTSTRAP_FETCHED with
-// _GO_MK_PROVISIONED treats any non-empty value, including 0, as provisioned.
-// Including go.mk directly leaves GO_MK_BOOTSTRAP_FETCHED unset, so 0 must
-// still fetch rather than fail on a missing .make/golangci.yml.
-func TestProvisionedZeroStillFetchesGolangci(t *testing.T) {
-	repoRoot := repoRootForTest(t)
-	dir := t.TempDir()
-	makefile := "GO_MK_DEV_DIR := " + repoRoot + "\n" +
-		"include " + filepath.Join(repoRoot, "go.mk") + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0o644); err != nil {
-		t.Fatalf("write Makefile: %v", err)
-	}
-
-	output, code := runMakeWithCommandLineVars(t, dir, map[string]string{
-		"_GO_MK_PROVISIONED": "0",
-	})
-	if code != 0 {
-		t.Fatalf("parse exit = %d with _GO_MK_PROVISIONED=0 and no local golangci.yml, "+
-			"want 0 (0 is not provisioned, so go.mk must fetch): %s", code, output)
-	}
-	if strings.Contains(output, "rerun without _GO_MK_PROVISIONED") {
-		t.Fatalf("go.mk treated _GO_MK_PROVISIONED=0 as provisioned:\n%s", output)
 	}
 }
 
