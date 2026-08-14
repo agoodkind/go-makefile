@@ -35,7 +35,7 @@ update_assets() {
             continue
         fi
         if [[ "${asset_name}" == "go.mk" ]]; then
-            destination_path="${__GO_MK_FILE:-go.mk}"
+            destination_path="${GO_MK:-go.mk}"
         else
             destination_path=".make/${asset_name}"
         fi

@@ -30,8 +30,8 @@ STATIC_LINT_ARGS += $(STATICCHECK_EXTRA_LOCAL_ARGS)
 # push and neither sub-make resolves @main over the network.
 GO_MK_LOCAL_ARGS := \
 	GO_MK_DEV_DIR="$(CURDIR)" \
-	_GO_MK_BUILD_REPO="$(CURDIR)" \
-	_GO_MK_BUILD_PKG=./cmd/go-mk
+	GO_MK_BUILD_REPO="$(CURDIR)" \
+	GO_MK_BUILD_PKG=./cmd/go-mk
 ROOT_LINT_ARGS  += $(GO_MK_LOCAL_ARGS)
 STATIC_LINT_ARGS += $(GO_MK_LOCAL_ARGS)
 

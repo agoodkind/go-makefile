@@ -16,7 +16,7 @@ GO_MK_API_REPO="${GO_MK_API_REPO:-agoodkind/go-makefile}"
 GO_MK_API_REF="${GO_MK_API_REF:-main}"
 # Internal override, in the same category as GO_MK_API_REPO and GO_MK_API_REF.
 # Tests point it at a local server; consumers never set it.
-_GO_MK_CODELOAD_BASE="${_GO_MK_CODELOAD_BASE:-https://codeload.github.com}"
+GO_MK_CODELOAD_BASE="${GO_MK_CODELOAD_BASE:-https://codeload.github.com}"
 GO_MK_DEV_DIR="${GO_MK_DEV_DIR:-}"
 GO_MK_MODULES="${GO_MK_MODULES:-}"
 
@@ -520,7 +520,7 @@ validate_upstream() {
         --max-time "${VALIDATION_MAX_TIME}" \
         ${header_args[@]+"${header_args[@]}"} \
         -o /dev/null -w '%{http_code}' \
-        "${_GO_MK_CODELOAD_BASE}/${GO_MK_API_REPO}/tar.gz/${GO_MK_API_REF}" \
+        "${GO_MK_CODELOAD_BASE}/${GO_MK_API_REPO}/tar.gz/${GO_MK_API_REF}" \
         2>"${stderr_path}")
     curl_exit=$?
     if [[ "${curl_exit}" -ne 0 ]]; then
@@ -595,7 +595,7 @@ serve_from_disk_with_warning() {
         age_display="an unknown time"
     fi
     printf 'go-makefile: upstream unreachable; serving .make assets validated %s ago (etag %s). Set _GO_MK_PROVISIONED=1 to silence, or check network access to %s\n' \
-        "${age_display}" "${etag_value}" "${_GO_MK_CODELOAD_BASE}" >&2
+        "${age_display}" "${etag_value}" "${GO_MK_CODELOAD_BASE}" >&2
 }
 
 # provision downloads, extracts into a stage, verifies, then installs.
@@ -659,7 +659,7 @@ provision() {
             --retry 3 --retry-delay 2 --retry-max-time "${FETCH_RETRY_MAX_TIME}" \
             -D "${stage_root}/headers" \
             -o "${stage_root}/snapshot.tar.gz" -w '%{http_code}' \
-            "${_GO_MK_CODELOAD_BASE}/${GO_MK_API_REPO}/tar.gz/${GO_MK_API_REF}" \
+            "${GO_MK_CODELOAD_BASE}/${GO_MK_API_REPO}/tar.gz/${GO_MK_API_REF}" \
             >"${stage_root}/status_code" 2>"${stage_root}/curl.stderr"
         curl_exit=$?
         if [[ "${curl_exit}" -ne 0 ]]; then
@@ -670,7 +670,7 @@ provision() {
         status_code=$(cat "${stage_root}/status_code")
         if [[ "${status_code}" != "200" ]]; then
             printf 'error: tarball fetch returned HTTP %s from %s\n' \
-                "${status_code}" "${_GO_MK_CODELOAD_BASE}" >&2
+                "${status_code}" "${GO_MK_CODELOAD_BASE}" >&2
             exit 1
         fi
 
@@ -731,7 +731,7 @@ provision() {
         if [[ -z "${etag_value}" ]]; then
             rm -f "${STATE_PATH}"
             printf 'go-makefile: upstream served no ETag header; installed the fetched tree but could not record validation state, so every run will download unconditionally until ETag returns. Check upstream (%s).\n' \
-                "${_GO_MK_CODELOAD_BASE}" >&2
+                "${GO_MK_CODELOAD_BASE}" >&2
             exit 0
         fi
         # A failed state write is degraded operation, not a provisioning
@@ -857,7 +857,7 @@ main() {
     # after a provision succeeds, so a broken helper is self-perpetuating:
     # nothing replaces it and no other message tells the user that deleting it
     # is what forces a fresh copy.
-    printf '%s\n' "error: could not provision go-makefile assets. Set GO_MK_DEV_DIR, or check network access to ${_GO_MK_CODELOAD_BASE}. If this helper itself is bad, delete ${MAKE_DIR}/${SELF_ASSET} to force a fresh copy on the next run." >&2
+    printf '%s\n' "error: could not provision go-makefile assets. Set GO_MK_DEV_DIR, or check network access to ${GO_MK_CODELOAD_BASE}. If this helper itself is bad, delete ${MAKE_DIR}/${SELF_ASSET} to force a fresh copy on the next run." >&2
     return 1
 }
 

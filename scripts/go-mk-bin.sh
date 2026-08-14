@@ -3,7 +3,7 @@ set -eo pipefail
 
 # Resolve the go-mk binary on demand. Modeled on
 # scripts/go-mk-staticcheck-extra.sh. Resolution order: an explicit
-# GO_MK_BIN; a dev build from _GO_MK_BUILD_REPO with find -newer
+# GO_MK_BIN; a dev build from GO_MK_BUILD_REPO with find -newer
 # staleness; otherwise `go install GO_MK_INSTALL`. The default install
 # spec tracks the main branch tip (@main), so consumers always resolve the
 # current engine with no version pin, and the @main arm reinstalls every run.
@@ -154,8 +154,8 @@ baseline_build_from_repo() {
     local original_dir
 
     output_path=$(baseline_output_path)
-    repo_path="${_GO_MK_BUILD_REPO:-}"
-    package_path="${_GO_MK_BUILD_PKG:-./cmd/go-mk}"
+    repo_path="${GO_MK_BUILD_REPO:-}"
+    package_path="${GO_MK_BUILD_PKG:-./cmd/go-mk}"
     original_dir="${PWD}"
     mkdir -p "$(dirname "${output_path}")"
     # Remove any prior output first so the build replaces a stale dev binary or
@@ -206,8 +206,8 @@ baseline_resolve_bin() {
     local rebuild_reason
 
     configured_bin="${GO_MK_BIN:-}"
-    repo_path="${_GO_MK_BUILD_REPO:-}"
-    package_path="${_GO_MK_BUILD_PKG:-}"
+    repo_path="${GO_MK_BUILD_REPO:-}"
+    package_path="${GO_MK_BUILD_PKG:-}"
     install_spec="${GO_MK_INSTALL:-goodkind.io/go-makefile/cmd/go-mk@main}"
     output_path=$(baseline_output_path)
 

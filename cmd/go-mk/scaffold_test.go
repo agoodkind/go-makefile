@@ -50,10 +50,10 @@ func TestConsumerBootstrapMkStripsComments(t *testing.T) {
 	if strings.Contains(stripped, "tiny shim") {
 		t.Fatalf("stripped bootstrap.mk still contains prose comment:\n%s", stripped)
 	}
-	if !strings.Contains(stripped, "__GO_MK_BOOTSTRAP_FETCHED := 1") {
-		t.Fatalf("stripped bootstrap.mk missing __GO_MK_BOOTSTRAP_FETCHED:\n%s", stripped)
+	if !strings.Contains(stripped, "GO_MK_BOOTSTRAP_FETCHED := 1") {
+		t.Fatalf("stripped bootstrap.mk missing GO_MK_BOOTSTRAP_FETCHED:\n%s", stripped)
 	}
-	if !strings.Contains(stripped, "define __go_mk_get_bootstrap") {
+	if !strings.Contains(stripped, "define _go_mk_get_bootstrap") {
 		t.Fatalf("stripped bootstrap.mk missing helper define:\n%s", stripped)
 	}
 }
@@ -400,7 +400,7 @@ func TestScaffoldScenarios(t *testing.T) {
 		assertScaffoldTrackedFilesAbsent(t, repoDir)
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "BINARY := bootstrap-probe")
 		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk go-release.mk")
-		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "__GO_MK_BOOTSTRAP_FETCHED := 1")
+		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "GO_MK_BOOTSTRAP_FETCHED := 1")
 		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "DO NOT MODIFY")
 		assertFileNotContains(t, filepath.Join(repoDir, "bootstrap.mk"), "tiny shim")
 		assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")

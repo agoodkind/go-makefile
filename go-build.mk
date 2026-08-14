@@ -65,10 +65,10 @@ $(error go-build.mk: CMD is not set)
 endif
 
 DIST_DIR ?= dist
-__GO_MK_DIST_BIN := $(DIST_DIR)/$(BINARY)
+DIST_BIN := $(DIST_DIR)/$(BINARY)
 
 INSTALL_DIR ?= $(or $(XDG_BIN_HOME),$(HOME)/.local/bin)
-__GO_MK_INSTALL_BIN := $(INSTALL_DIR)/$(BINARY)
+INSTALL_BIN := $(INSTALL_DIR)/$(BINARY)
 
 # Extra binaries beyond the primary BINARY, declared as space-separated
 # name:cmd pairs (an optional third field name:cmd:dir overrides INSTALL_DIR for
@@ -92,13 +92,13 @@ RELEASE_BINS ?=
 # Every path the engine writes. An empty INSTALL_BINS means the single
 # BINARY:CMD. A non-empty one replaces that default outright and need not name
 # BINARY, so both lists are derived from it rather than assumed to contain
-# $(__GO_MK_DIST_BIN) or $(__GO_MK_INSTALL_BIN).
+# $(DIST_BIN) or $(INSTALL_BIN).
 __go-mk-bin-field = $(word $(2),$(subst :, ,$(1)))
 __go-mk-installed-path = $(or $(call __go-mk-bin-field,$(1),3),$(INSTALL_DIR))/$(call __go-mk-bin-field,$(1),1)
 
 ifeq ($(strip $(INSTALL_BINS)),)
-__GO_MK_DIST_OUTPUTS    := $(__GO_MK_DIST_BIN)
-__GO_MK_INSTALL_OUTPUTS := $(__GO_MK_INSTALL_BIN)
+__GO_MK_DIST_OUTPUTS    := $(DIST_BIN)
+__GO_MK_INSTALL_OUTPUTS := $(INSTALL_BIN)
 else
 __GO_MK_DIST_OUTPUTS    := $(foreach spec,$(INSTALL_BINS),$(DIST_DIR)/$(call __go-mk-bin-field,$(spec),1))
 __GO_MK_INSTALL_OUTPUTS := $(foreach spec,$(INSTALL_BINS),$(call __go-mk-installed-path,$(spec)))
@@ -231,10 +231,10 @@ __GO_MK_INPUTS_UNKNOWN := 1
 endif
 
 # Version metadata derived from git. Single canonical scheme across all repos.
-__GO_MK_GIT_COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
-__GO_MK_GIT_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-__GO_MK_GIT_DIRTY   := $(shell git diff --quiet 2>/dev/null && echo false || echo true)
-__GO_MK_BUILD_TIME  := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+GIT_COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+GIT_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+GIT_DIRTY   := $(shell git diff --quiet 2>/dev/null && echo false || echo true)
+BUILD_TIME  := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Stamped LDFLAGS. VPKG is optional; when set, the project's version package
 # must define matching exported string vars (Commit, Version, Dirty, BuildTime).
@@ -254,30 +254,30 @@ __GO_MK_CONSUMER_LDFLAGS := $(GO_BUILD_LDFLAGS)
 
 ifneq ($(strip $(VPKG)),)
 GO_BUILD_LDFLAGS += \
-	-X $(VPKG).Commit=$(__GO_MK_GIT_COMMIT) \
-	-X $(VPKG).Version=$(__GO_MK_GIT_VERSION) \
-	-X $(VPKG).Dirty=$(__GO_MK_GIT_DIRTY) \
-	-X $(VPKG).BuildTime=$(__GO_MK_BUILD_TIME)
+	-X $(VPKG).Commit=$(GIT_COMMIT) \
+	-X $(VPKG).Version=$(GIT_VERSION) \
+	-X $(VPKG).Dirty=$(GIT_DIRTY) \
+	-X $(VPKG).BuildTime=$(BUILD_TIME)
 endif
 
 ifneq ($(strip $(GKLOG_VPKG)),)
 GO_BUILD_LDFLAGS += \
-	-X $(GKLOG_VPKG).Version=$(__GO_MK_GIT_VERSION) \
-	-X $(GKLOG_VPKG).Commit=$(__GO_MK_GIT_COMMIT) \
-	-X $(GKLOG_VPKG).Dirty=$(__GO_MK_GIT_DIRTY) \
-	-X $(GKLOG_VPKG).BuildTime=$(__GO_MK_BUILD_TIME) \
+	-X $(GKLOG_VPKG).Version=$(GIT_VERSION) \
+	-X $(GKLOG_VPKG).Commit=$(GIT_COMMIT) \
+	-X $(GKLOG_VPKG).Dirty=$(GIT_DIRTY) \
+	-X $(GKLOG_VPKG).BuildTime=$(BUILD_TIME) \
 	-X $(GKLOG_VPKG).BinHash=
 endif
 
 GO_BUILD_TAGS          ?=
-__GO_MK_TAGS_FLAG     := $(if $(strip $(GO_BUILD_TAGS)),-tags '$(GO_BUILD_TAGS)',)
-__GO_MK_LDFLAGS_FLAG  := $(if $(strip $(GO_BUILD_LDFLAGS)),-ldflags '$(GO_BUILD_LDFLAGS)',)
+GO_BUILD_TAGS_FLAG     := $(if $(strip $(GO_BUILD_TAGS)),-tags '$(GO_BUILD_TAGS)',)
+GO_BUILD_LDFLAGS_FLAG  := $(if $(strip $(GO_BUILD_LDFLAGS)),-ldflags '$(GO_BUILD_LDFLAGS)',)
 GO_BUILD_EXTRA_FLAGS   ?=
 
 # Override go.mk's GO_BUILD_FLAGS so its `build` target picks up our ldflags
 # even when called via the legacy path. The standardized `build` below uses
 # the same vars.
-GO_BUILD_FLAGS := $(__GO_MK_TAGS_FLAG) $(__GO_MK_LDFLAGS_FLAG) $(GO_BUILD_EXTRA_FLAGS)
+GO_BUILD_FLAGS := $(GO_BUILD_TAGS_FLAG) $(GO_BUILD_LDFLAGS_FLAG) $(GO_BUILD_EXTRA_FLAGS)
 
 # Codesign: macOS-only, opt-in. Project sets BUNDLE_ID; identity is
 # auto-detected from the keychain or pinned via CERT_ID in config.mk.
@@ -341,7 +341,7 @@ export GO_MK_INSTALL_POST_CMD
 # package compiles, and go list reports only the files the current context
 # selects. The commit, version, and dirty flag are in so the identity the
 # binary reports matches the tree it was built from, which costs one rebuild
-# after a commit, a tag, or a move between a clean and a dirty tree. __GO_MK_BUILD_TIME
+# after a commit, a tag, or a move between a clean and a dirty tree. BUILD_TIME
 # is the one stamped value left out, because it moves every second and would
 # rebuild on every invocation.
 #
@@ -355,7 +355,7 @@ __GO_MK_SETTINGS := \
 	tags=$(GO_BUILD_TAGS) extra=$(GO_BUILD_EXTRA_FLAGS) ldflags=$(__GO_MK_CONSUMER_LDFLAGS) \
 	cgo=$(CGO_ENABLED) goflags=$(GOFLAGS) goos=$(GOOS) goarch=$(GOARCH) \
 	vpkg=$(VPKG) gklog_vpkg=$(GKLOG_VPKG) \
-	commit=$(__GO_MK_GIT_COMMIT) version=$(__GO_MK_GIT_VERSION) dirty=$(__GO_MK_GIT_DIRTY) \
+	commit=$(GIT_COMMIT) version=$(GIT_VERSION) dirty=$(GIT_DIRTY) \
 	files=$(sort $(__GO_MK_FRESHNESS_INPUTS)) lint=$(__GO_MK_LINT_CONFIG_DIGEST) \
 	bundle=$(BUNDLE_ID) identity=$(CODESIGN_IDENTITY) timestamp=$(CODESIGN_TIMESTAMP) \
 	entitlements=$(CODESIGN_ENTITLEMENTS) \
@@ -396,7 +396,7 @@ __go-mk-settings-stamp: $(__GO_MK_SETTINGS_STAMP)
 #
 # build and install are name wrappers; the work hangs off the real files they
 # produce, so an unchanged tree runs no recipe at all. Both file rules depend on
-# sources rather than on each other: chaining $(__GO_MK_INSTALL_BIN) to $(__GO_MK_DIST_BIN)
+# sources rather than on each other: chaining $(INSTALL_BIN) to $(DIST_BIN)
 # would pay the gate twice on every real change, because the engine's install
 # command runs the gate and the compile itself. Running `make build install`
 # together still gates twice; either one alone gates once.
@@ -445,10 +445,10 @@ version-info:
 	@echo "cmd:         $(CMD)"
 	@echo "vpkg:        $(VPKG)"
 	@echo "gklog_vpkg:  $(GKLOG_VPKG)"
-	@echo "commit:      $(__GO_MK_GIT_COMMIT)"
-	@echo "version:     $(__GO_MK_GIT_VERSION)"
-	@echo "dirty:       $(__GO_MK_GIT_DIRTY)"
-	@echo "build_time:  $(__GO_MK_BUILD_TIME)"
+	@echo "commit:      $(GIT_COMMIT)"
+	@echo "version:     $(GIT_VERSION)"
+	@echo "dirty:       $(GIT_DIRTY)"
+	@echo "build_time:  $(BUILD_TIME)"
 	@echo "tags:        $(GO_BUILD_TAGS)"
 	@echo "cgo_enabled: $(CGO_ENABLED)"
 	@echo "codesign_entitlements: $(CODESIGN_ENTITLEMENTS)"

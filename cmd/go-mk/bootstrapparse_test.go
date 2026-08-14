@@ -12,7 +12,7 @@ import (
 // newConsumer builds a temp repo shaped like a real consumer: its own Makefile
 // that includes the committed bootstrap.mk. It also pre-seeds
 // .make/scripts/go-mk-bootstrap.sh with this checkout's own copy of the
-// helper, so bootstrap.mk's own acquisition step (__go_mk_get_bootstrap)
+// helper, so bootstrap.mk's own acquisition step (_go_mk_get_bootstrap)
 // finds it already on disk and reuses it rather than fetching
 // raw.githubusercontent.com/agoodkind/go-makefile/main/scripts/go-mk-bootstrap.sh:
 // that URL reflects whatever is on the real main branch, not this
@@ -157,7 +157,7 @@ func TestDevDirHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
 
 	output, code := runMakeWithCommandLineVars(t, dir, map[string]string{
 		"GO_MK_DEV_DIR":       devDir,
-		"_GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
 	})
 	if code != 0 {
 		t.Fatalf("parse exit = %d with GO_MK_DEV_DIR set on the command line, want 0: %s", code, output)
@@ -192,7 +192,7 @@ func TestProvisionedHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
 
 	output, code := runMakeWithCommandLineVars(t, dir, map[string]string{
 		"_GO_MK_PROVISIONED":  "1",
-		"_GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
 	})
 	if code != 0 {
 		t.Fatalf("parse exit = %d with _GO_MK_PROVISIONED=1 on the command line and a complete .make, "+
@@ -227,7 +227,7 @@ func TestOfflineParseDoesNotDestroyCachedAssets(t *testing.T) {
 	server := newFetchServer(t, consumerFiles(t))
 	dir := newConsumer(t)
 
-	output, code := runMake(t, dir, map[string]string{"_GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	output, code := runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
 	if code != 0 {
 		t.Fatalf("warm parse exit = %d, want 0: %s", code, output)
 	}
@@ -237,7 +237,7 @@ func TestOfflineParseDoesNotDestroyCachedAssets(t *testing.T) {
 	}
 
 	// Upstream disappears. The parse may fail, but it must not remove assets.
-	_, _ = runMake(t, dir, map[string]string{"_GO_MK_CODELOAD_BASE": "http://127.0.0.1:9"})
+	_, _ = runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": "http://127.0.0.1:9"})
 
 	if after := readAsset(t, dir, "go.mk"); after != before {
 		t.Fatalf("go.mk = %q after an offline parse, want the cached body %q preserved", after, before)
@@ -249,7 +249,7 @@ func TestOfflineParseDoesNotDestroyCachedAssets(t *testing.T) {
 
 // TestProvisionedRejectsAnEmptyHelper covers the provisioned guard, which used
 // $(wildcard) and so accepted any path that exists. An empty helper satisfies
-// that, and bash exits 0 on an empty script, so __GO_MK_PROVISION came back "ok"
+// that, and bash exits 0 on an empty script, so GO_MK_PROVISION came back "ok"
 // and the parse continued with nothing provisioned. An interrupted earlier
 // run, a full disk, or a hand-created placeholder all produce that file.
 func TestProvisionedRejectsAnEmptyHelper(t *testing.T) {
@@ -275,7 +275,7 @@ func TestProvisionedRejectsAnEmptyHelper(t *testing.T) {
 
 	output, code := runMake(t, dir, map[string]string{
 		"_GO_MK_PROVISIONED":  "1",
-		"_GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
 	})
 	if code == 0 {
 		t.Fatalf("parse exit = 0 with an empty %s, want non-zero: an empty script exits 0, "+
@@ -288,9 +288,9 @@ func TestProvisionedRejectsAnEmptyHelper(t *testing.T) {
 }
 
 // TestProvisionedZeroStillFetchesGolangci covers go.mk's module and golangci
-// require-or-fetch guards. Concatenating __GO_MK_BOOTSTRAP_FETCHED with
+// require-or-fetch guards. Concatenating GO_MK_BOOTSTRAP_FETCHED with
 // _GO_MK_PROVISIONED treats any non-empty value, including 0, as provisioned.
-// Including go.mk directly leaves __GO_MK_BOOTSTRAP_FETCHED unset, so 0 must
+// Including go.mk directly leaves GO_MK_BOOTSTRAP_FETCHED unset, so 0 must
 // still fetch rather than fail on a missing .make/golangci.yml.
 func TestProvisionedZeroStillFetchesGolangci(t *testing.T) {
 	repoRoot := repoRootForTest(t)
@@ -348,7 +348,7 @@ func TestDevDirHelperAcquisitionReplacesRatherThanOverwrites(t *testing.T) {
 	// before any install.
 	runMake(t, dir, map[string]string{
 		"GO_MK_DEV_DIR":       devDir,
-		"_GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
 	})
 
 	installed, err := os.ReadFile(helperPath)
@@ -393,9 +393,9 @@ func TestOldBootstrapPrimePreservesCachedAssetsOffline(t *testing.T) {
 		writeAsset(t, dir, name, body)
 	}
 
-	// A pre-helper bootstrap.mk: it never sets __GO_MK_PROVISION, which is the
+	// A pre-helper bootstrap.mk: it never sets GO_MK_PROVISION, which is the
 	// condition that lets go.mk run its own prime.
-	oldBootstrap := "__GO_MK_FILE := .make/go.mk\nGO_MK_BOOTSTRAP_FETCHED := 1\n-include $(__GO_MK_FILE)\n"
+	oldBootstrap := "GO_MK := .make/go.mk\nGO_MK_BOOTSTRAP_FETCHED := 1\n-include $(GO_MK)\n"
 	if err := os.WriteFile(filepath.Join(dir, "bootstrap.mk"), []byte(oldBootstrap), 0o644); err != nil {
 		t.Fatalf("write old bootstrap.mk: %v", err)
 	}
@@ -404,7 +404,7 @@ func TestOldBootstrapPrimePreservesCachedAssetsOffline(t *testing.T) {
 		t.Fatalf("write Makefile: %v", err)
 	}
 
-	runMake(t, dir, map[string]string{"_GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t)})
+	runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t)})
 
 	for name, body := range cached {
 		if got := readAsset(t, dir, name); got != body {
@@ -418,12 +418,12 @@ func TestWarmParseIssuesOneRequestTotal(t *testing.T) {
 	server := newFetchServer(t, consumerFiles(t))
 	dir := newConsumer(t)
 
-	if output, code := runMake(t, dir, map[string]string{"_GO_MK_CODELOAD_BASE": server.CodeloadBase()}); code != 0 {
+	if output, code := runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()}); code != 0 {
 		t.Fatalf("cold parse exit = %d: %s", code, output)
 	}
 	coldRequests := len(server.Requests())
 
-	if output, code := runMake(t, dir, map[string]string{"_GO_MK_CODELOAD_BASE": server.CodeloadBase()}); code != 0 {
+	if output, code := runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()}); code != 0 {
 		t.Fatalf("warm parse exit = %d: %s", code, output)
 	}
 
@@ -439,8 +439,8 @@ func TestWarmParseIssuesOneRequestTotal(t *testing.T) {
 // oldBootstrapMkSnapshot is bootstrap.mk exactly as committed before this
 // task, kept as a fixed literal (not read from disk) so the mixed-version
 // test below still exercises the pre-delegation shim after this task
-// replaces the real file. It sets __GO_MK_BOOTSTRAP_FETCHED but never
-// __GO_MK_PROVISION, since that variable does not exist until this task.
+// replaces the real file. It sets GO_MK_BOOTSTRAP_FETCHED but never
+// GO_MK_PROVISION, since that variable does not exist until this task.
 const oldBootstrapMkSnapshot = `# bootstrap.mk: tiny shim that fetches go-makefile assets and includes them.
 # Consumer Makefiles set their identity vars (BINARY, CMD, VPKG, MODULES, etc.)
 # then ` + "`include bootstrap.mk`" + `. Everything else (go.mk, golangci.yml, modules)
@@ -452,7 +452,7 @@ const oldBootstrapMkSnapshot = `# bootstrap.mk: tiny shim that fetches go-makefi
 
 GO_MK_DEV_DIR  ?=
 GO_MK_MODULES  ?=
-__GO_MK_FILE          := .make/go.mk
+GO_MK          := .make/go.mk
 GO_MK_BASE_URL ?= https://raw.githubusercontent.com/agoodkind/go-makefile/main
 GO_MK_API_REPO ?= agoodkind/go-makefile
 GO_MK_API_REF  ?= main
@@ -488,20 +488,20 @@ define _go_mk_prime
 	fi
 endef
 
-__GO_MK_BOOTSTRAP_FETCHED := 1
+GO_MK_BOOTSTRAP_FETCHED := 1
 
 define _go_mk_require_fetched
 $(if $(wildcard $(1)),,$(error go-makefile expected $(1); rerun without GO_MK_SKIP_FETCH))
 endef
 
 ifeq ($(strip $(GO_MK_SKIP_FETCH)),1)
-GO_MK_FETCH_CHECK := $(call _go_mk_require_fetched,$(__GO_MK_FILE))
+GO_MK_FETCH_CHECK := $(call _go_mk_require_fetched,$(GO_MK))
 GO_MK_FETCH_CHECK += $(call _go_mk_require_fetched,.make/golangci.yml)
 GO_MK_FETCH_CHECK += $(foreach m,$(GO_MK_MODULES),$(call _go_mk_require_fetched,.make/$(m)))
 else
 
 $(shell mkdir -p .make && { $(call _go_mk_prime); } 1>&2)
-$(shell mkdir -p .make && { $(call _go_mk_fetch,go.mk,$(__GO_MK_FILE)); } 1>&2)
+$(shell mkdir -p .make && { $(call _go_mk_fetch,go.mk,$(GO_MK)); } 1>&2)
 $(shell { $(call _go_mk_fetch,golangci.yml,.make/golangci.yml); } 1>&2)
 $(foreach m,$(GO_MK_MODULES),$(shell { $(call _go_mk_fetch,$(m),.make/$(m)); } 1>&2))
 
@@ -510,18 +510,18 @@ endif
 # go.mk handles -including the modules at its tail (after all its variables
 # are defined), so the modules see build-check etc. Don't duplicate
 # the include here or every module target gets overriding-commands warnings.
--include $(__GO_MK_FILE)
+-include $(GO_MK)
 `
 
 // TestOldBootstrapMkParsesWithCurrentGoMkAndNoGoMkProvision covers the
 // rollout window this task's own delegation creates: until a consumer
 // merges the PR this task requires, they keep running the old,
 // pre-delegation bootstrap.mk snapshotted above, which never sets
-// __GO_MK_PROVISION (that variable does not exist yet in their committed
+// GO_MK_PROVISION (that variable does not exist yet in their committed
 // copy). But bootstrap.mk always fetches or reuses go.mk fresh at parse
 // time, so that old shim still lands the *current* go.mk (this repo's, as
 // committed right now) in the same parse. go.mk must not depend on
-// __GO_MK_PROVISION for that combination to keep working, since it is what
+// GO_MK_PROVISION for that combination to keep working, since it is what
 // every consumer runs until they merge.
 //
 // This is fully hermetic (no network, no fetch server): GO_MK_DEV_DIR
@@ -569,16 +569,16 @@ func TestOldBootstrapMkParsesWithCurrentGoMkAndNoGoMkProvision(t *testing.T) {
 
 	output, code := runMake(t, dir, map[string]string{"GO_MK_DEV_DIR": devDir})
 	if code != 0 {
-		t.Fatalf("parse exit = %d, want 0 (old bootstrap.mk + current go.mk, __GO_MK_PROVISION never set): %s", code, output)
+		t.Fatalf("parse exit = %d, want 0 (old bootstrap.mk + current go.mk, GO_MK_PROVISION never set): %s", code, output)
 	}
 }
 
 // TestHelperAcquisitionBoundedWhenBootstrapURLStalls covers
-// __go_mk_get_bootstrap's own curl call, the one fetch that is
+// _go_mk_get_bootstrap's own curl call, the one fetch that is
 // consumer-committed rather than fetched, and therefore the one place a
 // later hardening change cannot reach every consumer without another PR.
-// It stalls the server _GO_MK_BOOTSTRAP_BASE_URL points at (mirroring
-// _GO_MK_CODELOAD_BASE's role for the helper's own fetches) and asserts the
+// It stalls the server GO_MK_BOOTSTRAP_BASE_URL points at (mirroring
+// GO_MK_CODELOAD_BASE's role for the helper's own fetches) and asserts the
 // acquisition gives up within a bounded wall-clock time, not merely that
 // it eventually fails: an exit-code-only assertion would have passed at
 // 134 seconds, which is how this exact class of bug (curl retrying a
@@ -606,7 +606,7 @@ func TestHelperAcquisitionBoundedWhenBootstrapURLStalls(t *testing.T) {
 
 	start := time.Now()
 	output, code := runMake(t, dir, map[string]string{
-		"_GO_MK_BOOTSTRAP_BASE_URL": server.CodeloadBase(),
+		"GO_MK_BOOTSTRAP_BASE_URL": server.CodeloadBase(),
 	})
 	elapsed := time.Since(start)
 	t.Logf("helper acquisition took %s against a stalled bootstrap URL", elapsed)
@@ -655,7 +655,7 @@ func TestMoratoriumWordingIsGone(t *testing.T) {
 
 // TestOldBootstrapStillParsesWithNewGoMk covers the rollout window, where a
 // consumer has merged nothing yet but already fetches the new go.mk. Its
-// bootstrap.mk never sets __GO_MK_PROVISION, so go.mk must fall back to priming
+// bootstrap.mk never sets GO_MK_PROVISION, so go.mk must fall back to priming
 // the assets itself rather than assuming the helper ran.
 func TestOldBootstrapStillParsesWithNewGoMk(t *testing.T) {
 	files := consumerFiles(t)
@@ -669,13 +669,13 @@ func TestOldBootstrapStillParsesWithNewGoMk(t *testing.T) {
 
 	dir := t.TempDir()
 	// A bootstrap.mk shaped like the pre-helper one: it fetches go.mk itself
-	// and sets no __GO_MK_PROVISION.
-	oldBootstrap := `__GO_MK_FILE := .make/go.mk
+	// and sets no GO_MK_PROVISION.
+	oldBootstrap := `GO_MK := .make/go.mk
 GO_MK_API_REPO ?= agoodkind/go-makefile
 GO_MK_API_REF  ?= main
-__GO_MK_BOOTSTRAP_FETCHED := 1
-$(shell mkdir -p .make && curl -sS -o .make/snapshot.tar.gz "$(_GO_MK_CODELOAD_BASE)/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" && tar -xzf .make/snapshot.tar.gz -C .make --strip-components 1 2>/dev/null)
--include $(__GO_MK_FILE)
+GO_MK_BOOTSTRAP_FETCHED := 1
+$(shell mkdir -p .make && curl -sS -o .make/snapshot.tar.gz "$(GO_MK_CODELOAD_BASE)/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" && tar -xzf .make/snapshot.tar.gz -C .make --strip-components 1 2>/dev/null)
+-include $(GO_MK)
 `
 	if err := os.WriteFile(filepath.Join(dir, "bootstrap.mk"), []byte(oldBootstrap), 0o644); err != nil {
 		t.Fatalf("write old bootstrap.mk: %v", err)
@@ -685,7 +685,7 @@ $(shell mkdir -p .make && curl -sS -o .make/snapshot.tar.gz "$(_GO_MK_CODELOAD_B
 		t.Fatalf("write Makefile: %v", err)
 	}
 
-	output, code := runMake(t, dir, map[string]string{"_GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	output, code := runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
 	if code != 0 {
 		t.Fatalf("mixed-version parse exit = %d, want 0: %s", code, output)
 	}
@@ -694,7 +694,7 @@ $(shell mkdir -p .make && curl -sS -o .make/snapshot.tar.gz "$(_GO_MK_CODELOAD_B
 	}
 	// Two requests must reach THIS server: the old bootstrap.mk fetching the
 	// archive itself, and go.mk's own _go_mk_prime running because
-	// __GO_MK_PROVISION is unset. The second one is the point. While the prime
+	// GO_MK_PROVISION is unset. The second one is the point. While the prime
 	// held codeload.github.com as a literal it ignored the redirect and hit
 	// production on every run of this test, so the server saw only one request
 	// and the test silently depended on the network and on whatever was on
@@ -713,7 +713,7 @@ $(shell mkdir -p .make && curl -sS -o .make/snapshot.tar.gz "$(_GO_MK_CODELOAD_B
 
 // TestGoMkSkipsItsOwnPrimeWhenHelperProvisioned covers the actual behavior
 // this task's interface promises: go.mk skips its own prime when
-// __GO_MK_PROVISION shows the helper already provisioned this run. This is
+// GO_MK_PROVISION shows the helper already provisioned this run. This is
 // the one property TestOldBootstrapStillParsesWithNewGoMk does not
 // actually exercise, since that test's own inline old-bootstrap snippet
 // extracts the whole served tarball into .make/ itself, so every asset
@@ -722,10 +722,10 @@ $(shell mkdir -p .make && curl -sS -o .make/snapshot.tar.gz "$(_GO_MK_CODELOAD_B
 // "prime correctly stayed out of the way."
 //
 // This test uses the real (new) bootstrap.mk via newConsumer, which sets
-// __GO_MK_PROVISION after the helper succeeds, paired with the real go.mk
+// GO_MK_PROVISION after the helper succeeds, paired with the real go.mk
 // (not consumerFiles' stub) so go.mk's own prime-guard logic actually
 // runs. go.mk's _go_mk_prime fetches straight from the real
-// codeload.github.com, not the local _GO_MK_CODELOAD_BASE test server, so
+// codeload.github.com, not the local GO_MK_CODELOAD_BASE test server, so
 // if it ran a second time it would overwrite the served stub
 // scripts/go-mk-fetch-one.sh (a few bytes, served only by the local
 // fetchServer) with the real script's actual content pulled from the real
@@ -740,7 +740,7 @@ func TestGoMkSkipsItsOwnPrimeWhenHelperProvisioned(t *testing.T) {
 	server := newFetchServer(t, files)
 	dir := newConsumer(t)
 
-	output, code := runMake(t, dir, map[string]string{"_GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	output, code := runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
 	if code != 0 {
 		t.Fatalf("parse exit = %d, want 0: %s", code, output)
 	}
@@ -756,6 +756,6 @@ func TestGoMkSkipsItsOwnPrimeWhenHelperProvisioned(t *testing.T) {
 	// prime that also runs adds a second.
 	if requests := server.Requests(); len(requests) != 1 {
 		t.Fatalf("server saw %d requests, want exactly 1: go.mk's prime ran in addition to the "+
-			"helper's provision, which is what __GO_MK_PROVISION is supposed to prevent", len(requests))
+			"helper's provision, which is what GO_MK_PROVISION is supposed to prevent", len(requests))
 	}
 }

@@ -40,13 +40,13 @@ _GO_MK_SCRIPT_FILES := \
 # codeload.github.com, which made the one test covering this path depend on
 # network availability and on whatever was on main rather than on its own
 # fixture.
-_GO_MK_CODELOAD_BASE ?= https://codeload.github.com
+GO_MK_CODELOAD_BASE ?= https://codeload.github.com
 define __go_mk_prime
 	if [ -n "$(GO_MK_DEV_DIR)" ]; then \
 		: ; \
 	else \
 		tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/go-mk.XXXXXXXX") || exit 0; \
-		if curl -fsSL --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 "$(_GO_MK_CODELOAD_BASE)/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" 2>/dev/null | tar -xzf - -C "$$tmp" --strip-components 1 2>/dev/null; then \
+		if curl -fsSL --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 "$(GO_MK_CODELOAD_BASE)/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" 2>/dev/null | tar -xzf - -C "$$tmp" --strip-components 1 2>/dev/null; then \
 			for asset in $(_GO_MK_SCRIPT_FILES); do \
 				if [ -f "$$tmp/$$asset" ]; then \
 					mkdir -p "$$(dirname ".make/$$asset")"; \
@@ -66,20 +66,16 @@ endef
 # is only for a consumer whose committed bootstrap.mk predates the helper. It
 # is removed once the fleet has migrated.
 #
-# bootstrap.mk is consumer-committed, so its half of this handshake upgrades
-# whenever each consumer commits a new copy, not when this file changes. Both
-# spellings are read until the fleet has migrated. Reading only the new one
-# would send every consumer with an older copy down the legacy prime path, and
-# it would take that path silently.
-__GO_MK_PROVISION_STATE := $(strip $(__GO_MK_PROVISION)$(GO_MK_PROVISION))
-
+# GO_MK_PROVISION and GO_MK_BOOTSTRAP_FETCHED keep their public spelling
+# because bootstrap.mk is consumer-committed: every consumer's copy assigns
+# them, and that copy upgrades only when the consumer commits a new one.
+#
 # Non-empty once every asset is already on disk, so the paths below require an
-# asset rather than fetching it. Both spellings of the committed marker count,
-# for the same reason.
-__GO_MK_ASSETS_PROVISIONED := $(filter 1,$(__GO_MK_BOOTSTRAP_FETCHED) $(GO_MK_BOOTSTRAP_FETCHED) $(_GO_MK_PROVISIONED))
+# asset rather than fetching it.
+__GO_MK_ASSETS_PROVISIONED := $(filter 1,$(GO_MK_BOOTSTRAP_FETCHED) $(_GO_MK_PROVISIONED))
 
 ifneq ($(strip $(_GO_MK_PROVISIONED)),1)
-ifeq ($(__GO_MK_PROVISION_STATE),)
+ifeq ($(strip $(GO_MK_PROVISION)),)
 $(shell mkdir -p .make && { $(call __go_mk_prime); } 1>&2)
 endif
 endif
@@ -280,8 +276,8 @@ STATICCHECK_EXTRA_EXCLUDE_PATHS ?=
 # default install spec tracks the main branch tip (@main) so every consumer
 # resolves the current engine with no version pin.
 GO_MK_BIN          ?=
-_GO_MK_BUILD_REPO   ?= $(if $(and $(GO_MK_DEV_DIR),$(wildcard $(GO_MK_DEV_DIR)/cmd/go-mk)),$(GO_MK_DEV_DIR))
-_GO_MK_BUILD_PKG    ?= $(if $(_GO_MK_BUILD_REPO),./cmd/go-mk)
+GO_MK_BUILD_REPO   ?= $(if $(and $(GO_MK_DEV_DIR),$(wildcard $(GO_MK_DEV_DIR)/cmd/go-mk)),$(GO_MK_DEV_DIR))
+GO_MK_BUILD_PKG    ?= $(if $(GO_MK_BUILD_REPO),./cmd/go-mk)
 GO_MK_INSTALL      ?= goodkind.io/go-makefile/cmd/go-mk@main
 
 # Path to the resolved go-mk engine binary. go-mk-bin.sh prints the configured
@@ -349,8 +345,8 @@ export STATICCHECK_EXTRA_BASELINE
 export STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS
 export STATICCHECK_EXTRA_EXCLUDE_PATHS
 export GO_MK_BIN
-export _GO_MK_BUILD_REPO
-export _GO_MK_BUILD_PKG
+export GO_MK_BUILD_REPO
+export GO_MK_BUILD_PKG
 export GO_MK_INSTALL
 # GO_MK_PLATFORMS is the optional "goos/goarch ..." matrix. When a consumer sets
 # it (for example a daemon built for linux/amd64 and freebsd/amd64), the analysis
