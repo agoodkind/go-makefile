@@ -23,10 +23,14 @@ obtain_go_mk() {
     output_path="$(pwd)/${GO_MK_OUTPUT}"
     if [[ -n "${GO_MK_DEV_DIR}" ]] && command -v go >/dev/null 2>&1 \
         && [[ -d "${GO_MK_DEV_DIR}/cmd/go-mk" ]]; then
-        if go build -C "${GO_MK_DEV_DIR}" -o "${output_path}" ./cmd/go-mk; then
+        local tmp_path
+        tmp_path=$(mktemp "${output_path}.XXXXXX") || return 1
+        if go build -C "${GO_MK_DEV_DIR}" -o "${tmp_path}" ./cmd/go-mk \
+            && mv "${tmp_path}" "${output_path}"; then
             printf '%s\n' "${output_path}"
             return 0
         fi
+        rm -f "${tmp_path}"
     fi
     if [[ -x "${output_path}" ]]; then
         printf '%s\n' "${output_path}"

@@ -109,15 +109,25 @@ func buildEngineFromRepo(repoPath string, outputPath string) error {
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
 		return err
 	}
-	_ = os.Remove(outputPath)
+	tmpFile, err := os.CreateTemp(filepath.Dir(outputPath), filepath.Base(outputPath)+".*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmpFile.Name()
+	_ = tmpFile.Close()
 	slog.Info("resolve-bin build from repo", slog.String("repo", repoPath), slog.String("output", outputPath))
-	cmd := exec.Command("go", "build", "-o", outputPath, packagePath)
+	cmd := exec.Command("go", "build", "-o", tmpPath, packagePath)
 	cmd.Dir = repoPath
 	cmd.Env = os.Environ()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		_ = os.Remove(tmpPath)
 		slog.Error("resolve-bin dev build failed", slog.Any("err", err))
 		return fmt.Errorf("dev build failed: %w\n%s", err, output)
+	}
+	if err := os.Rename(tmpPath, outputPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
 	}
 	return nil
 }

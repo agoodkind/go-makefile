@@ -592,7 +592,7 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 	// Resolve the helper path on THIS goroutine. repoRootForTest fatals, and
 	// the goroutines below must not call anything that does.
 	helper := filepath.Join(repoRootForTest(t), "scripts", "go-mk-bootstrap.sh")
-	_ = builtTestEngine(t)
+	seedTestEngine(t, dir)
 
 	start := time.Now()
 	var group sync.WaitGroup
@@ -814,12 +814,6 @@ func runHelperCommand(command *exec.Cmd) (string, string, int, error) {
 // goroutine. It resolves the helper path and environment up front, on the
 // caller's goroutine, and returns every failure instead of fataling.
 func runHelperFromGoroutine(helper string, dir string, env map[string]string) (string, string, int, error) {
-	dest := filepath.Join(dir, ".make", "go-mk")
-	if _, err := os.Stat(dest); err != nil {
-		if err := copyFile(testEnginePath, dest); err != nil {
-			return "", "", 0, err
-		}
-	}
 	command := exec.Command("bash", helper)
 	command.Dir = dir
 	defaults := map[string]string{

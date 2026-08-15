@@ -13,10 +13,14 @@ fi
 obtain_go_mk() {
     mkdir -p "$(dirname "${OUTPUT}")"
     if [[ -n "${GO_MK_BUILD_REPO:-}" ]] && [[ -d "${GO_MK_BUILD_REPO}" ]] && command -v go >/dev/null 2>&1; then
-        if go build -C "${GO_MK_BUILD_REPO}" -o "${OUTPUT}" "${GO_MK_BUILD_PKG:-./cmd/go-mk}"; then
+        local tmp_path
+        tmp_path=$(mktemp "${OUTPUT}.XXXXXX") || return 1
+        if go build -C "${GO_MK_BUILD_REPO}" -o "${tmp_path}" "${GO_MK_BUILD_PKG:-./cmd/go-mk}" \
+            && mv "${tmp_path}" "${OUTPUT}"; then
             printf '%s\n' "${OUTPUT}"
             return 0
         fi
+        rm -f "${tmp_path}"
     fi
     if [[ -x "${OUTPUT}" ]] && "${OUTPUT}" -flags 2>/dev/null | grep -q "Name: resolve-bin"; then
         printf '%s\n' "${OUTPUT}"

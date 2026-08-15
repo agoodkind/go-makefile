@@ -17,7 +17,13 @@ obtain_go_mk() {
     if [[ -n "${GO_MK_BUILD_REPO:-${GO_MK_DEV_DIR:-}}" ]]; then
         local repo="${GO_MK_BUILD_REPO:-${GO_MK_DEV_DIR}}"
         mkdir -p "$(dirname "${OUTPUT}")"
-        go build -C "${repo}" -o "${OUTPUT}" "${GO_MK_BUILD_PKG:-./cmd/go-mk}"
+        local tmp_path
+        tmp_path=$(mktemp "${OUTPUT}.XXXXXX") || return 1
+        if ! go build -C "${repo}" -o "${tmp_path}" "${GO_MK_BUILD_PKG:-./cmd/go-mk}"; then
+            rm -f "${tmp_path}"
+            return 1
+        fi
+        mv "${tmp_path}" "${OUTPUT}"
         printf '%s\n' "${OUTPUT}"
         return 0
     fi
