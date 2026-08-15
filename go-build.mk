@@ -23,6 +23,20 @@ STATICCHECK_EXTRA_FLAGS ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_S
 
 .PHONY: build deploy install uninstall version-info clean-dist
 
+# Build-output reuse. A build, install, or library-mode gate whose inputs are
+# byte-for-byte what the last successful run saw returns without doing the work
+# again. Set GO_MK_REUSE_OUTPUTS := 0 to turn it off for one repo, or pass
+# GO_MK_REUSE_OUTPUTS=0 on the make command line for one run.
+#
+# The engine decides, from a content fingerprint of every source file the Go
+# toolchain reports, the settings this file exports, the engine binary itself,
+# and the digest of each output the recorded run produced. Nothing consults a
+# modification time, so a deleted source, a replaced binary, or a newer engine
+# all force a real run. Anything the engine cannot read forces one too, and a
+# run that failed never records a stamp.
+GO_MK_REUSE_OUTPUTS ?= 1
+export GO_MK_REUSE_OUTPUTS
+
 # Auto-detect mode. LIBRARY mode skips build/install (lint/test/vet still apply
 # from go.mk). The default is binary mode, requiring BINARY+CMD+VPKG.
 LIBRARY ?=

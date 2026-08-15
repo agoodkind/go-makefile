@@ -46,37 +46,54 @@ type installConfig struct {
 var (
 	installOneFunc     = installOne
 	runInstallHookFunc = runInstallHook
+	runBuildGateFunc   = runBuildGate
 )
 
 // runInstall runs the build gate, builds every declared binary, then installs
 // each, returning the process exit code. The gate runs in-process locally and
 // skips only when GitHub Actions proves the reusable CI gate job covers it.
 func runInstall() int {
-	if code := runBuildGate(); code != 0 {
-		return code
-	}
 	cfg, err := loadInstallConfig()
 	if err != nil {
 		return statusFromError(err)
 	}
+	if reuseSatisfied("install", cfg) {
+		writeStdout("install    reused (no build input changed)\n")
+		return 0
+	}
+	if code := runBuildGateFunc(); code != 0 {
+		return code
+	}
 	if err := buildAll(cfg); err != nil {
 		return statusFromError(err)
 	}
-	return statusFromError(installAll(cfg))
+	if err := installAll(cfg); err != nil {
+		return statusFromError(err)
+	}
+	recordReuse("install", cfg)
+	return 0
 }
 
 // runBuild runs the build gate, then builds every declared binary without
 // installing, returning the process exit code. The gate runs in-process locally
 // and skips only when GitHub Actions proves the reusable CI gate job covers it.
 func runBuild() int {
-	if code := runBuildGate(); code != 0 {
-		return code
-	}
 	cfg, err := loadInstallConfig()
 	if err != nil {
 		return statusFromError(err)
 	}
-	return statusFromError(buildAll(cfg))
+	if reuseSatisfied("build", cfg) {
+		writeStdout("build      reused (no build input changed)\n")
+		return 0
+	}
+	if code := runBuildGateFunc(); code != 0 {
+		return code
+	}
+	if err := buildAll(cfg); err != nil {
+		return statusFromError(err)
+	}
+	recordReuse("build", cfg)
+	return 0
 }
 
 // runUninstall removes every declared binary from its target directory,
