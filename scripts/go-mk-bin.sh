@@ -130,7 +130,7 @@ go_mk_run_lint_cpu() {
 }
 
 baseline_output_path() {
-    printf "%s/.make/go-mk\n" "${GO_MK_ROOT:-${PWD}}"
+    printf "%s/.make/go-mk\n" "${_GO_MK_ROOT:-${PWD}}"
 }
 
 baseline_missing_flags() {

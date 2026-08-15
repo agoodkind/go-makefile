@@ -29,7 +29,7 @@ func TestRunNoticeRecordsDirectiveAsAppliedForFreshRepo(t *testing.T) {
 	if err := os.WriteFile(noticesPath, []byte(notices), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("GO_MK_NOTICES_FILE", noticesPath)
+	t.Setenv("_GO_MK_NOTICES_FILE", noticesPath)
 	t.Setenv("GO_MK_APPLIED_NOTICES", ".go-mk-applied-notices")
 
 	var status int
@@ -80,7 +80,7 @@ func TestRunNoticeShowsDirectiveWhenFreshAppliedRecordFails(t *testing.T) {
 	if err := os.WriteFile("not-a-directory", []byte("file\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("GO_MK_NOTICES_FILE", noticesPath)
+	t.Setenv("_GO_MK_NOTICES_FILE", noticesPath)
 	t.Setenv("GO_MK_APPLIED_NOTICES", filepath.Join("not-a-directory", ".go-mk-applied-notices"))
 
 	var status int
@@ -114,7 +114,7 @@ func TestRunNoticeCreatesFreshAppliedNoticeParentDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	appliedPath := filepath.Join(".make", "nested", ".go-mk-applied-notices")
-	t.Setenv("GO_MK_NOTICES_FILE", noticesPath)
+	t.Setenv("_GO_MK_NOTICES_FILE", noticesPath)
 	t.Setenv("GO_MK_APPLIED_NOTICES", appliedPath)
 
 	var status int
@@ -151,7 +151,7 @@ func TestRunNoticeIgnoresEmptyBaselineFilesWhenHistoryIsUnavailable(t *testing.T
 	if err := os.WriteFile(noticesPath, []byte(notices), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("GO_MK_NOTICES_FILE", noticesPath)
+	t.Setenv("_GO_MK_NOTICES_FILE", noticesPath)
 	t.Setenv("GO_MK_APPLIED_NOTICES", ".go-mk-applied-notices")
 
 	var status int
@@ -183,7 +183,7 @@ func TestRunNoticeRecordsDirectiveWhenAdoptionIsAfterNotice(t *testing.T) {
 	if err := os.WriteFile(noticesPath, []byte(notices), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("GO_MK_NOTICES_FILE", noticesPath)
+	t.Setenv("_GO_MK_NOTICES_FILE", noticesPath)
 	t.Setenv("GO_MK_APPLIED_NOTICES", ".go-mk-applied-notices")
 
 	var status int
@@ -212,7 +212,7 @@ func TestRunNoticeAutoBaselinesWhenAdoptionIsBeforeNotice(t *testing.T) {
 	if err := os.WriteFile(noticesPath, []byte(notices), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("GO_MK_NOTICES_FILE", noticesPath)
+	t.Setenv("_GO_MK_NOTICES_FILE", noticesPath)
 	t.Setenv("GO_MK_APPLIED_NOTICES", ".go-mk-applied-notices")
 
 	var status int
