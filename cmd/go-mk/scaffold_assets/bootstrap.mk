@@ -29,14 +29,14 @@ GO_MK_BOOTSTRAP_URL := $(GO_MK_BOOTSTRAP_BASE_URL)/$(GO_MK_API_REPO)/$(GO_MK_API
 #
 # This is a consumer-committed fetch, so it cannot be hardened later the way
 # a fetched file can: any future change here needs another consumer PR. The
-# curl flags below give it the same treatment provision() in go-mk-bootstrap.sh
-# got. --speed-limit/--speed-time abort a stalled connection by lack of
+# curl flags below give it the same treatment go-mk provision got.
+# --speed-limit/--speed-time abort a stalled connection by lack of
 # progress rather than elapsed time (a stall dies in ~3s instead of riding
 # --max-time out), and --retry-max-time caps the retry cascade at two attempts
 # instead of leaving it unbounded (curl treats a speed-limit or max-time abort
 # as a retriable transient error, so uncapped retries would cost roughly 4x
 # --max-time). --connect-timeout is 5, not tighter, for the same reason
-# provision()'s is: connect time (DNS, TCP, TLS setup) has nothing to do with
+# the provisioned fetch's is: connect time (DNS, TCP, TLS setup) has nothing to do with
 # stall detection, and this is the very first network call a cold consumer
 # makes, so it must not fail a slow-but-working link before retrying has a
 # chance to help.

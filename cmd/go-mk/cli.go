@@ -169,6 +169,7 @@ func registerEngineCommands(root *cobra.Command) {
 		{"prepare-generated-submodules", "Initialize generated-output submodules before cache restore", func() int {
 			return statusFromError(runPrepareGeneratedSubmodules())
 		}},
+		{"provision", "Provision go-makefile assets into .make from the git tarball", runProvision},
 	}
 	for _, entry := range commands {
 		handler := entry.run
@@ -199,6 +200,9 @@ func registerEngineCommands(root *cobra.Command) {
 // and the gate. Flag parsing is disabled so each handler keeps its own
 // argument parsing, which the make layer drives with fixed argument strings.
 func registerInputCommands(root *cobra.Command) {
+	root.AddCommand(passThroughCommand("resolve-bin", "Resolve the go-mk engine binary", func(_ []string) int {
+		return runResolveBin()
+	}))
 	root.AddCommand(passThroughCommand("write-batch", "Rewrite every baseline in a manifest", errToCode(runWriteBatch)))
 	root.AddCommand(passThroughCommand("findings", "Transform finding lines read from stdin", errToCode(runFindings)))
 	root.AddCommand(passThroughCommand("lint-concurrency", "Resolve lint concurrency and GOFLAGS from the host", errToCode(runLintConcurrency)))

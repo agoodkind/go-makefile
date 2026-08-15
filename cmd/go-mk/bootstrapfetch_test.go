@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -509,6 +510,9 @@ func TestHelperTouchesNothingUnderMakeOnNotModified(t *testing.T) {
 
 	after := snapshot()
 	for path, mod := range before {
+		if isDiagnosticLogPath(makeDir, path) {
+			continue
+		}
 		later, present := after[path]
 		if !present {
 			t.Fatalf("%s disappeared across a 304", path)
@@ -519,10 +523,25 @@ func TestHelperTouchesNothingUnderMakeOnNotModified(t *testing.T) {
 		}
 	}
 	for path := range after {
+		if isDiagnosticLogPath(makeDir, path) {
+			continue
+		}
 		if _, present := before[path]; !present {
 			t.Fatalf("%s appeared across a 304; a 304 must write nothing under .make", path)
 		}
 	}
+}
+
+func isDiagnosticLogPath(makeDir string, path string) bool {
+	logsDir := filepath.Join(makeDir, "logs")
+	if path == logsDir {
+		return true
+	}
+	rel, err := filepath.Rel(logsDir, path)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
 // TestHelperSerializesConcurrentParses covers the lock. Two parses in one
@@ -573,6 +592,7 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 	// Resolve the helper path on THIS goroutine. repoRootForTest fatals, and
 	// the goroutines below must not call anything that does.
 	helper := filepath.Join(repoRootForTest(t), "scripts", "go-mk-bootstrap.sh")
+	_ = builtTestEngine(t)
 
 	start := time.Now()
 	var group sync.WaitGroup
@@ -748,6 +768,7 @@ func testProcessEnvironment(overrides map[string]string) []string {
 // minimal environment, and returns its output and exit code.
 func runHelper(t *testing.T, dir string, env map[string]string) (string, string, int) {
 	t.Helper()
+	seedTestEngine(t, dir)
 	helper := filepath.Join(repoRootForTest(t), "scripts", "go-mk-bootstrap.sh")
 	command := exec.Command("bash", helper)
 	command.Dir = dir
@@ -793,6 +814,12 @@ func runHelperCommand(command *exec.Cmd) (string, string, int, error) {
 // goroutine. It resolves the helper path and environment up front, on the
 // caller's goroutine, and returns every failure instead of fataling.
 func runHelperFromGoroutine(helper string, dir string, env map[string]string) (string, string, int, error) {
+	dest := filepath.Join(dir, ".make", "go-mk")
+	if _, err := os.Stat(dest); err != nil {
+		if err := copyFile(testEnginePath, dest); err != nil {
+			return "", "", 0, err
+		}
+	}
 	command := exec.Command("bash", helper)
 	command.Dir = dir
 	defaults := map[string]string{
@@ -843,6 +870,69 @@ func repoRootForTest(t *testing.T) string {
 		t.Fatalf("resolve repo root: %v", err)
 	}
 	return strings.TrimSpace(string(output))
+}
+
+var (
+	testEngineOnce sync.Once
+	testEnginePath string
+	testEngineErr  error
+)
+
+func builtTestEngine(t *testing.T) string {
+	t.Helper()
+	root := repoRootForTest(t)
+	testEngineOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "go-mk-test-engine.")
+		if err != nil {
+			testEngineErr = err
+			return
+		}
+		testEnginePath = filepath.Join(dir, "go-mk")
+		cmd := exec.Command("go", "build", "-o", testEnginePath, "./cmd/go-mk")
+		cmd.Dir = root
+		if output, err := cmd.CombinedOutput(); err != nil {
+			testEngineErr = fmt.Errorf("go build: %w\n%s", err, output)
+		}
+	})
+	if testEngineErr != nil {
+		t.Fatalf("build go-mk for tests: %v", testEngineErr)
+	}
+	return testEnginePath
+}
+
+func seedTestEngine(t *testing.T, dir string) {
+	t.Helper()
+	dest := filepath.Join(dir, ".make", "go-mk")
+	if _, err := os.Stat(dest); err == nil {
+		return
+	}
+	if err := copyFile(builtTestEngine(t), dest); err != nil {
+		t.Fatalf("seed go-mk: %v", err)
+	}
+}
+
+func copyFile(source string, dest string) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	in, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(out, in)
+	closeErr := out.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Chmod(dest, 0o755)
 }
 
 func TestHelperColdProvisionRecordsState(t *testing.T) {

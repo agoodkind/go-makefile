@@ -45,6 +45,7 @@ func newConsumer(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(dir, ".make", "scripts", "go-mk-bootstrap.sh"), helperBody, 0o755); err != nil {
 		t.Fatalf("seed .make/scripts/go-mk-bootstrap.sh: %v", err)
 	}
+	seedTestEngine(t, dir)
 
 	makefile := "BINARY := probe\nCMD := ./cmd/probe\ninclude bootstrap.mk\n"
 	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0o644); err != nil {
