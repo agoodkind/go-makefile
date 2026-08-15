@@ -21,6 +21,9 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -177,7 +180,19 @@ func expandedPackageTargets(targets []string) ([]string, error) {
 // gates accept this form.
 func listFilteredPackages(roots map[string]struct{}) ([]string, error) {
 	slog.Info("lint list packages for nested worktree filter")
-	out, err := exec.Command("go", "list", "-f", "{{.Dir}}\t{{.ImportPath}}", "./...").Output()
+	// -e keeps a package that cannot be loaded for the active GOOS/GOARCH in
+	// the output instead of failing the whole listing. Naming such a package
+	// explicitly is what a bare "./..." never does: the pattern skips a
+	// package with no files for the target, while an explicit directory
+	// reports "build constraints exclude all Go files" as a hard error. A
+	// consumer whose platform matrix covers more than one target would see
+	// every package absent from one target reported there, so drop exactly
+	// those and keep the expansion equivalent to the pattern it replaces.
+	out, err := exec.Command("go", "list", "-e", "-json", "./...").Output()
+	if err != nil {
+		return nil, err
+	}
+	packages, err := unmarshalListedPackages(out)
 	if err != nil {
 		return nil, err
 	}
@@ -185,16 +200,19 @@ func listFilteredPackages(roots map[string]struct{}) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	pkgs := make([]string, 0)
-	for line := range strings.SplitSeq(string(out), "\n") {
-		if line == "" {
+	pkgs := make([]string, 0, len(packages))
+	for _, pkg := range packages {
+		if !pkg.hasFiles() {
+			// A package with no files is either absent from this target,
+			// which the pattern would skip, or genuinely broken. Only the
+			// first is dropped; anything else fails the listing so a
+			// malformed source cannot slip past every gate unanalyzed.
+			if !packageAbsentFromTarget(pkg) {
+				return nil, fmt.Errorf("lint: cannot load package in %s: %s", pkg.Dir, pkg.errorText())
+			}
 			continue
 		}
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		rel, relErr := filepath.Rel(cwd, parts[0])
+		rel, relErr := filepath.Rel(cwd, pkg.Dir)
 		if relErr != nil {
 			continue
 		}
@@ -206,6 +224,76 @@ func listFilteredPackages(roots map[string]struct{}) ([]string, error) {
 	}
 	slices.Sort(pkgs)
 	return slices.Compact(pkgs), nil
+}
+
+// listedPackage is the subset of `go list -json` the expansion reads.
+type listedPackage struct {
+	Dir            string
+	GoFiles        []string
+	CgoFiles       []string
+	TestGoFiles    []string
+	XTestGoFiles   []string
+	IgnoredGoFiles []string
+	InvalidGoFiles []string
+	Error          *listedPackageError
+}
+
+// hasFiles reports whether the package carries any source the gates can
+// analyze on the active target. Test files count: a package that holds only
+// tests is a valid package the gates lint, and it has no GoFiles at all.
+func (p listedPackage) hasFiles() bool {
+	return len(p.GoFiles) > 0 ||
+		len(p.CgoFiles) > 0 ||
+		len(p.TestGoFiles) > 0 ||
+		len(p.XTestGoFiles) > 0
+}
+
+// listedPackageError is the load error `go list -e` reports in place of
+// failing.
+type listedPackageError struct {
+	Err string
+}
+
+// errorText returns the package's load error message, or a placeholder when
+// the package carried no error at all.
+func (p listedPackage) errorText() string {
+	if p.Error == nil {
+		return "no Go files and no reported error"
+	}
+	return p.Error.Err
+}
+
+// packageAbsentFromTarget reports whether a package has no files purely
+// because every file is excluded for the active GOOS/GOARCH. A file the
+// compiler rejects appears in InvalidGoFiles, and any other load failure
+// carries a different message, so both stay visible to the caller.
+func packageAbsentFromTarget(pkg listedPackage) bool {
+	if len(pkg.InvalidGoFiles) > 0 {
+		return false
+	}
+	if pkg.Error == nil {
+		return len(pkg.IgnoredGoFiles) > 0
+	}
+	message := pkg.Error.Err
+	return strings.Contains(message, "build constraints exclude all Go files") ||
+		strings.Contains(message, "no Go files")
+}
+
+// unmarshalListedPackages decodes the stream of concatenated JSON objects
+// that `go list -json` writes.
+func unmarshalListedPackages(out []byte) ([]listedPackage, error) {
+	packages := make([]listedPackage, 0, 64)
+	decoder := json.NewDecoder(bytes.NewReader(out))
+	for decoder.More() {
+		var pkg listedPackage
+		if err := decoder.Decode(&pkg); err != nil {
+			wrapped := fmt.Errorf("lint: decode go list output: %w", err)
+			slog.Error("lint decode go list output failed", slog.Any("err", wrapped))
+			return nil, wrapped
+		}
+		packages = append(packages, pkg)
+	}
+	return packages, nil
 }
 
 // truthyEnvValues enumerates the env-var-style strings that count as a

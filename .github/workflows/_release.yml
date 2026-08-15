@@ -64,6 +64,11 @@ on:
         required: false
         type: string
         default: ""
+      working_directory:
+        description: Directory where make targets run.
+        required: false
+        type: string
+        default: "."
 
 concurrency:
   group: release
@@ -89,16 +94,17 @@ jobs:
           submodules: ${{ inputs.submodules }}
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version-file: ${{ inputs.working_directory }}/go.mod
           cache-dependency-path: |
-            go.mod
-            go.sum
-            go.work
-            go.work.sum
+            ${{ inputs.working_directory }}/go.mod
+            ${{ inputs.working_directory }}/go.sum
+            ${{ inputs.working_directory }}/go.work
+            ${{ inputs.working_directory }}/go.work.sum
       - id: tag
         env:
           RELEASE_STAGE: tag
         run: make release
+        working-directory: ${{ inputs.working_directory }}
 
   # The compile matrix lives in the shared build component. It uploads the raw
   # per-platform binaries the package job consumes.
@@ -117,6 +123,7 @@ jobs:
       release_tag: ${{ needs.tag.outputs.tag }}
       platforms: ${{ inputs.platforms }}
       darwin_runner: ${{ inputs.darwin_runner }}
+      working_directory: ${{ inputs.working_directory }}
 
   # The package matrix signs, notarizes, archives, and attests the compiled
   # binaries, uploading one release-<goos>-<goarch> archive per platform.
@@ -135,6 +142,7 @@ jobs:
       require_darwin_codesign: ${{ inputs.require_darwin_codesign }}
       release_tag: ${{ needs.tag.outputs.tag }}
       platforms: ${{ inputs.platforms }}
+      working_directory: ${{ inputs.working_directory }}
 
   publish:
     name: Publish
@@ -149,26 +157,27 @@ jobs:
           submodules: ${{ inputs.submodules }}
       - uses: actions/download-artifact@v8
         with:
-          path: dist
+          path: ${{ inputs.working_directory }}/dist
           pattern: release-*
           merge-multiple: true
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version-file: ${{ inputs.working_directory }}/go.mod
           cache-dependency-path: |
-            go.mod
-            go.sum
-            go.work
-            go.work.sum
+            ${{ inputs.working_directory }}/go.mod
+            ${{ inputs.working_directory }}/go.sum
+            ${{ inputs.working_directory }}/go.work
+            ${{ inputs.working_directory }}/go.work.sum
       - name: Publish
         env:
           RELEASE_STAGE: publish
           RELEASE_TAG: ${{ needs.tag.outputs.tag }}
         run: make release
+        working-directory: ${{ inputs.working_directory }}
       - name: Attest checksums
         uses: actions/attest@v4.2.2
         with:
-          subject-path: dist/checksums.txt
+          subject-path: ${{ inputs.working_directory }}/dist/checksums.txt
 
   verify:
     name: Verify
@@ -187,12 +196,12 @@ jobs:
           submodules: ${{ inputs.submodules }}
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version-file: ${{ inputs.working_directory }}/go.mod
           cache-dependency-path: |
-            go.mod
-            go.sum
-            go.work
-            go.work.sum
+            ${{ inputs.working_directory }}/go.mod
+            ${{ inputs.working_directory }}/go.sum
+            ${{ inputs.working_directory }}/go.work
+            ${{ inputs.working_directory }}/go.work.sum
       - name: Verify release assets
         env:
           RELEASE_BINARIES: ${{ inputs.binary }}

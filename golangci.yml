@@ -123,6 +123,17 @@ linters:
       - builtin$
       - examples$
       - \.claude/worktrees/
+    rules:
+      # cgo rewrites a call that passes the address of a Go pointer into a
+      # wrapper containing the literal `_cgoCheckPointer(base, 0 == 0)`, and
+      # its line directives attribute that generated text to the calling
+      # source line. dupSubExpr then reports "identical LHS and RHS" against
+      # code the author never wrote and cannot restructure away. Confined to
+      # lines that call into C, so ordinary Go keeps the check.
+      - linters:
+          - gocritic
+        text: dupSubExpr
+        source: C\.[A-Za-z_]
 
 issues:
   max-issues-per-linter: 0
