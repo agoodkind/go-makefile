@@ -263,13 +263,27 @@ STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
 STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
 STATICCHECK_EXTRA_EXCLUDE_PATHS ?=
 
-# go-mk engine binary, built on demand from this (root) module. The
-# default install spec tracks the main branch tip (@main) so every consumer
-# resolves the current engine with no version pin.
+# go-mk engine binary, built on demand from this (root) module. The install
+# spec follows GO_MK_API_REF, the same ref the assets under .make came from,
+# so the engine and the pipeline it runs are never two different versions.
+#
+# Pinning this to @main instead would split them for any consumer that pins a
+# ref, and it makes testing an unmerged branch report a failure that merging
+# would remove: the bootstrap installs the branch's engine, this reinstalls
+# main's over the same path, and the next parse execs an engine that predates
+# the command the branch's helper calls.
+#
+# GO_MK_API_REPO is deliberately not woven in. A fork's module path is not
+# derivable from its repository path, so a fork that needs its own engine sets
+# GO_MK_INSTALL directly.
+# bootstrap.mk sets this before including go.mk, so the ?= keeps a consumer's
+# value. It is repeated here because this repository runs go.mk directly, with
+# no bootstrap.mk, where an undefined ref would build the spec as a bare @.
+GO_MK_API_REF      ?= main
 GO_MK_BIN          ?=
 GO_MK_BUILD_REPO   ?= $(if $(and $(GO_MK_DEV_DIR),$(wildcard $(GO_MK_DEV_DIR)/cmd/go-mk)),$(GO_MK_DEV_DIR))
 GO_MK_BUILD_PKG    ?= $(if $(GO_MK_BUILD_REPO),./cmd/go-mk)
-GO_MK_INSTALL      ?= goodkind.io/go-makefile/cmd/go-mk@main
+GO_MK_INSTALL      ?= goodkind.io/go-makefile/cmd/go-mk@$(GO_MK_API_REF)
 
 # Path to the resolved go-mk engine binary. go-mk-bin.sh prints the configured
 # GO_MK_BIN or the on-demand .make/go-mk build output. The lint targets depend
