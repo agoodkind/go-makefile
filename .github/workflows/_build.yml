@@ -53,6 +53,11 @@ on:
         required: false
         type: string
         default: ""
+      working_directory:
+        description: Directory where make targets run.
+        required: false
+        type: string
+        default: "."
 
 # The go-mk bootstrap fetch (bootstrap.mk / go.mk) downloads a single codeload
 # tarball, which spends no GITHUB_TOKEN core-REST budget, with a
@@ -166,12 +171,12 @@ jobs:
       - uses: actions/setup-go@v7
         id: setup-go
         with:
-          go-version-file: go.mod
+          go-version-file: ${{ inputs.working_directory }}/go.mod
           cache-dependency-path: |
-            go.mod
-            go.sum
-            go.work
-            go.work.sum
+            ${{ inputs.working_directory }}/go.mod
+            ${{ inputs.working_directory }}/go.sum
+            ${{ inputs.working_directory }}/go.work
+            ${{ inputs.working_directory }}/go.work.sum
       # A compiler cache must be replaced whenever the sources it holds objects
       # for change. Go module files miss one such source: a submodule carrying C
       # or C++ code is pinned by a commit recorded in the index, so bumping that
@@ -192,7 +197,7 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-${{ steps.submodule-pins.outputs.digest }}
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles(format('{0}/go.mod', inputs.working_directory), format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}-${{ steps.submodule-pins.outputs.digest }}
           restore-keys: |
             ccache-${{ runner.os }}-${{ runner.arch }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-
       - name: Restore darwin ccache
@@ -211,7 +216,7 @@ jobs:
           # budget, and eviction reclaims whatever was touched least recently
           # rather than whatever is useless, so entries written once and never
           # read push out the caches that other jobs do read.
-          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles('go.mod', 'go.sum', 'go.work', 'go.work.sum') }}-${{ steps.submodule-pins.outputs.digest }}
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles(format('{0}/go.mod', inputs.working_directory), format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}-${{ steps.submodule-pins.outputs.digest }}
           restore-keys: |
             ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-
       - name: Configure ccache
@@ -271,9 +276,11 @@ jobs:
       - name: Inspect go-mk cache manifest
         id: go-mk-cache-prep
         run: make go-mk-cache-manifest
+        working-directory: ${{ inputs.working_directory }}
       - name: Prepare generated submodules
         if: steps.go-mk-cache-prep.outputs.generated_cache_requires_submodules == 'true'
         run: make go-mk-prepare-submodules
+        working-directory: ${{ inputs.working_directory }}
       - name: Build go-mk cache manifest
         id: go-mk-cache
         if: steps.go-mk-cache-prep.outputs.generated_cache_enabled == 'true' || inputs.cgo
@@ -282,6 +289,7 @@ jobs:
           GO_MK_TARGET_GOARCH: ${{ matrix.goarch }}
           GO_MK_CGO_TOOLCHAIN_ID: ${{ matrix.container || format('{0}-{1}', runner.os, runner.arch) }}
         run: make go-mk-cache-manifest
+        working-directory: ${{ inputs.working_directory }}
       - name: Restore generated outputs
         id: generated-cache-restore
         if: steps.go-mk-cache.outputs.generated_cache_enabled == 'true'
@@ -305,6 +313,7 @@ jobs:
           GO_MK_CGO_CACHE_KEY: ${{ steps.go-mk-cache.outputs.cgo_cache_key }}
           GO_MK_CGO_CACHE_HIT: ${{ steps.cgo-cache-restore.outputs.cache-hit }}
         run: make release
+        working-directory: ${{ inputs.working_directory }}
       - name: Show ccache stats
         if: inputs.cgo
         run: ccache --show-stats || true
@@ -338,5 +347,5 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: build-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist
+          path: ${{ inputs.working_directory }}/dist
           if-no-files-found: error

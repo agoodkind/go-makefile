@@ -42,6 +42,11 @@ on:
         required: false
         type: string
         default: "darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
+      working_directory:
+        description: Directory where make targets run.
+        required: false
+        type: string
+        default: "."
 
 # The go-mk bootstrap fetch (bootstrap.mk / go.mk) downloads a single codeload
 # tarball, which spends no GITHUB_TOKEN core-REST budget, with a
@@ -100,19 +105,19 @@ jobs:
       - uses: actions/setup-go@v7
         id: setup-go
         with:
-          go-version-file: go.mod
+          go-version-file: ${{ inputs.working_directory }}/go.mod
           cache-dependency-path: |
-            go.mod
-            go.sum
-            go.work
-            go.work.sum
+            ${{ inputs.working_directory }}/go.mod
+            ${{ inputs.working_directory }}/go.sum
+            ${{ inputs.working_directory }}/go.work
+            ${{ inputs.working_directory }}/go.work.sum
       # Restore the raw binaries the compile job produced for this platform back
       # into dist/<name>_<os>_<arch>/, which the package stage signs and archives.
       - name: Download compiled binaries
         uses: actions/download-artifact@v8
         with:
           name: build-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist
+          path: ${{ inputs.working_directory }}/dist
       - name: Restore quill
         id: quill-cache
         if: matrix.goos == 'darwin'
@@ -123,11 +128,13 @@ jobs:
       - name: Add Go bin to PATH
         if: matrix.goos == 'darwin'
         run: echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+        working-directory: ${{ inputs.working_directory }}
       - name: Install quill
         if: matrix.goos == 'darwin' && steps.quill-cache.outputs.cache-hit != 'true'
         env:
           GOFLAGS: ""
         run: go install github.com/anchore/quill/cmd/quill@${{ inputs.quill_version }}
+        working-directory: ${{ inputs.working_directory }}
       - name: Package
         env:
           RELEASE_STAGE: package
@@ -140,6 +147,7 @@ jobs:
           QUILL_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
           QUILL_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
         run: make release
+        working-directory: ${{ inputs.working_directory }}
       - name: Save quill
         if: matrix.goos == 'darwin' && steps.quill-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -149,9 +157,9 @@ jobs:
       - name: Attest archives
         uses: actions/attest@v4.2.2
         with:
-          subject-path: dist/*.tar.gz
+          subject-path: ${{ inputs.working_directory }}/dist/*.tar.gz
       - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/*.tar.gz
+          path: ${{ inputs.working_directory }}/dist/*.tar.gz
           if-no-files-found: error
