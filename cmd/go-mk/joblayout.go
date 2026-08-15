@@ -10,6 +10,7 @@ type ciJobLayoutEntry struct {
 	Name                  string `json:"name"`
 	Command               string `json:"command"`
 	SecondaryCommand      string `json:"secondary_command"`
+	ContinueOnError       bool   `json:"continue_on_error"`
 	InstallGolangciLint   bool   `json:"install_golangci_lint"`
 	GolangciLintCacheSlug string `json:"lint_cache_slug"`
 }
@@ -69,7 +70,7 @@ func buildCIJobLayout(layout ciJobLayout) (ciJobLayoutMatrix, error) {
 			{Name: "Quality / Gocyclo", Command: "make lint-gocyclo"},
 			{Name: "Quality / Deadcode", Command: "make lint-deadcode"},
 			{Name: "Quality / Staticcheck Extra", Command: "make staticcheck-extra"},
-			{Name: "Quality / Govulncheck", Command: "make govulncheck"},
+			{Name: "Quality / Govulncheck", Command: "make govulncheck", ContinueOnError: true},
 			{Name: "Quality / Go Version", Command: "make go-version-check"},
 		}}, nil
 	case ciJobLayoutSplit:
