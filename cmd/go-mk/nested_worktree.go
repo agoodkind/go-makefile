@@ -177,7 +177,17 @@ func expandedPackageTargets(targets []string) ([]string, error) {
 // gates accept this form.
 func listFilteredPackages(roots map[string]struct{}) ([]string, error) {
 	slog.Info("lint list packages for nested worktree filter")
-	out, err := exec.Command("go", "list", "-f", "{{.Dir}}\t{{.ImportPath}}", "./...").Output()
+	// -e keeps a package that cannot be loaded for the active GOOS/GOARCH in
+	// the output instead of failing the whole listing, and the file counts
+	// then identify it. Naming such a package explicitly is what a bare
+	// "./..." never does: the pattern skips a package with no files for the
+	// target, while an explicit directory reports "build constraints exclude
+	// all Go files" as a hard error. A consumer whose platform matrix covers
+	// more than one target would see every package that is absent from one
+	// target reported there, so drop them and keep the expansion equivalent
+	// to the pattern it replaces.
+	format := "{{.Dir}}\t{{len .GoFiles}}\t{{len .CgoFiles}}"
+	out, err := exec.Command("go", "list", "-e", "-f", format, "./...").Output()
 	if err != nil {
 		return nil, err
 	}
@@ -190,8 +200,11 @@ func listFilteredPackages(roots map[string]struct{}) ([]string, error) {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) != 2 {
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		if parts[1] == "0" && parts[2] == "0" {
 			continue
 		}
 		rel, relErr := filepath.Rel(cwd, parts[0])
