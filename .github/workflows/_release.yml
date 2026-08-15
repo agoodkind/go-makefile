@@ -15,7 +15,12 @@ name: Release
 # builds each target, package signs and archives each target, and publish
 # collects every uploaded archive into one GitHub release. Build identity,
 # version package, and entitlements come from the consumer's Makefile. Signing
-# is skipped automatically when the signing secret is absent.
+# is skipped automatically when the signing secret is absent. Every artifact
+# name the compile and package components produce, and the pattern this
+# workflow's publish job collects, is scoped to the calling module when
+# `working_directory` names one (see the tag job below), so a multi-module
+# consumer that calls this reusable workflow more than once in the same run
+# never collides with, or collects, another module's artifacts.
 
 on:
   workflow_call:
@@ -87,6 +92,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
+      module_suffix: ${{ steps.module.outputs.suffix }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -100,6 +106,27 @@ jobs:
             ${{ inputs.working_directory }}/go.sum
             ${{ inputs.working_directory }}/go.work
             ${{ inputs.working_directory }}/go.work.sum
+      # module_suffix scopes the publish job's download pattern below to the
+      # calling module, derived from working_directory so a multi-module
+      # consumer that calls this reusable workflow more than once in the same
+      # run (once per Go module) never collects another module's
+      # release-<goos>-<goarch> artifacts alongside its own. Mirrors the
+      # identical computation in _build.yml and _package.yml, whose upload
+      # names this pattern must match: every character outside [A-Za-z0-9]
+      # becomes a dash, runs of dashes collapse to one, and leading/trailing
+      # dashes are stripped, so the default working_directory "." collapses to
+      # an empty slug and module_suffix is empty, leaving every single-module
+      # consumer's download pattern byte-for-byte unchanged.
+      - id: module
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        run: |
+          module_slug="$(printf '%s' "${WORKING_DIRECTORY}" | sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+//; s/-+$//')"
+          if [ -n "${module_slug}" ]; then
+            echo "suffix=-${module_slug}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "suffix=" >> "${GITHUB_OUTPUT}"
+          fi
       - id: tag
         env:
           RELEASE_STAGE: tag
@@ -155,10 +182,13 @@ jobs:
         with:
           fetch-depth: 0
           submodules: ${{ inputs.submodules }}
+      # The pattern is scoped by module_suffix (see the tag job) so a
+      # multi-module consumer's publish job collects only its own module's
+      # archives, matching the module-scoped names _package.yml uploaded.
       - uses: actions/download-artifact@v8
         with:
           path: ${{ inputs.working_directory }}/dist
-          pattern: release-*
+          pattern: release${{ needs.tag.outputs.module_suffix }}-*
           merge-multiple: true
       - uses: actions/setup-go@v7
         with:
