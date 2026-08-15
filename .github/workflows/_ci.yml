@@ -442,11 +442,13 @@ jobs:
 
   quality:
     name: ${{ matrix.name }}
-    # The prepared matrix preserves the nine parallel gates by default and
-    # condenses them only when the caller selects split or single. Every shape
-    # restores the generated cache the prepare job warmed.
+    # The prepared matrix preserves nine parallel checks by default and
+    # condenses them only when the caller selects split or single. Govulncheck
+    # is advisory only as a standalone parallel job. Every shape restores the
+    # generated cache the prepare job warmed.
     needs: [prepare]
     if: ${{ !cancelled() }}
+    continue-on-error: ${{ matrix.continue_on_error }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
