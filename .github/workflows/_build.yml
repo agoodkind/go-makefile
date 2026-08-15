@@ -2,10 +2,12 @@ name: Build
 
 # Shared compile component. It cross-compiles the platforms the `platforms`
 # input names (default all four) and uploads each platform's raw binaries as a
-# build-<goos>-<goarch> artifact. It never signs, notarizes, archives, tags, or
-# publishes; the package component consumes these artifacts for that. darwin
-# targets cross-compile on Ubuntu by default, or build natively on the macOS
-# runner named by the `darwin_runner` input.
+# build-<goos>-<goarch> artifact, scoped to the calling module when
+# `working_directory` names one (see the plan job below), so two calls in the
+# same workflow run for different modules never collide. It never signs,
+# notarizes, archives, tags, or publishes; the package component consumes
+# these artifacts for that. darwin targets cross-compile on Ubuntu by default,
+# or build natively on the macOS runner named by the `darwin_runner` input.
 
 on:
   workflow_call:
@@ -72,11 +74,13 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      module_suffix: ${{ steps.plan.outputs.module_suffix }}
     steps:
       - id: plan
         env:
           PLATFORMS: ${{ inputs.platforms }}
           DARWIN_RUNNER: ${{ inputs.darwin_runner }}
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
         # Emit one matrix row per requested platform. linux rows run natively
         # per-arch. freebsd rows are a pure-Go cross-compile from the same
         # ubuntu-24.04 runner linux/amd64 uses, for both arches: unlike
@@ -85,7 +89,25 @@ jobs:
         # cross-compile in the goreleaser-cross container (default) or run
         # natively on the requested macOS runner; only cross rows carry
         # cc/cxx, which the cross-specific steps key on.
+        #
+        # module_suffix scopes every artifact name this workflow uploads to the
+        # calling module, derived from working_directory so a multi-module
+        # consumer that calls this reusable workflow more than once in the same
+        # run (once per Go module) never collides on the shared
+        # build-<goos>-<goarch> artifact name. GitHub Actions expressions have
+        # no string-replace function, so the slug is computed here in shell:
+        # every character outside [A-Za-z0-9] becomes a dash, runs of dashes
+        # collapse to one, and leading/trailing dashes are stripped. The
+        # default working_directory "." has no alphanumeric characters, so it
+        # collapses to an empty slug and module_suffix is empty, leaving every
+        # single-module consumer's artifact names byte-for-byte unchanged.
         run: |
+          module_slug="$(printf '%s' "${WORKING_DIRECTORY}" | sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+//; s/-+$//')"
+          if [ -n "${module_slug}" ]; then
+            echo "module_suffix=-${module_slug}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "module_suffix=" >> "${GITHUB_OUTPUT}"
+          fi
           rows='[]'
           for platform in ${PLATFORMS}; do
             goos="${platform%%/*}"
@@ -342,10 +364,11 @@ jobs:
           path: ~/.ccache
           key: ${{ steps.darwin-ccache-restore.outputs.cache-primary-key }}
       # Upload this platform's raw compiled binaries under dist/<name>_<os>_<arch>/.
-      # The package job downloads them back into dist to sign and archive without
-      # recompiling.
+      # The package job downloads them back into dist to sign and archive
+      # without recompiling. module_suffix (see the plan job) scopes the name
+      # so a multi-module consumer's calls do not collide.
       - uses: actions/upload-artifact@v7
         with:
-          name: build-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: build${{ needs.plan.outputs.module_suffix }}-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ inputs.working_directory }}/dist
           if-no-files-found: error

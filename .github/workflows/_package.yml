@@ -3,10 +3,12 @@ name: Package
 # Shared package component. It consumes the per-platform build-<goos>-<goarch>
 # artifacts the compile component uploaded, then signs and notarizes the darwin
 # binaries with anchore/quill, writes one tar.gz per (binary, platform) pair,
-# attests each archive, and uploads it as release-<goos>-<goarch>. It never
-# compiles, tags, or publishes. Every leg runs on plain Ubuntu with no cross
-# container, since quill signs Mach-O without macOS and archiving is host
-# independent.
+# attests each archive, and uploads it as release-<goos>-<goarch>. Both names
+# are scoped to the calling module when `working_directory` names one (see the
+# plan job below), so two calls in the same workflow run for different modules
+# never collide. It never compiles, tags, or publishes. Every leg runs on
+# plain Ubuntu with no cross container, since quill signs Mach-O without macOS
+# and archiving is host independent.
 
 on:
   workflow_call:
@@ -61,14 +63,34 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      module_suffix: ${{ steps.plan.outputs.module_suffix }}
     steps:
       - id: plan
         env:
           PLATFORMS: ${{ inputs.platforms }}
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
         # Emit one matrix row per requested platform. Packaging never compiles,
         # so every leg runs on Ubuntu with no cross container regardless of the
         # target os/arch.
+        #
+        # module_suffix scopes every artifact name this workflow downloads and
+        # uploads to the calling module, derived from working_directory so a
+        # multi-module consumer that calls this reusable workflow more than
+        # once in the same run (once per Go module) never collides on the
+        # shared build-<goos>-<goarch> or release-<goos>-<goarch> artifact
+        # names. Mirrors the identical computation in _build.yml: every
+        # character outside [A-Za-z0-9] becomes a dash, runs of dashes collapse
+        # to one, and leading/trailing dashes are stripped, so the default
+        # working_directory "." collapses to an empty slug and module_suffix is
+        # empty, leaving every single-module consumer's artifact names
+        # byte-for-byte unchanged.
         run: |
+          module_slug="$(printf '%s' "${WORKING_DIRECTORY}" | sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+//; s/-+$//')"
+          if [ -n "${module_slug}" ]; then
+            echo "module_suffix=-${module_slug}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "module_suffix=" >> "${GITHUB_OUTPUT}"
+          fi
           rows='[]'
           for platform in ${PLATFORMS}; do
             goos="${platform%%/*}"
@@ -112,11 +134,13 @@ jobs:
             ${{ inputs.working_directory }}/go.work
             ${{ inputs.working_directory }}/go.work.sum
       # Restore the raw binaries the compile job produced for this platform back
-      # into dist/<name>_<os>_<arch>/, which the package stage signs and archives.
+      # into dist/<name>_<os>_<arch>/, which the package stage signs and
+      # archives. module_suffix (see the plan job) scopes the name so this
+      # matches the same module's upload from _build.yml.
       - name: Download compiled binaries
         uses: actions/download-artifact@v8
         with:
-          name: build-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: build${{ needs.plan.outputs.module_suffix }}-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ inputs.working_directory }}/dist
       - name: Restore quill
         id: quill-cache
@@ -158,8 +182,11 @@ jobs:
         uses: actions/attest@v4.2.2
         with:
           subject-path: ${{ inputs.working_directory }}/dist/*.tar.gz
+      # module_suffix (see the plan job) scopes the name so a multi-module
+      # consumer's calls do not collide, and so the publish job in
+      # _release.yml can gather only this module's archives.
       - uses: actions/upload-artifact@v7
         with:
-          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: release${{ needs.plan.outputs.module_suffix }}-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ inputs.working_directory }}/dist/*.tar.gz
           if-no-files-found: error
