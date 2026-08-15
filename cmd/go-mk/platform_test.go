@@ -107,11 +107,29 @@ func TestLintEnvDisablesCgoForAForeignOperatingSystem(t *testing.T) {
 	}
 }
 
-// TestLintEnvKeepsCgoForTheHostOperatingSystem confirms the native pass still
-// analyzes the cgo build, which is where a consumer's cgo files must be checked.
-func TestLintEnvKeepsCgoForTheHostOperatingSystem(t *testing.T) {
+// TestLintEnvDisablesCgoForAForeignArchitecture confirms architecture counts as
+// much as operating system: an amd64 host has no arm64 C compiler either.
+func TestLintEnvDisablesCgoForAForeignArchitecture(t *testing.T) {
+	foreign := "arm64"
+	if runtime.GOARCH == foreign {
+		foreign = "amd64"
+	}
+	t.Setenv("CC", "gcc")
 	t.Setenv("CGO_ENABLED", "1")
-	activePlatform = platformTarget{goos: runtime.GOOS, goarch: "amd64"}
+	activePlatform = platformTarget{goos: runtime.GOOS, goarch: foreign}
+	defer func() { activePlatform = platformTarget{} }()
+
+	env := lintEnv()
+	if !envContains(env, "CGO_ENABLED=0") {
+		t.Fatalf("lintEnv did not disable cgo for a %s pass on a %s host", foreign, runtime.GOARCH)
+	}
+}
+
+// TestLintEnvKeepsCgoForTheHostTarget confirms the native pass still analyzes
+// the cgo build, which is where a consumer's cgo files must be checked.
+func TestLintEnvKeepsCgoForTheHostTarget(t *testing.T) {
+	t.Setenv("CGO_ENABLED", "1")
+	activePlatform = platformTarget{goos: runtime.GOOS, goarch: runtime.GOARCH}
 	defer func() { activePlatform = platformTarget{} }()
 
 	env := lintEnv()

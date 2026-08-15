@@ -217,14 +217,17 @@ func lintEnv() []string {
 	if activePlatform.goos != "" {
 		env = setEnvVar(env, "GOOS", activePlatform.goos)
 		env = setEnvVar(env, "GOARCH", activePlatform.goarch)
-		// A pass for a foreign operating system must not inherit the host C
-		// toolchain. A cgo consumer's CI job exports CC for its native target,
-		// and with CC set Go enables cgo even for a cross build, so the pass
-		// would compile runtime/cgo for the foreign target with the host
-		// compiler and fail before analyzing anything. Go's own default for a
-		// cross build without a toolchain is cgo off, so match it. A caller
-		// that really has a cross toolchain declares it through GO_MK_CC.
-		if activePlatform.goos != runtime.GOOS && strings.TrimSpace(os.Getenv("GO_MK_CC")) == "" {
+		// A pass for any target the host cannot compile natively must not
+		// inherit the host C toolchain. A cgo consumer's CI job exports CC for
+		// its native target, and with CC set Go enables cgo even for a cross
+		// build, so the pass would compile runtime/cgo with the wrong compiler
+		// and fail before analyzing anything. Architecture counts as much as
+		// operating system here: an amd64 host has no arm64 C compiler either.
+		// Go's own default for a cross build without a toolchain is cgo off, so
+		// match it. A caller that really has a cross toolchain declares it
+		// through GO_MK_CC.
+		crossTarget := activePlatform.goos != runtime.GOOS || activePlatform.goarch != runtime.GOARCH
+		if crossTarget && strings.TrimSpace(os.Getenv("GO_MK_CC")) == "" {
 			env = setEnvVar(env, "CGO_ENABLED", "0")
 		}
 	}
