@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -216,6 +217,16 @@ func lintEnv() []string {
 	if activePlatform.goos != "" {
 		env = setEnvVar(env, "GOOS", activePlatform.goos)
 		env = setEnvVar(env, "GOARCH", activePlatform.goarch)
+		// A pass for a foreign operating system must not inherit the host C
+		// toolchain. A cgo consumer's CI job exports CC for its native target,
+		// and with CC set Go enables cgo even for a cross build, so the pass
+		// would compile runtime/cgo for the foreign target with the host
+		// compiler and fail before analyzing anything. Go's own default for a
+		// cross build without a toolchain is cgo off, so match it. A caller
+		// that really has a cross toolchain declares it through GO_MK_CC.
+		if activePlatform.goos != runtime.GOOS && strings.TrimSpace(os.Getenv("GO_MK_CC")) == "" {
+			env = setEnvVar(env, "CGO_ENABLED", "0")
+		}
 	}
 	// Isolate golangci-lint's content-addressed results cache per worktree, and
 	// per platform during a matrix run, so a sibling worktree or a different
