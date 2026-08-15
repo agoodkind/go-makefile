@@ -202,7 +202,7 @@ func listFilteredPackages(roots map[string]struct{}) ([]string, error) {
 	}
 	pkgs := make([]string, 0, len(packages))
 	for _, pkg := range packages {
-		if len(pkg.GoFiles) == 0 && len(pkg.CgoFiles) == 0 {
+		if !pkg.hasFiles() {
 			// A package with no files is either absent from this target,
 			// which the pattern would skip, or genuinely broken. Only the
 			// first is dropped; anything else fails the listing so a
@@ -231,9 +231,21 @@ type listedPackage struct {
 	Dir            string
 	GoFiles        []string
 	CgoFiles       []string
+	TestGoFiles    []string
+	XTestGoFiles   []string
 	IgnoredGoFiles []string
 	InvalidGoFiles []string
 	Error          *listedPackageError
+}
+
+// hasFiles reports whether the package carries any source the gates can
+// analyze on the active target. Test files count: a package that holds only
+// tests is a valid package the gates lint, and it has no GoFiles at all.
+func (p listedPackage) hasFiles() bool {
+	return len(p.GoFiles) > 0 ||
+		len(p.CgoFiles) > 0 ||
+		len(p.TestGoFiles) > 0 ||
+		len(p.XTestGoFiles) > 0
 }
 
 // listedPackageError is the load error `go list -e` reports in place of
