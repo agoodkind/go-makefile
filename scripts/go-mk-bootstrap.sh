@@ -37,7 +37,10 @@ obtain_go_mk() {
     # before provision was added and then fail on the exec, which is exactly what
     # a consumer meets on the run after this script first replaces its
     # predecessor.
-    if [[ -x "${output_path}" ]] \
+    # A symlink here is an engine some earlier version shared with every other
+    # consumer on the machine. It is replaced rather than reused, whatever it
+    # currently points at, so this consumer ends up owning its own binary.
+    if [[ ! -L "${output_path}" && -f "${output_path}" && -x "${output_path}" ]] \
         && "${output_path}" -flags 2>/dev/null | grep -q "Name: provision"; then
         printf '%s\n' "${output_path}"
         return 0

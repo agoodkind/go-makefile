@@ -22,7 +22,11 @@ obtain_go_mk() {
         fi
         rm -f "${tmp_path}"
     fi
-    if [[ -x "${OUTPUT}" ]] && "${OUTPUT}" -flags 2>/dev/null | grep -q "Name: resolve-bin"; then
+    # A symlink here is an engine some earlier version shared with every other
+    # consumer on the machine. It is replaced rather than reused, whatever it
+    # currently points at, so this consumer ends up owning its own binary.
+    if [[ ! -L "${OUTPUT}" && -f "${OUTPUT}" && -x "${OUTPUT}" ]] \
+        && "${OUTPUT}" -flags 2>/dev/null | grep -q "Name: resolve-bin"; then
         printf '%s\n' "${OUTPUT}"
         return 0
     fi
