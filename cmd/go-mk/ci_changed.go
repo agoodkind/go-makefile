@@ -57,9 +57,16 @@ type ciChangeInputs struct {
 // goListPackage is the subset of `go list -json` fields that name files which
 // compose the build or tests. Embed and cgo files are included so a go:embed
 // payload or a C source counts as a Go change by construction.
+//
+// Error and DepsErrors are what -e reports instead of failing. A package that
+// did not load contributes a partial file list, so a caller that must see every
+// input reads these; ci-changed does not, because it already fails safe to
+// running the gates whenever go list itself fails.
 type goListPackage struct {
 	Dir             string
 	Standard        bool
+	Error           *goListError
+	DepsErrors      []goListError
 	GoFiles         []string
 	CgoFiles        []string
 	CFiles          []string
@@ -76,6 +83,11 @@ type goListPackage struct {
 	XTestGoFiles    []string
 	TestEmbedFiles  []string
 	XTestEmbedFiles []string
+}
+
+// goListError is one load failure go list -e reports in place of exiting.
+type goListError struct {
+	Err string
 }
 
 // buildConfigBasenames are file basenames whose change alters how the gates run.

@@ -140,6 +140,19 @@ CODESIGN_TIMESTAMP ?= none
 CODESIGN_ENTITLEMENTS ?=
 GO_MK_INSTALL_PRE_CMD ?=
 GO_MK_INSTALL_POST_CMD ?=
+
+# Opt in to build-output reuse. Set GO_MK_REUSE_OUTPUTS := 1 and a `build` or
+# `install` whose inputs are byte-for-byte what the last successful run saw
+# returns without recompiling or re-running the gate.
+#
+# The engine decides, from a content fingerprint of every source file the Go
+# toolchain reports, the settings this file exports, the engine binary itself,
+# and the digest of each output the recorded run produced. Nothing consults a
+# modification time, so a deleted source, a replaced binary, or a newer engine
+# all force a real run. Anything the engine cannot read forces one too.
+#
+# Off by default: a consumer changes behavior only by asking for it.
+GO_MK_REUSE_OUTPUTS ?=
 # Inputs the go-mk install/build/uninstall commands read from the environment.
 # go-mk assembles the build argv from the GO_BUILD_* values, stamps nothing
 # itself (the ldflags are computed above), signs on macOS from the CODESIGN_*
@@ -161,6 +174,7 @@ export CODESIGN_TIMESTAMP
 export CODESIGN_ENTITLEMENTS
 export GO_MK_INSTALL_PRE_CMD
 export GO_MK_INSTALL_POST_CMD
+export GO_MK_REUSE_OUTPUTS
 
 # build and install run the go-mk build gate before compiling. Local builds run
 # vet, lint, and govulncheck inline; GitHub Actions skips that inline gate only
