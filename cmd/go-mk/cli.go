@@ -188,7 +188,7 @@ func registerEngineCommands(root *cobra.Command) {
 		Args:   cobra.NoArgs,
 		Hidden: true,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			recordedExit = runBuildGate()
+			recordedExit = runBuildGateCommand()
 			return nil
 		},
 	})

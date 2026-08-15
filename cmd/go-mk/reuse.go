@@ -89,8 +89,25 @@ func reuseEnabled() bool {
 	return ok
 }
 
+// runBuildGateCommand is the build-gate entry point a library-mode consumer's
+// `build` target calls. A library produces no artifact, so the only thing to
+// reuse is the verdict: the gate passed on exactly this tree once already.
+func runBuildGateCommand() int {
+	empty := installConfig{}
+	if reuseSatisfied("build-gate", empty) {
+		writeStdout("build-gate reused (no build input changed)\n")
+		return 0
+	}
+	if code := runBuildGateFunc(); code != 0 {
+		return code
+	}
+	recordReuse("build-gate", empty)
+	return 0
+}
+
 // reuseOutputs lists the files a mode produces. build leaves each binary in the
-// dist directory; install also places each one in its target directory.
+// dist directory; install also places each one in its target directory. A gate
+// produces none, so its stamp rests on the fingerprint alone.
 func reuseOutputs(mode string, cfg installConfig) []string {
 	paths := make([]string, 0, len(cfg.bins)*2)
 	for _, bin := range cfg.bins {

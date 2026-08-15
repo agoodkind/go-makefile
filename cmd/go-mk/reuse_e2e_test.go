@@ -212,6 +212,45 @@ func TestSourceListRefusesAPackageThatDidNotLoad(t *testing.T) {
 	}
 }
 
+// TestLibraryGateReusesItsVerdict covers the library-mode path, where there is
+// no artifact and the only thing worth reusing is the gate's verdict on a tree
+// that has not changed.
+func TestLibraryGateReusesItsVerdict(t *testing.T) {
+	harness := newReuseHarness(t, "1")
+
+	if code := runBuildGateCommand(); code != 0 {
+		t.Fatalf("first gate = %d, want 0", code)
+	}
+	harness.expectGateRuns(1, "first gate")
+
+	if code := runBuildGateCommand(); code != 0 {
+		t.Fatalf("second gate = %d, want 0", code)
+	}
+	harness.expectGateRuns(1, "second gate on an unchanged tree")
+
+	writeFile(t, harness.path("greeting.go"), "package main\n\nconst greeting = \"two\"\n")
+
+	if code := runBuildGateCommand(); code != 0 {
+		t.Fatalf("third gate = %d, want 0", code)
+	}
+	harness.expectGateRuns(2, "after editing a source file")
+}
+
+// TestFailedGateIsNeverReused proves a failing run leaves no stamp, so the next
+// run cannot inherit a verdict the gate never gave.
+func TestFailedGateIsNeverReused(t *testing.T) {
+	harness := newReuseHarness(t, "1")
+	harness.gateCode = 1
+
+	if code := runBuildGateCommand(); code != 1 {
+		t.Fatalf("failing gate = %d, want 1", code)
+	}
+	if code := runBuildGateCommand(); code != 1 {
+		t.Fatalf("second failing gate = %d, want 1", code)
+	}
+	harness.expectGateRuns(2, "two runs of a failing gate")
+}
+
 func TestBuildAlwaysRunsWhenReuseIsOff(t *testing.T) {
 	harness := newReuseHarness(t, "")
 
