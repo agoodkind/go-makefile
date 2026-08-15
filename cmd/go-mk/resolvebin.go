@@ -132,34 +132,45 @@ func buildEngineFromRepo(repoPath string, outputPath string) error {
 	return nil
 }
 
+// installEngineBinary installs the engine into this consumer's own output path
+// rather than a shared GOPATH bin.
+//
+// GOBIN points at a temporary directory beside the output, so the rename that
+// puts the binary in place stays on one filesystem, and nothing outside this
+// consumer is written. A machine-wide binary cannot serve two consumers pinned
+// to different refs: each build rewrites it for the other, and a symlink from
+// the output path then resolves to the wrong engine. Measured before this
+// change, two clones of one repository on two refs alternated, and the fourth
+// build failed with unknown command "provision".
 func installEngineBinary(outputPath string) error {
 	installSpec := strings.TrimSpace(os.Getenv("GO_MK_INSTALL"))
 	if installSpec == "" {
 		installSpec = "goodkind.io/go-makefile/cmd/go-mk@main"
 	}
 	slog.Info("resolve-bin install binary", slog.String("spec", installSpec))
-	binaryName := filepath.Base(strings.SplitN(installSpec, "@", 2)[0])
-	gopath, err := goEnvPath("GOPATH")
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		return err
+	}
+	staging, err := os.MkdirTemp(filepath.Dir(outputPath), ".go-mk-install.")
 	if err != nil {
 		return err
 	}
-	goBin := filepath.Join(gopath, "bin")
-	installedPath := filepath.Join(goBin, binaryName)
+	defer func() { _ = os.RemoveAll(staging) }()
+
 	cmd := exec.Command("go", "install", installSpec)
 	cmd.Env = append(os.Environ(),
 		"GOPROXY=direct",
 		"GOPRIVATE=goodkind.io/go-makefile",
-		"GOBIN="+goBin,
+		"GOBIN="+staging,
 	)
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, cmdErr := cmd.CombinedOutput(); cmdErr != nil {
 		writeStderr(string(output))
-		return err
+		return cmdErr
 	}
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
-		return err
-	}
-	_ = os.Remove(outputPath)
-	return os.Symlink(installedPath, outputPath)
+	binaryName := filepath.Base(strings.SplitN(installSpec, "@", 2)[0])
+	// Rename replaces the directory entry itself, so a symlink an earlier
+	// version left at the output path is destroyed rather than written through.
+	return os.Rename(filepath.Join(staging, binaryName), outputPath)
 }
 
 func sourceNewerThanEngine(repoPath string, outputPath string) bool {
