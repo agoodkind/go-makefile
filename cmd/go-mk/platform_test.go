@@ -1,6 +1,7 @@
 package main
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -83,6 +84,57 @@ func TestLintEnvForcesActivePlatform(t *testing.T) {
 	}
 	if !envContains(env, "GOARCH=amd64") {
 		t.Fatalf("lintEnv did not force GOARCH=amd64: %v", goEnvEntries(env))
+	}
+}
+
+// TestLintEnvDisablesCgoForAForeignOperatingSystem confirms a cross pass does
+// not inherit the host C toolchain. A cgo consumer's CI job exports CC for its
+// native target, and with CC set Go would enable cgo for the foreign target and
+// fail compiling runtime/cgo with the wrong compiler.
+func TestLintEnvDisablesCgoForAForeignOperatingSystem(t *testing.T) {
+	foreign := "freebsd"
+	if runtime.GOOS == foreign {
+		foreign = "linux"
+	}
+	t.Setenv("CC", "gcc")
+	t.Setenv("CGO_ENABLED", "1")
+	activePlatform = platformTarget{goos: foreign, goarch: "amd64"}
+	defer func() { activePlatform = platformTarget{} }()
+
+	env := lintEnv()
+	if !envContains(env, "CGO_ENABLED=0") {
+		t.Fatalf("lintEnv did not disable cgo for a %s pass on a %s host", foreign, runtime.GOOS)
+	}
+}
+
+// TestLintEnvDisablesCgoForAForeignArchitecture confirms architecture counts as
+// much as operating system: an amd64 host has no arm64 C compiler either.
+func TestLintEnvDisablesCgoForAForeignArchitecture(t *testing.T) {
+	foreign := "arm64"
+	if runtime.GOARCH == foreign {
+		foreign = "amd64"
+	}
+	t.Setenv("CC", "gcc")
+	t.Setenv("CGO_ENABLED", "1")
+	activePlatform = platformTarget{goos: runtime.GOOS, goarch: foreign}
+	defer func() { activePlatform = platformTarget{} }()
+
+	env := lintEnv()
+	if !envContains(env, "CGO_ENABLED=0") {
+		t.Fatalf("lintEnv did not disable cgo for a %s pass on a %s host", foreign, runtime.GOARCH)
+	}
+}
+
+// TestLintEnvKeepsCgoForTheHostTarget confirms the native pass still analyzes
+// the cgo build, which is where a consumer's cgo files must be checked.
+func TestLintEnvKeepsCgoForTheHostTarget(t *testing.T) {
+	t.Setenv("CGO_ENABLED", "1")
+	activePlatform = platformTarget{goos: runtime.GOOS, goarch: runtime.GOARCH}
+	defer func() { activePlatform = platformTarget{} }()
+
+	env := lintEnv()
+	if envContains(env, "CGO_ENABLED=0") {
+		t.Fatalf("lintEnv disabled cgo for the host pass: %v", goEnvEntries(env))
 	}
 }
 
