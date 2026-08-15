@@ -42,6 +42,35 @@ func TestRecordPlatformPresenceSkipsAbsentPackage(t *testing.T) {
 	}
 }
 
+// TestPlatformStubPlatformsHonorsDeclaredMatrix covers a consumer that ships a
+// narrower set than the release default. Judging a platform it does not ship
+// reports a stub no user can reach: mwan declares linux and freebsd and was
+// failed for darwin, where its own comments record that sysrepo cannot exist
+// because darwin has never shipped robust pthread mutexes.
+func TestPlatformStubPlatformsHonorsDeclaredMatrix(t *testing.T) {
+	t.Setenv("GO_MK_PLATFORMS", "linux/amd64 freebsd/amd64")
+
+	got := platformStubPlatforms()
+
+	want := []string{"linux/amd64", "freebsd/amd64"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("platformStubPlatforms() = %v, want %v", got, want)
+	}
+}
+
+// TestPlatformStubPlatformsFallsBackToReleaseMatrix keeps the behavior for a
+// consumer that declares nothing, which is most of them.
+func TestPlatformStubPlatformsFallsBackToReleaseMatrix(t *testing.T) {
+	t.Setenv("GO_MK_PLATFORMS", "")
+
+	got := platformStubPlatforms()
+
+	want := strings.Fields(defaultReleasePlatforms)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("platformStubPlatforms() = %v, want the release matrix %v", got, want)
+	}
+}
+
 func TestFlagPlatformSplitPackages(t *testing.T) {
 	presence := map[string]*platformCgoPresence{
 		"mod/cbm":     {withCgo: true, withoutCgo: true},  // the stub pattern
