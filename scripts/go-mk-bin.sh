@@ -30,11 +30,25 @@ obtain_go_mk() {
         printf 'go-mk-bin: go is not on PATH\n' >&2
         return 1
     fi
+    # The engine is installed into this consumer's own .make, never into a
+    # shared GOPATH bin, so two consumers pinned to different refs do not
+    # rewrite each other's binary. GOBIN points at a temporary directory beside
+    # the output, keeping the rename on one filesystem.
     local install_spec="${GO_MK_INSTALL:-goodkind.io/go-makefile/cmd/go-mk@main}"
-    local go_bin
-    go_bin=$(go env GOPATH)/bin
-    env GOPROXY=direct GOPRIVATE=goodkind.io/go-makefile GOBIN="${go_bin}" go install "${install_spec}"
-    ln -sf "${go_bin}/go-mk" "${OUTPUT}"
+    local staging
+    staging=$(mktemp -d "$(dirname "${OUTPUT}")/.go-mk-install.XXXXXX") || return 1
+    if ! env GOPROXY=direct GOPRIVATE=goodkind.io/go-makefile GOBIN="${staging}" \
+        go install "${install_spec}"; then
+        rm -rf "${staging}"
+        printf 'go-mk-bin: could not go install %s\n' "${install_spec}" >&2
+        return 1
+    fi
+    if ! mv "${staging}/go-mk" "${OUTPUT}"; then
+        rm -rf "${staging}"
+        printf 'go-mk-bin: could not install go-mk into %s\n' "${OUTPUT}" >&2
+        return 1
+    fi
+    rm -rf "${staging}"
     printf '%s\n' "${OUTPUT}"
 }
 

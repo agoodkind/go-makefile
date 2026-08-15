@@ -32,7 +32,13 @@ obtain_go_mk() {
         fi
         rm -f "${tmp_path}"
     fi
-    if [[ -x "${output_path}" ]]; then
+    # An existing binary is reused only when it provides the command this script
+    # is about to exec. Testing that it merely exists would reuse an engine from
+    # before provision was added and then fail on the exec, which is exactly what
+    # a consumer meets on the run after this script first replaces its
+    # predecessor.
+    if [[ -x "${output_path}" ]] \
+        && "${output_path}" -flags 2>/dev/null | grep -q "Name: provision"; then
         printf '%s\n' "${output_path}"
         return 0
     fi
@@ -40,19 +46,37 @@ obtain_go_mk() {
         printf '%s\n' "error: could not obtain go-mk; go is not on PATH" >&2
         return 1
     fi
-    local install_ref="${GO_MK_API_REF}"
-    if [[ "${install_ref}" == "main" ]]; then
-        install_ref="main"
-    fi
-    local install_spec="goodkind.io/go-makefile/cmd/go-mk@${install_ref}"
-    local go_bin
-    go_bin=$(go env GOPATH)/bin
-    if ! env GOPROXY=direct GOPRIVATE=goodkind.io/go-makefile GOBIN="${go_bin}" \
+    install_go_mk "${output_path}" "goodkind.io/go-makefile/cmd/go-mk@${GO_MK_API_REF}"
+}
+
+# install_go_mk installs one engine into the consumer's own .make, never into a
+# shared GOPATH bin. GOBIN points at a temporary directory inside .make, so the
+# rename into place stays on one filesystem and is atomic.
+#
+# A machine-wide binary cannot serve two consumers pinned to different refs:
+# each build would rewrite it for the other, and a symlink from .make/go-mk
+# would then resolve to the wrong engine. Measured before this change, two
+# clones of one repository on two refs alternated, and the fourth build failed
+# with unknown command "provision" because the third had rewritten the shared
+# binary.
+install_go_mk() {
+    local output_path="$1"
+    local install_spec="$2"
+    local staging
+
+    staging=$(mktemp -d "$(dirname "${output_path}")/.go-mk-install.XXXXXX") || return 1
+    if ! env GOPROXY=direct GOPRIVATE=goodkind.io/go-makefile GOBIN="${staging}" \
         go install "${install_spec}"; then
+        rm -rf "${staging}"
         printf '%s\n' "error: could not go install ${install_spec}" >&2
         return 1
     fi
-    ln -sf "${go_bin}/go-mk" "${output_path}"
+    if ! mv "${staging}/go-mk" "${output_path}"; then
+        rm -rf "${staging}"
+        printf '%s\n' "error: could not install go-mk into ${output_path}" >&2
+        return 1
+    fi
+    rm -rf "${staging}"
     printf '%s\n' "${output_path}"
 }
 
