@@ -190,7 +190,7 @@ func compileStage(cfg releaseConfig) error {
 	if err := os.MkdirAll(cfg.distDir, 0o755); err != nil {
 		return err
 	}
-	if err := checkCgoStub(); err != nil {
+	if err := checkReleaseCgoStub(cfg); err != nil {
 		return err
 	}
 	for _, platform := range cfg.platforms {
@@ -462,7 +462,7 @@ func executeRelease(cfg releaseConfig) error {
 	if err := os.MkdirAll(cfg.distDir, 0o755); err != nil {
 		return err
 	}
-	if err := checkCgoStub(); err != nil {
+	if err := checkReleaseCgoStub(cfg); err != nil {
 		return err
 	}
 	if err := pushReleaseTag(cfg); err != nil {
