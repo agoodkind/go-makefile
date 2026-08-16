@@ -1,76 +1,55 @@
 #!/usr/bin/env bash
-set -eo pipefail
+set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-FETCH_SCRIPT="${SCRIPT_DIR}/go-mk-fetch-one.sh"
+# Thin wrapper: provision owns the asset tree. An old go.mk still calls this
+# script for update-go-mk and smoke-fetch.
 
-asset_list() {
-    printf "go.mk\n"
-    printf "golangci.yml\n"
-    # The bootstrap helper is listed here rather than added to
-    # _GO_MK_SCRIPT_FILES, which is the other list it could have joined.
-    # _GO_MK_SCRIPT_FILES drives go.mk's own prime, and that loop removes each
-    # entry before downloading its replacement, so putting the helper there
-    # would let a failed download destroy it. Here it only ever gets fetched.
-    #
-    # smoke_fetch below clears .make outright, so without this the smoke test
-    # rebuilt a tree missing the one asset the next parse needs before it can
-    # do anything, and reported success.
-    printf "scripts/go-mk-bootstrap.sh\n"
-    for script_name in ${_GO_MK_SCRIPT_FILES:-}; do
-        printf "%s\n" "${script_name}"
-    done
-    for module_name in ${GO_MK_MODULES:-}; do
-        printf "%s\n" "${module_name}"
-    done
+OUTPUT="${_GO_MK_ROOT:-${GO_MK_ROOT:-$(pwd)}}/.make/go-mk"
+if [[ "${OUTPUT}" != /* ]]; then
+    OUTPUT="$(pwd)/${OUTPUT}"
+fi
+
+obtain_go_mk() {
+    if [[ -x "${OUTPUT}" ]]; then
+        printf '%s\n' "${OUTPUT}"
+        return 0
+    fi
+    if [[ -n "${GO_MK_BUILD_REPO:-${GO_MK_DEV_DIR:-}}" ]]; then
+        local repo="${GO_MK_BUILD_REPO:-${GO_MK_DEV_DIR}}"
+        mkdir -p "$(dirname "${OUTPUT}")"
+        local tmp_path
+        tmp_path=$(mktemp "${OUTPUT}.XXXXXX") || return 1
+        if ! go build -C "${repo}" -o "${tmp_path}" "${GO_MK_BUILD_PKG:-./cmd/go-mk}"; then
+            rm -f "${tmp_path}"
+            return 1
+        fi
+        mv "${tmp_path}" "${OUTPUT}"
+        printf '%s\n' "${OUTPUT}"
+        return 0
+    fi
+    printf 'go-mk-sync: go-mk engine is missing; run a parse first\n' >&2
+    return 1
 }
 
-update_assets() {
-    local asset_name
-    local destination_path
-
-    mkdir -p .make
-    while IFS= read -r asset_name; do
-        if [[ -z "${asset_name}" ]]; then
-            continue
-        fi
-        if [[ "${asset_name}" == "go.mk" ]]; then
-            destination_path="${GO_MK:-go.mk}"
-        else
-            destination_path=".make/${asset_name}"
-        fi
-        bash "${FETCH_SCRIPT}" "${asset_name}" "${destination_path}" ""
-        printf "updated: %s\n" "${asset_name}"
-    done < <(asset_list)
-}
-
-smoke_fetch() {
-    local asset_name
-    local destination_path
-    local count_output
-
-    rm -rf .make
-    mkdir -p .make
-    while IFS= read -r asset_name; do
-        if [[ -z "${asset_name}" ]]; then
-            continue
-        fi
-        destination_path=".make/${asset_name}"
-        bash "${FETCH_SCRIPT}" "${asset_name}" "${destination_path}" ""
-    done < <(asset_list)
-    count_output=$(find .make -maxdepth 1 -type f | wc -l | tr -d " ")
-    printf "smoke-fetch: OK (%s assets fetched into .make/)\n" "${count_output}"
-}
-
-case "${1:-}" in
+command_name="${1:-}"
+go_mk_bin=$(obtain_go_mk) || exit 1
+case "${command_name}" in
     update)
-        update_assets
+        exec "${go_mk_bin}" provision
         ;;
     smoke-fetch)
-        smoke_fetch
+        kept=$(mktemp "${TMPDIR:-/tmp}/go-mk-smoke.XXXXXXXX") || exit 1
+        cp "${go_mk_bin}" "${kept}"
+        chmod +x "${kept}"
+        rm -rf .make
+        mkdir -p .make
+        cp "${kept}" "${OUTPUT}"
+        chmod +x "${OUTPUT}"
+        rm -f "${kept}"
+        exec "${OUTPUT}" provision
         ;;
     *)
-        printf "go-mk-sync: unknown command %s\n" "${1:-}"
+        printf "go-mk-sync: unknown command %s\n" "${command_name}"
         exit 2
         ;;
 esac

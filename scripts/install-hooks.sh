@@ -11,8 +11,8 @@
 set -eu
 
 # Resolve the canonical hook source. Prefer GO_MK_DEV_DIR for local dev;
-# else fetch via gh api (authenticated) into a per-user shared location;
-# else fall back to raw URL. The script itself is idempotent so repeated
+# else a provisioned checkout copy; else fetch from raw.githubusercontent.com
+# into a per-user shared location. The script itself is idempotent so repeated
 # runs converge on the same final symlink.
 HOOKS_DEST_DIR="${GO_MK_HOOKS_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/go-makefile/hooks}"
 HOOK_NAME="pre-commit"
@@ -22,13 +22,12 @@ resolve_canonical_hook() {
         printf '%s\n' "$GO_MK_DEV_DIR/hooks/$HOOK_NAME"
         return 0
     fi
-    mkdir -p "$HOOKS_DEST_DIR"
-    local target="$HOOKS_DEST_DIR/$HOOK_NAME"
-    if command -v gh >/dev/null 2>&1 && gh api "repos/agoodkind/go-makefile/contents/hooks/$HOOK_NAME?ref=main" -H "Accept: application/vnd.github.raw" > "$target" 2>/dev/null && [ -s "$target" ]; then
-        chmod +x "$target"
-        printf '%s\n' "$target"
+    if [ -f "hooks/$HOOK_NAME" ]; then
+        printf '%s\n' "$(pwd)/hooks/$HOOK_NAME"
         return 0
     fi
+    mkdir -p "$HOOKS_DEST_DIR"
+    local target="$HOOKS_DEST_DIR/$HOOK_NAME"
     if curl -fsSL --connect-timeout 5 --max-time 10 \
             "https://raw.githubusercontent.com/agoodkind/go-makefile/main/hooks/$HOOK_NAME" \
             -o "$target" 2>/dev/null && [ -s "$target" ]; then
@@ -36,7 +35,7 @@ resolve_canonical_hook() {
         printf '%s\n' "$target"
         return 0
     fi
-    printf 'install-hooks: cannot fetch canonical hook (no dev dir, no gh auth, no network)\n' >&2
+    printf 'install-hooks: cannot fetch canonical hook (no dev dir, no provisioned tree, no network)\n' >&2
     return 1
 }
 
