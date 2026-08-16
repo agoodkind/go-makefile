@@ -41,11 +41,26 @@ type platformCgoPresence struct {
 	withoutCgo bool
 }
 
-// platformStubPlatforms are the os/arch targets the check compares, taken from
-// the default release matrix. Comparing all of them catches a cgo build gated to
-// a single os/arch (for example darwin/arm64 only).
+// platformStubPlatforms are the os/arch targets the check compares. A consumer
+// that declares GO_MK_PLATFORMS ships exactly those, so those are the ones a
+// stub would be dead on; the default release matrix is the fallback for a
+// consumer that declares nothing.
+//
+// Judging a platform the consumer does not ship reports a stub that can never
+// reach a user, and the only way to quiet it is to allowlist a package whose
+// split is not actually a problem. mwan declares linux/amd64 and freebsd/amd64
+// and was failed for darwin, where its own comments record that sysrepo cannot
+// exist because darwin has never shipped robust pthread mutexes.
 func platformStubPlatforms() []string {
-	return strings.Fields(defaultReleasePlatforms)
+	declared := platformMatrix()
+	if len(declared) == 0 {
+		return strings.Fields(defaultReleasePlatforms)
+	}
+	platforms := make([]string, 0, len(declared))
+	for _, target := range declared {
+		platforms = append(platforms, target.label())
+	}
+	return platforms
 }
 
 // platformStubAllowlist parses GO_MK_PLATFORM_STUB_OPTIONAL into a set of
