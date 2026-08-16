@@ -15,6 +15,28 @@ GO_MK_MODULES="${GO_MK_MODULES:-}"
 MAKE_DIR=".make"
 GO_MK_OUTPUT="${MAKE_DIR}/go-mk"
 
+# engine_provides reports whether a go-mk binary advertises one command.
+#
+# The output is captured before it is matched rather than piped into grep. Under
+# `set -o pipefail`, `binary -flags | grep -q name` fails the whole pipeline when
+# grep exits on its first match and the binary then dies of SIGPIPE, so a binary
+# that DOES provide the command reads as one that does not. That reinstalls the
+# engine from upstream, and the run then execs a binary older than the command
+# it is about to call. Measured before this change: the helper subset failed
+# three runs in five with unknown command "provision", against a consumer whose
+# engine had just been seeded with a build that has it.
+engine_provides() {
+    local binary_path="$1"
+    local command_name="$2"
+    local advertised
+
+    advertised=$("${binary_path}" -flags 2>/dev/null) || return 1
+    case "${advertised}" in
+        *"Name: ${command_name}"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 obtain_go_mk() {
     mkdir -p "${MAKE_DIR}"
     # go build -C treats a relative -o as relative to the changed directory, so
@@ -41,7 +63,7 @@ obtain_go_mk() {
     # consumer on the machine. It is replaced rather than reused, whatever it
     # currently points at, so this consumer ends up owning its own binary.
     if [[ ! -L "${output_path}" && -f "${output_path}" && -x "${output_path}" ]] \
-        && "${output_path}" -flags 2>/dev/null | grep -q "Name: provision"; then
+        && engine_provides "${output_path}" "provision"; then
         printf '%s\n' "${output_path}"
         return 0
     fi

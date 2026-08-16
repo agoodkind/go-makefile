@@ -10,6 +10,22 @@ if [[ "${OUTPUT}" != /* ]]; then
     OUTPUT="$(pwd)/${OUTPUT}"
 fi
 
+# engine_provides reports whether a go-mk binary advertises one command. The
+# output is captured before it is matched: piping into `grep -q` under pipefail
+# fails the pipeline when grep exits early and the binary dies of SIGPIPE, so a
+# binary that does provide the command reads as one that does not.
+engine_provides() {
+    local binary_path="$1"
+    local command_name="$2"
+    local advertised
+
+    advertised=$("${binary_path}" -flags 2>/dev/null) || return 1
+    case "${advertised}" in
+        *"Name: ${command_name}"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 obtain_go_mk() {
     mkdir -p "$(dirname "${OUTPUT}")"
     if [[ -n "${GO_MK_BUILD_REPO:-}" ]] && [[ -d "${GO_MK_BUILD_REPO}" ]] && command -v go >/dev/null 2>&1; then
@@ -26,7 +42,7 @@ obtain_go_mk() {
     # consumer on the machine. It is replaced rather than reused, whatever it
     # currently points at, so this consumer ends up owning its own binary.
     if [[ ! -L "${OUTPUT}" && -f "${OUTPUT}" && -x "${OUTPUT}" ]] \
-        && "${OUTPUT}" -flags 2>/dev/null | grep -q "Name: resolve-bin"; then
+        && engine_provides "${OUTPUT}" "resolve-bin"; then
         printf '%s\n' "${OUTPUT}"
         return 0
     fi
