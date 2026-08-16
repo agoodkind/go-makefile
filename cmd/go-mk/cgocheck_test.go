@@ -139,3 +139,140 @@ func TestCgoRequiringPackagesIgnoresStderrDownloadNoise(t *testing.T) {
 		t.Fatalf("cgoRequiringPackages() = %v, want %v", got, want)
 	}
 }
+
+// TestReleaseCgoEnabled proves the effective per-binary cgo state a release
+// pair builds with: the RELEASE_BINS cgo option always wins, and otherwise the
+// pair follows the ambient CGO_ENABLED the release build environment resolves
+// (cgoEnabledValue, which defaults to "0" when unset, unlike cgoDisabled).
+func TestReleaseCgoEnabled(t *testing.T) {
+	cases := []struct {
+		name       string
+		cgo        bool
+		cgoEnabled string
+		cgoSet     bool
+		want       bool
+	}{
+		{name: "forced binary stays enabled under ambient zero", cgo: true, cgoEnabled: "0", cgoSet: true, want: true},
+		{name: "forced binary stays enabled under unset ambient", cgo: true, cgoSet: false, want: true},
+		{name: "unforced binary follows ambient zero", cgo: false, cgoEnabled: "0", cgoSet: true, want: false},
+		{name: "unforced binary follows ambient one", cgo: false, cgoEnabled: "1", cgoSet: true, want: true},
+		{name: "unforced binary defaults disabled when ambient unset", cgo: false, cgoSet: false, want: false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if testCase.cgoSet {
+				t.Setenv("CGO_ENABLED", testCase.cgoEnabled)
+			} else {
+				t.Setenv("CGO_ENABLED", "")
+			}
+			binary := releaseBinary{name: "mwan", mainPkg: "./cmd/mwan", cgo: testCase.cgo}
+			if got := releaseCgoEnabled(binary); got != testCase.want {
+				t.Fatalf("releaseCgoEnabled() = %v, want %v", got, testCase.want)
+			}
+		})
+	}
+}
+
+// writeReleaseCgoStubGo writes a stub `go` whose `list` subcommand reports
+// CgoFiles for importPath only when its own GOOS environment variable equals
+// cgoGoos, mimicking a package with a real `//go:build <goos> && cgo`
+// implementation and a `//go:build !<goos> || !cgo` pure-Go sibling (the
+// goodkind.io/mwan/internal/yangpub shape the bug report names). It returns the
+// directory to prepend to PATH.
+func writeReleaseCgoStubGo(t *testing.T, cgoGoos, importPath string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("stub go is a POSIX shell script")
+	}
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "go")
+	script := "#!/bin/sh\n" +
+		"if [ \"$GOOS\" = \"" + cgoGoos + "\" ]; then\n" +
+		"  printf '%s\\n' '{\"ImportPath\":\"" + importPath + "\",\"Standard\":false,\"CgoFiles\":[\"publisher_cgo.go\"]}'\n" +
+		"else\n" +
+		"  printf '%s\\n' '{\"ImportPath\":\"" + importPath + "\",\"Standard\":false}'\n" +
+		"fi\n"
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+		t.Fatalf("write stub go: %v", err)
+	}
+	return dir
+}
+
+// TestCheckReleaseCgoStub proves the release-path check judges cgo per
+// (binary, platform) pair instead of the single ambient CGO_ENABLED value the
+// old checkCgoStub call read before the platform loop. The stub go reports cgo
+// files for the "linux" GOOS only, so these cases reproduce the real defect:
+// goodkind.io/mwan/internal/yangpub compiles cgo on linux/amd64 (a RELEASE_BINS
+// cgo=1 binary) and pure Go on freebsd/amd64. The ambient GOOS is pinned to
+// "linux" (the CI runner host) throughout, so a case that must pass only does
+// so if releaseCgoRequiringPackages truly overrides GOOS/GOARCH per platform
+// through platformListEnv rather than leaking the runner host's value.
+func TestCheckReleaseCgoStub(t *testing.T) {
+	const importPath = "goodkind.io/mwan/internal/yangpub"
+
+	testCases := []struct {
+		name         string
+		binary       releaseBinary
+		platform     string
+		cgoOptional  string
+		wantErr      bool
+		wantContains []string
+	}{
+		{
+			name:     "binary with cgo option is skipped even when the platform graph has cgo files",
+			binary:   releaseBinary{name: "mwan", mainPkg: "./cmd/mwan", cgo: true},
+			platform: "linux/amd64",
+			wantErr:  false,
+		},
+		{
+			name:     "platform whose graph has no cgo files produces no finding",
+			binary:   releaseBinary{name: "mwan", mainPkg: "./cmd/mwan"},
+			platform: "freebsd/amd64",
+			wantErr:  false,
+		},
+		{
+			name:         "platform whose graph has cgo files still flags the unforced binary",
+			binary:       releaseBinary{name: "mwan", mainPkg: "./cmd/mwan"},
+			platform:     "linux/amd64",
+			wantErr:      true,
+			wantContains: []string{"mwan (linux/amd64)", importPath},
+		},
+		{
+			name:        "GO_MK_CGO_OPTIONAL allowlist still suppresses the finding",
+			binary:      releaseBinary{name: "mwan", mainPkg: "./cmd/mwan"},
+			platform:    "linux/amd64",
+			cgoOptional: importPath,
+			wantErr:     false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("CGO_ENABLED", "0")
+			t.Setenv("GO_MK_CGO_OPTIONAL", testCase.cgoOptional)
+			t.Setenv("GOOS", "linux")
+			stubDir := writeReleaseCgoStubGo(t, "linux", importPath)
+			t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			cfg := releaseConfig{
+				binaries:  []releaseBinary{testCase.binary},
+				platforms: []string{testCase.platform},
+			}
+			err := checkReleaseCgoStub(cfg)
+			if !testCase.wantErr {
+				if err != nil {
+					t.Fatalf("checkReleaseCgoStub() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("checkReleaseCgoStub() = nil, want error")
+			}
+			for _, want := range testCase.wantContains {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("checkReleaseCgoStub() error = %q, want substring %q", err.Error(), want)
+				}
+			}
+		})
+	}
+}
