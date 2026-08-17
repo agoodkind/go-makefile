@@ -12,7 +12,7 @@ require (
 	github.com/sigstore/sigstore-go v1.3.0
 	github.com/spf13/cobra v1.10.2
 	go.opentelemetry.io/otel v1.45.0
-	golang.org/x/mod v0.39.0
+	golang.org/x/mod v0.40.0
 	golang.org/x/term v0.45.0
 	goodkind.io/gklog v0.4.4
 	google.golang.org/protobuf v1.36.12
