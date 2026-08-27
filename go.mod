@@ -5,7 +5,7 @@ go 1.26.5
 tool github.com/fzipp/gocyclo/cmd/gocyclo
 
 require (
-	charm.land/bubbles/v2 v2.2.0
+	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.0.9
 	charm.land/fang/v2 v2.0.1
 	github.com/in-toto/attestation v1.2.0
