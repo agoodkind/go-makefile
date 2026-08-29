@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -27,6 +28,15 @@ func TestFindOutermostMakePID(t *testing.T) {
 				20: {pid: 20, parentPID: 1, name: "make"},
 			},
 			want: 20,
+		},
+		{
+			name:  "make as pid one",
+			start: 30,
+			list: map[int]traceProcess{
+				30: {pid: 30, parentPID: 1, name: "go-mk"},
+				1:  {pid: 1, parentPID: 0, name: "make"},
+			},
+			want: 1,
 		},
 		{
 			name:  "gmake",
@@ -292,7 +302,7 @@ func TestTraceSessionStoreImportsOnlyHeaderedLegacyTrace(t *testing.T) {
 	}
 	store := newTraceSessionStore(t.TempDir(), func(pid int) (bool, error) { return pid == 42, nil })
 
-	claim, err := store.claim(42, true, legacyTraceparent(root, 42, time.Time{}))
+	claim, err := store.claim(42, true, legacyTraceparent(root, 42))
 	if err != nil {
 		t.Fatalf("claim unheadered legacy trace: %v", err)
 	}
@@ -305,29 +315,19 @@ func TestTraceSessionStoreImportsOnlyHeaderedLegacyTrace(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(logs, ".run"), []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"), 0o644); err != nil {
 		t.Fatalf("write legacy header proof: %v", err)
 	}
-	if got := legacyTraceparent(root, 42, time.Time{}); got != traceparent {
+	if got := legacyTraceparent(root, 42); got != traceparent {
 		t.Fatalf("matching legacy traceparent = %q, want %q", got, traceparent)
-	}
-	staleTime := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(filepath.Join(logs, ".run"), staleTime, staleTime); err != nil {
-		t.Fatalf("age legacy header proof: %v", err)
-	}
-	if got := legacyTraceparent(root, 42, time.Now()); got != "" {
-		t.Fatalf("stale legacy traceparent = %q, want empty", got)
-	}
-	if err := os.Chtimes(filepath.Join(logs, ".run"), time.Now(), time.Now()); err != nil {
-		t.Fatalf("refresh legacy header proof: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(logs, ".run"), []byte("cccccccccccccccccccccccccccccccc\n"), 0o644); err != nil {
 		t.Fatalf("write mismatched legacy header proof: %v", err)
 	}
-	if got := legacyTraceparent(root, 42, time.Time{}); got != "" {
+	if got := legacyTraceparent(root, 42); got != "" {
 		t.Fatalf("mismatched legacy traceparent = %q, want empty", got)
 	}
 	if err := os.WriteFile(filepath.Join(logs, ".run"), []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"), 0o644); err != nil {
 		t.Fatalf("restore matching legacy header proof: %v", err)
 	}
-	claim, err = store.claim(42, true, legacyTraceparent(root, 42, time.Time{}))
+	claim, err = store.claim(42, true, legacyTraceparent(root, 42))
 	if err != nil {
 		t.Fatalf("claim headered legacy trace: %v", err)
 	}
@@ -340,18 +340,40 @@ func TestTraceSessionStoreImportsOnlyHeaderedLegacyTrace(t *testing.T) {
 	}
 }
 
-func TestTraceSessionStoreFallsBackWhenUserCacheIsUnavailable(t *testing.T) {
+func TestTraceSessionStoreDisablesPersistenceWhenUserCacheIsUnavailable(t *testing.T) {
 	t.Parallel()
 
-	temporary := t.TempDir()
 	path := traceSessionRoot(func() (string, error) {
 		return "", errors.New("cache unavailable")
-	}, func() string {
-		return temporary
 	})
-	want := filepath.Join(temporary, "go-makefile", "traces")
-	if path != want {
-		t.Fatalf("traceSessionRoot() = %q, want %q", path, want)
+	if path != "" {
+		t.Fatalf("traceSessionRoot() = %q, want empty", path)
+	}
+}
+
+func TestTraceSessionStorePrunesRealExitedProcessAndLock(t *testing.T) {
+	t.Parallel()
+
+	command := exec.Command("true")
+	if err := command.Run(); err != nil {
+		t.Fatalf("run short process: %v", err)
+	}
+	pid := command.Process.Pid
+	store := newTraceSessionStore(t.TempDir(), traceProcessAlive)
+	body := "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nidentity\n"
+	if err := os.WriteFile(store.sessionPath(pid), []byte(body), 0o600); err != nil {
+		t.Fatalf("write exited session: %v", err)
+	}
+	if err := os.WriteFile(store.lockPath(pid), nil, 0o600); err != nil {
+		t.Fatalf("write exited lock: %v", err)
+	}
+	if err := store.pruneExited(); err != nil {
+		t.Fatalf("prune exited session: %v", err)
+	}
+	for _, path := range []string{store.sessionPath(pid), store.lockPath(pid)} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("stale path remains at %s: %v", path, err)
+		}
 	}
 }
 

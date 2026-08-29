@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 )
 
 const (
@@ -44,7 +43,7 @@ func findOutermostMakePID(startPID int, lookup func(int) (traceProcess, error)) 
 	pid := startPID
 	seen := make(map[int]bool)
 	outerPID := 0
-	for pid > 1 && !seen[pid] {
+	for pid >= 1 && !seen[pid] {
 		seen[pid] = true
 		process, err := lookup(pid)
 		if err != nil {
@@ -98,17 +97,17 @@ func parentPID(pid int) (int, error) {
 
 func defaultTraceSessionStore() traceSessionStore {
 	store := newTraceSessionStore(
-		traceSessionRoot(os.UserCacheDir, os.TempDir),
+		traceSessionRoot(os.UserCacheDir),
 		traceProcessAlive,
 	)
 	store.processID = traceProcessID
 	return store
 }
 
-func traceSessionRoot(userCacheDir func() (string, error), temporaryDir func() string) string {
+func traceSessionRoot(userCacheDir func() (string, error)) string {
 	base, err := userCacheDir()
 	if err != nil || strings.TrimSpace(base) == "" {
-		base = temporaryDir()
+		return ""
 	}
 	return filepath.Join(base, "go-makefile", "traces")
 }
@@ -126,8 +125,11 @@ func newTraceSessionStore(root string, processAlive func(int) (bool, error)) tra
 // claim joins an active session, imports a headered legacy session during an
 // upgrade, or elects one visible process to publish a new session.
 func (store traceSessionStore) claim(outerPID int, create bool, legacy string) (traceSessionClaim, error) {
-	if outerPID <= 1 {
+	if outerPID < 1 {
 		return traceSessionClaim{}, nil
+	}
+	if strings.TrimSpace(store.root) == "" {
+		return traceSessionClaim{}, errors.New("trace session cache unavailable")
 	}
 	if err := os.MkdirAll(store.root, traceSessionDirectoryMode); err != nil {
 		return traceSessionClaim{}, err
@@ -190,15 +192,25 @@ func (store traceSessionStore) pruneExited() error {
 	if err != nil {
 		return err
 	}
+	pids := make(map[int]bool)
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".traceparent") {
+		if entry.IsDir() {
 			continue
 		}
-		pidText := strings.TrimSuffix(entry.Name(), ".traceparent")
+		pidText := ""
+		if strings.HasSuffix(entry.Name(), ".traceparent") {
+			pidText = strings.TrimSuffix(entry.Name(), ".traceparent")
+		}
+		if strings.HasSuffix(entry.Name(), ".lock") {
+			pidText = strings.TrimSuffix(entry.Name(), ".lock")
+		}
 		pid, parseErr := strconv.Atoi(pidText)
-		if parseErr != nil || pid <= 1 {
+		if parseErr != nil || pid < 1 {
 			continue
 		}
+		pids[pid] = true
+	}
+	for pid := range pids {
 		alive, aliveErr := store.processAlive(pid)
 		if aliveErr != nil || alive {
 			continue
@@ -215,32 +227,53 @@ func (store traceSessionStore) removeStale(pid int) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = lock.Close() }()
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		_ = lock.Close()
 		return err
 	}
-	defer func() { _ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) }()
+	removeLock := false
 	alive, aliveErr := store.processAlive(pid)
 	if aliveErr != nil {
-		return nil
+		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		return lock.Close()
 	}
 	if alive {
 		processID, identityErr := store.processID(pid)
 		if identityErr != nil {
-			return nil
+			_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+			return lock.Close()
 		}
 		body, readErr := os.ReadFile(store.sessionPath(pid))
-		if readErr != nil {
+		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+			_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+			_ = lock.Close()
 			return readErr
 		}
 		_, recordedID := parseTraceSession(string(body))
 		if recordedID == processID {
-			return nil
+			_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+			return lock.Close()
 		}
+	} else {
+		removeLock = true
 	}
 	slog.Debug("prune stale trace session", slog.Int("pid", pid))
 	if err := os.Remove(store.sessionPath(pid)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		_ = lock.Close()
 		return err
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
+		_ = lock.Close()
+		return err
+	}
+	if err := lock.Close(); err != nil {
+		return err
+	}
+	if removeLock {
+		if err := os.Remove(store.lockPath(pid)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	return nil
 }
@@ -326,7 +359,7 @@ func traceProcessAlive(pid int) (bool, error) {
 		return false, err
 	}
 	if err := process.Signal(syscall.Signal(0)); err != nil {
-		if errors.Is(err, syscall.ESRCH) {
+		if errors.Is(err, syscall.ESRCH) || errors.Is(err, os.ErrProcessDone) {
 			return false, nil
 		}
 		return false, err
@@ -356,18 +389,12 @@ func traceProcessID(pid int) (string, error) {
 
 // legacyTraceparent imports only a trace whose old engine printed a header.
 // The old capability probe wrote .traceparent without .run, so it stays hidden.
-func legacyTraceparent(root string, outerPID int, started time.Time) string {
+func legacyTraceparent(root string, outerPID int) string {
 	traceBody, traceErr := os.ReadFile(filepath.Join(root, traceparentFile))
 	runPath := filepath.Join(root, runSentinel)
 	runBody, runErr := os.ReadFile(runPath)
 	if traceErr != nil || runErr != nil {
 		return ""
-	}
-	if !started.IsZero() {
-		info, err := os.Stat(runPath)
-		if err != nil || info.ModTime().Unix() < started.Unix() {
-			return ""
-		}
 	}
 	lines := strings.Split(strings.TrimSpace(string(traceBody)), "\n")
 	if len(lines) < 2 {
@@ -391,16 +418,12 @@ func legacyTraceparent(root string, outerPID int, started time.Time) string {
 }
 
 func loadLegacyTraceparent(outerPID int) string {
-	started, err := traceProcessStart(outerPID)
-	if err != nil {
-		return ""
-	}
 	directory, err := os.Getwd()
 	if err != nil {
 		return ""
 	}
 	for {
-		if traceparent := legacyTraceparent(directory, outerPID, started); traceparent != "" {
+		if traceparent := legacyTraceparent(directory, outerPID); traceparent != "" {
 			return traceparent
 		}
 		parent := filepath.Dir(directory)
@@ -409,12 +432,4 @@ func loadLegacyTraceparent(outerPID int) string {
 		}
 		directory = parent
 	}
-}
-
-func traceProcessStart(pid int) (time.Time, error) {
-	identity, err := traceProcessID(pid)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return time.ParseInLocation("Mon Jan 2 15:04:05 2006", identity, time.Local)
 }

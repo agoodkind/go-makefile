@@ -125,9 +125,9 @@ func setupLogging() func() {
 	if inherited == "" && !headerless() {
 		printHeader(corr)
 	}
+	claim.close()
 
 	return func() {
-		claim.close()
 		span.End()
 		if closer != nil {
 			_ = closer.Close()

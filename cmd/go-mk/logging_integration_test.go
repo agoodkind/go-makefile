@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -165,15 +166,47 @@ func TestTraceSessionConcurrentOuterMakes(t *testing.T) {
 	close(results)
 
 	traceIDs := make(map[string]bool)
+	headerCount := 0
 	for result := range results {
 		if result.code != 0 {
 			t.Fatalf("concurrent trace exit = %d, want 0: %s", result.code, result.output)
 		}
-		traceID := assertOneTraceHeader(t, result.output)
-		traceIDs[traceID] = true
+		matches := traceHeaderPattern.FindAllStringSubmatch(result.output, -1)
+		headerCount += len(matches)
+		for _, match := range matches {
+			traceIDs[match[1]] = true
+		}
 	}
-	if len(traceIDs) != 2 {
-		t.Fatalf("concurrent trace ids = %v, want two distinct outer traces", traceIDs)
+	if currentOutermostMakePID() > 1 {
+		if headerCount != 1 || len(traceIDs) != 1 {
+			t.Fatalf("nested concurrent makes printed %d headers across %d traces, want one shared header", headerCount, len(traceIDs))
+		}
+		return
+	}
+	if headerCount != 2 || len(traceIDs) != 2 {
+		t.Fatalf("independent concurrent makes printed %d headers across %d traces, want two distinct headers", headerCount, len(traceIDs))
+	}
+}
+
+func TestTraceSessionOwnerDoesNotBlockSiblingProgress(t *testing.T) {
+	dir := t.TempDir()
+	seedTestEngine(t, dir)
+	writeTraceMakefile(t, dir, `trace: slow fast
+slow:
+	@".make/go-mk" baseline-gate --stamp .make/observed-fast --confirm-value yes --token-value ok --token-command 'sleep 1; if test -f .make/fast-done; then echo ok; else echo missing; fi'
+fast:
+	@sleep 0.1; ".make/go-mk" version >/dev/null; touch .make/fast-done
+`)
+
+	output, code := runTraceMake(t, "make", dir, map[string]string{
+		"HOME":      t.TempDir(),
+		"MAKEFLAGS": "-j2",
+	})
+	if code != 0 {
+		t.Fatalf("parallel sibling trace exit = %d, want 0: %s", code, output)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".make", "observed-fast")); err != nil {
+		t.Fatalf("sibling go-mk remained blocked while owner ran: %v", err)
 	}
 }
 
@@ -182,8 +215,13 @@ func TestTraceSessionImportsHeaderedLegacyEngineTrace(t *testing.T) {
 	seedTestEngine(t, dir)
 	const traceID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const traceparent = "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01"
+	outerPID := currentOutermostMakePID()
+	owner := "$$PPID"
+	if outerPID > 1 {
+		owner = strconv.Itoa(outerPID)
+	}
 	writeTraceMakefile(t, dir, `trace:
-	@mkdir -p .make/logs; outer=$$PPID; printf '`+traceparent+`\n%s\n' "$$outer" > .make/logs/.traceparent; printf '`+traceID+`\n' > .make/logs/.run; printf 'logs=.make/logs trace_id=`+traceID+` span_id=bbbbbbbbbbbbbbbb\n'; ".make/go-mk" version
+	@mkdir -p .make/logs; printf '`+traceparent+`\n%s\n' "`+owner+`" > .make/logs/.traceparent; printf '`+traceID+`\n' > .make/logs/.run; printf 'logs=.make/logs trace_id=`+traceID+` span_id=bbbbbbbbbbbbbbbb\n'; ".make/go-mk" version
 `)
 
 	output, code := runTraceMake(t, "make", dir, map[string]string{
@@ -214,12 +252,20 @@ func TestTraceSessionCapabilityProbeCreatesNoSession(t *testing.T) {
 	if matches := traceHeaderPattern.FindAllStringSubmatch(output, -1); len(matches) != 0 {
 		t.Fatalf("capability probe printed %d headers, want 0: %s", len(matches), output)
 	}
-	entries, err := os.ReadDir(filepath.Join(cacheDir, "Library", "Caches", "go-makefile", "traces"))
-	if !os.IsNotExist(err) {
-		if err != nil {
-			t.Fatalf("read trace session store: %v", err)
+	created := make([]string, 0)
+	if err := filepath.WalkDir(cacheDir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
-		t.Fatalf("capability probe created %d trace session entries", len(entries))
+		if strings.HasSuffix(entry.Name(), ".traceparent") || strings.HasSuffix(entry.Name(), ".lock") {
+			created = append(created, path)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("walk capability probe cache: %v", err)
+	}
+	if len(created) != 0 {
+		t.Fatalf("capability probe created trace session files: %v", created)
 	}
 }
 
