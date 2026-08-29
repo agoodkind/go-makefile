@@ -35,9 +35,16 @@ func writeStderr(text string) {
 }
 
 func main() {
+	if capabilityProbe() {
+		os.Exit(run())
+	}
 	setupLogging()
 	slog.Debug("go-mk invoked")
 	os.Exit(run())
+}
+
+func capabilityProbe() bool {
+	return len(os.Args) >= 2 && (os.Args[1] == "-flags" || os.Args[1] == "--flags")
 }
 
 func runWriteBatch(args []string) error {

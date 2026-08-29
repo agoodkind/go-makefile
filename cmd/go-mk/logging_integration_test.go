@@ -26,6 +26,32 @@ func TestCommandLogsWithoutTraceData(t *testing.T) {
 	assertNoTraceData(t, records)
 }
 
+func TestCapabilityProbeIgnoresDebugLogging(t *testing.T) {
+	for _, argument := range []string{"-flags", "--flags"} {
+		t.Run(argument, func(t *testing.T) {
+			dir := t.TempDir()
+			command := exec.Command(builtTestEngine(t), argument)
+			command.Dir = dir
+			command.Env = testProcessEnvironment(nil)
+			plainOutput, err := command.CombinedOutput()
+			if err != nil {
+				t.Fatalf("plain capability probe: %v\n%s", err, plainOutput)
+			}
+
+			command = exec.Command(builtTestEngine(t), argument)
+			command.Dir = dir
+			command.Env = testProcessEnvironment(map[string]string{"GO_MK_LOG": "debug"})
+			debugOutput, err := command.CombinedOutput()
+			if err != nil {
+				t.Fatalf("debug capability probe: %v\n%s", err, debugOutput)
+			}
+			if string(debugOutput) != string(plainOutput) {
+				t.Fatalf("debug capability output changed\nplain:\n%s\ndebug:\n%s", plainOutput, debugOutput)
+			}
+		})
+	}
+}
+
 func TestCommandIgnoresLegacyTraceFiles(t *testing.T) {
 	dir := t.TempDir()
 	logsDir := filepath.Join(dir, logDir)
