@@ -20,13 +20,15 @@ Remove tracing from go-mk completely.
 The engine retains its per-concern JSONL logs and `GO_MK_LOG` summary modes.
 Log records no longer require or contain `trace_id` or `span_id` fields.
 
-Remove all OpenTelemetry setup, trace context propagation, correlation handlers,
-printed trace headers, process inspection, trace session state, locks, and
-legacy trace state.
+Remove direct OpenTelemetry imports and requirements used only by tracing, trace
+context propagation, correlation handlers, printed trace headers, process
+inspection, trace session state, locks, and legacy trace state. Indirect
+OpenTelemetry modules required by self-update and sigstore verification remain.
 
-Capability probes, provisioning, binary resolution, user commands, nested Make
-runs, and concurrent Make runs use the same ordinary logging path. None creates
-or joins a trace.
+Capability probes bypass logging and run directly through `run()` to preserve
+byte-exact machine output. Provisioning, binary resolution, user commands,
+nested Make runs, and concurrent Make runs use the ordinary logging path. None
+creates or joins a trace.
 
 Consumers remain unchanged. Their committed bootstrap files and fetched Make
 rules continue to invoke the same go-mk commands.
@@ -65,7 +67,7 @@ Run `make check` and the Go race detector after focused tests pass.
 - Process identifier and process ancestry inspection.
 - Trace session files, cache directories, and locks.
 - Legacy trace migration.
-- OpenTelemetry tracing dependencies used only by go-mk.
+- Direct OpenTelemetry tracing imports and requirements used only by go-mk.
 - Trace-specific unit and integration tests.
 
 ## Acceptance criteria

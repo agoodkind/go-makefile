@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove every trace header, identifier, OpenTelemetry path, process session, state file, dependency, and trace-specific test while preserving ordinary structured logging.
+**Goal:** Remove every trace header, identifier, direct trace-only OpenTelemetry import and requirement, process session, state file, and trace-specific test while preserving ordinary structured logging.
 
 **Architecture:** `setupLogging` installs the existing summary handler and per-concern JSONL router directly as the default `slog` handler. Command dispatch no longer creates, propagates, stores, or renders trace data. Static analysis stops enforcing trace context.
 
@@ -13,7 +13,9 @@
 ## Global constraints
 
 - Keep per-concern JSONL logs and every `GO_MK_LOG` mode.
-- Remove `trace_id`, `span_id`, `TRACEPARENT`, OpenTelemetry, process inspection, sessions, locks, cache state, and legacy trace handling.
+- Remove `trace_id`, `span_id`, `TRACEPARENT`, direct trace-only OpenTelemetry imports and requirements, process inspection, sessions, locks, cache state, and legacy trace handling.
+- Keep indirect OpenTelemetry modules required by self-update and sigstore verification.
+- Keep capability probes outside logging to preserve byte-exact machine output.
 - Do not change consumer repositories or committed bootstrap files.
 - Ignore old `.make/logs/.run` and `.make/logs/.traceparent` files without changing them.
 - Preserve command output and exit status apart from removed trace data.
@@ -54,12 +56,21 @@ func TestCommandLogsWithoutTraceData(t *testing.T) {
 
 func assertNoTraceData(t *testing.T, text string) {
     t.Helper()
-    forbidden := []string{"logs=.make/logs trace_id=", `"trace_id"`, `"span_id"`, "traceparent"}
+    forbidden := findTraceData(text)
+    if forbidden != "" {
+        t.Fatalf("trace data %q remains in %q", forbidden, text)
+    }
+}
+
+func findTraceData(text string) string {
+    lowercaseText := strings.ToLower(text)
+    forbidden := []string{"logs=.make/logs trace_id=", "trace_id", "span_id", "traceparent"}
     for _, value := range forbidden {
-        if strings.Contains(text, value) {
-            t.Fatalf("trace data %q remains in %q", value, text)
+        if strings.Contains(lowercaseText, value) {
+            return value
         }
     }
+    return ""
 }
 ```
 
@@ -113,12 +124,16 @@ func setupLogging() {
 
 Delete all correlation imports, constants, command classification, trace setup, propagation, session claims, and header rendering from `logging.go`.
 
-- [ ] **Step 2: Simplify the process entrypoint**
+- [ ] **Step 2: Preserve the capability-probe entrypoint**
 
-Use this entrypoint and delete `capabilityProbe`:
+Keep `capabilityProbe` before logging so `-flags` and `--flags` retain their
+byte-exact machine output:
 
 ```go
 func main() {
+    if capabilityProbe() {
+        os.Exit(run())
+    }
     setupLogging()
     slog.Debug("go-mk invoked")
     os.Exit(run())
@@ -150,7 +165,7 @@ git commit -S -m "Remove go-mk runtime tracing" -m "Co-authored-by: Codex <norep
 
 **Interfaces:**
 - Consumes: the remaining structured logging analyzers and `goodkind.io/gklog`.
-- Produces: an analyzer set with no trace-context rule and an engine dependency graph without OpenTelemetry.
+- Produces: an analyzer set with no trace-context rule and no direct trace-only OpenTelemetry dependency.
 
 - [ ] **Step 1: Remove the trace analyzer**
 
@@ -162,11 +177,11 @@ Keep `isAnyLevelSlogCall`. The gRPC peer-enrichment analyzer uses it.
 
 - [ ] **Step 2: Remove unused dependencies**
 
-Run `go mod tidy` from the repository root. Keep `goodkind.io/gklog`. Require direct OpenTelemetry requirements and unused sums to disappear.
+Run `go mod tidy` from the repository root. Keep `goodkind.io/gklog`. Remove only direct trace-only OpenTelemetry requirements and unused sums. Keep indirect OpenTelemetry modules required by self-update and sigstore verification.
 
 - [ ] **Step 3: Verify the dependency graph**
 
-Run `go list -deps ./cmd/go-mk`. Require no package beginning with `go.opentelemetry.io/`.
+Run `go mod why -m` for each remaining OpenTelemetry module. Require each to pass through self-update or sigstore verification, with no direct trace-only requirement remaining.
 
 - [ ] **Step 4: Test both Go modules**
 
@@ -192,7 +207,7 @@ git commit -S -m "Remove trace enforcement and dependencies" -m "Co-authored-by:
 
 Use semantic search for `TRACEPARENT`, `trace_id`, `span_id`, `traceparent`, `OpenTelemetry`, `opentelemetry`, `SlogMissingTraceID`, session paths, process ancestry, and trace lock names.
 
-Expected: no production or test hit remains. The approved spec and plan may retain historical names.
+Expected: no production trace machinery remains. Negative tests, legacy fixtures, dependency metadata, and the approved spec and plan may retain trace terms.
 
 - [ ] **Step 2: Run full local verification**
 

@@ -118,13 +118,40 @@ trace: go-mk-bin
 	assertNoTraceData(t, records)
 }
 
+func TestFindTraceDataRejectsEveryForbiddenForm(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+	}{
+		{name: "bare trace ID", text: "trace_id=abc"},
+		{name: "bare span ID", text: "span_id=def"},
+		{name: "uppercase traceparent", text: "TRACEPARENT=00-abc-def-01"},
+		{name: "lowercase traceparent", text: "traceparent=00-abc-def-01"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if findTraceData(test.text) == "" {
+				t.Fatalf("trace data in %q was not rejected", test.text)
+			}
+		})
+	}
+}
+
 func assertNoTraceData(t *testing.T, text string) {
 	t.Helper()
-	for _, value := range []string{"logs=.make/logs trace_id=", `"trace_id"`, `"span_id"`, "traceparent"} {
-		if strings.Contains(text, value) {
-			t.Fatalf("trace data %q remains in %q", value, text)
+	if value := findTraceData(text); value != "" {
+		t.Fatalf("trace data %q remains in %q", value, text)
+	}
+}
+
+func findTraceData(text string) string {
+	lowercaseText := strings.ToLower(text)
+	for _, value := range []string{"logs=.make/logs trace_id=", "trace_id", "span_id", "traceparent"} {
+		if strings.Contains(lowercaseText, value) {
+			return value
 		}
 	}
+	return ""
 }
 
 func readGoMkLogRecords(t *testing.T, dir string) string {
