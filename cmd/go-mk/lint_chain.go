@@ -48,7 +48,7 @@ func runLintChain() int {
 
 // gateRunners maps each LINT_GATES name to its in-process runner. LINT_GATES
 // still selects and orders the gates; the chain invokes these directly instead
-// of recursing into make, so the lint run is one go-mk process under one trace.
+// of recursing into make, so the lint run stays in one go-mk process.
 // A gate name absent from this map is reported as a failed step rather than
 // silently passing.
 func gateRunners() map[string]func() int {

@@ -35,16 +35,16 @@ func writeStderr(text string) {
 }
 
 func main() {
-	cleanup := setupLogging()
-	// This is the process boundary, so it emits one structured event to satisfy
-	// missing_boundary_log. It is Debug so the summary handler keeps it below the
-	// INFO threshold it collapses; GO_MK_LOG=debug surfaces it.
+	if capabilityProbe() {
+		os.Exit(run())
+	}
+	setupLogging()
 	slog.Debug("go-mk invoked")
-	code := run()
-	// cleanup ends the span and flushes any exporter. It runs before os.Exit,
-	// which would skip a deferred call, so a clean run still exports its trace.
-	cleanup()
-	os.Exit(code)
+	os.Exit(run())
+}
+
+func capabilityProbe() bool {
+	return len(os.Args) >= 2 && (os.Args[1] == "-flags" || os.Args[1] == "--flags")
 }
 
 func runWriteBatch(args []string) error {

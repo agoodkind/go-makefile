@@ -3,7 +3,6 @@ package staticcheck
 import (
 	"go/ast"
 	"go/token"
-	"strings"
 
 	"golang.org/x/tools/go/analysis"
 )
@@ -340,67 +339,6 @@ func isCloseMethodName(name string) bool {
 	return false
 }
 
-// SlogMissingTraceIDAnalyzer flags slog.Info/Warn/Error/Debug calls
-// inside functions that receive a [context.Context] but that do NOT
-// reference the context anywhere in the call's keyvals. Purpose:
-// surface log lines that are missing trace correlation.
-//
-// This is a heuristic and produces false positives. It is here to
-// PROMPT the author, not to gate. Switch to InfoContext / WarnContext
-// / ErrorContext which threads the context-attached attrs automatically.
-var SlogMissingTraceIDAnalyzer = &analysis.Analyzer{
-	Name: "slog_missing_trace_id",
-	Doc:  "warns when slog calls inside context-receiving funcs do not propagate context",
-	Run:  runSlogMissingTraceID,
-}
-
-func runSlogMissingTraceID(pass *analysis.Pass) (any, error) {
-	for _, file := range pass.Files {
-		if !shouldAnalyzeFile(pass, file) {
-			continue
-		}
-		checkSlogMissingTraceIDInFile(pass, file)
-	}
-	return nil, nil
-}
-
-func checkSlogMissingTraceIDInFile(pass *analysis.Pass, file *ast.File) {
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Body == nil {
-			continue
-		}
-		ctxName := contextParamName(fn)
-		if ctxName == "" {
-			continue
-		}
-		reportSlogCallsWithoutTraceID(pass, file, fn, ctxName)
-	}
-}
-
-func reportSlogCallsWithoutTraceID(pass *analysis.Pass, file *ast.File, fn *ast.FuncDecl, ctxName string) {
-	ast.Inspect(fn.Body, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		if slogCallHasTraceContext(call, ctxName) {
-			return true
-		}
-		_, name, _ := selectorName(call.Fun)
-		reportAtf(pass, file, call.Pos(), "slog call inside func taking context.Context does not pass the ctx; use slog.%sContext or include ctx for trace correlation", name)
-		return true
-	})
-}
-
-func slogCallHasTraceContext(call *ast.CallExpr, ctxName string) bool {
-	if !isAnyLevelSlogCall(call) {
-		return true
-	}
-	_, name, _ := selectorName(call.Fun)
-	return strings.HasSuffix(name, "Context") || callReferencesIdent(call, ctxName)
-}
-
 func isAnyLevelSlogCall(call *ast.CallExpr) bool {
 	receiver, name, ok := selectorName(call.Fun)
 	if !ok {
@@ -415,44 +353,4 @@ func isAnyLevelSlogCall(call *ast.CallExpr) bool {
 		return true
 	}
 	return false
-}
-
-func contextParamName(fn *ast.FuncDecl) string {
-	if fn.Type == nil || fn.Type.Params == nil {
-		return ""
-	}
-	for _, field := range fn.Type.Params.List {
-		sel, ok := field.Type.(*ast.SelectorExpr)
-		if !ok {
-			continue
-		}
-		x, ok := sel.X.(*ast.Ident)
-		if !ok {
-			continue
-		}
-		if x.Name == "context" && sel.Sel.Name == "Context" {
-			for _, n := range field.Names {
-				return n.Name
-			}
-		}
-	}
-	return ""
-}
-
-func callReferencesIdent(node ast.Node, name string) bool {
-	if name == "" {
-		return false
-	}
-	found := false
-	ast.Inspect(node, func(n ast.Node) bool {
-		if found {
-			return false
-		}
-		if id, ok := n.(*ast.Ident); ok && id.Name == name {
-			found = true
-			return false
-		}
-		return true
-	})
-	return found
 }

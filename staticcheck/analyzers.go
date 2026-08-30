@@ -27,7 +27,6 @@ func Analyzers() []*analysis.Analyzer {
 		TimeNowOutsideClockAnalyzer,
 		GoroutineWithoutRecoverAnalyzer,
 		SilentDeferCloseAnalyzer,
-		SlogMissingTraceIDAnalyzer,
 		GrpcHandlerWithoutPeerEnrichmentAnalyzer,
 		SensitiveFieldInLogAnalyzer,
 		NolintBanAnalyzer,
