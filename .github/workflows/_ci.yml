@@ -30,6 +30,11 @@ on:
         required: false
         type: string
         default: v2.12.2
+      golangci_lint_install_mode:
+        description: golangci-lint action installation mode.
+        required: false
+        type: string
+        default: binary
       job_layout:
         description: >-
           Quality job layout: parallel keeps nine Quality jobs, split runs Test
@@ -542,6 +547,7 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ inputs.golangci_lint_version }}
+          install-mode: ${{ inputs.golangci_lint_install_mode }}
           install-only: true
           # This workflow owns the results cache below. The action's own caching
           # targets golangci-lint's default location, which go-mk never writes,
