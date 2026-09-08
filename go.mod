@@ -11,7 +11,7 @@ require (
 	github.com/in-toto/attestation v1.2.0
 	github.com/sigstore/sigstore-go v1.3.0
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/mod v0.40.0
+	golang.org/x/mod v0.41.0
 	golang.org/x/term v0.45.0
 	goodkind.io/gklog v0.4.4
 	google.golang.org/protobuf v1.36.12
