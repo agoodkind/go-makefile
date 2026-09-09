@@ -189,7 +189,7 @@ func applyLatest(ctx context.Context, options Options, result *ApplyResult) erro
 		return fmt.Errorf("create update cache dir: %w", err)
 	}
 	archivePath := filepath.Join(cacheDir, filepath.Base(asset.Name))
-	if err := updateDownloadFile(ctx, options.Client, asset.BrowserDownloadURL, archivePath, options.Config.MaxDownloadBytes); err != nil {
+	if err := downloadReleaseAsset(ctx, options, asset, archivePath); err != nil {
 		return err
 	}
 	if err := updateVerifyChecksum(ctx, options, latest, asset, archivePath); err != nil {

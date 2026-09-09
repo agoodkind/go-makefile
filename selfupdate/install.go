@@ -54,7 +54,7 @@ func InstallReleaseBinary(ctx context.Context, installOptions InstallReleaseBina
 		return InstallReleaseBinaryResult{}, fmt.Errorf("create release install cache dir: %w", err)
 	}
 	archivePath := filepath.Join(options.CacheDir, filepath.Base(asset.Name))
-	if err := updateDownloadFile(ctx, options.Client, asset.BrowserDownloadURL, archivePath, options.Config.MaxDownloadBytes); err != nil {
+	if err := downloadReleaseAsset(ctx, options, asset, archivePath); err != nil {
 		return InstallReleaseBinaryResult{}, err
 	}
 	if err := updateVerifyChecksum(ctx, options, latest, asset, archivePath); err != nil {

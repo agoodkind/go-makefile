@@ -91,9 +91,25 @@ func TestVerifyReleaseAssetsDownloadsAndVerifiesMatchingArchives(t *testing.T) {
 		testSHA256Hex(siblingArchive),
 		siblingAssetName,
 	)
+	assetResponses := map[string][]byte{
+		"/repos/agoodkind/agent-gate/releases/assets/101": darwinArchive,
+		"/repos/agoodkind/agent-gate/releases/assets/102": linuxArchive,
+		"/repos/agoodkind/agent-gate/releases/assets/103": siblingArchive,
+		"/repos/agoodkind/agent-gate/releases/assets/104": []byte(checksums),
+	}
 	verifiedAttestations := []string{}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if response, ok := assetResponses[request.URL.Path]; ok {
+			if got := request.Header.Get("Authorization"); got != "Bearer test-token" {
+				t.Errorf("Authorization = %q, want bearer token on asset request", got)
+			}
+			if got := request.Header.Get("Accept"); got != "application/octet-stream" {
+				t.Errorf("Accept = %q, want application/octet-stream", got)
+			}
+			_, _ = writer.Write(response)
+			return
+		}
 		switch request.URL.Path {
 		case "/repos/agoodkind/agent-gate/releases/tags/v1.2.3":
 			if got := request.Header.Get("Authorization"); got != "Bearer test-token" {
@@ -103,22 +119,27 @@ func TestVerifyReleaseAssetsDownloadsAndVerifiesMatchingArchives(t *testing.T) {
 				TagName: "v1.2.3",
 				Assets: []releaseAsset{
 					{
+						ID:                 101,
 						Name:               darwinAssetName,
 						BrowserDownloadURL: server.URL + "/downloads/" + darwinAssetName,
 					},
 					{
+						ID:                 102,
 						Name:               linuxAssetName,
 						BrowserDownloadURL: server.URL + "/downloads/" + linuxAssetName,
 					},
 					{
+						ID:                 103,
 						Name:               siblingAssetName,
 						BrowserDownloadURL: server.URL + "/downloads/" + siblingAssetName,
 					},
 					{
+						ID:                 104,
 						Name:               "checksums.txt",
 						BrowserDownloadURL: server.URL + "/downloads/checksums.txt",
 					},
 					{
+						ID:                 105,
 						Name:               "agent-gate-notes.txt",
 						BrowserDownloadURL: server.URL + "/downloads/notes.txt",
 					},
@@ -127,26 +148,6 @@ func TestVerifyReleaseAssetsDownloadsAndVerifiesMatchingArchives(t *testing.T) {
 			if err := json.NewEncoder(writer).Encode(response); err != nil {
 				t.Errorf("encode response: %v", err)
 			}
-		case "/downloads/" + darwinAssetName:
-			if got := request.Header.Get("Authorization"); got != "" {
-				t.Errorf("Authorization = %q, want no token on asset download", got)
-			}
-			_, _ = writer.Write(darwinArchive)
-		case "/downloads/" + linuxAssetName:
-			if got := request.Header.Get("Authorization"); got != "" {
-				t.Errorf("Authorization = %q, want no token on asset download", got)
-			}
-			_, _ = writer.Write(linuxArchive)
-		case "/downloads/" + siblingAssetName:
-			if got := request.Header.Get("Authorization"); got != "" {
-				t.Errorf("Authorization = %q, want no token on asset download", got)
-			}
-			_, _ = writer.Write(siblingArchive)
-		case "/downloads/checksums.txt":
-			if got := request.Header.Get("Authorization"); got != "" {
-				t.Errorf("Authorization = %q, want no token on checksum download", got)
-			}
-			_, _ = writer.Write([]byte(checksums))
 		default:
 			http.NotFound(writer, request)
 		}
