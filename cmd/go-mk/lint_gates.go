@@ -84,7 +84,7 @@ func captureGolangciFindings(rawPath, findingsPath string) (int, int, error) {
 // runLintTools installs golangci-lint, gofumpt, and goimports, mirroring
 // run_lint_tools.
 func runLintTools() error {
-	if err := installGoTool(lintEnvDefault("GOLANGCI_LINT_INSTALL", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2")); err != nil {
+	if err := installGoTool(lintEnvDefault("GOLANGCI_LINT_INSTALL", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2")); err != nil {
 		return err
 	}
 	if err := installGoTool(lintEnvDefault("GOFUMPT_INSTALL", "mvdan.cc/gofumpt@v0.10.0")); err != nil {
