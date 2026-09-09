@@ -23,6 +23,7 @@ type release struct {
 }
 
 type releaseAsset struct {
+	ID                 int64  `json:"id"`
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
 	Digest             string `json:"digest"`
@@ -130,7 +131,7 @@ func VerifyReleaseAssets(ctx context.Context, options Options, tag string) error
 			return fmt.Errorf("release asset %s has no download URL", asset.Name)
 		}
 		archivePath := filepath.Join(resolvedOptions.CacheDir, filepath.Base(asset.Name))
-		if err := updateDownloadFile(ctx, resolvedOptions.Client, asset.BrowserDownloadURL, archivePath, resolvedOptions.Config.MaxDownloadBytes); err != nil {
+		if err := downloadReleaseAsset(ctx, resolvedOptions, asset, archivePath); err != nil {
 			return err
 		}
 		if err := updateVerifyChecksum(ctx, resolvedOptions, latest, asset, archivePath); err != nil {
@@ -230,7 +231,7 @@ func findAsset(assets []releaseAsset, name string) (releaseAsset, bool) {
 			return asset, true
 		}
 	}
-	return releaseAsset{Name: "", BrowserDownloadURL: "", Digest: ""}, false
+	return releaseAsset{ID: 0, Name: "", BrowserDownloadURL: "", Digest: ""}, false
 }
 
 func applyGitHubAPIHeaders(req *http.Request, cfg Config) {

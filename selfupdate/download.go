@@ -18,11 +18,60 @@ import (
 // limit because a plausible asset size is a property of the consumer's binary,
 // not of this package.
 func downloadFile(ctx context.Context, client *http.Client, url string, path string, maxBytes int64) error {
+	return downloadFileWithHeaders(ctx, client, url, path, maxBytes, nil)
+}
+
+func downloadReleaseAsset(ctx context.Context, options Options, asset releaseAsset, path string) error {
+	token := strings.TrimSpace(options.Config.AuthToken)
+	if token == "" {
+		return updateDownloadFile(
+			ctx,
+			options.Client,
+			asset.BrowserDownloadURL,
+			path,
+			options.Config.MaxDownloadBytes,
+		)
+	}
+	if asset.ID <= 0 {
+		return fmt.Errorf("release asset %s has no ID", asset.Name)
+	}
+	url := fmt.Sprintf(
+		"%s/repos/%s/releases/assets/%d",
+		releaseAPIBaseURL(options.Config),
+		options.Config.Repo,
+		asset.ID,
+	)
+	headers := http.Header{}
+	headers.Set("Accept", "application/octet-stream")
+	headers.Set("Authorization", "Bearer "+token)
+	return downloadFileWithHeaders(
+		ctx,
+		options.Client,
+		url,
+		path,
+		options.Config.MaxDownloadBytes,
+		headers,
+	)
+}
+
+func downloadFileWithHeaders(
+	ctx context.Context,
+	client *http.Client,
+	url string,
+	path string,
+	maxBytes int64,
+	headers http.Header,
+) error {
 	slog.InfoContext(ctx, "update download file", "url", url, "path", path)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		slog.WarnContext(ctx, "update download request build failed", "url", url, "err", err)
 		return fmt.Errorf("build download request: %w", err)
+	}
+	for name, values := range headers {
+		for _, value := range values {
+			req.Header.Add(name, value)
+		}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -89,7 +138,7 @@ func verifyChecksum(ctx context.Context, options Options, latest release, asset 
 		// different (repo, tag) pair.
 		checksumsPath := filepath.Join(options.CacheDir, "checksums-"+checksumsCacheKey(options.Config.Repo, latest.TagName)+".txt")
 		if _, statErr := os.Stat(checksumsPath); statErr != nil {
-			if err := downloadFile(ctx, options.Client, checksums.BrowserDownloadURL, checksumsPath, options.Config.MaxDownloadBytes); err != nil {
+			if err := downloadReleaseAsset(ctx, options, checksums, checksumsPath); err != nil {
 				return err
 			}
 		}
