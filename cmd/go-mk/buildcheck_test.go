@@ -29,9 +29,13 @@ func TestGovulncheckInstallationFailureIsAdvisory(t *testing.T) {
 }
 
 func TestPrepareGovulncheckCheckInstallsBeforeRun(t *testing.T) {
+	t.Setenv("GOVULNCHECK_INSTALL", "")
 	calls := []string{}
 	prepared := prepareGovulncheckCheck(govulncheckConfig{
-		install: func(string) error {
+		install: func(spec string) error {
+			if spec != "golang.org/x/vuln/cmd/govulncheck@v1.8.0" {
+				t.Fatalf("install spec = %q, want the Go 1.27-compatible default", spec)
+			}
 			calls = append(calls, "install")
 			return nil
 		},
