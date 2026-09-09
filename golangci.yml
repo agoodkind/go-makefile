@@ -5,12 +5,15 @@ run:
 
 linters:
   default: all
+  enable:
+    - exhaustruct
   disable:
     - depguard            # we use staticcheck-extra for ban-lists
     - dupl                # noisy on legitimate similar shapes
     - embeddedstructfieldcheck  # cosmetic: blank line after embedded fields
     - err113              # we use fmt.Errorf %w consistently
     - errcheck            # superseded by wrapcheck
+    - exhaustruct_v5      # v5 changes the established external-struct policy
     - forbidigo           # superseded by staticcheck-extra banned_direct_output (which honors package main)
     - funcorder           # cosmetic: method/constructor ordering
     - gochecknoglobals    # var blocks are fine
@@ -94,6 +97,16 @@ linters:
       include:
         - 'goodkind\.io/.*/internal/.*'
 
+    modernize:
+      # v2.13 adds these analyzers. Keep the established v2.12 policy until
+      # consumers adopt their findings as reviewed changes.
+      disable:
+        - embedlit
+        - errorsastype
+        - importcomment
+        - reflecttypeassert
+        - slicesclip
+
     wrapcheck:
       ignore-sigs:
         - .Errorf(
@@ -124,6 +137,30 @@ linters:
       - examples$
       - \.claude/worktrees/
     rules:
+      # The v2.13 canonicalheader fork adds preferred initialism spellings for
+      # 65 known headers. v2.12 accepted every casing of this finite class.
+      - linters:
+          - canonicalheader
+        text: '^use "(A-IM|Accept-CH|ALPN|AMP-Cache-Transform|C-PEP|C-PEP-Info|Cal-Managed-ID|CalDAV-Timezones|CDN-Cache-Control|CDN-Loop)" instead of "'
+      - linters:
+          - canonicalheader
+        text: '^use "(Content-ID|Content-MD5|DASL|DAV|Differential-ID|DNT|DPoP|DPoP-Nonce|EDIINT-Features|ETag)" instead of "'
+      - linters:
+          - canonicalheader
+        text: '^use "(Expect-CT|GetProfile|HTTP2-Settings|IM|Include-Referred-Token-Binding-ID|Last-Event-ID|MIME-Version|NEL|OData-EntityId|OData-Isolation)" instead of "'
+      - linters:
+          - canonicalheader
+        text: '^use "(OData-MaxVersion|OData-Version|Optional-WWW-Authenticate|OSCORE|OSLC-Core-Version|P3P|PEP|PEP-Info|PICS-Label|ProfileObject)" instead of "'
+      - linters:
+          - canonicalheader
+        text: '^use "(Repeatability-Client-ID|Repeatability-Request-ID|Sec-GPC|Sec-WebSocket-Accept|Sec-WebSocket-Extensions|Sec-WebSocket-Key|Sec-WebSocket-Protocol|Sec-WebSocket-Version|SetProfile|SLUG)" instead of "'
+      - linters:
+          - canonicalheader
+        text: '^use "(SoapAction|Status-URI|TCN|TE|TTL|URI|WWW-Authenticate|X-Correlation-ID|X-DNS-Prefetch-Control|X-Real-IP)" instead of "'
+      - linters:
+          - canonicalheader
+        text: '^use "(X-Request-ID|X-UA-Compatible|X-WebKit-CSP|X-XSS|X-XSS-Protection)" instead of "'
+
       # cgo rewrites a call that passes the address of a Go pointer into a
       # wrapper containing the literal `_cgoCheckPointer(base, 0 == 0)`, and
       # its line directives attribute that generated text to the calling

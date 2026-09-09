@@ -29,7 +29,7 @@ on:
         description: golangci-lint version installed before quality gates.
         required: false
         type: string
-        default: v2.12.2
+        default: v2.13.2
       golangci_lint_install_mode:
         description: golangci-lint action installation mode.
         required: false
