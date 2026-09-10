@@ -16,21 +16,20 @@ import (
 )
 
 const (
-	provisionMakeDir       = ".make"
-	provisionSelfAsset     = "scripts/go-mk-bootstrap.sh"
-	provisionStatePath     = ".make/.go-mk-fetch-state"
-	provisionReuseWindow   = time.Hour
-	provisionLockWait      = 30 * time.Second
-	defaultCodeloadBase    = "https://codeload.github.com"
-	defaultProvisionRepo   = "agoodkind/go-makefile"
-	defaultProvisionRef    = "main"
-	fetchMaxTimeSeconds    = "15"
-	fetchSpeedLimit        = "1024"
-	fetchSpeedTime         = "3"
-	fetchRetryMaxTime      = "4"
-	validationConnect      = "2"
-	validationMaxTime      = "3"
-	fetchConnectTimeout    = "5"
+	provisionMakeDir     = ".make"
+	provisionSelfAsset   = "scripts/go-mk-bootstrap.sh"
+	provisionStatePath   = ".make/.go-mk-fetch-state"
+	provisionLockWait    = 30 * time.Second
+	defaultCodeloadBase  = "https://codeload.github.com"
+	defaultProvisionRepo = "agoodkind/go-makefile"
+	defaultProvisionRef  = "main"
+	fetchMaxTimeSeconds  = "15"
+	fetchSpeedLimit      = "1024"
+	fetchSpeedTime       = "3"
+	fetchRetryMaxTime    = "4"
+	validationConnect    = "2"
+	validationMaxTime    = "3"
+	fetchConnectTimeout  = "5"
 )
 
 type provisionConfig struct {
@@ -102,8 +101,12 @@ func provisionAssets(cfg provisionConfig) error {
 		return fmt.Errorf("error: _GO_MK_PROVISIONED=1 but .make is missing a required asset")
 	}
 
+	cachedAssetsAvailable := false
+	if !runningInCI() {
+		cachedAssetsAvailable = provisionAssetsComplete(cfg, provisionMakeDir) == nil
+	}
 	knownETag := ""
-	if !runningInCI() && provisionAssetsComplete(cfg, provisionMakeDir) == nil {
+	if !runningInCI() && cachedAssetsAvailable {
 		etag, knownRef := readProvisionState()
 		if knownRef == cfg.apiRef {
 			knownETag = etag
@@ -114,16 +117,20 @@ func provisionAssets(cfg provisionConfig) error {
 		if statusCode == 304 {
 			return nil
 		}
-		if !runningInCI() && probeErr != nil && provisionStateRecent() && provisionAssetsComplete(cfg, provisionMakeDir) == nil {
-			serveProvisionFromDiskWarning(cfg)
-			return nil
-		}
 		if probeErr != nil {
+			if !runningInCI() && cachedAssetsAvailable {
+				serveProvisionFromDiskWarning(cfg)
+				return nil
+			}
 			writeStderr(fmt.Sprintf("validate_upstream: curl exited, falling back to a full fetch: %v\n", probeErr))
 		}
 	}
 	if err := downloadAndInstallProvision(cfg); err != nil {
-		return fmt.Errorf("error: could not provision go-makefile assets. Set GO_MK_DEV_DIR, or check network access to %s. If this helper itself is bad, delete %s/%s to force a fresh copy on the next run", cfg.codeloadBase, provisionMakeDir, provisionSelfAsset)
+		if !runningInCI() && cachedAssetsAvailable {
+			serveProvisionFromDiskWarning(cfg)
+			return nil
+		}
+		return fmt.Errorf("error: could not provision go-makefile assets. Set GO_MK_DEV_DIR, or check network access to %s", cfg.codeloadBase)
 	}
 	return nil
 }
@@ -418,28 +425,6 @@ func clearProvisionState() error {
 		return fmt.Errorf("error: could not remove %s, so refusing to modify .make while stale validation state survives: %s", provisionStatePath, removalError)
 	}
 	return nil
-}
-
-func provisionStateRecent() bool {
-	content, err := os.ReadFile(provisionStatePath)
-	if err != nil {
-		return false
-	}
-	for _, line := range strings.Split(string(content), "\n") {
-		if !strings.HasPrefix(line, "timestamp=") {
-			continue
-		}
-		recorded, err := strconv.ParseInt(strings.TrimPrefix(line, "timestamp="), 10, 64)
-		if err != nil {
-			return false
-		}
-		now := time.Now().Unix()
-		if recorded > now {
-			return false
-		}
-		return now-recorded <= int64(provisionReuseWindow.Seconds())
-	}
-	return false
 }
 
 func serveProvisionFromDiskWarning(cfg provisionConfig) {

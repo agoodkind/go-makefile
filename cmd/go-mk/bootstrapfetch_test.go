@@ -406,12 +406,9 @@ func TestHelperDevDirPartialInstallLeavesNoState(t *testing.T) {
 // therefore defense in depth with no coverage claimed for it, rather than a
 // test rewritten until it passed.
 //
-// TestHelperRefusesToInstallWhenStateCannotBeCleared covers the check on that
-// removal. Removing the state before installing only helps if the removal
-// actually happened: an unchecked failure would leave assets changing
-// underneath a state file that still describes the old ones, which is the
-// precise condition the ordering exists to prevent.
-func TestHelperRefusesToInstallWhenStateCannotBeCleared(t *testing.T) {
+// TestHelperFallsBackToCacheWhenStateCannotBeCleared verifies that a failed
+// live update preserves and serves the existing complete tree.
+func TestHelperFallsBackToCacheWhenStateCannotBeCleared(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("runs as root, where an unwritable directory cannot block removal")
 	}
@@ -448,8 +445,8 @@ func TestHelperRefusesToInstallWhenStateCannotBeCleared(t *testing.T) {
 	_, stderr, code := runHelper(t, dir, map[string]string{
 		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
 	})
-	if code == 0 {
-		t.Fatalf("helper exit = 0, want non-zero when the state file cannot be removed: %s", stderr)
+	if code != 0 {
+		t.Fatalf("helper exit = %d, want 0 after cache fallback: %s", code, stderr)
 	}
 	if got := readAsset(t, dir, "go.mk"); got != goMkBefore {
 		t.Fatalf("go.mk = %q, want the previous body %q: assets must not change while stale state survives",
@@ -1291,17 +1288,17 @@ func unreachableCodeloadBase(t *testing.T) string {
 	return "http://" + address
 }
 
-// TestHelperFailsWhenUpstreamTimesOutAndStateIsStale covers the harder,
+// TestHelperFallsBackToDiskWhenUpstreamTimesOutAndStateIsStale covers the harder,
 // more realistic shape of network failure: an upstream that accepts the
 // connection and then never responds, as a flaky network, a captive
-// portal, or a hung proxy actually produces. A stale state falls through
-// past the reuse branch into a real provision() attempt, whose curl call
-// now aborts a stalled transfer by lack of progress
+// portal, or a hung proxy. A stale state now still probes and retries a
+// live fetch first, then serves on-disk assets if validation or the full
+// download fails and the cached tree is complete.
 // (FETCH_SPEED_LIMIT/FETCH_SPEED_TIME) rather than by riding out
 // FETCH_MAX_TIME, so each attempt dies in a few seconds regardless of how
 // long the stall actually lasts; --retry still applies on top of that (see
 // TestHelperBoundsRetryTimeWhenUpstreamStalls for the measured total).
-func TestHelperFailsWhenUpstreamTimesOutAndStateIsStale(t *testing.T) {
+func TestHelperFallsBackToDiskWhenUpstreamTimesOutAndStateIsStale(t *testing.T) {
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 	warmMake(t, dir)
@@ -1315,18 +1312,12 @@ func TestHelperFailsWhenUpstreamTimesOutAndStateIsStale(t *testing.T) {
 	_, stderr, code := runHelper(t, dir, map[string]string{
 		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
 	})
-	if code == 0 {
-		t.Fatal("helper exit = 0, want non-zero when state is older than the reuse window")
+	if code != 0 {
+		t.Fatalf("helper exit = %d, want 0 when state is older than the reuse window: %s", code, stderr)
 	}
-	if strings.Contains(stderr, "serving .make assets validated") {
-		t.Fatalf("stderr = %q, want no serve warning on the stale path", stderr)
-	}
-	// The validation probe's own failure reason (curl's exit code and an
-	// excerpt of its stderr) must stay visible on this fall-through path,
-	// not just on the reuse-serving path: a probe failing on every run is
-	// otherwise invisible once main proceeds straight to provision.
-	if !strings.Contains(stderr, "validate_upstream: curl exited") {
-		t.Fatalf("stderr = %q, want the validation probe's own failure reason on the stale fall-through path", stderr)
+	// The warning must still call out that this run used cached assets.
+	if !strings.Contains(stderr, "serving .make assets validated") {
+		t.Fatalf("stderr = %q, want the disk-fallback warning on the stale path", stderr)
 	}
 	// Even on the failing path, nothing may be destroyed.
 	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
@@ -1338,16 +1329,16 @@ func TestHelperFailsWhenUpstreamTimesOutAndStateIsStale(t *testing.T) {
 // shape (see unreachableCodeloadBase); TestHelperFailsWhenUpstreamTimesOutAndStateIsStale
 // covers the stall shape, so between the two the suite exercises both ways
 // a real network failure reaches this branch.
-func TestHelperTreatsFutureTimestampAsStale(t *testing.T) {
+func TestHelperFallsBackToCacheWithFutureTimestamp(t *testing.T) {
 	dir := t.TempDir()
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(2*time.Hour).Unix())
 
-	_, _, code := runHelper(t, dir, map[string]string{
+	_, stderr, code := runHelper(t, dir, map[string]string{
 		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
 	})
-	if code == 0 {
-		t.Fatal("helper exit = 0, want non-zero for a future timestamp")
+	if code != 0 {
+		t.Fatalf("helper exit = %d, want 0 after cache fallback: %s", code, stderr)
 	}
 }
 
