@@ -103,7 +103,7 @@ func provisionAssets(cfg provisionConfig) error {
 
 	cachedAssetsAvailable := provisionAssetsComplete(cfg, provisionMakeDir) == nil
 	knownETag := ""
-	if cachedAssetsAvailable {
+	if !runningInCI() && cachedAssetsAvailable {
 		etag, knownRef := readProvisionState()
 		if knownRef == cfg.apiRef {
 			knownETag = etag
@@ -115,7 +115,7 @@ func provisionAssets(cfg provisionConfig) error {
 			return nil
 		}
 		if probeErr != nil {
-			if cachedAssetsAvailable {
+			if !runningInCI() && cachedAssetsAvailable {
 				serveProvisionFromDiskWarning(cfg)
 				return nil
 			}
@@ -123,7 +123,7 @@ func provisionAssets(cfg provisionConfig) error {
 		}
 	}
 	if err := downloadAndInstallProvision(cfg); err != nil {
-		if cachedAssetsAvailable {
+		if !runningInCI() && cachedAssetsAvailable {
 			serveProvisionFromDiskWarning(cfg)
 			return nil
 		}
