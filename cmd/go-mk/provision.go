@@ -101,7 +101,10 @@ func provisionAssets(cfg provisionConfig) error {
 		return fmt.Errorf("error: _GO_MK_PROVISIONED=1 but .make is missing a required asset")
 	}
 
-	cachedAssetsAvailable := provisionAssetsComplete(cfg, provisionMakeDir) == nil
+	cachedAssetsAvailable := false
+	if !runningInCI() {
+		cachedAssetsAvailable = provisionAssetsComplete(cfg, provisionMakeDir) == nil
+	}
 	knownETag := ""
 	if !runningInCI() && cachedAssetsAvailable {
 		etag, knownRef := readProvisionState()
