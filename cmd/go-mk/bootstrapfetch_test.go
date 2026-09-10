@@ -406,12 +406,9 @@ func TestHelperDevDirPartialInstallLeavesNoState(t *testing.T) {
 // therefore defense in depth with no coverage claimed for it, rather than a
 // test rewritten until it passed.
 //
-// TestHelperRefusesToInstallWhenStateCannotBeCleared covers the check on that
-// removal. Removing the state before installing only helps if the removal
-// actually happened: an unchecked failure would leave assets changing
-// underneath a state file that still describes the old ones, which is the
-// precise condition the ordering exists to prevent.
-func TestHelperRefusesToInstallWhenStateCannotBeCleared(t *testing.T) {
+// TestHelperFallsBackToCacheWhenStateCannotBeCleared verifies that a failed
+// live update preserves and serves the existing complete tree.
+func TestHelperFallsBackToCacheWhenStateCannotBeCleared(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("runs as root, where an unwritable directory cannot block removal")
 	}
@@ -448,8 +445,8 @@ func TestHelperRefusesToInstallWhenStateCannotBeCleared(t *testing.T) {
 	_, stderr, code := runHelper(t, dir, map[string]string{
 		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
 	})
-	if code == 0 {
-		t.Fatalf("helper exit = 0, want non-zero when the state file cannot be removed: %s", stderr)
+	if code != 0 {
+		t.Fatalf("helper exit = %d, want 0 after cache fallback: %s", code, stderr)
 	}
 	if got := readAsset(t, dir, "go.mk"); got != goMkBefore {
 		t.Fatalf("go.mk = %q, want the previous body %q: assets must not change while stale state survives",
@@ -1332,16 +1329,16 @@ func TestHelperFallsBackToDiskWhenUpstreamTimesOutAndStateIsStale(t *testing.T) 
 // shape (see unreachableCodeloadBase); TestHelperFailsWhenUpstreamTimesOutAndStateIsStale
 // covers the stall shape, so between the two the suite exercises both ways
 // a real network failure reaches this branch.
-func TestHelperTreatsFutureTimestampAsStale(t *testing.T) {
+func TestHelperFallsBackToCacheWithFutureTimestamp(t *testing.T) {
 	dir := t.TempDir()
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(2*time.Hour).Unix())
 
-	_, _, code := runHelper(t, dir, map[string]string{
+	_, stderr, code := runHelper(t, dir, map[string]string{
 		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
 	})
-	if code == 0 {
-		t.Fatal("helper exit = 0, want non-zero for a future timestamp")
+	if code != 0 {
+		t.Fatalf("helper exit = %d, want 0 after cache fallback: %s", code, stderr)
 	}
 }
 
