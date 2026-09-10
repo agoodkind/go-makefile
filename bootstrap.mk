@@ -48,7 +48,7 @@ define _go_mk_get_bootstrap
 			: ; \
 		else \
 			rm -f "$$devtmp"; \
-			printf '%s\n' "error: could not install $(GO_MK_BOOTSTRAP) from GO_MK_DEV_DIR=$(GO_MK_DEV_DIR)" >&2; \
+			printf '%s\n' "error: could not install the provisioning helper from GO_MK_DEV_DIR=$(GO_MK_DEV_DIR)" >&2; \
 			exit 1; \
 		fi; \
 	elif [ -s "$(GO_MK_BOOTSTRAP)" ]; then \
@@ -63,7 +63,7 @@ define _go_mk_get_bootstrap
 			mv "$$tmp" "$(GO_MK_BOOTSTRAP)"; \
 		else \
 			rm -f "$$tmp"; \
-			printf '%s\n' "error: could not obtain $(GO_MK_BOOTSTRAP). Set GO_MK_DEV_DIR, or check network access to $(GO_MK_BOOTSTRAP_BASE_URL)" >&2; \
+			printf '%s\n' "error: could not obtain the provisioning helper. Set GO_MK_DEV_DIR, or check network access to $(GO_MK_BOOTSTRAP_BASE_URL)" >&2; \
 			exit 1; \
 		fi; \
 	fi; \
