@@ -103,7 +103,7 @@ func provisionAssets(cfg provisionConfig) error {
 
 	cachedAssetsAvailable := provisionAssetsComplete(cfg, provisionMakeDir) == nil
 	knownETag := ""
-	if !runningInCI() && cachedAssetsAvailable {
+	if cachedAssetsAvailable {
 		etag, knownRef := readProvisionState()
 		if knownRef == cfg.apiRef {
 			knownETag = etag
@@ -114,16 +114,16 @@ func provisionAssets(cfg provisionConfig) error {
 		if statusCode == 304 {
 			return nil
 		}
-		if !runningInCI() && probeErr != nil && cachedAssetsAvailable {
-			serveProvisionFromDiskWarning(cfg)
-			return nil
-		}
 		if probeErr != nil {
+			if cachedAssetsAvailable {
+				serveProvisionFromDiskWarning(cfg)
+				return nil
+			}
 			writeStderr(fmt.Sprintf("validate_upstream: curl exited, falling back to a full fetch: %v\n", probeErr))
 		}
 	}
 	if err := downloadAndInstallProvision(cfg); err != nil {
-		if !runningInCI() && cachedAssetsAvailable && !strings.Contains(err.Error(), "local setup problem") {
+		if cachedAssetsAvailable {
 			serveProvisionFromDiskWarning(cfg)
 			return nil
 		}
