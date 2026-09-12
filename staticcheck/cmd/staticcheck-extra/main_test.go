@@ -2,15 +2,21 @@ package main
 
 import (
 	"errors"
+	"go/build"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
 func TestStaticcheckExtraGo127GenericMethods(t *testing.T) {
 	t.Parallel()
+	// This fixture verifies Go 1.27 syntax when that compiler runs the suite.
+	if !slices.Contains(build.Default.ReleaseTags, "go1.27") {
+		t.Skip("generic methods require Go 1.27")
+	}
 
 	binary := filepath.Join(t.TempDir(), "staticcheck-extra")
 	build := exec.Command("go", "build", "-o", binary, ".")

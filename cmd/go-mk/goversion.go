@@ -1,9 +1,8 @@
-// go version currency check for go-mk. It compares the module's pinned Go
-// version against the latest stable Go release and surfaces a loud, actionable
-// upgrade instruction during build-check. The project policy is to track the
-// latest Go, so the notice tells the reader exactly which go.mod directives to
-// bump rather than leaving an old toolchain in place. The check is advisory:
-// it caches the latest version for a day and reports lookup failures visibly.
+// go version currency check for go-mk. It compares the installed Go version
+// against the latest stable release and reports an advisory during build-check.
+// Module directives declare compatibility minima, so the notice never asks a
+// consumer to raise them. The check caches the latest version for a day and
+// reports lookup failures visibly.
 package main
 
 import (
@@ -12,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -29,19 +29,19 @@ const goVersionEndpoint = "https://go.dev/VERSION?m=text"
 const goLatestCacheTTL = 24 * time.Hour
 
 type goVersionConfig struct {
-	moduleVersion func() (string, error)
-	latestVersion func() (string, error)
+	installedVersion func() (string, error)
+	latestVersion    func() (string, error)
 }
 
 func runGoVersionStep() (report.StepResult, int) {
 	return goVersionStepWith(goVersionConfig{
-		moduleVersion: moduleGoVersion,
-		latestVersion: latestStableGo,
+		installedVersion: installedGoVersion,
+		latestVersion:    latestStableGo,
 	}), 0
 }
 
 func goVersionStepWith(config goVersionConfig) report.StepResult {
-	moduleVersion, err := config.moduleVersion()
+	installedVersion, err := config.installedVersion()
 	if err != nil {
 		return advisoryToolFailure("go-version", err.Error())
 	}
@@ -49,16 +49,13 @@ func goVersionStepWith(config goVersionConfig) report.StepResult {
 	if err != nil {
 		return advisoryToolFailure("go-version", err.Error())
 	}
-	if compareGoVersions(moduleVersion, latestVersion) >= 0 {
+	if compareGoVersions(installedVersion, latestVersion) >= 0 {
 		return report.StepResult{Name: "go-version", Status: report.StatusOK}
 	}
 	slog.Warn("go version behind latest stable")
 	findings := []string{
-		"Go " + moduleVersion + " is behind the latest stable Go " + latestVersion + ".",
-		"Project policy tracks the latest Go. Update go.mod:",
-		"    go " + latestVersion,
-		"    toolchain go" + latestVersion,
-		"then run `make build` again.",
+		"Installed Go " + installedVersion + " is behind the latest stable Go " + latestVersion + ".",
+		"Update the installed Go toolchain when practical.",
 	}
 	return report.StepResult{
 		Name:     "go-version",
@@ -76,34 +73,21 @@ func runGoVersionCheck() int {
 	return 0
 }
 
-// moduleGoVersion returns the module's effective Go version, preferring the
-// toolchain directive over the go directive, both read from go.mod.
-func moduleGoVersion() (string, error) {
-	data, err := os.ReadFile("go.mod")
+// installedGoVersion returns the Go version available on PATH without the
+// leading "go" prefix. It runs the compiler command instead of reading go.mod
+// because module directives are compatibility minima, not version preferences.
+func installedGoVersion() (string, error) {
+	slog.Info("go version read installed toolchain")
+	output, err := exec.Command("go", "env", "GOVERSION").Output()
 	if err != nil {
-		slog.Warn("go version read module failed", slog.Any("err", err))
-		return "", fmt.Errorf("read Go version from go.mod: %w", err)
+		slog.Warn("go version read installed toolchain failed", slog.Any("err", err))
+		return "", fmt.Errorf("read installed Go version: %w", err)
 	}
-	goDirective := ""
-	toolchainDirective := ""
-	for _, line := range strings.Split(string(data), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		if fields[0] == "go" {
-			goDirective = fields[1]
-		} else if fields[0] == "toolchain" {
-			toolchainDirective = strings.TrimPrefix(fields[1], "go")
-		}
+	version := strings.TrimPrefix(strings.TrimSpace(string(output)), "go")
+	if version == "" {
+		return "", fmt.Errorf("read installed Go version: Go returned no version")
 	}
-	if toolchainDirective != "" {
-		return toolchainDirective, nil
-	}
-	if goDirective != "" {
-		return goDirective, nil
-	}
-	return "", fmt.Errorf("read Go version from go.mod: no go or toolchain directive")
+	return version, nil
 }
 
 // latestStableGo returns the latest stable Go version (without the "go"
