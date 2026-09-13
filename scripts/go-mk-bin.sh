@@ -57,7 +57,7 @@ obtain_go_mk() {
     local install_spec="${GO_MK_INSTALL:-goodkind.io/go-makefile/cmd/go-mk@main}"
     local staging
     staging=$(mktemp -d "$(dirname "${OUTPUT}")/.go-mk-install.XXXXXX") || return 1
-    if ! env GOPROXY=direct GOPRIVATE=goodkind.io/go-makefile GOBIN="${staging}" \
+    if ! env GOBIN="${staging}" \
         go install "${install_spec}"; then
         rm -rf "${staging}"
         printf 'go-mk-bin: could not go install %s\n' "${install_spec}" >&2

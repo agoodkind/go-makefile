@@ -216,8 +216,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ github.token }}
-      GOPROXY: direct
-      GOPRIVATE: goodkind.io/go-makefile
     steps:
       - uses: actions/checkout@v7
         with:

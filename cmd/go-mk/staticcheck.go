@@ -97,8 +97,8 @@ func staticcheckBuildFromRepo() error {
 
 // staticcheckInstallBinary installs the analyzer via go install and symlinks the
 // installed binary to the output path, mirroring staticcheck_install_binary. It
-// runs go install with GOPROXY=direct, GONOSUMDB for the private module, and
-// GOBIN set to the GOPATH bin. It runs a process, so it emits a boundary log.
+// runs go install with GONOSUMDB for the analyzer modules and GOBIN set to the
+// GOPATH bin. It runs a process, so it emits a boundary log.
 func staticcheckInstallBinary() error {
 	installSpec := lintEnvDefault("STATICCHECK_EXTRA_INSTALL", staticcheckInstallDefault)
 	binaryName := filepath.Base(strings.SplitN(installSpec, "@", 2)[0])
@@ -115,7 +115,6 @@ func staticcheckInstallBinary() error {
 	slog.Info("staticcheck install binary", slog.String("spec", installSpec))
 	cmd := exec.Command("go", "install", installSpec)
 	env := hostLintEnv()
-	env = setEnvVar(env, "GOPROXY", "direct")
 	env = setEnvVar(env, "GONOSUMDB", "goodkind.io/go-makefile,goodkind.io/go-makefile/staticcheck")
 	env = setEnvVar(env, "GOBIN", goBin)
 	cmd.Env = env
