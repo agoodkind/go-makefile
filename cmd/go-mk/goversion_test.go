@@ -8,9 +8,9 @@ import (
 	"goodkind.io/go-makefile/internal/report"
 )
 
-func TestOutdatedGoVersionIsAdvisory(t *testing.T) {
+func TestOutdatedInstalledGoVersionIsAdvisory(t *testing.T) {
 	result := goVersionStepWith(goVersionConfig{
-		moduleVersion: func() (string, error) {
+		installedVersion: func() (string, error) {
 			return "1.26.4", nil
 		},
 		latestVersion: func() (string, error) {
@@ -21,14 +21,14 @@ func TestOutdatedGoVersionIsAdvisory(t *testing.T) {
 	if result.Status != report.StatusAdvisory {
 		t.Fatalf("status = %v, want advisory", result.Status)
 	}
-	if !strings.Contains(strings.Join(result.Findings, "\n"), "behind the latest stable Go 1.26.5") {
+	if !strings.Contains(strings.Join(result.Findings, "\n"), "Installed Go 1.26.4 is behind the latest stable Go 1.26.5") {
 		t.Fatalf("findings = %v, want upgrade notice", result.Findings)
 	}
 }
 
 func TestGoVersionLookupFailureIsAdvisory(t *testing.T) {
 	result := goVersionStepWith(goVersionConfig{
-		moduleVersion: func() (string, error) {
+		installedVersion: func() (string, error) {
 			return "1.26.5", nil
 		},
 		latestVersion: func() (string, error) {
@@ -46,7 +46,7 @@ func TestGoVersionLookupFailureIsAdvisory(t *testing.T) {
 
 func TestCurrentGoVersionIsOK(t *testing.T) {
 	result := goVersionStepWith(goVersionConfig{
-		moduleVersion: func() (string, error) {
+		installedVersion: func() (string, error) {
 			return "1.26.5", nil
 		},
 		latestVersion: func() (string, error) {
