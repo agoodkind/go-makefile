@@ -158,11 +158,7 @@ func installEngineBinary(outputPath string) error {
 	defer func() { _ = os.RemoveAll(staging) }()
 
 	cmd := exec.Command("go", "install", installSpec)
-	cmd.Env = append(os.Environ(),
-		"GOPROXY=direct",
-		"GOPRIVATE=goodkind.io/go-makefile",
-		"GOBIN="+staging,
-	)
+	cmd.Env = setEnvVar(os.Environ(), "GOBIN", staging)
 	if output, cmdErr := cmd.CombinedOutput(); cmdErr != nil {
 		writeStderr(string(output))
 		return cmdErr
