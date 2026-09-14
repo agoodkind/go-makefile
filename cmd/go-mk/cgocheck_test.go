@@ -276,3 +276,65 @@ func TestCheckReleaseCgoStub(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckReleaseCgoStubToleratesOnlyDarwinAmd64 proves the one tolerated
+// cgo-stub finding. goodkind.io does not support Intel Macs, so a darwin/amd64
+// binary whose graph needs cgo is published with one warning line instead of
+// failing the release, while the same graph on any other platform, darwin/arm64
+// included, still fails. The stub go reports cgo files for every darwin target,
+// so only the platform decides the outcome.
+func TestCheckReleaseCgoStubToleratesOnlyDarwinAmd64(t *testing.T) {
+	const importPath = "github.com/google/certificate-transparency-go/x509"
+
+	testCases := []struct {
+		name        string
+		platform    string
+		wantErr     bool
+		wantWarning bool
+	}{
+		{name: "darwin/amd64 logs one unsupported-platform line and continues", platform: "darwin/amd64", wantErr: false, wantWarning: true},
+		{name: "darwin/arm64 with the same graph still fails", platform: "darwin/arm64", wantErr: true, wantWarning: false},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("CGO_ENABLED", "0")
+			t.Setenv("GO_MK_CGO_OPTIONAL", "")
+			t.Setenv("GOOS", "linux")
+			stubDir := writeReleaseCgoStubGo(t, "darwin", importPath)
+			t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			cfg := releaseConfig{
+				binaries:  []releaseBinary{{name: "configsctl", mainPkg: "./cmd/configsctl"}},
+				platforms: []string{testCase.platform},
+			}
+			var err error
+			stderr := captureStderr(t, func() {
+				err = checkReleaseCgoStub(cfg)
+			})
+
+			warningLines := 0
+			for _, line := range strings.Split(stderr, "\n") {
+				if strings.Contains(line, "darwin/amd64 is unsupported") {
+					warningLines++
+				}
+			}
+			if testCase.wantWarning {
+				if warningLines != 1 || !strings.Contains(stderr, "configsctl") || !strings.Contains(stderr, importPath) {
+					t.Fatalf("stderr = %q, want exactly one darwin/amd64 unsupported line naming configsctl and %s", stderr, importPath)
+				}
+			} else if warningLines != 0 {
+				t.Fatalf("stderr = %q, want no darwin/amd64 unsupported line for %s", stderr, testCase.platform)
+			}
+			if testCase.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "configsctl ("+testCase.platform+")") {
+					t.Fatalf("checkReleaseCgoStub() error = %v, want a finding for configsctl (%s)", err, testCase.platform)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("checkReleaseCgoStub() error = %v, want nil", err)
+			}
+		})
+	}
+}

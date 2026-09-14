@@ -200,6 +200,12 @@ func releaseCgoRequiringPackages(mainPkg, goos, goarch string) ([]string, error)
 	return filterCgoRequiringPackages(packages, cgoOptionalAllowlist()), nil
 }
 
+// unsupportedCgoPlatform is the one release target whose cgo-stub finding is
+// logged and tolerated instead of failing the release. goodkind.io does not
+// support Intel Macs, so a darwin/amd64 binary is still published when its graph
+// needs cgo the build leaves off, accepting that it may not work there.
+const unsupportedCgoPlatform = "darwin/amd64"
+
 // checkReleaseCgoStub fails when a release binary builds with cgo effectively
 // disabled for a platform it targets while its own build graph, for that
 // platform, requires cgo. It replaces the single ambient checkCgoStub call the
@@ -209,9 +215,12 @@ func releaseCgoRequiringPackages(mainPkg, goos, goarch string) ([]string, error)
 // rather than the platform actually being compiled, which is why a freebsd
 // compile job running on a linux runner was failed for a package that is not
 // in the freebsd build at all. A pair whose cgo is effectively enabled is
-// skipped, exactly as checkCgoStub is a no-op when cgo is on.
+// skipped, exactly as checkCgoStub is a no-op when cgo is on. A finding on
+// unsupportedCgoPlatform is written as one warning line on stderr and does not
+// fail the release.
 func checkReleaseCgoStub(cfg releaseConfig) error {
 	findings := make([]string, 0)
+	tolerated := make([]string, 0)
 	for _, platform := range cfg.platforms {
 		goos, goarch, ok := strings.Cut(platform, "/")
 		if !ok {
@@ -231,8 +240,19 @@ func checkReleaseCgoStub(cfg releaseConfig) error {
 			if len(packages) == 0 {
 				continue
 			}
-			findings = append(findings, fmt.Sprintf("%s (%s): %s", binary.name, platform, strings.Join(packages, ", ")))
+			finding := fmt.Sprintf("%s (%s): %s", binary.name, platform, strings.Join(packages, ", "))
+			if platform == unsupportedCgoPlatform {
+				tolerated = append(tolerated, finding)
+				continue
+			}
+			findings = append(findings, finding)
 		}
+	}
+	if len(tolerated) > 0 {
+		slog.Warn("cgo-stub tolerated findings on an unsupported platform",
+			slog.String("platform", unsupportedCgoPlatform), slog.Int("findings", len(tolerated)))
+		writeStderr("go-mk: " + unsupportedCgoPlatform + " is unsupported; publishing without the cgo its build graph requires, so these binaries may not work there: " +
+			strings.Join(tolerated, "; ") + "\n")
 	}
 	if len(findings) == 0 {
 		return nil
