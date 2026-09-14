@@ -1211,6 +1211,152 @@ func TestReconcileCIWorkflow(t *testing.T) {
 		}
 		assertFileText(t, ciWorkflow, expected)
 	})
+
+	t.Run("copies release cgo into the ci caller", func(t *testing.T) {
+		repoDir := t.TempDir()
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		mustMkdirAll(t, filepath.Dir(ciWorkflow))
+		writeScaffoldTestFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"), releaseCallerWithCgo(".", "true"))
+		current := "name: CI\n\n" +
+			"jobs:\n" +
+			"  go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    secrets: inherit\n" +
+			"    with:\n" +
+			"      apt_packages: libpcre2-dev\n"
+		writeScaffoldTestFile(t, ciWorkflow, current)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileCIWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+		}
+
+		// A release built with cgo would otherwise be compiled with cgo off in CI,
+		// so the caller gains the release's value.
+		expected := current + "      cgo: true\n"
+		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+			t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+
+		var secondStdout bytes.Buffer
+		if err := reconcileCIWorkflow(&secondStdout); err != nil {
+			t.Fatalf("second reconcileCIWorkflow returned error: %v", err)
+		}
+		assertFileText(t, ciWorkflow, expected)
+	})
+
+	t.Run("scaffolds the ci caller with release cgo when absent", func(t *testing.T) {
+		repoDir := t.TempDir()
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		mustMkdirAll(t, filepath.Dir(ciWorkflow))
+		writeScaffoldTestFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"), releaseCallerWithCgo(".", "true"))
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileCIWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+		}
+		assertFileContains(t, ciWorkflow, "      attestations: write\n    with:\n      cgo: true\n    secrets: inherit\n")
+
+		before := mustReadFile(t, ciWorkflow)
+		var secondStdout bytes.Buffer
+		if err := reconcileCIWorkflow(&secondStdout); err != nil {
+			t.Fatalf("second reconcileCIWorkflow returned error: %v", err)
+		}
+		assertFileText(t, ciWorkflow, before)
+	})
+
+	t.Run("matches release cgo by working directory", func(t *testing.T) {
+		repoDir := t.TempDir()
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		mustMkdirAll(t, filepath.Dir(ciWorkflow))
+		writeScaffoldTestFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"), releaseCallerWithCgo("mwan/go", "true"))
+		callerJob := func(name string, workingDirectory string) string {
+			return "  " + name + ":\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: read\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    secrets: inherit\n" +
+				"    with:\n" +
+				"      working_directory: " + workingDirectory + "\n"
+		}
+		current := "name: CI\n\njobs:\n" + callerJob("scripts", "scripts") + "\n" + callerJob("mwan-go", "mwan/go")
+		writeScaffoldTestFile(t, ciWorkflow, current)
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileCIWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+		}
+
+		// Only the job that builds the released module takes the release's cgo;
+		// the scripts module has no release job and keeps the CI default.
+		expected := "name: CI\n\njobs:\n" + callerJob("scripts", "scripts") + "\n" + callerJob("mwan-go", "mwan/go") + "      cgo: true\n"
+		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+			t.Fatalf("multi-job ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+		}
+	})
+
+	t.Run("release without cgo resets an explicit ci cgo", func(t *testing.T) {
+		repoDir := t.TempDir()
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		mustMkdirAll(t, filepath.Dir(ciWorkflow))
+		writeScaffoldTestFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"),
+			"name: Release\n\n"+
+				"jobs:\n"+
+				"  release:\n"+
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n"+
+				"    permissions:\n"+
+				"      contents: write\n"+
+				"      id-token: write\n"+
+				"      attestations: write\n"+
+				"    secrets: inherit\n")
+		callerWithCgo := func(value string) string {
+			return "name: CI\n\n" +
+				"jobs:\n" +
+				"  go:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: read\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    secrets: inherit\n" +
+				"    with:\n" +
+				"      cgo: " + value + "\n"
+		}
+		writeScaffoldTestFile(t, ciWorkflow, callerWithCgo("true"))
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileCIWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+		}
+		assertFileText(t, ciWorkflow, callerWithCgo("false"))
+	})
+}
+
+// releaseCallerWithCgo renders a release caller whose single job builds
+// workingDirectory with the given cgo value.
+func releaseCallerWithCgo(workingDirectory string, cgoValue string) string {
+	return "name: Release\n\n" +
+		"jobs:\n" +
+		"  release:\n" +
+		"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+		"    permissions:\n" +
+		"      contents: write\n" +
+		"      id-token: write\n" +
+		"      attestations: write\n" +
+		"    secrets: inherit\n" +
+		"    with:\n" +
+		"      working_directory: " + workingDirectory + "\n" +
+		"      cgo: " + cgoValue + "\n"
 }
 
 func runScaffoldForTest(t *testing.T, options scaffoldOptions) {
