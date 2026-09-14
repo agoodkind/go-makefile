@@ -1,12 +1,15 @@
 package main
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
 	"testing"
+
+	"goodkind.io/go-makefile/internal/logsummary"
 )
 
 func TestCgoDisabled(t *testing.T) {
@@ -308,20 +311,31 @@ func TestCheckReleaseCgoStubToleratesOnlyDarwinAmd64(t *testing.T) {
 				binaries:  []releaseBinary{{name: "configsctl", mainPkg: "./cmd/configsctl"}},
 				platforms: []string{testCase.platform},
 			}
+			// Route slog through the same summary handler the go-mk binary installs
+			// on stderr, so a record that would add a second visible line is
+			// captured too.
+			previousLogger := slog.Default()
+			t.Cleanup(func() { slog.SetDefault(previousLogger) })
 			var err error
 			stderr := captureStderr(t, func() {
+				slog.SetDefault(slog.New(logsummary.New(os.Stderr, logsummary.ModeSummary)))
 				err = checkReleaseCgoStub(cfg)
 			})
 
+			visibleLines := 0
 			warningLines := 0
 			for _, line := range strings.Split(stderr, "\n") {
+				if strings.TrimSpace(line) == "" {
+					continue
+				}
+				visibleLines++
 				if strings.Contains(line, "darwin/amd64 is unsupported") {
 					warningLines++
 				}
 			}
 			if testCase.wantWarning {
-				if warningLines != 1 || !strings.Contains(stderr, "configsctl") || !strings.Contains(stderr, importPath) {
-					t.Fatalf("stderr = %q, want exactly one darwin/amd64 unsupported line naming configsctl and %s", stderr, importPath)
+				if visibleLines != 1 || warningLines != 1 || !strings.Contains(stderr, "configsctl") || !strings.Contains(stderr, importPath) {
+					t.Fatalf("stderr = %q, want exactly one visible line, the darwin/amd64 unsupported line naming configsctl and %s", stderr, importPath)
 				}
 			} else if warningLines != 0 {
 				t.Fatalf("stderr = %q, want no darwin/amd64 unsupported line for %s", stderr, testCase.platform)

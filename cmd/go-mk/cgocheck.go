@@ -249,7 +249,9 @@ func checkReleaseCgoStub(cfg releaseConfig) error {
 		}
 	}
 	if len(tolerated) > 0 {
-		slog.Warn("cgo-stub tolerated findings on an unsupported platform",
+		// INFO keeps this record in the .make/logs JSONL files without adding a
+		// second stderr line next to the one warning below.
+		slog.Info("cgo-stub tolerated findings on an unsupported platform",
 			slog.String("platform", unsupportedCgoPlatform), slog.Int("findings", len(tolerated)))
 		writeStderr("go-mk: " + unsupportedCgoPlatform + " is unsupported; publishing without the cgo its build graph requires, so these binaries may not work there: " +
 			strings.Join(tolerated, "; ") + "\n")
