@@ -14,6 +14,8 @@
 #   REQUIRE_DARWIN_CODESIGN         fail darwin release builds when signing
 #                                   material is absent
 #   DIST_DIR                        output directory (default dist)
+#   GO_MK_CGO_OPTIONAL              import paths the cgo-stub check allows to
+#                                   build with cgo disabled
 #
 # Credentials are read by quill from QUILL_SIGN_P12, QUILL_SIGN_PASSWORD,
 # QUILL_NOTARY_KEY, QUILL_NOTARY_KEY_ID, QUILL_NOTARY_ISSUER. Signing is skipped
@@ -35,6 +37,7 @@ export RELEASE_BINS
 export RELEASE_PLATFORMS
 export RELEASE_ENTITLEMENTS
 export REQUIRE_DARWIN_CODESIGN
+export GO_MK_CGO_OPTIONAL
 
 release: | go-mk-bin
 	@"$(__GO_MK_ENGINE)" release
