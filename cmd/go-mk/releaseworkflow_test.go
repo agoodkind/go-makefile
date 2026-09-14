@@ -103,14 +103,81 @@ func TestBuildWorkflowCcacheKeysTrackSubmodulePins(t *testing.T) {
 	}
 }
 
+// TestCIWorkflowCompilesWithCallerCgo proves the CI compile matrix builds with
+// the caller's cgo input, and that scaffold's record of that input's default
+// matches the workflow. The compile stage runs the cgo-stub check only when cgo
+// is off, so a caller must be able to compile with its release's setting.
+// Scaffold writes an explicit cgo only when a caller's inherited default differs
+// from its release, so a default that drifted from ciCgoInputDefault would leave
+// callers compiling with a cgo setting their release does not use.
+func TestCIWorkflowCompilesWithCallerCgo(t *testing.T) {
+	ciWorkflow := readReusableWorkflow(t, "_ci.yml")
+	releaseWorkflow := readReusableWorkflow(t, "_release.yml")
+
+	if ciDefault := workflowInputDefault(t, ciWorkflow, "cgo"); ciDefault != ciCgoInputDefault {
+		t.Fatalf("_ci.yml cgo default = %q, scaffold ciCgoInputDefault = %q, want equal", ciDefault, ciCgoInputDefault)
+	}
+
+	requireWorkflowContains(t, workflowJob(t, ciWorkflow, "compile"), "      cgo: ${{ inputs.cgo }}\n")
+	requireWorkflowContains(t, workflowJob(t, releaseWorkflow, "compile"), "      cgo: ${{ inputs.cgo }}\n")
+}
+
 func readBuildWorkflow(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join("..", "..", ".github", "workflows", "_build.yml")
+	return readReusableWorkflow(t, "_build.yml")
+}
+
+func readReusableWorkflow(t *testing.T, name string) string {
+	t.Helper()
+	path := filepath.Join("..", "..", ".github", "workflows", name)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(data)
+}
+
+// workflowInputDefault returns the default of one workflow_call input, read from
+// that input's own block so a same-named key under jobs never matches.
+func workflowInputDefault(t *testing.T, workflow string, name string) string {
+	t.Helper()
+	inputsStart := strings.Index(workflow, "\n    inputs:\n")
+	if inputsStart < 0 {
+		t.Fatal("workflow declares no workflow_call inputs")
+	}
+	marker := "\n      " + name + ":\n"
+	start := strings.Index(workflow[inputsStart:], marker)
+	if start < 0 {
+		t.Fatalf("workflow missing input %q", name)
+	}
+	for _, line := range strings.Split(workflow[inputsStart+start+len(marker):], "\n") {
+		if strings.TrimSpace(line) != "" && leadingSpaceCount(line) <= 6 {
+			break
+		}
+		if value, found := strings.CutPrefix(strings.TrimSpace(line), "default:"); found {
+			return strings.TrimSpace(value)
+		}
+	}
+	t.Fatalf("workflow input %q has no default", name)
+	return ""
+}
+
+// workflowJob returns the body of one top-level job, ending at the next job key.
+func workflowJob(t *testing.T, workflow string, name string) string {
+	t.Helper()
+	marker := "\n  " + name + ":\n"
+	start := strings.Index(workflow, marker)
+	if start < 0 {
+		t.Fatalf("workflow missing job %q", name)
+	}
+	var body strings.Builder
+	for _, line := range strings.Split(workflow[start+len(marker):], "\n") {
+		if strings.TrimSpace(line) != "" && leadingSpaceCount(line) <= 2 {
+			break
+		}
+		body.WriteString(line + "\n")
+	}
+	return body.String()
 }
 
 func buildWorkflowStep(t *testing.T, workflow string, name string) string {

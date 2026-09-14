@@ -37,6 +37,8 @@ const (
 	releaseWorkflowPath        = ".github/workflows/release.yml"
 	releaseReusableWorkflowRef = "agoodkind/go-makefile/.github/workflows/_release.yml"
 	ciReusableWorkflowRef      = "agoodkind/go-makefile/.github/workflows/_ci.yml"
+	cgoInputKey                = "cgo"
+	workingDirectoryInputKey   = "working_directory"
 	generatedMakefileFirstLine = "# `make help` is the canonical source of truth for every target this repo"
 	consumerBootstrapMkHeader  = "# DO NOT MODIFY.\n" +
 		"#\n" +
@@ -136,10 +138,12 @@ func runScaffold(options scaffoldOptions) error {
 	if err := reconcileBootstrapMk(options.stdout); err != nil {
 		return err
 	}
-	if err := reconcileCIWorkflow(options.stdout); err != nil {
+	// The release caller is reconciled first because the CI caller copies its
+	// cgo value, so a new repo's first run already agrees with its release.
+	if err := reconcileReleaseWorkflow(releaseBinary, options.stdout); err != nil {
 		return err
 	}
-	if err := reconcileReleaseWorkflow(releaseBinary, options.stdout); err != nil {
+	if err := reconcileCIWorkflow(options.stdout); err != nil {
 		return err
 	}
 	warnIfLocalGolangCI(options.stderr)
@@ -615,19 +619,27 @@ func reconcileBootstrapMk(stdout io.Writer) error {
 // job's permissions block in place (adding id-token and attestations write for
 // the reusable release-build path) and adds secrets: inherit so the signing
 // secrets reach that build, while preserving the uses line, with inputs,
-// comments, and formatting. A ci.yml that does not reference the reusable
-// workflow is left untouched, matching the custom-workflow rule for release.yml.
+// comments, and formatting. In both cases each caller job takes the cgo value of
+// the release caller job that shares its working_directory, so CI compiles with
+// the cgo setting the release uses. A ci.yml that does not reference the
+// reusable workflow is left untouched, matching the custom-workflow rule for
+// release.yml.
 func reconcileCIWorkflow(stdout io.Writer) error {
 	slog.Info("scaffold reconcile ci workflow")
+	releaseCgo, releaseErr := releaseCgoByWorkingDirectory()
+	if releaseErr != nil {
+		return releaseErr
+	}
 	if !fileExists(ciWorkflowPath) {
 		contents, err := scaffoldAssetFS.ReadFile(ciWorkflowAssetPath)
 		if err != nil {
 			return err
 		}
+		rendered, _ := syncCallerCgo(string(contents), releaseCgo)
 		if err := os.MkdirAll(filepath.Dir(ciWorkflowPath), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(ciWorkflowPath, contents, 0o644); err != nil {
+		if err := os.WriteFile(ciWorkflowPath, []byte(rendered), 0o644); err != nil {
 			return err
 		}
 		fmt.Fprintln(stdout, "created .github/workflows/ci.yml")
@@ -643,7 +655,8 @@ func reconcileCIWorkflow(stdout io.Writer) error {
 	}
 	repaired, permsChanged := repairCallerPermissions(string(existing), ciReusableWorkflowRef, ciCallerPermissions)
 	repaired, secretsChanged := ensureSecretsInherit(repaired, ciReusableWorkflowRef)
-	if !permsChanged && !secretsChanged {
+	repaired, cgoChanged := syncCallerCgo(repaired, releaseCgo)
+	if !permsChanged && !secretsChanged && !cgoChanged {
 		fmt.Fprintln(stdout, "skipping .github/workflows/ci.yml (already current)")
 		return nil
 	}
@@ -751,13 +764,155 @@ func repairReleaseBinaryInput(content string, releaseBinary string) (string, boo
 	changed := false
 	for cursor := len(indices) - 1; cursor >= 0; cursor-- {
 		var did bool
-		lines, did = repairReleaseBinaryInputAt(lines, indices[cursor], releaseBinary)
+		lines, did = upsertJobWithEntryAt(lines, indices[cursor], "binary", releaseBinary)
 		changed = changed || did
 	}
 	return strings.Join(lines, lineEnding), changed
 }
 
-func repairReleaseBinaryInputAt(lines []string, usesIndex int, releaseBinary string) ([]string, bool) {
+// releaseCgoByWorkingDirectory reads the release caller and maps each reusable
+// release job's working_directory to the cgo value it passes. A job that omits
+// cgo maps to false, the reusable release workflow's default. A directory is
+// left out when a job's cgo is not a literal true or false, when its with block
+// cannot be read line by line, or when two jobs for it disagree, since scaffold
+// cannot tell which value CI should carry. A missing release.yml yields an empty
+// map.
+func releaseCgoByWorkingDirectory() (map[string]string, error) {
+	releaseCgo := map[string]string{}
+	if !fileExists(releaseWorkflowPath) {
+		return releaseCgo, nil
+	}
+	contents, err := os.ReadFile(releaseWorkflowPath)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.ReplaceAll(string(contents), "\r\n", "\n"), "\n")
+	unresolved := map[string]bool{}
+	for _, usesIndex := range allUsesLineIndices(lines, releaseReusableWorkflowRef) {
+		entries, ok := jobWithEntries(lines, usesIndex)
+		if !ok {
+			continue
+		}
+		workingDirectory := path.Clean(entries[workingDirectoryInputKey])
+		cgoValue, present := entries[cgoInputKey]
+		if !present {
+			cgoValue = "false"
+		}
+		if cgoValue != "true" && cgoValue != "false" {
+			unresolved[workingDirectory] = true
+			continue
+		}
+		if recorded, seen := releaseCgo[workingDirectory]; seen && recorded != cgoValue {
+			unresolved[workingDirectory] = true
+		}
+		releaseCgo[workingDirectory] = cgoValue
+	}
+	for workingDirectory := range unresolved {
+		delete(releaseCgo, workingDirectory)
+	}
+	return releaseCgo, nil
+}
+
+// ciCgoInputDefault is the default of the reusable CI workflow's cgo input. A
+// caller job that omits cgo compiles with this value.
+const ciCgoInputDefault = "true"
+
+// syncCallerCgo sets the cgo input of every reusable CI caller job to the value
+// releaseCgo records for the job's working_directory, so CI compiles with the
+// release's cgo setting. A job with no matching release job is left alone. A
+// job that omits cgo inherits ciCgoInputDefault, so it is only rewritten when
+// the release passes the other value. The second return value reports whether
+// any line changed.
+func syncCallerCgo(content string, releaseCgo map[string]string) (string, bool) {
+	lineEnding := "\n"
+	if strings.Contains(content, "\r\n") {
+		lineEnding = "\r\n"
+	}
+	lines := strings.Split(content, lineEnding)
+	indices := allUsesLineIndices(lines, ciReusableWorkflowRef)
+	changed := false
+	for cursor := len(indices) - 1; cursor >= 0; cursor-- {
+		usesIndex := indices[cursor]
+		entries, ok := jobWithEntries(lines, usesIndex)
+		if !ok {
+			continue
+		}
+		releaseValue, matched := releaseCgo[path.Clean(entries[workingDirectoryInputKey])]
+		if !matched {
+			continue
+		}
+		effectiveValue, present := entries[cgoInputKey]
+		if !present {
+			effectiveValue = ciCgoInputDefault
+		}
+		if effectiveValue == releaseValue {
+			continue
+		}
+		var did bool
+		lines, did = upsertJobWithEntryAt(lines, usesIndex, cgoInputKey, releaseValue)
+		changed = changed || did
+	}
+	return strings.Join(lines, lineEnding), changed
+}
+
+// jobWithEntries returns the scalar entries of the with block of the job whose
+// uses line sits at usesIndex, with inline comments and surrounding quotes
+// removed. A job with no with key returns an empty map. The second return value
+// is false when the job header cannot be found or the with key is not the block
+// form, since neither shape can be read line by line.
+func jobWithEntries(lines []string, usesIndex int) (map[string]string, bool) {
+	usesIndent := leadingSpaceCount(lines[usesIndex])
+	jobHeaderIndex := jobHeaderIndexAbove(lines, usesIndex, usesIndent)
+	if jobHeaderIndex < 0 {
+		return nil, false
+	}
+	jobEnd := jobBodyEndIndex(lines, usesIndex, leadingSpaceCount(lines[jobHeaderIndex]))
+	entries := map[string]string{}
+	withIndex := jobChildKeyLineIndex(lines, jobHeaderIndex+1, jobEnd, usesIndent, "with")
+	if withIndex < 0 {
+		return entries, true
+	}
+	if !isBlockFormKey(lines[withIndex]) {
+		return nil, false
+	}
+	childIndent := -1
+	for index := withIndex + 1; index < jobEnd; index++ {
+		if isBlankOrCommentLine(lines[index]) {
+			continue
+		}
+		indent := leadingSpaceCount(lines[index])
+		if indent <= usesIndent {
+			break
+		}
+		if childIndent < 0 {
+			childIndent = indent
+		}
+		if indent != childIndent {
+			continue
+		}
+		key, value, found := strings.Cut(strings.TrimSpace(lines[index]), ":")
+		if !found {
+			continue
+		}
+		entries[strings.TrimSpace(key)] = workflowScalarValue(value)
+	}
+	return entries, true
+}
+
+// workflowScalarValue strips an inline comment and one layer of quotes from a
+// workflow scalar, so `"true"`, `true`, and `true # note` all read as true.
+func workflowScalarValue(value string) string {
+	value = strings.TrimSpace(value)
+	if commentIndex := strings.Index(value, " #"); commentIndex >= 0 {
+		value = strings.TrimSpace(value[:commentIndex])
+	}
+	return strings.Trim(value, `"'`)
+}
+
+// upsertJobWithEntryAt sets key to value in the with block of the job whose uses
+// line sits at usesIndex, creating the with block when the job has none. A with
+// key in the scalar or inline-map form is left untouched.
+func upsertJobWithEntryAt(lines []string, usesIndex int, key string, value string) ([]string, bool) {
 	usesIndent := leadingSpaceCount(lines[usesIndex])
 	jobHeaderIndex := jobHeaderIndexAbove(lines, usesIndex, usesIndent)
 	if jobHeaderIndex < 0 {
@@ -770,7 +925,7 @@ func repairReleaseBinaryInputAt(lines []string, usesIndex int, releaseBinary str
 		if !isBlockFormKey(lines[withIndex]) {
 			return lines, false
 		}
-		return insertOrUpdateBlockEntryLines(lines, withIndex, jobEnd, usesIndent, "binary", releaseBinary)
+		return insertOrUpdateBlockEntryLines(lines, withIndex, jobEnd, usesIndent, key, value)
 	}
 	insertAt := usesIndex + 1
 	permissionsIndex := jobChildKeyLineIndex(lines, jobHeaderIndex+1, jobEnd, usesIndent, "permissions")
@@ -781,7 +936,7 @@ func repairReleaseBinaryInputAt(lines []string, usesIndex int, releaseBinary str
 	childIndent := usesIndent + indentStep
 	block := []string{
 		strings.Repeat(" ", usesIndent) + "with:",
-		strings.Repeat(" ", childIndent) + "binary: " + releaseBinary,
+		strings.Repeat(" ", childIndent) + key + ": " + value,
 	}
 	updated := make([]string, 0, len(lines)+len(block))
 	updated = append(updated, lines[:insertAt]...)
