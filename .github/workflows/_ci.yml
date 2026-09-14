@@ -109,12 +109,12 @@ on:
       cgo:
         description: >-
           Build the compile matrix with CGO_ENABLED=1, passed to the shared build
-          component. Defaults to false, the release workflow's default, so the
-          compile stage runs the same cgo-stub check a release runs. Set this to
-          match the consumer's release.yml cgo value.
+          component. Set this to match the consumer's release.yml cgo value so the
+          compile stage runs the same cgo-stub check a release runs. Defaults to
+          true, the compile matrix's cgo setting before this input existed.
         required: false
         type: boolean
-        default: false
+        default: true
     outputs:
       changed:
         description: >-
@@ -272,8 +272,8 @@ jobs:
     # build component. Fork pull requests are skipped because fork tokens carry
     # no secrets or id-token. The nesting depth is consumer ci.yml, then _ci.yml,
     # then _build.yml, which is three levels inside GitHub's cap. It compiles
-    # with the caller's cgo input, which defaults to the release workflow's
-    # false, so a binary that fails the release's cgo-stub check fails here first.
+    # with the caller's cgo input, so a caller that passes its release's cgo
+    # value sees a binary that fails the release's cgo-stub check fail here first.
     needs: prepare
     if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
     uses: agoodkind/go-makefile/.github/workflows/_build.yml@main

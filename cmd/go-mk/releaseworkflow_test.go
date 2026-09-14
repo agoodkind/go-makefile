@@ -103,18 +103,19 @@ func TestBuildWorkflowCcacheKeysTrackSubmodulePins(t *testing.T) {
 	}
 }
 
-// TestCIWorkflowCompilesWithReleaseCgo proves the CI compile matrix builds with
-// the cgo setting a release uses. The compile stage runs the cgo-stub check only
-// when cgo is off, so a CI compile that forces cgo on while the release leaves
-// it off never runs that check and lets a release-only failure reach merge.
-func TestCIWorkflowCompilesWithReleaseCgo(t *testing.T) {
+// TestCIWorkflowCompilesWithCallerCgo proves the CI compile matrix builds with
+// the caller's cgo input, and that scaffold's record of that input's default
+// matches the workflow. The compile stage runs the cgo-stub check only when cgo
+// is off, so a caller must be able to compile with its release's setting.
+// Scaffold writes an explicit cgo only when a caller's inherited default differs
+// from its release, so a default that drifted from ciCgoInputDefault would leave
+// callers compiling with a cgo setting their release does not use.
+func TestCIWorkflowCompilesWithCallerCgo(t *testing.T) {
 	ciWorkflow := readReusableWorkflow(t, "_ci.yml")
 	releaseWorkflow := readReusableWorkflow(t, "_release.yml")
 
-	ciDefault := workflowInputDefault(t, ciWorkflow, "cgo")
-	releaseDefault := workflowInputDefault(t, releaseWorkflow, "cgo")
-	if ciDefault != releaseDefault {
-		t.Fatalf("_ci.yml cgo default = %q, _release.yml cgo default = %q, want equal", ciDefault, releaseDefault)
+	if ciDefault := workflowInputDefault(t, ciWorkflow, "cgo"); ciDefault != ciCgoInputDefault {
+		t.Fatalf("_ci.yml cgo default = %q, scaffold ciCgoInputDefault = %q, want equal", ciDefault, ciCgoInputDefault)
 	}
 
 	requireWorkflowContains(t, workflowJob(t, ciWorkflow, "compile"), "      cgo: ${{ inputs.cgo }}\n")

@@ -391,6 +391,9 @@ func TestScaffoldScenarios(t *testing.T) {
 		assertFileExists(t, ciWorkflow)
 		assertFileContains(t, ciWorkflow, "branches: ['**']")
 		assertFileContains(t, ciWorkflow, "agoodkind/go-makefile/.github/workflows/_ci.yml@main")
+		// The scaffolded release builds without cgo, so the first run already
+		// gives the CI caller the same value instead of the CI default.
+		assertFileContains(t, ciWorkflow, "    with:\n      cgo: false\n")
 		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
 		assertFileExists(t, releaseWorkflow)
 		assertFileContains(t, releaseWorkflow, "agoodkind/go-makefile/.github/workflows/_release.yml@main")
@@ -1216,7 +1219,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 		repoDir := t.TempDir()
 		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
 		mustMkdirAll(t, filepath.Dir(ciWorkflow))
-		writeScaffoldTestFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"), releaseCallerWithCgo(".", "true"))
+		writeScaffoldTestFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"), releaseCallerWithCgo(".", "false"))
 		current := "name: CI\n\n" +
 			"jobs:\n" +
 			"  go:\n" +
@@ -1236,9 +1239,9 @@ func TestReconcileCIWorkflow(t *testing.T) {
 			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
 		}
 
-		// A release built with cgo would otherwise be compiled with cgo off in CI,
-		// so the caller gains the release's value.
-		expected := current + "      cgo: true\n"
+		// A release built without cgo would otherwise be compiled with the CI
+		// workflow's cgo-on default, so the caller gains the release's value.
+		expected := current + "      cgo: false\n"
 		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
 			t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
 		}
@@ -1250,18 +1253,42 @@ func TestReconcileCIWorkflow(t *testing.T) {
 		assertFileText(t, ciWorkflow, expected)
 	})
 
-	t.Run("scaffolds the ci caller with release cgo when absent", func(t *testing.T) {
+	t.Run("leaves a caller that inherits the release cgo", func(t *testing.T) {
 		repoDir := t.TempDir()
 		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
 		mustMkdirAll(t, filepath.Dir(ciWorkflow))
 		writeScaffoldTestFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"), releaseCallerWithCgo(".", "true"))
+		current := "name: CI\n\n" +
+			"jobs:\n" +
+			"  go:\n" +
+			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+			"    permissions:\n" +
+			"      contents: read\n" +
+			"      id-token: write\n" +
+			"      attestations: write\n" +
+			"    secrets: inherit\n"
+		writeScaffoldTestFile(t, ciWorkflow, current)
 		t.Chdir(repoDir)
 
 		var stdout bytes.Buffer
 		if err := reconcileCIWorkflow(&stdout); err != nil {
 			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
 		}
-		assertFileContains(t, ciWorkflow, "      attestations: write\n    with:\n      cgo: true\n    secrets: inherit\n")
+		assertFileText(t, ciWorkflow, current)
+	})
+
+	t.Run("scaffolds the ci caller with release cgo when absent", func(t *testing.T) {
+		repoDir := t.TempDir()
+		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+		mustMkdirAll(t, filepath.Dir(ciWorkflow))
+		writeScaffoldTestFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"), releaseCallerWithCgo(".", "false"))
+		t.Chdir(repoDir)
+
+		var stdout bytes.Buffer
+		if err := reconcileCIWorkflow(&stdout); err != nil {
+			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+		}
+		assertFileContains(t, ciWorkflow, "      attestations: write\n    with:\n      cgo: false\n    secrets: inherit\n")
 
 		before := mustReadFile(t, ciWorkflow)
 		var secondStdout bytes.Buffer
@@ -1275,7 +1302,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 		repoDir := t.TempDir()
 		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
 		mustMkdirAll(t, filepath.Dir(ciWorkflow))
-		writeScaffoldTestFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"), releaseCallerWithCgo("mwan/go", "true"))
+		writeScaffoldTestFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"), releaseCallerWithCgo("mwan/go", "false"))
 		callerJob := func(name string, workingDirectory string) string {
 			return "  " + name + ":\n" +
 				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
@@ -1298,7 +1325,7 @@ func TestReconcileCIWorkflow(t *testing.T) {
 
 		// Only the job that builds the released module takes the release's cgo;
 		// the scripts module has no release job and keeps the CI default.
-		expected := "name: CI\n\njobs:\n" + callerJob("scripts", "scripts") + "\n" + callerJob("mwan-go", "mwan/go") + "      cgo: true\n"
+		expected := "name: CI\n\njobs:\n" + callerJob("scripts", "scripts") + "\n" + callerJob("mwan-go", "mwan/go") + "      cgo: false\n"
 		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
 			t.Fatalf("multi-job ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
 		}

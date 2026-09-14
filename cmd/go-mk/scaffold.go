@@ -138,10 +138,12 @@ func runScaffold(options scaffoldOptions) error {
 	if err := reconcileBootstrapMk(options.stdout); err != nil {
 		return err
 	}
-	if err := reconcileCIWorkflow(options.stdout); err != nil {
+	// The release caller is reconciled first because the CI caller copies its
+	// cgo value, so a new repo's first run already agrees with its release.
+	if err := reconcileReleaseWorkflow(releaseBinary, options.stdout); err != nil {
 		return err
 	}
-	if err := reconcileReleaseWorkflow(releaseBinary, options.stdout); err != nil {
+	if err := reconcileCIWorkflow(options.stdout); err != nil {
 		return err
 	}
 	warnIfLocalGolangCI(options.stderr)
@@ -811,12 +813,16 @@ func releaseCgoByWorkingDirectory() (map[string]string, error) {
 	return releaseCgo, nil
 }
 
+// ciCgoInputDefault is the default of the reusable CI workflow's cgo input. A
+// caller job that omits cgo compiles with this value.
+const ciCgoInputDefault = "true"
+
 // syncCallerCgo sets the cgo input of every reusable CI caller job to the value
 // releaseCgo records for the job's working_directory, so CI compiles with the
 // release's cgo setting. A job with no matching release job is left alone. A
-// job that omits cgo already inherits the reusable CI workflow's false default,
-// so it is only rewritten when the release passes true. The second return value
-// reports whether any line changed.
+// job that omits cgo inherits ciCgoInputDefault, so it is only rewritten when
+// the release passes the other value. The second return value reports whether
+// any line changed.
 func syncCallerCgo(content string, releaseCgo map[string]string) (string, bool) {
 	lineEnding := "\n"
 	if strings.Contains(content, "\r\n") {
@@ -835,8 +841,11 @@ func syncCallerCgo(content string, releaseCgo map[string]string) (string, bool) 
 		if !matched {
 			continue
 		}
-		currentValue, present := entries[cgoInputKey]
-		if currentValue == releaseValue || (!present && releaseValue == "false") {
+		effectiveValue, present := entries[cgoInputKey]
+		if !present {
+			effectiveValue = ciCgoInputDefault
+		}
+		if effectiveValue == releaseValue {
 			continue
 		}
 		var did bool
