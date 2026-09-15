@@ -12,7 +12,7 @@ The caller sets `secrets: inherit` so the reusable workflow's release dry run re
 
 ## Cgo setting
 
-The caller passes the same `cgo` value as the consumer's release caller, because the compile matrix builds with that setting. A binary that fails the release's cgo-stub check with cgo off then fails CI before merge instead of failing the release after it. The reusable CI workflow defaults `cgo` to true while the reusable release workflow defaults it to false, so a consumer whose release builds without cgo passes `cgo: false` to CI. `go-mk scaffold` writes the release caller's value into the CI caller job that shares its `working_directory` whenever the two differ.
+The caller passes the same `cgo` value as the consumer's release caller, because the compile matrix builds with that setting. A binary that fails the release's cgo-stub check with cgo off then fails CI before merge instead of failing the release after it. Both reusable workflows default `cgo` to false, so a consumer that sets it in neither place already matches, and a consumer whose release builds with cgo passes `cgo: true` to CI. `go-mk scaffold` writes the release caller's value into the CI caller job that shares its `working_directory` whenever the two differ.
 
 ## Scaffold owns the caller
 

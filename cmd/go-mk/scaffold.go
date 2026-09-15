@@ -815,7 +815,7 @@ func releaseCgoByWorkingDirectory() (map[string]string, error) {
 
 // ciCgoInputDefault is the default of the reusable CI workflow's cgo input. A
 // caller job that omits cgo compiles with this value.
-const ciCgoInputDefault = "true"
+const ciCgoInputDefault = "false"
 
 // syncCallerCgo sets the cgo input of every reusable CI caller job to the value
 // releaseCgo records for the job's working_directory, so CI compiles with the

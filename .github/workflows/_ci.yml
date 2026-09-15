@@ -111,10 +111,10 @@ on:
           Build the compile matrix with CGO_ENABLED=1, passed to the shared build
           component. Set this to match the consumer's release.yml cgo value so the
           compile stage runs the same cgo-stub check a release runs. Defaults to
-          true, the compile matrix's cgo setting before this input existed.
+          false, the release workflow's default.
         required: false
         type: boolean
-        default: true
+        default: false
     outputs:
       changed:
         description: >-
