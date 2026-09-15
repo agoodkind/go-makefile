@@ -847,6 +847,108 @@ func TestGoMkCgoDepsHookProvisionsConsumerTarget(t *testing.T) {
 	}
 }
 
+// TestPublishStageCreatesTagThroughGhReleaseCreate proves the publish stage
+// leaves tag creation to `gh release create --target` and never pushes a tag
+// with git, for both a prerelease and a stable release.
+func TestPublishStageCreatesTagThroughGhReleaseCreate(t *testing.T) {
+	const targetSHA = "0123456789abcdef0123456789abcdef01234567"
+	testCases := []struct {
+		name        string
+		tag         string
+		prerelease  bool
+		channelFlag string
+	}{
+		{name: "prerelease", tag: "202609151509-7b-0123456", prerelease: true, channelFlag: "--prerelease"},
+		{name: "stable", tag: "v1.2.3", prerelease: false, channelFlag: "--latest"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			ghLog, gitLog := installFakeReleaseTools(t)
+			t.Chdir(t.TempDir())
+			distDir := "dist"
+			archive := filepath.Join(distDir, "agent-gate_linux_amd64.tar.gz")
+			writeFile(t, archive, "archive")
+
+			err := publishStage(releaseConfig{
+				binary:     "agent-gate",
+				distDir:    distDir,
+				tag:        testCase.tag,
+				targetSHA:  targetSHA,
+				prerelease: testCase.prerelease,
+			})
+			if err != nil {
+				t.Fatalf("publishStage() error = %v, want nil", err)
+			}
+			wantGhArgs := []string{
+				"release", "create", testCase.tag,
+				"--target", targetSHA,
+				"--title", "agent-gate " + testCase.tag,
+				"--generate-notes",
+				testCase.channelFlag,
+				archive,
+				filepath.Join(distDir, "checksums.txt"),
+			}
+			if gotGhArgs := readFakeToolLog(t, ghLog); !slices.Equal(gotGhArgs, wantGhArgs) {
+				t.Fatalf("gh args = %q, want %q", gotGhArgs, wantGhArgs)
+			}
+			if gitArgs := readFakeToolLog(t, gitLog); slices.Contains(gitArgs, "push") {
+				t.Fatalf("publishStage ran git with push, args = %q", gitArgs)
+			}
+		})
+	}
+}
+
+// installFakeReleaseTools puts recording gh and git executables first on PATH
+// and returns their argument logs. The fake git refuses push, so any tag push
+// fails the release instead of reaching a remote.
+func installFakeReleaseTools(t *testing.T) (string, string) {
+	t.Helper()
+	binDir := t.TempDir()
+	logDir := t.TempDir()
+	ghLog := filepath.Join(logDir, "gh.log")
+	gitLog := filepath.Join(logDir, "git.log")
+	ghScript := `#!/usr/bin/env bash
+set -euo pipefail
+
+printf '%s\n' "$@" >> "${RELEASE_TEST_GH_LOG}"
+`
+	gitScript := `#!/usr/bin/env bash
+set -euo pipefail
+
+printf '%s\n' "$@" >> "${RELEASE_TEST_GIT_LOG}"
+for arg in "$@"; do
+    if [[ "${arg}" == "push" ]]; then
+        printf '%s\n' "fake git refuses push" >&2
+        exit 1
+    fi
+done
+`
+	if err := os.WriteFile(filepath.Join(binDir, "gh"), []byte(ghScript), 0o755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(gitScript), 0o755); err != nil {
+		t.Fatalf("write fake git: %v", err)
+	}
+	t.Setenv("RELEASE_TEST_GH_LOG", ghLog)
+	t.Setenv("RELEASE_TEST_GIT_LOG", gitLog)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return ghLog, gitLog
+}
+
+// readFakeToolLog returns the arguments a fake tool recorded, one per line, or
+// nil when the tool never ran.
+func readFakeToolLog(t *testing.T, logPath string) []string {
+	t.Helper()
+	content, err := os.ReadFile(logPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		t.Fatalf("read %s: %v", logPath, err)
+	}
+	return strings.Split(strings.TrimSuffix(string(content), "\n"), "\n")
+}
+
 // pkgConfigEntry returns the PKG_CONFIG_PATH entry in env, or "" when absent.
 func pkgConfigEntry(env []string) string {
 	for _, entry := range env {

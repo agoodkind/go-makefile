@@ -1,8 +1,8 @@
 // release orchestration for go-mk. It cross-compiles the binary for each
 // configured platform with CGO disabled, signs and notarizes the darwin
 // binaries with anchore/quill (invoked as a process), writes tar.gz archives
-// and a sha256 checksums file with the standard library, pushes a release tag,
-// and publishes a GitHub release with gh. It replaces the previous GoReleaser
+// and a sha256 checksums file with the standard library, and publishes a GitHub
+// release with gh, which creates the release tag. It replaces the previous GoReleaser
 // plus shell pipeline so the whole release flow lives in one Go command with no
 // shell script. It owns process execution and file I/O; process boundaries emit
 // a structured slog event and return the raw error for the caller to surface.
@@ -229,13 +229,10 @@ func buildStage(cfg releaseConfig) error {
 	return packageStage(cfg)
 }
 
-// publishStage pushes the prerelease tag, writes checksums over the archives the
-// build jobs uploaded into the dist directory, and publishes the GitHub release.
-// It runs once after the build matrix completes.
+// publishStage writes checksums over the archives the build jobs uploaded into
+// the dist directory and publishes the GitHub release, which creates the tag. It
+// runs once after the build matrix completes.
 func publishStage(cfg releaseConfig) error {
-	if err := pushReleaseTag(cfg); err != nil {
-		return err
-	}
 	archives, err := distArchives(cfg.distDir)
 	if err != nil {
 		return err
@@ -465,9 +462,6 @@ func executeRelease(cfg releaseConfig) error {
 	if err := checkReleaseCgoStub(cfg); err != nil {
 		return err
 	}
-	if err := pushReleaseTag(cfg); err != nil {
-		return err
-	}
 	for _, platform := range cfg.platforms {
 		if err := buildPlatform(cfg, platform); err != nil {
 			return err
@@ -485,25 +479,6 @@ func executeRelease(cfg releaseConfig) error {
 		return err
 	}
 	return publishRelease(cfg, append(archives, checksums))
-}
-
-// pushReleaseTag creates the computed prerelease tag at the target commit and
-// pushes it to origin under the github-actions bot identity. A stable release
-// reuses the v-tag that already triggered the run, so there is nothing to push.
-func pushReleaseTag(cfg releaseConfig) error {
-	if !cfg.prerelease {
-		return nil
-	}
-	if err := runProcess("git", []string{"config", "user.name", "github-actions[bot]"}, nil); err != nil {
-		return err
-	}
-	if err := runProcess("git", []string{"config", "user.email", "github-actions[bot]@users.noreply.github.com"}, nil); err != nil {
-		return err
-	}
-	if err := runProcess("git", []string{"tag", cfg.tag, cfg.targetSHA}, nil); err != nil {
-		return err
-	}
-	return runProcess("git", []string{"push", "origin", cfg.tag}, nil)
 }
 
 // buildPlatform compiles every configured release binary for one os/arch
@@ -926,6 +901,10 @@ func sha256File(path string) (string, error) {
 }
 
 // publishRelease creates the GitHub release with the given assets using gh.
+// When the tag does not exist yet, gh creates it through the GitHub API at the
+// --target commit, so a prerelease's computed tag is never pushed with git and
+// the Actions token's git push restrictions do not apply. A stable release
+// reuses the v-tag that already triggered the run.
 func publishRelease(cfg releaseConfig, assets []string) error {
 	args := []string{
 		"release", "create", cfg.tag,

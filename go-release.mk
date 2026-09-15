@@ -1,6 +1,6 @@
 # go-release.mk: opt-in release target. The whole pipeline (cross-compile with
 # CGO disabled, anchore/quill sign + notarize for darwin, tar.gz with sha256
-# checksums, tag push, GitHub release) lives in the go-mk binary `release`
+# checksums, GitHub release and its tag) lives in the go-mk binary `release`
 # command, so there is no shell script. This module wires the target and exports
 # the inputs the command reads.
 #
