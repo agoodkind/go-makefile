@@ -28,6 +28,12 @@ import (
 // complexity numbers down, and silently spread `any` through the new
 // helpers. With no allowlist, every helper that takes or returns `any`
 // must justify itself in code review, which is visible.
+//
+// A signature whose shape a type from another module fixes is not checked:
+// a method implementing an interface declared in another module, and a
+// function used as a value of a named function type declared in another
+// module, such as a gRPC interceptor. The author cannot remove the `any`
+// from such a signature. dictatedSignatures defines both cases.
 var NoAnyOrEmptyInterfaceAnalyzer = &analysis.Analyzer{
 	Name: "no_any_or_empty_interface",
 	Doc:  "rejects any, interface{}, and aliases or named types that expand to them",
@@ -38,11 +44,12 @@ func runNoAnyOrEmptyInterface(pass *analysis.Pass) (any, error) {
 	if isStaticcheckPackage(pass) {
 		return nil, nil
 	}
+	dictated := dictatedSignatures(pass)
 	for _, file := range pass.Files {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
-		walkFileForBannedShapes(pass, file)
+		walkFileForBannedShapes(pass, file, dictated)
 	}
 	return nil, nil
 }
@@ -50,12 +57,17 @@ func runNoAnyOrEmptyInterface(pass *analysis.Pass) (any, error) {
 // walkFileForBannedShapes traverses every node in file and dispatches each
 // kind to its specific check helper. Splitting per-node-kind keeps each
 // branch readable and the cognitive complexity inside the inspector low.
-func walkFileForBannedShapes(pass *analysis.Pass, file *ast.File) {
+// A signature in dictated is skipped along with its parameter and result
+// types, because another module fixes all of them.
+func walkFileForBannedShapes(pass *analysis.Pass, file *ast.File, dictated map[*ast.FuncType]bool) {
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.TypeSpec:
 			checkDeclaredType(pass, file, node)
 		case *ast.FuncType:
+			if dictated[node] {
+				return false
+			}
 			checkFuncTypeSignature(pass, file, node)
 		case *ast.ValueSpec:
 			if node.Type != nil {
@@ -77,7 +89,8 @@ func walkFileForBannedShapes(pass *analysis.Pass, file *ast.File) {
 // checkFuncTypeSignature walks both params and results of a FuncType and
 // reports any banned shape. Catches top-level funcs, methods, interface
 // methods, function-value fields, function literals, and closures.
-// Applied uniformly across every non-test, non-generated file.
+// Applied across every non-test, non-generated file, except to signatures
+// another module dictates.
 func checkFuncTypeSignature(pass *analysis.Pass, file *ast.File, ft *ast.FuncType) {
 	if ft.Params != nil {
 		for _, p := range ft.Params.List {

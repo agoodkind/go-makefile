@@ -34,6 +34,11 @@ import (
 //     or exact Read/Write/ReadAt/WriteAt/WriteTo/ReadFrom/ReadByte/
 //     WriteByte/ReadRune/WriteRune). Such functions are silently
 //     exempted because their callers are responsible for logging.
+//
+// A method of a type that implements [log/slog.Handler] is exempt when the
+// method is one of that interface's methods. A slog call inside a handler
+// re-enters the handler, and the interface fixes the method name, so neither
+// fix path is available.
 var WrappedErrorWithoutSlogAnalyzer = &analysis.Analyzer{
 	Name: "wrapped_error_without_slog",
 	Doc:  "rejects functions that return a wrapped error without an accompanying slog call",
@@ -50,13 +55,39 @@ func runWrappedErrorWithoutSlog(pass *analysis.Pass) (any, error) {
 			if !ok || fn.Body == nil {
 				continue
 			}
-			if isPureCodecOrIOFunc(pass, fn) {
+			if isPureCodecOrIOFunc(pass, fn) || isSlogHandlerMethod(pass, fn) {
 				continue
 			}
 			analyzeFuncForWrappedReturns(pass, file, fn)
 		}
 	}
 	return nil, nil
+}
+
+// isSlogHandlerMethod reports whether fn is a method of the [log/slog.Handler]
+// interface on a receiver type that implements it. The interface is looked up
+// from the package's direct imports; a package that does not import log/slog
+// cannot declare a Handle method with the slog.Record parameter.
+func isSlogHandlerMethod(pass *analysis.Pass, fn *ast.FuncDecl) bool {
+	if fn.Recv == nil || fn.Name == nil || pass.TypesInfo == nil || pass.Pkg == nil {
+		return false
+	}
+	method, ok := pass.TypesInfo.Defs[fn.Name].(*types.Func)
+	if !ok {
+		return false
+	}
+	for _, imported := range pass.Pkg.Imports() {
+		if imported.Path() != "log/slog" {
+			continue
+		}
+		handler, ok := imported.Scope().Lookup("Handler").(*types.TypeName)
+		if !ok {
+			return false
+		}
+		iface, ok := handler.Type().Underlying().(*types.Interface)
+		return ok && receiverImplementsInterfaceMethod(method, iface)
+	}
+	return false
 }
 
 func analyzeFuncForWrappedReturns(pass *analysis.Pass, file *ast.File, fn *ast.FuncDecl) {
