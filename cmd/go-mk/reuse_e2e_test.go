@@ -1,7 +1,9 @@
 package main
 
 import (
+	"debug/buildinfo"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -43,6 +45,7 @@ func newReuseHarness(t *testing.T, reuseFlag string) *reuseHarness {
 	t.Setenv("GO_BUILD_EXTRA_FLAGS", "")
 	t.Setenv("GOWORK", "off")
 	t.Setenv("GOFLAGS", "")
+	t.Setenv("GO_MK_PLATFORMS", "")
 	if runtime.GOOS == "darwin" {
 		// Ad-hoc signing needs no certificate, so the signing path still runs.
 		t.Setenv("CODESIGN_IDENTITY", "-")
@@ -288,4 +291,49 @@ func TestNormalizeLdflagsKeepsEveryOtherStamp(t *testing.T) {
 	if strings.Contains(got, "BuildTime") {
 		t.Fatalf("normalizeLdflags left the build timestamp in %q", got)
 	}
+}
+
+func TestBuildHonorsGO_MK_PLATFORMSLinuxArm64(t *testing.T) {
+	harness := newReuseHarness(t, "0")
+	t.Setenv("GO_MK_PLATFORMS", "linux/arm64")
+
+	harness.build()
+
+	info, err := buildinfo.ReadFile(harness.path("dist/tool"))
+	if err != nil {
+		t.Fatalf("buildinfo.ReadFile: %v", err)
+	}
+	if goos, goarch := buildSetting(info, "GOOS"), buildSetting(info, "GOARCH"); goos != "linux" || goarch != "arm64" {
+		t.Fatalf("built %s/%s, want linux/arm64", goos, goarch)
+	}
+}
+
+func TestBuildSignsHostBinaryWhenMatrixEmpty(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("codesign verify is Darwin-only")
+	}
+	harness := newReuseHarness(t, "0")
+
+	harness.build()
+
+	info, err := buildinfo.ReadFile(harness.path("dist/tool"))
+	if err != nil {
+		t.Fatalf("buildinfo.ReadFile: %v", err)
+	}
+	if goos := buildSetting(info, "GOOS"); goos != "darwin" {
+		t.Fatalf("built GOOS %s, want darwin", goos)
+	}
+	verify := exec.Command("codesign", "--verify", harness.path("dist/tool"))
+	if output, verifyErr := verify.CombinedOutput(); verifyErr != nil {
+		t.Fatalf("codesign --verify: %v\n%s", verifyErr, output)
+	}
+}
+
+func buildSetting(info *buildinfo.BuildInfo, key string) string {
+	for _, setting := range info.Settings {
+		if setting.Key == key {
+			return setting.Value
+		}
+	}
+	return ""
 }
