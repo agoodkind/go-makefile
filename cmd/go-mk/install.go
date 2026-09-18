@@ -64,8 +64,13 @@ func runInstall() int {
 	if code := runBuildGateFunc(); code != 0 {
 		return code
 	}
-	if err := buildAll(cfg); err != nil {
-		return statusFromError(err)
+	if code := runAcrossPlatforms(func() int {
+		if err := buildAll(cfg); err != nil {
+			return statusFromError(err)
+		}
+		return 0
+	}); code != 0 {
+		return code
 	}
 	if err := installAll(cfg); err != nil {
 		return statusFromError(err)
@@ -89,8 +94,13 @@ func runBuild() int {
 	if code := runBuildGateFunc(); code != 0 {
 		return code
 	}
-	if err := buildAll(cfg); err != nil {
-		return statusFromError(err)
+	if code := runAcrossPlatforms(func() int {
+		if err := buildAll(cfg); err != nil {
+			return statusFromError(err)
+		}
+		return 0
+	}); code != 0 {
+		return code
 	}
 	recordReuse("build", cfg)
 	return 0
@@ -212,8 +222,10 @@ func buildAll(cfg installConfig) error {
 }
 
 // buildOne compiles one binary into dist/<name> with the assembled build flags,
-// then signs it on macOS, returning whether it signed. CGO and GOOS/GOARCH are
-// inherited from the environment so the repo's own settings apply.
+// then signs it on macOS, returning whether it signed. An active platform
+// matrix pass forces GOOS/GOARCH (and CGO_ENABLED=0 on a cross target) onto
+// the compile, matching lintEnv. Outside a matrix pass, CGO and GOOS/GOARCH
+// stay inherited from the environment.
 func buildOne(cfg installConfig, bin binSpec) (bool, error) {
 	out := filepath.Join(cfg.distDir, bin.name)
 	args := []string{"build"}
@@ -225,10 +237,41 @@ func buildOne(cfg installConfig, bin binSpec) (bool, error) {
 	}
 	args = append(args, cfg.extraFlags...)
 	args = append(args, "-o", out, bin.mainPkg)
-	if err := runProcess("go", args, nil); err != nil {
+	if err := runProcess("go", args, compilePlatformEnv()); err != nil {
 		return false, err
 	}
 	return signBinary(cfg, out)
+}
+
+// compilePlatformEnv returns GOOS/GOARCH overrides for the active matrix
+// target. Empty means inherit the host environment. A cross target without
+// GO_MK_CC disables cgo, matching lintEnv, so the host C toolchain cannot
+// leak into the compile.
+func compilePlatformEnv() []string {
+	if activePlatform.goos == "" {
+		return nil
+	}
+	env := []string{
+		"GOOS=" + activePlatform.goos,
+		"GOARCH=" + activePlatform.goarch,
+	}
+	crossTarget := activePlatform.goos != runtime.GOOS || activePlatform.goarch != runtime.GOARCH
+	if crossTarget && strings.TrimSpace(os.Getenv("GO_MK_CC")) == "" {
+		env = append(env, "CGO_ENABLED=0")
+	}
+	return env
+}
+
+// compileGOOS is the GOOS the current compile targets. A matrix pass wins,
+// then a caller-set GOOS, then the host.
+func compileGOOS() string {
+	if activePlatform.goos != "" {
+		return activePlatform.goos
+	}
+	if goos := strings.TrimSpace(os.Getenv("GOOS")); goos != "" {
+		return goos
+	}
+	return runtime.GOOS
 }
 
 func installAll(cfg installConfig) error {
@@ -263,10 +306,14 @@ func runInstallHook(label string, command string) error {
 // signBinary signs one binary with codesign on macOS, returning whether it
 // signed so the caller prints one sign line per run rather than one per binary.
 // The verify runs without --verbose so a multi-binary run does not stream a
-// block per binary. It is a no-op on every other platform, so a Linux-only or
-// cross-platform repo builds with no signing step. An empty identity on macOS is
-// an error, matching the former make macro.
+// block per binary. It is a no-op when the compile target is not darwin, and
+// on every non-Darwin host, so a Linux matrix build on a Mac does not feed an
+// ELF to codesign. An empty identity on macOS is an error, matching the former
+// make macro.
 func signBinary(cfg installConfig, bin string) (bool, error) {
+	if compileGOOS() != "darwin" {
+		return false, nil
+	}
 	if runtime.GOOS != "darwin" {
 		return false, nil
 	}
