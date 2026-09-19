@@ -95,13 +95,16 @@ func funcTypeUsedAs(
 }
 
 // externalNamedSignature returns the underlying signature of t when t is a
-// named function type declared in another module, and nil otherwise.
+// non-generic named function type declared in another module, and nil
+// otherwise. An instantiated generic type such as Seq[any] is refused: its
+// Obj is the external origin, but the type arguments are the consumer's
+// choice, so an `any` supplied as a type argument is not dictated.
 func externalNamedSignature(pass *analysis.Pass, t types.Type) *types.Signature {
 	if t == nil {
 		return nil
 	}
 	named, ok := types.Unalias(t).(*types.Named)
-	if !ok || !objectIsExternal(pass, named.Obj()) {
+	if !ok || named.TypeArgs().Len() > 0 || !objectIsExternal(pass, named.Obj()) {
 		return nil
 	}
 	sig, ok := named.Underlying().(*types.Signature)

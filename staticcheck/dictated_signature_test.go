@@ -34,6 +34,18 @@ type Codec interface {
 	Marshal(v any) ([]byte, error)
 	Name() string
 }
+
+type Hook func(ctx context.Context, payload any) error
+
+func Register(hook Hook) {}
+
+type Seq[V any] func(yield func(V) bool)
+
+func Collect[V any](s Seq[V]) []V { return nil }
+
+type Mapper[T any] func(T) T
+
+func Apply[T any](m Mapper[T], v T) T { return m(v) }
 `
 
 // TestNoAnyExemptsLiteralReturnedAsExternalFuncType mirrors a gRPC unary
@@ -185,6 +197,83 @@ func traceInterceptor() rpc.UnaryServerInterceptor {
 			t.Fatalf("expected every diagnostic at the body's any, got %d positions: %v", len(diags), diags)
 		}
 	}
+}
+
+// TestNoAnyExemptsNonGenericExternalFuncType is the control for the generic
+// cases below: a function passed as a non-generic external named type keeps
+// its exemption.
+func TestNoAnyExemptsNonGenericExternalFuncType(t *testing.T) {
+	t.Parallel()
+
+	source := `package consumerpkg
+
+import (
+	"context"
+
+	"example.com/rpc"
+)
+
+func auditHook(ctx context.Context, payload any) error { return nil }
+
+func init() { rpc.Register(auditHook) }
+`
+	diags := runAnalyzerWithRPCStub(t, NoAnyOrEmptyInterfaceAnalyzer, source)
+	if len(diags) != 0 {
+		t.Fatalf("expected no diagnostics for a function passed as rpc.Hook, got %d: %v", len(diags), diags)
+	}
+}
+
+// TestNoAnyFlagsInferredGenericTypeArgument verifies that an `any` the author
+// chose as an inferred type argument of an external generic function type is
+// still flagged. The external type fixes only the shape around V; V = any is
+// the consumer's choice.
+func TestNoAnyFlagsInferredGenericTypeArgument(t *testing.T) {
+	t.Parallel()
+
+	source := `package consumerpkg
+
+import "example.com/rpc"
+
+func allValues(yield func(any) bool) {}
+
+var collected = rpc.Collect(allValues)
+`
+	diags := runAnalyzerWithRPCStub(t, NoAnyOrEmptyInterfaceAnalyzer, source)
+	wantDiagnostic(t, diags, "do not use any")
+}
+
+// TestNoAnyFlagsInferredGenericMapperArgument covers inference from a second
+// argument: Apply(identity, 1) instantiates Mapper[any] from identity itself.
+func TestNoAnyFlagsInferredGenericMapperArgument(t *testing.T) {
+	t.Parallel()
+
+	source := `package consumerpkg
+
+import "example.com/rpc"
+
+func identity(v any) any { return v }
+
+var applied = rpc.Apply(identity, 1)
+`
+	diags := runAnalyzerWithRPCStub(t, NoAnyOrEmptyInterfaceAnalyzer, source)
+	wantDiagnostic(t, diags, "do not use any")
+}
+
+// TestNoAnyFlagsExplicitGenericInstantiation covers a conversion to an
+// explicitly instantiated external generic type.
+func TestNoAnyFlagsExplicitGenericInstantiation(t *testing.T) {
+	t.Parallel()
+
+	source := `package consumerpkg
+
+import "example.com/rpc"
+
+func allValues(yield func(any) bool) {}
+
+var converted = rpc.Seq[any](allValues)
+`
+	diags := runAnalyzerWithRPCStub(t, NoAnyOrEmptyInterfaceAnalyzer, source)
+	wantDiagnostic(t, diags, "do not use any")
 }
 
 // TestWrappedErrorExemptsSlogHandlerMethod mirrors a slog.Handler wrapper whose
