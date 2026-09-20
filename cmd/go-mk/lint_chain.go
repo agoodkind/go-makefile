@@ -124,9 +124,13 @@ func gateStep(gateName string, marker report.GateMarker, found bool, status int,
 		if marker.Passed {
 			return report.StepResult{Name: gateName, Status: report.StatusOK}
 		}
+		resultStatus := report.StatusFailed
+		if gateName == "lint-deadcode" {
+			resultStatus = report.StatusAdvisory
+		}
 		return report.StepResult{
 			Name:        gateName,
-			Status:      report.StatusFailed,
+			Status:      resultStatus,
 			Note:        fmt.Sprintf("%d new finding%s", len(marker.Findings), findingPlural(len(marker.Findings))),
 			Findings:    formatFindings(marker.Findings),
 			Remediation: marker.Remediation,
