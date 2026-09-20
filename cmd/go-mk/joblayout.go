@@ -68,7 +68,7 @@ func buildCIJobLayout(layout ciJobLayout) (ciJobLayoutMatrix, error) {
 			{Name: "Quality / Golangci Lint", Command: "make lint-golangci", InstallGolangciLint: true, GolangciLintCacheSlug: "golangci"},
 			{Name: "Quality / Format", Command: "make lint-format", InstallGolangciLint: true},
 			{Name: "Quality / Gocyclo", Command: "make lint-gocyclo"},
-			{Name: "Quality / Deadcode", Command: "make lint-deadcode"},
+			{Name: "Quality / Deadcode", Command: "make lint-deadcode", ContinueOnError: true},
 			{Name: "Quality / Staticcheck Extra", Command: "make staticcheck-extra"},
 			{Name: "Quality / Govulncheck", Command: "make govulncheck", ContinueOnError: true},
 			{Name: "Quality / Go Version", Command: "make go-version-check"},

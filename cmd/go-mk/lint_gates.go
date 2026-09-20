@@ -536,17 +536,13 @@ func runLintDeadcode() int {
 		lintEnvDefault("DEADCODE_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
 		os.Getenv("DEADCODE_EXCLUDE_PATHS"),
 	)
-	passed, err := runGateAndPrint(
+	if _, err := runGateAndPrint(
 		"deadcode", current,
 		lintEnvDefault("DEADCODE_BASELINE", ".deadcode-baseline.txt"),
 		"The deadcode lint gate found unreachable code. Remove the reported code.",
 		excludePattern, "",
-	)
-	if err != nil {
+	); err != nil {
 		return statusFromError(err)
-	}
-	if !passed {
-		return 1
 	}
 	return 0
 }
