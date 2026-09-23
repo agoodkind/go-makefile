@@ -544,10 +544,11 @@ jobs:
           path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
           key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
       # Restore the cgo dependency cache that the compile job saved for this
-      # platform. The key matches only when the compiler, the toolchain, and the
-      # Makefile match the compile job's. The compile job's copy also contains
-      # release-only outputs. Do not save this cache here. A quality job could
-      # store the key first without those outputs.
+      # platform. On a key match, the quality gates skip the C dependency
+      # build. The key covers the compiler, the toolchain, and the Makefile.
+      # Do not save this cache here. The compile job's copy also contains
+      # release-only outputs. A quality job that saved first would store the
+      # key without them.
       - name: Build go-mk cgo cache manifest
         id: go-mk-cgo-cache
         if: needs.prepare.outputs.run == 'true'
@@ -570,7 +571,8 @@ jobs:
       # build of these tools takes most of a minute per job. The key includes
       # the package list, the Go version, and the ISO week. An @latest package
       # refreshes each week. Only the first matrix job saves the cache.
-      # Parallel saves to one key would conflict.
+      # Concurrent actions/cache/save calls with one key conflict; only one
+      # write succeeds.
       - name: Choose the Go tool cache key
         id: go-tool-cache-key
         if: needs.prepare.outputs.run == 'true' && inputs.go_tool_packages != ''
