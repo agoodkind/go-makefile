@@ -543,13 +543,11 @@ jobs:
         with:
           path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
           key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
-      # The compile job saves the provisioned cgo dependencies under a key built
-      # from the target platform, the C compiler, the toolchain, and the
-      # Makefile. A quality job builds the same key for its own platform on the
-      # same runner image and restores that cache. The cgo-deps hook then finds
-      # its stamps and skips the C build. A quality job never saves this cache.
-      # The compile job's copy also contains release-only outputs, and a quality
-      # save could claim the key first without them.
+      # Restore the cgo dependency cache that the compile job saved for this
+      # platform. The key matches only when the compiler, the toolchain, and the
+      # Makefile match the compile job's. The compile job's copy also contains
+      # release-only outputs. Do not save this cache here. A quality job could
+      # store the key first without those outputs.
       - name: Build go-mk cgo cache manifest
         id: go-mk-cgo-cache
         if: needs.prepare.outputs.run == 'true'
@@ -568,12 +566,11 @@ jobs:
         with:
           path: ${{ steps.go-mk-cgo-cache.outputs.cgo_cache_paths }}
           key: go-mk-cgo-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}
-      # Every quality job installs the same Go tool packages, and building them
-      # from source takes most of a minute per job. The key hashes the package
-      # list, the Go version, and the ISO week. A pinned list reuses one build
-      # until the list changes, and an @latest entry refreshes each week. Only
-      # the first matrix job saves. The other parallel jobs restore or install
-      # without competing for the same key.
+      # Cache the Go tool packages that every quality job installs. A source
+      # build of these tools takes most of a minute per job. The key includes
+      # the package list, the Go version, and the ISO week. An @latest package
+      # refreshes each week. Only the first matrix job saves the cache.
+      # Parallel saves to one key would conflict.
       - name: Choose the Go tool cache key
         id: go-tool-cache-key
         if: needs.prepare.outputs.run == 'true' && inputs.go_tool_packages != ''
