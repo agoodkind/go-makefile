@@ -543,13 +543,71 @@ jobs:
         with:
           path: ${{ steps.go-mk-cache.outputs.generated_cache_paths }}
           key: go-mk-generated-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}
-      - name: Install Go tool packages
+      # Restore the cgo dependency cache that the compile job saved for this
+      # platform. On a key match, the quality gates skip the C dependency
+      # build. The key covers the compiler, the toolchain, and the Makefile.
+      # Do not save this cache here. The compile job's copy also contains
+      # release-only outputs. A quality job that saved first would store the
+      # key without them.
+      - name: Build go-mk cgo cache manifest
+        id: go-mk-cgo-cache
+        if: needs.prepare.outputs.run == 'true'
+        shell: bash
+        env:
+          GO_MK_CGO_TOOLCHAIN_ID: ${{ format('{0}-{1}', runner.os, runner.arch) }}
+        run: |
+          GO_MK_TARGET_GOOS="$(go env GOOS)"
+          GO_MK_TARGET_GOARCH="$(go env GOARCH)"
+          export GO_MK_TARGET_GOOS GO_MK_TARGET_GOARCH
+          make go-mk-cache-manifest
+        working-directory: ${{ inputs.working_directory }}
+      - name: Restore cgo deps
+        if: needs.prepare.outputs.run == 'true' && steps.go-mk-cgo-cache.outputs.cgo_cache_enabled == 'true'
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.go-mk-cgo-cache.outputs.cgo_cache_paths }}
+          key: go-mk-cgo-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}
+      # Cache the Go tool packages that every quality job installs. A source
+      # build of these tools takes most of a minute per job. The key includes
+      # the package list, the Go version, and the ISO week. An @latest package
+      # refreshes each week. Only the first matrix job saves the cache.
+      # Concurrent actions/cache/save calls with one key conflict; only one
+      # write succeeds.
+      - name: Choose the Go tool cache key
+        id: go-tool-cache-key
         if: needs.prepare.outputs.run == 'true' && inputs.go_tool_packages != ''
+        shell: bash
+        env:
+          GO_TOOL_PACKAGES: ${{ inputs.go_tool_packages }}
+        run: |
+          {
+            printf 'bin=%s\n' "$(go env GOPATH)/bin"
+            printf 'go=%s\n' "$(go env GOVERSION)"
+            printf 'packages=%s\n' "$(printf '%s' "${GO_TOOL_PACKAGES}" | sha256sum | cut -d' ' -f1)"
+            printf 'week=%s\n' "$(date -u +%G-%V)"
+          } >> "${GITHUB_OUTPUT}"
+      - name: Restore Go tool packages
+        id: go-tool-cache-restore
+        if: needs.prepare.outputs.run == 'true' && inputs.go_tool_packages != ''
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.go-tool-cache-key.outputs.bin }}
+          key: go-mk-tools-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-tool-cache-key.outputs.go }}-${{ steps.go-tool-cache-key.outputs.packages }}-${{ steps.go-tool-cache-key.outputs.week }}
+      - name: Install Go tool packages
+        if: needs.prepare.outputs.run == 'true' && inputs.go_tool_packages != '' && steps.go-tool-cache-restore.outputs.cache-hit != 'true'
         run: |
           for go_tool_package in ${{ inputs.go_tool_packages }}; do
             go install "${go_tool_package}"
           done
-          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+      - name: Save Go tool packages
+        if: needs.prepare.outputs.run == 'true' && inputs.go_tool_packages != '' && strategy.job-index == 0 && steps.go-tool-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.go-tool-cache-key.outputs.bin }}
+          key: ${{ steps.go-tool-cache-restore.outputs.cache-primary-key }}
+      - name: Add Go tool packages to PATH
+        if: needs.prepare.outputs.run == 'true' && inputs.go_tool_packages != ''
+        run: echo "${{ steps.go-tool-cache-key.outputs.bin }}" >> "${GITHUB_PATH}"
       - name: Run pre-make commands
         if: needs.prepare.outputs.run == 'true' && inputs.pre_make_commands != ''
         run: ${{ inputs.pre_make_commands }}
