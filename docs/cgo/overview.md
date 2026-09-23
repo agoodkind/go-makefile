@@ -26,7 +26,9 @@ go.mk resolves `GO_MK_CC` / `GO_MK_CXX` into `CC` / `CXX` at the hook, so a dep 
 
 ## Caching provisioned dependencies
 
-The release build caches each target's `GO_MK_CGO_PREFIX` so a warm run skips the dependency build. The `go-mk cache-manifest` command in [cmd/go-mk/cachemanifest.go](../../cmd/go-mk/cachemanifest.go) emits a per-target `cgo_cache_key`, and [\_build.yml](../../.github/workflows/_build.yml) restores and saves the prefix under that exact key. On a cache hit `provisionCgoDeps` in [cmd/go-mk/release.go](../../cmd/go-mk/release.go) reads a stamp file in the prefix and skips `make go-mk-cgo-deps`.
+The release build caches each target's `GO_MK_CGO_PREFIX` so a warm run skips the dependency build. The `go-mk cache-manifest` command in [cmd/go-mk/cachemanifest.go](../../cmd/go-mk/cachemanifest.go) emits a per-target `cgo_cache_key`, and [\_build.yml](../../.github/workflows/_build.yml) restores and saves the prefix under that exact key. On a cache hit `provisionCgoDeps` in [cmd/go-mk/release.go](../../cmd/go-mk/release.go) reads a stamp file in the prefix and skips `make go-mk-cgo-deps`. The build workflow restores and saves this cache only when the caller passes `cgo: true`.
+
+The CI quality jobs restore the same cache without saving it. Each quality job builds the key for its own platform on the same runner image as the compile job. The keys match when the compiler and toolchain match. The restored prefix contains the dependency stamps, and the quality gates skip the C build.
 
 A consumer strengthens the key with two optional variables set before `include bootstrap.mk`. `GO_MK_CGO_CACHE_VERSIONS` lists `dep=version` pairs so a version bump invalidates the cache, for example `GO_MK_CGO_CACHE_VERSIONS := pcre2=10.45`. `GO_MK_CGO_CACHE_INPUTS` lists the recipe's build-script paths so editing a script invalidates the cache. Both default to empty, which leaves the key based on the dep list, the target tuple, the resolved compiler, and the tracked Makefile and `.mk` files.
 

@@ -22,6 +22,8 @@ The `build` job is the required gate. On a releasing repository it rolls up the 
 
 Every layout restores the generated cache that `prepare` warmed. The Golangci Lint job restores and saves its results cache in `parallel`. `Quality` and `Checks` own the same cache in serialized layouts. The cache key and weekly refresh stay identical across layouts.
 
+Every quality job also restores the cgo dependency cache that a compile leg for the same platform saved, and it never saves that cache. The `go_tool_packages` builds share one cache keyed by the package list, the Go version, and the ISO week. The first job in the matrix saves that cache on a miss.
+
 Govulncheck and Go version results use `ADVISORY`. Findings, installation failures, execution failures, lookup failures, and network failures remain visible without failing the command.
 
 ## The release dry run
