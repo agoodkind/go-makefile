@@ -55,4 +55,7 @@ func printApplyResult(stdout io.Writer, result ApplyResult) {
 	printCheckResult(stdout, result.CheckResult)
 	fmt.Fprintf(stdout, "applied: %t\n", result.Applied)
 	fmt.Fprintf(stdout, "dry_run: %t\n", result.DryRun)
+	if result.LaunchCheckSkipped {
+		fmt.Fprintln(stdout, "launch_check: skipped (dry run leaves the install directory untouched)")
+	}
 }

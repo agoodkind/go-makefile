@@ -7,16 +7,18 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
 // stagedCandidate is a verified and validated release binary written beside
 // the installed binary it replaces.
 type stagedCandidate struct {
-	binary      string
-	path        string
-	installPath string
-	cleanup     func()
+	binary             string
+	path               string
+	installPath        string
+	cleanup            func()
+	launchCheckSkipped bool
 }
 
 // ApplyAll installs the latest allowed release for every binary in options as
@@ -27,14 +29,17 @@ type stagedCandidate struct {
 // own directory (an @loader_path or $ORIGIN runpath) finds the same library it
 // loads after install. ApplyAll validates every candidate before it replaces
 // any installed binary. A candidate that fails validation stops the update
-// before any rename. A dry run also writes and validates each candidate in the
-// install directory, then removes it.
+// before any rename.
+//
+// A dry run writes nothing into the install directory. It extracts each
+// candidate into a temporary directory, verifies the darwin code signature,
+// skips the launch check, and sets ApplyResult.LaunchCheckSkipped.
 //
 // A process killed during an update can leave hidden candidate and backup
-// files in the install directory. The next ApplyAll call on the same install
-// paths renames each leftover backup over its install path and removes every
-// leftover candidate before it checks for a release. A kill during the rename
-// step therefore ends with the set of binaries installed before that update.
+// files in the install directory. Before its release check, every later
+// ApplyAll run except a dry run renames each leftover backup over its install
+// path and removes every leftover candidate. A kill during the rename step ends
+// with the set of binaries installed before that update.
 func ApplyAll(ctx context.Context, options []Options) ([]ApplyResult, error) {
 	if len(options) == 0 {
 		return nil, fmt.Errorf("update options are required")
@@ -75,8 +80,10 @@ func validateApplySet(options []Options) error {
 }
 
 func applySet(ctx context.Context, options []Options, results []ApplyResult) error {
-	if err := recoverInterruptedInstall(options); err != nil {
-		return err
+	if !anyDryRun(options) {
+		if err := recoverInterruptedInstall(options); err != nil {
+			return err
+		}
 	}
 	anyUpdateAvailable := false
 	for index, option := range options {
@@ -116,6 +123,7 @@ func applySet(ctx context.Context, options []Options, results []ApplyResult) err
 			return err
 		}
 		staged = append(staged, candidate)
+		results[index].LaunchCheckSkipped = candidate.launchCheckSkipped
 		if !option.DryRun {
 			toInstall = append(toInstall, candidate)
 		}
@@ -128,6 +136,37 @@ func applySet(ctx context.Context, options []Options, results []ApplyResult) err
 		results[index].Applied = results[index].UpdateAvailable && !option.DryRun
 	}
 	return saveApplySetState(options, results)
+}
+
+// verifyCandidateSignature runs the darwin code signature check that
+// validateCandidate runs before it launches a candidate. Other platforms have
+// no signature check.
+func verifyCandidateSignature(ctx context.Context, candidatePath string) error {
+	if runtime.GOOS != "darwin" {
+		return nil
+	}
+	return verifyDarwinCodeSignature(ctx, candidatePath)
+}
+
+func sameFile(firstPath string, secondPath string) bool {
+	firstInfo, err := os.Stat(firstPath)
+	if err != nil {
+		return false
+	}
+	secondInfo, err := os.Stat(secondPath)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(firstInfo, secondInfo)
+}
+
+func anyDryRun(options []Options) bool {
+	for _, option := range options {
+		if option.DryRun {
+			return true
+		}
+	}
+	return false
 }
 
 // recoverInterruptedInstall runs under the update lock. For each install path
@@ -153,6 +192,14 @@ func recoverInterruptedInstall(options []Options) error {
 		for index, backupPath := range backups {
 			if index > 0 {
 				slog.Warn("update removed extra leftover backup", "path", backupPath)
+				_ = os.Remove(backupPath)
+				continue
+			}
+			// A backup made before a rename that never ran is a hard link to the
+			// installed file. rename(2) between two links to one file changes
+			// nothing, so remove that backup instead.
+			if sameFile(backupPath, option.InstallPath) {
+				slog.Warn("update removed leftover backup of an unreplaced binary", "path", backupPath)
 				_ = os.Remove(backupPath)
 				continue
 			}
@@ -211,6 +258,9 @@ func stageCandidate(ctx context.Context, options Options, latest release) (stage
 	if err := updateVerifyGitHubAttestations(ctx, options, latest, asset, archivePath); err != nil {
 		return stagedCandidate{}, err
 	}
+	if options.DryRun {
+		return stageDryRunCandidate(ctx, options, archivePath)
+	}
 	candidatePath, cleanup, err := updateExtractCandidate(
 		archivePath,
 		options.Config.Binary,
@@ -229,6 +279,41 @@ func stageCandidate(ctx context.Context, options Options, latest release) (stage
 		path:        candidatePath,
 		installPath: options.InstallPath,
 		cleanup:     cleanup,
+	}, nil
+}
+
+// stageDryRunCandidate extracts the candidate into a new temporary directory
+// and leaves the install directory untouched. It verifies the darwin code
+// signature there and skips the launch check: a binary that loads a library
+// from its own directory cannot start outside the install directory.
+func stageDryRunCandidate(ctx context.Context, options Options, archivePath string) (stagedCandidate, error) {
+	extractDir, err := os.MkdirTemp("", options.Config.Binary+"-dry-run-*")
+	if err != nil {
+		options.Log.WarnContext(ctx, "update dry run dir create failed", "err", err)
+		return stagedCandidate{}, fmt.Errorf("create dry run dir: %w", err)
+	}
+	removeExtractDir := func() { _ = os.RemoveAll(extractDir) }
+	candidatePath, _, err := updateExtractCandidate(
+		archivePath,
+		options.Config.Binary,
+		options.Config.MaxBinaryBytes,
+		extractDir,
+	)
+	if err != nil {
+		removeExtractDir()
+		return stagedCandidate{}, err
+	}
+	if err := updateVerifyCandidateSignature(ctx, candidatePath); err != nil {
+		removeExtractDir()
+		return stagedCandidate{}, err
+	}
+	options.Log.InfoContext(ctx, "update dry run skipped candidate launch check", "binary", options.Config.Binary)
+	return stagedCandidate{
+		binary:             options.Config.Binary,
+		path:               candidatePath,
+		installPath:        options.InstallPath,
+		cleanup:            removeExtractDir,
+		launchCheckSkipped: true,
 	}, nil
 }
 

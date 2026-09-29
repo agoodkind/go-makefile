@@ -6,6 +6,8 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -242,27 +244,78 @@ func TestApplyAllLeavesEveryBinaryUnchangedWhenOneCandidateFails(t *testing.T) {
 	assertDirectoryEntries(t, installDir, []string{"alpha", "beta", "gamma"})
 }
 
-// TestApplyAllRestoresBinariesAfterInterruptedInstall lays out the files that a
-// kill during installCandidates leaves: alpha already replaced with its backup
-// beside it, beta backed up but not replaced, and a staged beta candidate. The
-// next ApplyAll, with no newer release, must restore both backups and remove
-// every hidden file.
-func TestApplyAllRestoresBinariesAfterInterruptedInstall(t *testing.T) {
-	fixture := newReleaseFixture(t, map[string][]byte{"alpha": []byte("unused"), "beta": []byte("unused")})
+const (
+	interruptedApplyHelperEnv  = "SELFUPDATE_INTERRUPTED_APPLY_HELPER"
+	interruptedApplyServerEnv  = "SELFUPDATE_INTERRUPTED_APPLY_SERVER"
+	interruptedApplyInstallEnv = "SELFUPDATE_INTERRUPTED_APPLY_INSTALL_DIR"
+	interruptedApplyStateEnv   = "SELFUPDATE_INTERRUPTED_APPLY_STATE_DIR"
+	interruptedApplyExitCode   = 3
+)
+
+// TestInterruptedApplyHelperProcess runs only inside the child process that
+// TestApplyAllRestoresBinariesAfterKilledApply starts. It applies the alpha and
+// beta set and exits the process during the second rename, after alpha is
+// replaced and before beta is replaced.
+func TestInterruptedApplyHelperProcess(t *testing.T) {
+	if os.Getenv(interruptedApplyHelperEnv) != "1" {
+		return
+	}
+	skipAttestationVerification(t)
+	renameCount := 0
+	updateInstallCandidate = func(candidatePath string, installPath string) error {
+		renameCount++
+		if renameCount == 2 {
+			os.Exit(interruptedApplyExitCode)
+		}
+		return installCandidate(candidatePath, installPath)
+	}
+	fixture := &releaseFixture{server: &httptest.Server{URL: os.Getenv(interruptedApplyServerEnv)}}
+	installDir := os.Getenv(interruptedApplyInstallEnv)
+	stateDir := os.Getenv(interruptedApplyStateEnv)
+	allOptions := []Options{
+		fixture.options(t, "alpha", installDir, stateDir, "version: pure"),
+		fixture.options(t, "beta", installDir, stateDir, "version: pure"),
+	}
+	for index := range allOptions {
+		allOptions[index].Client = http.DefaultClient
+	}
+	_, err := ApplyAll(context.Background(), allOptions)
+	t.Fatalf("ApplyAll() returned before the second rename: %v", err)
+}
+
+// TestApplyAllRestoresBinariesAfterKilledApply kills a real ApplyAll between
+// its two renames, checks the files that the kill leaves, and then runs
+// ApplyAll again with no newer release. The second run must restore the old
+// alpha from its backup, keep the old beta, and remove every leftover file.
+func TestApplyAllRestoresBinariesAfterKilledApply(t *testing.T) {
+	pureCandidate := buildProbeBinary(t, pureGoProbeSource, []string{"CGO_ENABLED=0"})
+	fixture := newReleaseFixture(t, map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate})
 	installDir := t.TempDir()
 	stateDir := t.TempDir()
-	files := map[string][]byte{
-		"alpha":                   []byte("new alpha from the interrupted install"),
-		".alpha-previous-1111":    []byte("old alpha"),
-		"beta":                    []byte("old beta"),
-		".beta-previous-2222":     []byte("old beta"),
-		".beta-candidate-3333":    []byte("staged beta candidate"),
-		".gamma-candidate-4444":   []byte("candidate of a binary outside the set"),
-		"unrelated-previous-5555": []byte("not a hidden update file"),
+	writeInstalledBinary(t, filepath.Join(installDir, "alpha"), []byte("old alpha"))
+	writeInstalledBinary(t, filepath.Join(installDir, "beta"), []byte("old beta"))
+
+	helper := exec.Command(os.Args[0], "-test.run=^TestInterruptedApplyHelperProcess$", "-test.count=1")
+	helper.Env = append(os.Environ(),
+		interruptedApplyHelperEnv+"=1",
+		interruptedApplyServerEnv+"="+fixture.server.URL,
+		interruptedApplyInstallEnv+"="+installDir,
+		interruptedApplyStateEnv+"="+stateDir,
+	)
+	output, err := helper.CombinedOutput()
+	var exitError *exec.ExitError
+	if !errors.As(err, &exitError) || exitError.ExitCode() != interruptedApplyExitCode {
+		t.Fatalf("helper process error = %v, want exit code %d\n%s", err, interruptedApplyExitCode, output)
 	}
-	for name, content := range files {
-		writeInstalledBinary(t, filepath.Join(installDir, name), content)
+	assertFileBytes(t, filepath.Join(installDir, "alpha"), pureCandidate)
+	assertFileBytes(t, filepath.Join(installDir, "beta"), []byte("old beta"))
+	leftovers := hiddenEntryPrefixes(t, installDir)
+	for _, prefix := range []string{".alpha-previous-", ".beta-previous-", ".beta-candidate-"} {
+		if !slices.Contains(leftovers, prefix) {
+			t.Fatalf("killed apply left %v, want an entry starting with %s", leftovers, prefix)
+		}
 	}
+
 	allOptions := []Options{
 		fixture.options(t, "alpha", installDir, stateDir, "version: pure"),
 		fixture.options(t, "beta", installDir, stateDir, "version: pure"),
@@ -270,10 +323,9 @@ func TestApplyAllRestoresBinariesAfterInterruptedInstall(t *testing.T) {
 	for index := range allOptions {
 		allOptions[index].Config.CurrentVersion = installDirTestNewTag
 	}
-
 	results, err := ApplyAll(context.Background(), allOptions)
 	if err != nil {
-		t.Fatalf("ApplyAll() error: %v", err)
+		t.Fatalf("ApplyAll() after the kill error: %v", err)
 	}
 	for index, result := range results {
 		if result.Applied || result.UpdateAvailable {
@@ -282,7 +334,92 @@ func TestApplyAllRestoresBinariesAfterInterruptedInstall(t *testing.T) {
 	}
 	assertFileBytes(t, filepath.Join(installDir, "alpha"), []byte("old alpha"))
 	assertFileBytes(t, filepath.Join(installDir, "beta"), []byte("old beta"))
-	assertDirectoryEntries(t, installDir, []string{"alpha", "beta", ".gamma-candidate-4444", "unrelated-previous-5555"})
+	assertDirectoryEntries(t, installDir, []string{"alpha", "beta"})
+}
+
+// TestApplyAllDryRunLeavesInstallDirectoryUnchanged runs a dry run with a newer
+// release available and a read-only install directory. The dry run must
+// succeed, the install directory names and sizes must not change, and every
+// result must report the skipped launch check.
+func TestApplyAllDryRunLeavesInstallDirectoryUnchanged(t *testing.T) {
+	skipAttestationVerification(t)
+	pureCandidate := buildProbeBinary(t, pureGoProbeSource, []string{"CGO_ENABLED=0"})
+	fixture := newReleaseFixture(t, map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate})
+	installDir := t.TempDir()
+	stateDir := t.TempDir()
+	writeInstalledBinary(t, filepath.Join(installDir, "alpha"), []byte("old alpha"))
+	writeInstalledBinary(t, filepath.Join(installDir, "beta"), []byte("old beta"))
+	before := directorySizes(t, installDir)
+	// A read-only install directory makes any write during the dry run fail.
+	if err := os.Chmod(installDir, 0o555); err != nil {
+		t.Fatalf("make install directory read-only: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(installDir, 0o755) })
+
+	allOptions := []Options{
+		fixture.options(t, "alpha", installDir, stateDir, "version: pure"),
+		fixture.options(t, "beta", installDir, stateDir, "version: pure"),
+	}
+	for index := range allOptions {
+		allOptions[index].DryRun = true
+	}
+	results, err := ApplyAll(context.Background(), allOptions)
+	if err != nil {
+		t.Fatalf("ApplyAll() dry run error: %v", err)
+	}
+	for index, result := range results {
+		if !result.UpdateAvailable || result.Applied || !result.DryRun || !result.LaunchCheckSkipped {
+			t.Fatalf("result %d UpdateAvailable=%t Applied=%t DryRun=%t LaunchCheckSkipped=%t, want true false true true",
+				index, result.UpdateAvailable, result.Applied, result.DryRun, result.LaunchCheckSkipped)
+		}
+	}
+	after := directorySizes(t, installDir)
+	if !maps.Equal(before, after) {
+		t.Fatalf("install directory changed during a dry run: before %v, after %v", before, after)
+	}
+	state, err := LoadState(filepath.Join(stateDir, "update-state.json"))
+	if err != nil {
+		t.Fatalf("LoadState() error: %v", err)
+	}
+	if state.LastResult != "dry_run" {
+		t.Fatalf("LastResult = %q, want dry_run", state.LastResult)
+	}
+}
+
+// hiddenEntryPrefixes returns each hidden entry name up to and including its
+// last dash, which strips the random suffix os.CreateTemp adds.
+func hiddenEntryPrefixes(t *testing.T, directory string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatalf("read %s: %v", directory, err)
+	}
+	prefixes := []string{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, ".") {
+			continue
+		}
+		prefixes = append(prefixes, name[:strings.LastIndex(name, "-")+1])
+	}
+	return prefixes
+}
+
+func directorySizes(t *testing.T, directory string) map[string]int64 {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatalf("read %s: %v", directory, err)
+	}
+	sizes := make(map[string]int64, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			t.Fatalf("stat %s: %v", entry.Name(), err)
+		}
+		sizes[entry.Name()] = info.Size()
+	}
+	return sizes
 }
 
 func buildProbeLibrary(t *testing.T, directory string) string {

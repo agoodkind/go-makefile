@@ -99,7 +99,9 @@ func restoreCommandTestSeams(t *testing.T, latestTag string) {
 	originalExtractCandidate := updateExtractCandidate
 	originalValidateCandidate := updateValidateCandidate
 	originalReplaceBinary := updateInstallCandidate
+	originalVerifySignature := updateVerifyCandidateSignature
 	t.Cleanup(func() {
+		updateVerifyCandidateSignature = originalVerifySignature
 		updateWithLock = originalWithLock
 		updateFetchLatestRelease = originalFetchLatestRelease
 		updateDownloadFile = originalDownloadFile
@@ -144,6 +146,9 @@ func restoreCommandTestSeams(t *testing.T, latestTag string) {
 		return candidatePath, func() {}, nil
 	}
 	updateValidateCandidate = func(_ context.Context, _ Config, _ string) error {
+		return nil
+	}
+	updateVerifyCandidateSignature = func(_ context.Context, _ string) error {
 		return nil
 	}
 	updateInstallCandidate = func(_, _ string) error {

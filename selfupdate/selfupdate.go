@@ -37,6 +37,7 @@ var (
 	updateVerifyBuildProvenanceAttestation = verifyBuildProvenanceAttestation
 	updateExtractCandidate                 = extractCandidate
 	updateValidateCandidate                = validateCandidate
+	updateVerifyCandidateSignature         = verifyCandidateSignature
 	updateInstallCandidate                 = installCandidate
 )
 
@@ -100,6 +101,11 @@ type ApplyResult struct {
 	CheckResult
 	Applied bool
 	DryRun  bool
+	// LaunchCheckSkipped is true when a dry run staged a candidate without
+	// running it. A dry run leaves the install directory untouched, and a
+	// candidate that loads libraries from its own directory cannot start
+	// outside that directory.
+	LaunchCheckSkipped bool
 }
 
 // Check records the latest allowed release and whether an update is available.

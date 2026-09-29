@@ -418,7 +418,9 @@ func TestApplyDryRunIsIdempotent(t *testing.T) {
 	originalExtractCandidate := updateExtractCandidate
 	originalValidateCandidate := updateValidateCandidate
 	originalReplaceBinary := updateInstallCandidate
+	originalVerifySignature := updateVerifyCandidateSignature
 	t.Cleanup(func() {
+		updateVerifyCandidateSignature = originalVerifySignature
 		updateWithLock = originalWithLock
 		updateFetchLatestRelease = originalFetchLatestRelease
 		updateDownloadFile = originalDownloadFile
@@ -470,6 +472,9 @@ func TestApplyDryRunIsIdempotent(t *testing.T) {
 	}
 	updateInstallCandidate = func(_, _ string) error {
 		t.Fatal("updateInstallCandidate() should not run during dry-run")
+		return nil
+	}
+	updateVerifyCandidateSignature = func(_ context.Context, _ string) error {
 		return nil
 	}
 
