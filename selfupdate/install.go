@@ -63,16 +63,18 @@ func InstallReleaseBinary(ctx context.Context, installOptions InstallReleaseBina
 	if err := updateVerifyGitHubAttestations(ctx, options, latest, asset, archivePath); err != nil {
 		return InstallReleaseBinaryResult{}, err
 	}
-	candidatePath, cleanup, err := updateExtractCandidate(archivePath, options.Config.Binary, options.Config.MaxBinaryBytes)
+	candidatePath, cleanup, err := updateExtractCandidate(
+		archivePath,
+		options.Config.Binary,
+		options.Config.MaxBinaryBytes,
+		installOptions.BinDir,
+	)
 	if err != nil {
 		return InstallReleaseBinaryResult{}, err
 	}
 	defer cleanup()
 	installPath := filepath.Join(installOptions.BinDir, options.Config.Binary)
-	if err := os.MkdirAll(installOptions.BinDir, 0o755); err != nil {
-		return InstallReleaseBinaryResult{}, fmt.Errorf("create install bin dir: %w", err)
-	}
-	if err := updateReplaceBinary(candidatePath, installPath); err != nil {
+	if err := updateInstallCandidate(candidatePath, installPath); err != nil {
 		return InstallReleaseBinaryResult{}, err
 	}
 	return InstallReleaseBinaryResult{

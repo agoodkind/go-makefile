@@ -49,7 +49,8 @@ func TestExtractCandidateHonorsCallerLimit(t *testing.T) {
 	archivePath := filepath.Join(t.TempDir(), "asset.tar.gz")
 	writeCandidateArchive(t, archivePath, binary, size)
 
-	_, rejectCleanup, err := extractCandidate(archivePath, binary, size-1)
+	targetDir := t.TempDir()
+	_, rejectCleanup, err := extractCandidate(archivePath, binary, size-1, targetDir)
 	rejectCleanup()
 	if err == nil {
 		t.Fatal("extractCandidate() error = nil, want a size rejection below the limit")
@@ -58,7 +59,7 @@ func TestExtractCandidateHonorsCallerLimit(t *testing.T) {
 		t.Fatalf("extractCandidate() error = %v, want a size rejection", err)
 	}
 
-	candidatePath, cleanup, err := extractCandidate(archivePath, binary, size)
+	candidatePath, cleanup, err := extractCandidate(archivePath, binary, size, targetDir)
 	t.Cleanup(cleanup)
 	if err != nil {
 		t.Fatalf("extractCandidate() error: %v", err)

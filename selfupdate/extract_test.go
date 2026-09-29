@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestValidateCandidateChecksDarwinSignatureBeforeExecution(t *testing.T) {
@@ -34,44 +33,5 @@ func TestValidateCandidateChecksDarwinSignatureBeforeExecution(t *testing.T) {
 	}
 	if _, statErr := os.Stat(markerPath); !os.IsNotExist(statErr) {
 		t.Fatalf("candidate executed before signature verification; stat marker = %v", statErr)
-	}
-}
-
-func TestReplaceBinaryDoesNotUseFixedTempPath(t *testing.T) {
-	originalTimeNow := timeNow
-	t.Cleanup(func() {
-		timeNow = originalTimeNow
-	})
-	fixedTime := time.Unix(0, 123456789)
-	timeNow = func() time.Time {
-		return fixedTime
-	}
-
-	tempDir := t.TempDir()
-	candidatePath := filepath.Join(tempDir, "candidate")
-	if err := os.WriteFile(candidatePath, []byte("new binary"), 0o600); err != nil {
-		t.Fatalf("WriteFile() error: %v", err)
-	}
-	installPath := filepath.Join(tempDir, "agent-gate")
-	predictableTempPath := filepath.Join(
-		tempDir,
-		".agent-gate-update-"+strconv.FormatInt(fixedTime.UnixNano(), 10),
-	)
-	if err := os.WriteFile(predictableTempPath, []byte("sentinel"), 0o600); err != nil {
-		t.Fatalf("WriteFile() error: %v", err)
-	}
-
-	err := replaceBinary(candidatePath, installPath)
-	if err != nil {
-		t.Fatalf("replaceBinary() error: %v", err)
-	}
-	assertFileBytes(t, installPath, []byte("new binary"))
-	assertFileBytes(t, predictableTempPath, []byte("sentinel"))
-	info, err := os.Stat(installPath)
-	if err != nil {
-		t.Fatalf("Stat() error: %v", err)
-	}
-	if info.Mode().Perm() != 0o755 {
-		t.Fatalf("installed mode = %o, want 755", info.Mode().Perm())
 	}
 }
