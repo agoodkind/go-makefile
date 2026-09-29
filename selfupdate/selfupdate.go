@@ -57,6 +57,9 @@ type Config struct {
 	AuthToken         string
 	ValidateArgs      []string
 	ValidateMatch     string
+	// ValidateEnv lists KEY=VALUE entries added to the environment of the
+	// candidate validation command.
+	ValidateEnv []string
 	// MaxDownloadBytes bounds one downloaded release asset and MaxBinaryBytes
 	// bounds the binary unpacked from it. Zero or negative means unset and
 	// takes the package default. A consumer whose binary is larger than the
