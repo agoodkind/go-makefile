@@ -117,6 +117,9 @@ func validateCandidate(ctx context.Context, cfg Config, candidatePath string) er
 	}
 	validateArgs := cfg.validateArgs()
 	cmd := exec.CommandContext(ctx, candidatePath, validateArgs...)
+	if len(cfg.ValidateEnv) > 0 {
+		cmd.Env = append(os.Environ(), cfg.ValidateEnv...)
+	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		slog.WarnContext(ctx, "update candidate version failed", "path", candidatePath, "err", err)
@@ -179,6 +182,20 @@ func backupInstalledBinary(installPath string) (string, error) {
 	backupPath := reserved.Name()
 	_ = reserved.Close()
 	_ = os.Remove(backupPath)
+	// A symlink backup is a new symlink with the same target, which a rename
+	// restores as a symlink.
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(installPath)
+		if err != nil {
+			slog.Warn("update symlink backup read failed", "path", installPath, "err", err)
+			return "", fmt.Errorf("read installed symlink: %w", err)
+		}
+		if err := os.Symlink(target, backupPath); err != nil {
+			slog.Warn("update symlink backup create failed", "path", backupPath, "err", err)
+			return "", fmt.Errorf("create installed symlink backup: %w", err)
+		}
+		return backupPath, nil
+	}
 	if linkErr := os.Link(installPath, backupPath); linkErr == nil {
 		return backupPath, nil
 	}

@@ -3,6 +3,7 @@ package selfupdate
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,6 +82,167 @@ func InstallReleaseBinary(ctx context.Context, installOptions InstallReleaseBina
 		Tag:         latest.TagName,
 		AssetName:   asset.Name,
 		InstallPath: installPath,
+	}, nil
+}
+
+// InstallReleaseBinariesOptions configures an install of several binaries from
+// one release of one repository into one bin directory.
+type InstallReleaseBinariesOptions struct {
+	Options []Options
+	Version string
+	Channel ReleaseChannel
+	BinDir  string
+	// Symlinks lists symlinks in BinDir that the install writes in the same
+	// commit as the binaries, with the same backup and rollback.
+	Symlinks []InstallSymlink
+}
+
+// InstallSymlink is a symlink named Name in the bin directory that points at
+// Target.
+type InstallSymlink struct {
+	Name   string
+	Target string
+}
+
+// InstallReleaseBinaries installs every binary in installOptions.Options from
+// one release as one unit. It resolves the release once, writes each
+// candidate as a hidden file in BinDir, and validates each candidate there
+// before it replaces any installed binary. A failed download, verification,
+// or validation leaves every installed binary unchanged. The renames use the
+// backup, rollback, and commit marker of ApplyAll, and the marker sits beside
+// the first option's state file.
+func InstallReleaseBinaries(
+	ctx context.Context,
+	installOptions InstallReleaseBinariesOptions,
+) ([]InstallReleaseBinaryResult, error) {
+	if len(installOptions.Options) == 0 {
+		return nil, fmt.Errorf("install options are required")
+	}
+	resolvedOptions := make([]Options, 0, len(installOptions.Options))
+	for _, option := range installOptions.Options {
+		option.InstallPath = filepath.Join(installOptions.BinDir, option.Config.Binary)
+		option.DryRun = false
+		resolved := resolveOptions(option)
+		if err := validateInstallReleaseBinaryInput(resolved.Config, installOptions.BinDir); err != nil {
+			return nil, err
+		}
+		resolvedOptions = append(resolvedOptions, resolved)
+	}
+	binaries := make(map[string]bool, len(resolvedOptions))
+	for _, option := range resolvedOptions {
+		if option.Config.Repo != resolvedOptions[0].Config.Repo {
+			return nil, fmt.Errorf("install set mixes repositories %s and %s", resolvedOptions[0].Config.Repo, option.Config.Repo)
+		}
+		if binaries[option.Config.Binary] {
+			return nil, fmt.Errorf("install set repeats binary %s", option.Config.Binary)
+		}
+		binaries[option.Config.Binary] = true
+	}
+	for _, symlink := range installOptions.Symlinks {
+		if symlink.Name == "" || filepath.Base(symlink.Name) != symlink.Name || symlink.Target == "" {
+			return nil, fmt.Errorf("install symlink %q to %q must be a plain name with a target", symlink.Name, symlink.Target)
+		}
+		if binaries[symlink.Name] {
+			return nil, fmt.Errorf("install set repeats name %s", symlink.Name)
+		}
+		binaries[symlink.Name] = true
+	}
+	var results []InstallReleaseBinaryResult
+	err := updateWithLock(ctx, resolvedOptions[0].StatePath, func() error {
+		installed, installErr := installReleaseSet(ctx, resolvedOptions, installOptions)
+		results = installed
+		return installErr
+	})
+	if err != nil {
+		resolvedOptions[0].Log.WarnContext(ctx, "release install set failed", "err", err)
+		return nil, err
+	}
+	return results, nil
+}
+
+func installReleaseSet(
+	ctx context.Context,
+	options []Options,
+	installOptions InstallReleaseBinariesOptions,
+) ([]InstallReleaseBinaryResult, error) {
+	recoverOptions := append([]Options(nil), options...)
+	for _, symlink := range installOptions.Symlinks {
+		recoverOptions = append(recoverOptions, Options{
+			InstallPath: filepath.Join(installOptions.BinDir, symlink.Name),
+			StatePath:   options[0].StatePath,
+		})
+	}
+	if err := recoverInterruptedInstall(recoverOptions); err != nil {
+		return nil, err
+	}
+	latest, err := resolveRequestedRelease(ctx, options[0], installOptions.Version, installOptions.Channel)
+	if err != nil {
+		return nil, err
+	}
+	staged := make([]stagedCandidate, 0, len(options)+len(installOptions.Symlinks))
+	defer func() {
+		for _, candidate := range staged {
+			candidate.cleanup()
+		}
+	}()
+	for _, symlink := range installOptions.Symlinks {
+		candidate, err := stageSymlink(installOptions.BinDir, symlink)
+		if err != nil {
+			return nil, err
+		}
+		staged = append(staged, candidate)
+	}
+	results := make([]InstallReleaseBinaryResult, 0, len(options))
+	for _, option := range options {
+		candidate, err := stageCandidate(ctx, option, latest)
+		if err != nil {
+			return nil, err
+		}
+		staged = append(staged, candidate)
+		asset, err := selectArchiveAsset(latest.Assets, option.Config.Binary)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, InstallReleaseBinaryResult{
+			Tag:         latest.TagName,
+			AssetName:   asset.Name,
+			InstallPath: option.InstallPath,
+		})
+	}
+	if err := installCandidates(staged, installCommitMarkerPath(options[0])); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+// stageSymlink writes symlink as a hidden candidate in binDir, named like a
+// staged binary candidate for recoverInterruptedInstall.
+func stageSymlink(binDir string, symlink InstallSymlink) (stagedCandidate, error) {
+	targetPath := symlink.Target
+	if !filepath.IsAbs(targetPath) {
+		targetPath = filepath.Join(binDir, targetPath)
+	}
+	if _, err := os.Stat(targetPath); err != nil {
+		slog.Warn("release install symlink target missing", "name", symlink.Name, "target", symlink.Target, "err", err)
+		return stagedCandidate{}, fmt.Errorf("install symlink %s target %s: %w", symlink.Name, symlink.Target, err)
+	}
+	reserved, err := os.CreateTemp(binDir, "."+symlink.Name+"-candidate-*")
+	if err != nil {
+		slog.Warn("release install symlink candidate reserve failed", "dir", binDir, "err", err)
+		return stagedCandidate{}, fmt.Errorf("reserve symlink candidate: %w", err)
+	}
+	candidatePath := reserved.Name()
+	_ = reserved.Close()
+	_ = os.Remove(candidatePath)
+	if err := os.Symlink(symlink.Target, candidatePath); err != nil {
+		slog.Warn("release install symlink candidate create failed", "path", candidatePath, "err", err)
+		return stagedCandidate{}, fmt.Errorf("create symlink candidate: %w", err)
+	}
+	return stagedCandidate{
+		binary:      symlink.Name,
+		path:        candidatePath,
+		installPath: filepath.Join(binDir, symlink.Name),
+		cleanup:     func() { _ = os.Remove(candidatePath) },
 	}, nil
 }
 
