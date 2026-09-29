@@ -15,19 +15,34 @@ import (
 	"strings"
 )
 
-// extractCandidate unpacks binary from archivePath, refusing a member larger
-// than maxBytes so a corrupt or hostile archive cannot exhaust the disk. The
-// size comes from the tar header, which the archive itself supplies, so the
-// limit is what keeps that claim from being trusted without bound. The caller
-// supplies it because a plausible binary size is a property of the consumer.
-func extractCandidate(archivePath string, binary string, maxBytes int64) (string, func(), error) {
-	slog.Info("update extract candidate", "archive", archivePath)
-	tmpDir, err := os.MkdirTemp("", binary+"-update-*")
-	if err != nil {
-		slog.Warn("update extract dir create failed", "archive", archivePath, "err", err)
-		return "", func() {}, fmt.Errorf("create extract dir: %w", err)
+// extractCandidate unpacks binary from archivePath into a hidden temporary file
+// in targetDir. It refuses a member larger than maxBytes. The tar header
+// supplies the member size, and the archive author controls that header. The
+// caller supplies maxBytes because a plausible binary size depends on the
+// consumer.
+//
+// The caller passes the install directory as targetDir. A candidate in that
+// directory resolves @loader_path and $ORIGIN runpaths to the libraries
+// installed beside the binary. installCandidate then renames the candidate
+// within one filesystem.
+func extractCandidate(archivePath string, binary string, maxBytes int64, targetDir string) (string, func(), error) {
+	slog.Info("update extract candidate", "archive", archivePath, "dir", targetDir)
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		slog.Warn("update candidate dir create failed", "dir", targetDir, "err", err)
+		return "", func() {}, fmt.Errorf("create candidate dir: %w", err)
 	}
-	cleanup := func() { _ = os.RemoveAll(tmpDir) }
+	reserved, err := os.CreateTemp(targetDir, "."+binary+"-candidate-*")
+	if err != nil {
+		slog.Warn("update candidate create failed", "dir", targetDir, "err", err)
+		return "", func() {}, fmt.Errorf("create candidate: %w", err)
+	}
+	candidatePath := reserved.Name()
+	cleanup := func() { _ = os.Remove(candidatePath) }
+	if err := reserved.Close(); err != nil {
+		cleanup()
+		slog.Warn("update candidate close failed", "path", candidatePath, "err", err)
+		return "", func() {}, fmt.Errorf("close candidate: %w", err)
+	}
 	file, err := os.Open(archivePath)
 	if err != nil {
 		cleanup()
@@ -43,7 +58,6 @@ func extractCandidate(archivePath string, binary string, maxBytes int64) (string
 	}
 	defer func() { _ = gzipReader.Close() }()
 	tarReader := tar.NewReader(gzipReader)
-	candidatePath := filepath.Join(tmpDir, binary)
 	for {
 		header, err := tarReader.Next()
 		if errors.Is(err, io.EOF) {
@@ -80,6 +94,11 @@ func extractCandidate(archivePath string, binary string, maxBytes int64) (string
 			cleanup()
 			slog.Warn("update candidate close failed", "path", candidatePath, "err", closeErr)
 			return "", cleanup, fmt.Errorf("close candidate: %w", closeErr)
+		}
+		if err := os.Chmod(candidatePath, 0o755); err != nil {
+			cleanup()
+			slog.Warn("update candidate chmod failed", "path", candidatePath, "err", err)
+			return "", cleanup, fmt.Errorf("chmod candidate: %w", err)
 		}
 		return candidatePath, cleanup, nil
 	}
@@ -122,48 +141,76 @@ func verifyDarwinCodeSignature(ctx context.Context, candidatePath string) error 
 	return nil
 }
 
-func replaceBinary(candidatePath string, installPath string) error {
-	slog.Info("update replace binary", "candidate", candidatePath, "install_path", installPath)
+// installCandidate renames a staged candidate over installPath. The candidate
+// and installPath share one directory, and one rename replaces the binary.
+func installCandidate(candidatePath string, installPath string) error {
+	slog.Info("update install candidate", "candidate", candidatePath, "install_path", installPath)
 	if installPath == "" {
 		err := fmt.Errorf("install path is empty")
-		slog.Warn("update replace binary missing install path", "err", err)
+		slog.Warn("update install candidate missing install path", "err", err)
 		return err
 	}
-	targetDir := filepath.Dir(installPath)
-	in, err := os.Open(candidatePath)
+	if err := os.Rename(candidatePath, installPath); err != nil {
+		slog.Warn("update install replace failed", "path", installPath, "err", err)
+		return fmt.Errorf("replace installed binary: %w", err)
+	}
+	return nil
+}
+
+// backupInstalledBinary keeps the binary at installPath under a hidden name in
+// the same directory and returns that name. It returns an empty name when
+// nothing is installed yet. It tries a hard link first and copies the file when
+// the filesystem refuses the link.
+func backupInstalledBinary(installPath string) (string, error) {
+	info, err := os.Lstat(installPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
 	if err != nil {
-		slog.Warn("update candidate open failed", "path", candidatePath, "err", err)
-		return fmt.Errorf("open candidate: %w", err)
+		slog.Warn("update installed binary stat failed", "path", installPath, "err", err)
+		return "", fmt.Errorf("stat installed binary: %w", err)
+	}
+	targetDir := filepath.Dir(installPath)
+	reserved, err := os.CreateTemp(targetDir, "."+filepath.Base(installPath)+"-previous-*")
+	if err != nil {
+		slog.Warn("update backup create failed", "dir", targetDir, "err", err)
+		return "", fmt.Errorf("create installed binary backup: %w", err)
+	}
+	backupPath := reserved.Name()
+	_ = reserved.Close()
+	_ = os.Remove(backupPath)
+	if linkErr := os.Link(installPath, backupPath); linkErr == nil {
+		return backupPath, nil
+	}
+	if err := copyFile(installPath, backupPath, info.Mode().Perm()); err != nil {
+		_ = os.Remove(backupPath)
+		slog.Warn("update backup copy failed", "path", installPath, "err", err)
+		return "", fmt.Errorf("copy installed binary backup: %w", err)
+	}
+	return backupPath, nil
+}
+
+func copyFile(sourcePath string, destinationPath string, mode os.FileMode) error {
+	in, err := os.Open(sourcePath)
+	if err != nil {
+		slog.Warn("update copy source open failed", "path", sourcePath, "err", err)
+		return fmt.Errorf("open %s: %w", sourcePath, err)
 	}
 	defer func() { _ = in.Close() }()
-	out, err := os.CreateTemp(targetDir, "."+filepath.Base(installPath)+"-update-*")
+	out, err := os.OpenFile(destinationPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 	if err != nil {
-		slog.Warn("update install temp create failed", "dir", targetDir, "err", err)
-		return fmt.Errorf("create install temp: %w", err)
-	}
-	tmpPath := out.Name()
-	if err := out.Chmod(0o755); err != nil {
-		_ = out.Close()
-		_ = os.Remove(tmpPath)
-		slog.Warn("update install temp chmod failed", "path", tmpPath, "err", err)
-		return fmt.Errorf("chmod install temp: %w", err)
+		slog.Warn("update copy destination create failed", "path", destinationPath, "err", err)
+		return fmt.Errorf("create %s: %w", destinationPath, err)
 	}
 	_, copyErr := io.Copy(out, in)
 	closeErr := out.Close()
 	if copyErr != nil {
-		_ = os.Remove(tmpPath)
-		slog.Warn("update install temp write failed", "path", tmpPath, "err", copyErr)
-		return fmt.Errorf("write install temp: %w", copyErr)
+		slog.Warn("update copy write failed", "path", destinationPath, "err", copyErr)
+		return fmt.Errorf("write %s: %w", destinationPath, copyErr)
 	}
 	if closeErr != nil {
-		_ = os.Remove(tmpPath)
-		slog.Warn("update install temp close failed", "path", tmpPath, "err", closeErr)
-		return fmt.Errorf("close install temp: %w", closeErr)
-	}
-	if err := os.Rename(tmpPath, installPath); err != nil {
-		_ = os.Remove(tmpPath)
-		slog.Warn("update install replace failed", "path", installPath, "err", err)
-		return fmt.Errorf("replace installed binary: %w", err)
+		slog.Warn("update copy close failed", "path", destinationPath, "err", closeErr)
+		return fmt.Errorf("close %s: %w", destinationPath, closeErr)
 	}
 	return nil
 }

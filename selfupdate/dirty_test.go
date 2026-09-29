@@ -66,11 +66,11 @@ func TestCheckDirtyBuildIsNeverUpdatable(t *testing.T) {
 func TestApplyDirtyBuildInstallsNothing(t *testing.T) {
 	originalFetch := updateFetchLatestRelease
 	originalDownload := updateDownloadFile
-	originalReplace := updateReplaceBinary
+	originalReplace := updateInstallCandidate
 	t.Cleanup(func() {
 		updateFetchLatestRelease = originalFetch
 		updateDownloadFile = originalDownload
-		updateReplaceBinary = originalReplace
+		updateInstallCandidate = originalReplace
 	})
 
 	asset := releaseAsset{
@@ -86,7 +86,7 @@ func TestApplyDirtyBuildInstallsNothing(t *testing.T) {
 		return nil
 	}
 	replaceCalled := false
-	updateReplaceBinary = func(_ string, _ string) error {
+	updateInstallCandidate = func(_ string, _ string) error {
 		replaceCalled = true
 		return nil
 	}

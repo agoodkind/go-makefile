@@ -98,8 +98,10 @@ func restoreCommandTestSeams(t *testing.T, latestTag string) {
 	originalVerifyGitHubAttestations := updateVerifyGitHubAttestations
 	originalExtractCandidate := updateExtractCandidate
 	originalValidateCandidate := updateValidateCandidate
-	originalReplaceBinary := updateReplaceBinary
+	originalReplaceBinary := updateInstallCandidate
+	originalVerifySignature := updateVerifyCandidateSignature
 	t.Cleanup(func() {
+		updateVerifyCandidateSignature = originalVerifySignature
 		updateWithLock = originalWithLock
 		updateFetchLatestRelease = originalFetchLatestRelease
 		updateDownloadFile = originalDownloadFile
@@ -107,7 +109,7 @@ func restoreCommandTestSeams(t *testing.T, latestTag string) {
 		updateVerifyGitHubAttestations = originalVerifyGitHubAttestations
 		updateExtractCandidate = originalExtractCandidate
 		updateValidateCandidate = originalValidateCandidate
-		updateReplaceBinary = originalReplaceBinary
+		updateInstallCandidate = originalReplaceBinary
 	})
 
 	runtimeAssetName := "agent-gate_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
@@ -140,13 +142,16 @@ func restoreCommandTestSeams(t *testing.T, latestTag string) {
 	updateVerifyGitHubAttestations = func(_ context.Context, _ Options, _ release, _ releaseAsset, _ string) error {
 		return nil
 	}
-	updateExtractCandidate = func(_ string, _ string, _ int64) (string, func(), error) {
+	updateExtractCandidate = func(_ string, _ string, _ int64, _ string) (string, func(), error) {
 		return candidatePath, func() {}, nil
 	}
 	updateValidateCandidate = func(_ context.Context, _ Config, _ string) error {
 		return nil
 	}
-	updateReplaceBinary = func(_, _ string) error {
+	updateVerifyCandidateSignature = func(_ context.Context, _ string) error {
+		return nil
+	}
+	updateInstallCandidate = func(_, _ string) error {
 		return nil
 	}
 }

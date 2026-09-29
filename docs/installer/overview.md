@@ -18,7 +18,7 @@ The hosted [install.sh](../../install.sh) fetches `go-mk-install_<os>_<arch>.tar
 
 The first hop trusts the `go-mk-install` release asset from `agoodkind/go-makefile`. The hosted script verifies that asset with GitHub's stable release identity when possible and otherwise requires a checksum match from the same release. Passing `--require-attestation` makes the script fail instead of using the checksum fallback.
 
-The second hop trusts the consumer binary through the `selfupdate` package. `InstallReleaseBinary` in [selfupdate/install.go](../../selfupdate/install.go) resolves the target release, downloads the runtime archive, verifies the checksum and GitHub attestations through [selfupdate/attestation.go](../../selfupdate/attestation.go), extracts the named binary, and replaces the target in the requested bin directory.
+The second hop trusts the consumer binary through the `selfupdate` package. `InstallReleaseBinary` in [selfupdate/install.go](../../selfupdate/install.go) resolves the target release, downloads the runtime archive, verifies the checksum and GitHub attestations through [selfupdate/attestation.go](../../selfupdate/attestation.go), extracts the named binary as a hidden file in the requested bin directory, and renames that file over the target.
 
 ## Release Assets
 

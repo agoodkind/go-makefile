@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -38,7 +37,9 @@ var (
 	updateVerifyBuildProvenanceAttestation = verifyBuildProvenanceAttestation
 	updateExtractCandidate                 = extractCandidate
 	updateValidateCandidate                = validateCandidate
-	updateReplaceBinary                    = replaceBinary
+	updateVerifyCandidateSignature         = verifyCandidateSignature
+	updateRemoveBackup                     = os.Remove
+	updateInstallCandidate                 = installCandidate
 )
 
 // Config describes the target repository and current binary identity.
@@ -101,6 +102,11 @@ type ApplyResult struct {
 	CheckResult
 	Applied bool
 	DryRun  bool
+	// LaunchCheckSkipped is true when a dry run staged a candidate without
+	// running it. A dry run leaves the install directory untouched, and a
+	// candidate that loads libraries from its own directory cannot start
+	// outside that directory.
+	LaunchCheckSkipped bool
 }
 
 // Check records the latest allowed release and whether an update is available.
@@ -149,72 +155,11 @@ func Check(ctx context.Context, options Options) (CheckResult, error) {
 
 // Apply stages, verifies, and installs the latest allowed release.
 func Apply(ctx context.Context, options Options) (ApplyResult, error) {
-	resolvedOptions := resolveOptions(options)
-	if err := resolvedOptions.Config.validate(); err != nil {
+	results, err := ApplyAll(ctx, []Options{options})
+	if len(results) == 0 {
 		return ApplyResult{}, err
 	}
-	var result ApplyResult
-	err := updateWithLock(ctx, resolvedOptions.StatePath, func() error {
-		check, checkErr := Check(ctx, resolvedOptions)
-		if checkErr != nil {
-			return checkErr
-		}
-		result.CheckResult = check
-		result.DryRun = resolvedOptions.DryRun
-		if !check.UpdateAvailable {
-			return saveApplyState(resolvedOptions, result, "current", "")
-		}
-		return applyLatest(ctx, resolvedOptions, &result)
-	})
-	if err != nil {
-		recordCheckError(resolvedOptions, err)
-		return result, err
-	}
-	return result, nil
-}
-
-func applyLatest(ctx context.Context, options Options, result *ApplyResult) error {
-	latest, err := updateFetchLatestRelease(ctx, options)
-	if err != nil {
-		options.Log.WarnContext(ctx, "update apply latest release lookup failed", "err", err)
-		return err
-	}
-	asset, err := selectArchiveAsset(latest.Assets, options.Config.Binary)
-	if err != nil {
-		options.Log.WarnContext(ctx, "update apply asset selection failed", "tag", latest.TagName, "err", err)
-		return err
-	}
-	cacheDir := options.CacheDir
-	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
-		options.Log.WarnContext(ctx, "update apply cache dir create failed", "path", cacheDir, "err", err)
-		return fmt.Errorf("create update cache dir: %w", err)
-	}
-	archivePath := filepath.Join(cacheDir, filepath.Base(asset.Name))
-	if err := downloadReleaseAsset(ctx, options, asset, archivePath); err != nil {
-		return err
-	}
-	if err := updateVerifyChecksum(ctx, options, latest, asset, archivePath); err != nil {
-		return err
-	}
-	if err := updateVerifyGitHubAttestations(ctx, options, latest, asset, archivePath); err != nil {
-		return err
-	}
-	candidatePath, cleanup, err := updateExtractCandidate(archivePath, options.Config.Binary, options.Config.MaxBinaryBytes)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	if err := updateValidateCandidate(ctx, options.Config, candidatePath); err != nil {
-		return err
-	}
-	if result.DryRun {
-		return saveApplyState(options, *result, "dry_run", "")
-	}
-	if err := updateReplaceBinary(candidatePath, options.InstallPath); err != nil {
-		return err
-	}
-	result.Applied = true
-	return saveApplyState(options, *result, "applied", "")
+	return results[0], err
 }
 
 func resolveOptions(options Options) Options {

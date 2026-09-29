@@ -158,7 +158,7 @@ func TestVerifyReleaseAssetsDownloadsAndVerifiesMatchingArchives(t *testing.T) {
 		verifiedAttestations = append(verifiedAttestations, asset.Name)
 		return nil
 	}
-	updateExtractCandidate = func(_ string, _ string, _ int64) (string, func(), error) {
+	updateExtractCandidate = func(_ string, _ string, _ int64, _ string) (string, func(), error) {
 		t.Fatal("updateExtractCandidate() should not run during release verification")
 		return "", func() {}, nil
 	}
@@ -417,8 +417,10 @@ func TestApplyDryRunIsIdempotent(t *testing.T) {
 	originalVerifyGitHubAttestations := updateVerifyGitHubAttestations
 	originalExtractCandidate := updateExtractCandidate
 	originalValidateCandidate := updateValidateCandidate
-	originalReplaceBinary := updateReplaceBinary
+	originalReplaceBinary := updateInstallCandidate
+	originalVerifySignature := updateVerifyCandidateSignature
 	t.Cleanup(func() {
+		updateVerifyCandidateSignature = originalVerifySignature
 		updateWithLock = originalWithLock
 		updateFetchLatestRelease = originalFetchLatestRelease
 		updateDownloadFile = originalDownloadFile
@@ -426,7 +428,7 @@ func TestApplyDryRunIsIdempotent(t *testing.T) {
 		updateVerifyGitHubAttestations = originalVerifyGitHubAttestations
 		updateExtractCandidate = originalExtractCandidate
 		updateValidateCandidate = originalValidateCandidate
-		updateReplaceBinary = originalReplaceBinary
+		updateInstallCandidate = originalReplaceBinary
 	})
 
 	runtimeAssetName := "agent-gate_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
@@ -462,14 +464,17 @@ func TestApplyDryRunIsIdempotent(t *testing.T) {
 	updateVerifyGitHubAttestations = func(_ context.Context, _ Options, _ release, _ releaseAsset, _ string) error {
 		return nil
 	}
-	updateExtractCandidate = func(_ string, _ string, _ int64) (string, func(), error) {
+	updateExtractCandidate = func(_ string, _ string, _ int64, _ string) (string, func(), error) {
 		return candidatePath, func() {}, nil
 	}
 	updateValidateCandidate = func(_ context.Context, _ Config, _ string) error {
 		return nil
 	}
-	updateReplaceBinary = func(_, _ string) error {
-		t.Fatal("updateReplaceBinary() should not run during dry-run")
+	updateInstallCandidate = func(_, _ string) error {
+		t.Fatal("updateInstallCandidate() should not run during dry-run")
+		return nil
+	}
+	updateVerifyCandidateSignature = func(_ context.Context, _ string) error {
 		return nil
 	}
 
