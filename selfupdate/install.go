@@ -218,6 +218,14 @@ func installReleaseSet(
 // stageSymlink writes symlink as a hidden candidate in binDir, named like a
 // staged binary candidate for recoverInterruptedInstall.
 func stageSymlink(binDir string, symlink InstallSymlink) (stagedCandidate, error) {
+	targetPath := symlink.Target
+	if !filepath.IsAbs(targetPath) {
+		targetPath = filepath.Join(binDir, targetPath)
+	}
+	if _, err := os.Stat(targetPath); err != nil {
+		slog.Warn("release install symlink target missing", "name", symlink.Name, "target", symlink.Target, "err", err)
+		return stagedCandidate{}, fmt.Errorf("install symlink %s target %s: %w", symlink.Name, symlink.Target, err)
+	}
 	reserved, err := os.CreateTemp(binDir, "."+symlink.Name+"-candidate-*")
 	if err != nil {
 		slog.Warn("release install symlink candidate reserve failed", "dir", binDir, "err", err)

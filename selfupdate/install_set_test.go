@@ -303,3 +303,25 @@ func TestInstallReleaseBinariesPassesValidateEnv(t *testing.T) {
 	}
 	assertFileBytes(t, filepath.Join(binDir, "alpha"), envCandidate)
 }
+
+// TestInstallReleaseBinariesRejectsSymlinkToMissingTarget points the staged
+// symlink at a file that does not exist. The install must fail and leave the
+// binaries and the installed symlink unchanged.
+func TestInstallReleaseBinariesRejectsSymlinkToMissingTarget(t *testing.T) {
+	skipAttestationVerification(t)
+	pureCandidate := buildProbeBinary(t, pureGoProbeSource, []string{"CGO_ENABLED=0"})
+	fixture := newReleaseFixture(t, map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": pureCandidate})
+	installOptions, binDir, oldContents := installSetOptions(t, fixture)
+	addInstalledSymlink(t, &installOptions, binDir)
+	installOptions.Symlinks = []InstallSymlink{{Name: setLinkName, Target: "libprobe.missing"}}
+
+	_, err := InstallReleaseBinaries(context.Background(), installOptions)
+	if err == nil || !strings.Contains(err.Error(), "target libprobe.missing") {
+		t.Fatalf("InstallReleaseBinaries() error = %v, want a missing symlink target error", err)
+	}
+	for binary, content := range oldContents {
+		assertFileBytes(t, filepath.Join(binDir, binary), content)
+	}
+	assertSymlinkTarget(t, filepath.Join(binDir, setLinkName), setOldLinkTarget)
+	assertDirectoryEntries(t, binDir, []string{"alpha", "beta", "gamma", setLinkName, setOldLinkTarget, setNewLinkTarget})
+}
