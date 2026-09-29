@@ -242,6 +242,49 @@ func TestApplyAllLeavesEveryBinaryUnchangedWhenOneCandidateFails(t *testing.T) {
 	assertDirectoryEntries(t, installDir, []string{"alpha", "beta", "gamma"})
 }
 
+// TestApplyAllRestoresBinariesAfterInterruptedInstall lays out the files that a
+// kill during installCandidates leaves: alpha already replaced with its backup
+// beside it, beta backed up but not replaced, and a staged beta candidate. The
+// next ApplyAll, with no newer release, must restore both backups and remove
+// every hidden file.
+func TestApplyAllRestoresBinariesAfterInterruptedInstall(t *testing.T) {
+	fixture := newReleaseFixture(t, map[string][]byte{"alpha": []byte("unused"), "beta": []byte("unused")})
+	installDir := t.TempDir()
+	stateDir := t.TempDir()
+	files := map[string][]byte{
+		"alpha":                   []byte("new alpha from the interrupted install"),
+		".alpha-previous-1111":    []byte("old alpha"),
+		"beta":                    []byte("old beta"),
+		".beta-previous-2222":     []byte("old beta"),
+		".beta-candidate-3333":    []byte("staged beta candidate"),
+		".gamma-candidate-4444":   []byte("candidate of a binary outside the set"),
+		"unrelated-previous-5555": []byte("not a hidden update file"),
+	}
+	for name, content := range files {
+		writeInstalledBinary(t, filepath.Join(installDir, name), content)
+	}
+	allOptions := []Options{
+		fixture.options(t, "alpha", installDir, stateDir, "version: pure"),
+		fixture.options(t, "beta", installDir, stateDir, "version: pure"),
+	}
+	for index := range allOptions {
+		allOptions[index].Config.CurrentVersion = installDirTestNewTag
+	}
+
+	results, err := ApplyAll(context.Background(), allOptions)
+	if err != nil {
+		t.Fatalf("ApplyAll() error: %v", err)
+	}
+	for index, result := range results {
+		if result.Applied || result.UpdateAvailable {
+			t.Fatalf("result %d Applied=%t UpdateAvailable=%t, want false and false", index, result.Applied, result.UpdateAvailable)
+		}
+	}
+	assertFileBytes(t, filepath.Join(installDir, "alpha"), []byte("old alpha"))
+	assertFileBytes(t, filepath.Join(installDir, "beta"), []byte("old beta"))
+	assertDirectoryEntries(t, installDir, []string{"alpha", "beta", ".gamma-candidate-4444", "unrelated-previous-5555"})
+}
+
 func buildProbeLibrary(t *testing.T, directory string) string {
 	t.Helper()
 	sourcePath := filepath.Join(t.TempDir(), "probe.c")

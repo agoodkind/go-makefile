@@ -27,7 +27,14 @@ type stagedCandidate struct {
 // own directory (an @loader_path or $ORIGIN runpath) finds the same library it
 // loads after install. ApplyAll validates every candidate before it replaces
 // any installed binary. A candidate that fails validation stops the update
-// before any rename.
+// before any rename. A dry run also writes and validates each candidate in the
+// install directory, then removes it.
+//
+// A process killed during an update can leave hidden candidate and backup
+// files in the install directory. The next ApplyAll call on the same install
+// paths renames each leftover backup over its install path and removes every
+// leftover candidate before it checks for a release. A kill during the rename
+// step therefore ends with the set of binaries installed before that update.
 func ApplyAll(ctx context.Context, options []Options) ([]ApplyResult, error) {
 	if len(options) == 0 {
 		return nil, fmt.Errorf("update options are required")
@@ -68,6 +75,9 @@ func validateApplySet(options []Options) error {
 }
 
 func applySet(ctx context.Context, options []Options, results []ApplyResult) error {
+	if err := recoverInterruptedInstall(options); err != nil {
+		return err
+	}
 	anyUpdateAvailable := false
 	for index, option := range options {
 		check, err := Check(ctx, option)
@@ -118,6 +128,46 @@ func applySet(ctx context.Context, options []Options, results []ApplyResult) err
 		results[index].Applied = results[index].UpdateAvailable && !option.DryRun
 	}
 	return saveApplySetState(options, results)
+}
+
+// recoverInterruptedInstall runs under the update lock. For each install path
+// it renames one leftover backup over the install path, removes any other
+// leftover backup, and removes every leftover candidate.
+func recoverInterruptedInstall(options []Options) error {
+	for _, option := range options {
+		if strings.TrimSpace(option.InstallPath) == "" {
+			continue
+		}
+		installDir := filepath.Dir(option.InstallPath)
+		installName := filepath.Base(option.InstallPath)
+		backups, err := filepath.Glob(filepath.Join(installDir, "."+installName+"-previous-*"))
+		if err != nil {
+			slog.Warn("update leftover backup lookup failed", "install_path", option.InstallPath, "err", err)
+			return fmt.Errorf("find leftover backups for %s: %w", option.InstallPath, err)
+		}
+		candidates, err := filepath.Glob(filepath.Join(installDir, "."+installName+"-candidate-*"))
+		if err != nil {
+			slog.Warn("update leftover candidate lookup failed", "install_path", option.InstallPath, "err", err)
+			return fmt.Errorf("find leftover candidates for %s: %w", option.InstallPath, err)
+		}
+		for index, backupPath := range backups {
+			if index > 0 {
+				slog.Warn("update removed extra leftover backup", "path", backupPath)
+				_ = os.Remove(backupPath)
+				continue
+			}
+			if err := os.Rename(backupPath, option.InstallPath); err != nil {
+				slog.Warn("update leftover backup restore failed", "path", backupPath, "err", err)
+				return fmt.Errorf("restore leftover backup %s: %w", backupPath, err)
+			}
+			slog.Warn("update restored binary from interrupted install", "install_path", option.InstallPath, "backup", backupPath)
+		}
+		for _, candidatePath := range candidates {
+			slog.Warn("update removed leftover candidate", "path", candidatePath)
+			_ = os.Remove(candidatePath)
+		}
+	}
+	return nil
 }
 
 func saveApplySetState(options []Options, results []ApplyResult) error {
