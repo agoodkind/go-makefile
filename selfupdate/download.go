@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -97,6 +98,21 @@ func downloadFileWithHeaders(
 	}
 }
 
+// readErrorRecorder records the first error other than io.EOF that its reader
+// returns.
+type readErrorRecorder struct {
+	reader io.Reader
+	err    error
+}
+
+func (recorder *readErrorRecorder) Read(buffer []byte) (int, error) {
+	count, err := recorder.reader.Read(buffer)
+	if err != nil && !errors.Is(err, io.EOF) && recorder.err == nil {
+		recorder.err = err
+	}
+	return count, err
+}
+
 // downloadFileOnce makes one download attempt. The boolean reports whether
 // the failure is an HTTP 5xx response or a network error.
 func downloadFileOnce(
@@ -140,13 +156,18 @@ func downloadFileOnce(
 		return false, fmt.Errorf("open download temp: %w", err)
 	}
 	tmpPath := out.Name()
-	limitedReader := io.LimitReader(resp.Body, maxBytes+1)
-	written, copyErr := io.Copy(out, limitedReader)
+	body := &readErrorRecorder{reader: io.LimitReader(resp.Body, maxBytes+1)}
+	written, copyErr := io.Copy(out, body)
 	closeErr := out.Close()
 	if copyErr != nil {
 		_ = os.Remove(tmpPath)
 		slog.WarnContext(ctx, "update download copy failed", "path", path, "err", copyErr)
-		return ctx.Err() == nil, fmt.Errorf("write download temp: %w", copyErr)
+		// A response body read error is a network error. A temp file write
+		// error is a local file error and is not retried.
+		if body.err != nil {
+			return ctx.Err() == nil, fmt.Errorf("read download %s: %w", url, copyErr)
+		}
+		return false, fmt.Errorf("write download temp: %w", copyErr)
 	}
 	if written > maxBytes {
 		_ = os.Remove(tmpPath)

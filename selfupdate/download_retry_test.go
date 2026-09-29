@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +16,12 @@ import (
 const (
 	retryTestTag       = "v1.2.3"
 	retryTestAssetName = "agent-gate_linux_arm64.tar.gz"
+
+	// truncatedBody in a failure list makes the server announce a
+	// Content-Length longer than the body it writes. The client read then
+	// fails before the announced end.
+	truncatedBody          = 0
+	truncatedBodyShortfall = 64
 )
 
 // flakyAssetServer serves one release. Its archive download answers with the
@@ -53,6 +60,11 @@ func newFlakyAssetServer(t *testing.T, archive []byte, body []byte, failures []i
 				flaky.failures = flaky.failures[1:]
 			}
 			flaky.mutex.Unlock()
+			if status == truncatedBody {
+				writer.Header().Set("Content-Length", strconv.Itoa(len(flaky.body)+truncatedBodyShortfall))
+				_, _ = writer.Write(flaky.body)
+				return
+			}
 			if status != http.StatusOK {
 				http.Error(writer, "injected failure", status)
 				return
@@ -130,6 +142,21 @@ func TestDownloadStopsAfterBoundedServerErrors(t *testing.T) {
 	if got := flaky.downloadRequests(); got != downloadAttempts {
 		t.Fatalf("download requests = %d, want %d", got, downloadAttempts)
 	}
+}
+
+func TestDownloadRetriesTruncatedResponseBody(t *testing.T) {
+	useShortRetryDelay(t)
+	archive := []byte("release archive")
+	flaky := newFlakyAssetServer(t, archive, archive, []int{truncatedBody})
+
+	archivePath, err := flaky.verify(t)
+	if err != nil {
+		t.Fatalf("VerifyReleaseAssets() error: %v", err)
+	}
+	if got := flaky.downloadRequests(); got != 2 {
+		t.Fatalf("download requests = %d, want 2", got)
+	}
+	assertFileBytes(t, archivePath, archive)
 }
 
 func TestDownloadDoesNotRetryClientError(t *testing.T) {
