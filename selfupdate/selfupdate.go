@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -324,11 +325,13 @@ func (cfg Config) interval() time.Duration {
 	return cfg.Interval
 }
 
-func (cfg Config) signerWorkflowURI() string {
+// signerWorkflowPattern returns an anchored pattern for the build provenance
+// signer. An explicit SignerWorkflowURI matches only that exact URI.
+func (cfg Config) signerWorkflowPattern() string {
 	if cfg.SignerWorkflowURI == "" {
-		return goMakefilePackageWorkflowURI
+		return goMakefileWorkflowPattern
 	}
-	return cfg.SignerWorkflowURI
+	return "^" + regexp.QuoteMeta(cfg.SignerWorkflowURI) + "$"
 }
 
 func (cfg Config) validateArgs() []string {

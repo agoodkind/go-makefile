@@ -112,18 +112,44 @@ func TestValidateReleaseAttestationRejectsMismatches(t *testing.T) {
 	}
 }
 
-func TestValidateBuildProvenanceCertificate(t *testing.T) {
-	summary := &fulciocert.Summary{
-		SubjectAlternativeName: goMakefilePackageWorkflowURI,
+const (
+	testPackageWorkflowURI      = "https://github.com/agoodkind/go-makefile/.github/workflows/_package.yml@refs/heads/main"
+	testReleaseBuildWorkflowURI = "https://github.com/agoodkind/go-makefile/.github/workflows/_release_build.yml@refs/heads/main"
+)
+
+func buildProvenanceSummary(signerWorkflowURI string, repo string) *fulciocert.Summary {
+	return &fulciocert.Summary{
+		SubjectAlternativeName: signerWorkflowURI,
 		Extensions: fulciocert.Extensions{
 			Issuer:              githubActionsOIDCIssuer,
-			BuildSignerURI:      goMakefilePackageWorkflowURI,
+			BuildSignerURI:      signerWorkflowURI,
 			RunnerEnvironment:   githubHostedRunnerEnvironment,
-			SourceRepositoryURI: githubRepositoryURI("agoodkind/agent-gate"),
+			SourceRepositoryURI: githubRepositoryURI(repo),
 		},
 	}
-	if err := validateBuildProvenanceCertificate(summary, "agoodkind/agent-gate", goMakefilePackageWorkflowURI); err != nil {
+}
+
+// The default pattern accepts both the old and the renamed packaging
+// workflow. A binary built before a workflow rename must accept releases
+// signed by the renamed workflow.
+func TestValidateBuildProvenanceCertificateAcceptsAnyGoMakefileWorkflowOnMain(t *testing.T) {
+	pattern := Config{}.signerWorkflowPattern()
+	for _, signerWorkflowURI := range []string{testPackageWorkflowURI, testReleaseBuildWorkflowURI} {
+		summary := buildProvenanceSummary(signerWorkflowURI, "agoodkind/agent-gate")
+		if err := validateBuildProvenanceCertificate(summary, "agoodkind/agent-gate", pattern); err != nil {
+			t.Fatalf("validateBuildProvenanceCertificate(%s) error: %v", signerWorkflowURI, err)
+		}
+	}
+}
+
+func TestValidateBuildProvenanceCertificateExactOverride(t *testing.T) {
+	pattern := Config{SignerWorkflowURI: testPackageWorkflowURI}.signerWorkflowPattern()
+	if err := validateBuildProvenanceCertificate(buildProvenanceSummary(testPackageWorkflowURI, "agoodkind/agent-gate"), "agoodkind/agent-gate", pattern); err != nil {
 		t.Fatalf("validateBuildProvenanceCertificate() error: %v", err)
+	}
+	err := validateBuildProvenanceCertificate(buildProvenanceSummary(testReleaseBuildWorkflowURI, "agoodkind/agent-gate"), "agoodkind/agent-gate", pattern)
+	if err == nil || !strings.Contains(err.Error(), "SAN") {
+		t.Fatalf("validateBuildProvenanceCertificate() error = %v, want SAN mismatch for another workflow", err)
 	}
 }
 
@@ -135,40 +161,44 @@ func TestValidateBuildProvenanceCertificateRejectsMismatches(t *testing.T) {
 		want    string
 	}{
 		{
-			name: "wrong signer workflow",
+			name:    "workflow outside go-makefile",
+			summary: buildProvenanceSummary("https://github.com/agoodkind/agent-gate/.github/workflows/_package.yml@refs/heads/main", "agoodkind/agent-gate"),
+			repo:    "agoodkind/agent-gate",
+			want:    "SAN",
+		},
+		{
+			name:    "go-makefile workflow on another ref",
+			summary: buildProvenanceSummary("https://github.com/agoodkind/go-makefile/.github/workflows/_package.yml@refs/heads/feature", "agoodkind/agent-gate"),
+			repo:    "agoodkind/agent-gate",
+			want:    "SAN",
+		},
+		{
+			name: "build signer differs from SAN",
 			summary: &fulciocert.Summary{
-				SubjectAlternativeName: "https://github.com/agoodkind/go-makefile/.github/workflows/not-real.yml@refs/heads/main",
+				SubjectAlternativeName: testPackageWorkflowURI,
 				Extensions: fulciocert.Extensions{
 					Issuer:              githubActionsOIDCIssuer,
-					BuildSignerURI:      goMakefilePackageWorkflowURI,
+					BuildSignerURI:      testReleaseBuildWorkflowURI,
 					RunnerEnvironment:   githubHostedRunnerEnvironment,
 					SourceRepositoryURI: githubRepositoryURI("agoodkind/agent-gate"),
 				},
 			},
 			repo: "agoodkind/agent-gate",
-			want: "SAN",
+			want: "build signer URI",
 		},
 		{
 			name: "wrong repo",
-			summary: &fulciocert.Summary{
-				SubjectAlternativeName: goMakefilePackageWorkflowURI,
-				Extensions: fulciocert.Extensions{
-					Issuer:              githubActionsOIDCIssuer,
-					BuildSignerURI:      goMakefilePackageWorkflowURI,
-					RunnerEnvironment:   githubHostedRunnerEnvironment,
-					SourceRepositoryURI: githubRepositoryURI("agoodkind/go-makefile"),
-				},
-			},
-			repo: "agoodkind/agent-gate",
-			want: "source repository URI",
+			summary: buildProvenanceSummary(testPackageWorkflowURI, "agoodkind/go-makefile"),
+			repo:    "agoodkind/agent-gate",
+			want:    "source repository URI",
 		},
 		{
 			name: "wrong issuer",
 			summary: &fulciocert.Summary{
-				SubjectAlternativeName: goMakefilePackageWorkflowURI,
+				SubjectAlternativeName: testPackageWorkflowURI,
 				Extensions: fulciocert.Extensions{
 					Issuer:              "https://issuer.example.invalid",
-					BuildSignerURI:      goMakefilePackageWorkflowURI,
+					BuildSignerURI:      testPackageWorkflowURI,
 					RunnerEnvironment:   githubHostedRunnerEnvironment,
 					SourceRepositoryURI: githubRepositoryURI("agoodkind/agent-gate"),
 				},
@@ -179,7 +209,7 @@ func TestValidateBuildProvenanceCertificateRejectsMismatches(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			err := validateBuildProvenanceCertificate(testCase.summary, testCase.repo, goMakefilePackageWorkflowURI)
+			err := validateBuildProvenanceCertificate(testCase.summary, testCase.repo, Config{}.signerWorkflowPattern())
 			if err == nil {
 				t.Fatal("validateBuildProvenanceCertificate() error = nil, want mismatch")
 			}
@@ -204,7 +234,7 @@ func TestValidateBuildProvenanceRejectsMissingCertificateSummary(t *testing.T) {
 		"agoodkind/agent-gate",
 		"agent-gate_darwin_arm64.tar.gz",
 		"deadbeef",
-		goMakefilePackageWorkflowURI,
+		Config{}.signerWorkflowPattern(),
 	)
 	if err == nil {
 		t.Fatal("validateBuildProvenance() error = nil, want missing certificate summary")
