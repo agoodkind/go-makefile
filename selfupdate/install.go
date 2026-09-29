@@ -84,6 +84,98 @@ func InstallReleaseBinary(ctx context.Context, installOptions InstallReleaseBina
 	}, nil
 }
 
+// InstallReleaseBinariesOptions configures an install of several binaries from
+// one release of one repository into one bin directory.
+type InstallReleaseBinariesOptions struct {
+	Options []Options
+	Version string
+	Channel ReleaseChannel
+	BinDir  string
+}
+
+// InstallReleaseBinaries installs every binary in installOptions.Options from
+// one release as one unit. It resolves the release once, writes each
+// candidate as a hidden file in BinDir, and validates each candidate there
+// before it replaces any installed binary. A failed download, verification,
+// or validation leaves every installed binary unchanged. The renames use the
+// backup, rollback, and commit marker of ApplyAll, and the marker sits beside
+// the first option's state file.
+func InstallReleaseBinaries(
+	ctx context.Context,
+	installOptions InstallReleaseBinariesOptions,
+) ([]InstallReleaseBinaryResult, error) {
+	if len(installOptions.Options) == 0 {
+		return nil, fmt.Errorf("install options are required")
+	}
+	resolvedOptions := make([]Options, 0, len(installOptions.Options))
+	for _, option := range installOptions.Options {
+		option.InstallPath = filepath.Join(installOptions.BinDir, option.Config.Binary)
+		option.DryRun = false
+		resolved := resolveOptions(option)
+		if err := validateInstallReleaseBinaryInput(resolved.Config, installOptions.BinDir); err != nil {
+			return nil, err
+		}
+		resolvedOptions = append(resolvedOptions, resolved)
+	}
+	for _, option := range resolvedOptions[1:] {
+		if option.Config.Repo != resolvedOptions[0].Config.Repo {
+			return nil, fmt.Errorf("install set mixes repositories %s and %s", resolvedOptions[0].Config.Repo, option.Config.Repo)
+		}
+	}
+	var results []InstallReleaseBinaryResult
+	err := updateWithLock(ctx, resolvedOptions[0].StatePath, func() error {
+		installed, installErr := installReleaseSet(ctx, resolvedOptions, installOptions)
+		results = installed
+		return installErr
+	})
+	if err != nil {
+		resolvedOptions[0].Log.WarnContext(ctx, "release install set failed", "err", err)
+		return nil, err
+	}
+	return results, nil
+}
+
+func installReleaseSet(
+	ctx context.Context,
+	options []Options,
+	installOptions InstallReleaseBinariesOptions,
+) ([]InstallReleaseBinaryResult, error) {
+	if err := recoverInterruptedInstall(options); err != nil {
+		return nil, err
+	}
+	latest, err := resolveRequestedRelease(ctx, options[0], installOptions.Version, installOptions.Channel)
+	if err != nil {
+		return nil, err
+	}
+	staged := make([]stagedCandidate, 0, len(options))
+	defer func() {
+		for _, candidate := range staged {
+			candidate.cleanup()
+		}
+	}()
+	results := make([]InstallReleaseBinaryResult, 0, len(options))
+	for _, option := range options {
+		candidate, err := stageCandidate(ctx, option, latest)
+		if err != nil {
+			return nil, err
+		}
+		staged = append(staged, candidate)
+		asset, err := selectArchiveAsset(latest.Assets, option.Config.Binary)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, InstallReleaseBinaryResult{
+			Tag:         latest.TagName,
+			AssetName:   asset.Name,
+			InstallPath: option.InstallPath,
+		})
+	}
+	if err := installCandidates(staged, installCommitMarkerPath(options[0])); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
 func resolveRequestedRelease(ctx context.Context, options Options, version string, channel ReleaseChannel) (release, error) {
 	version = strings.TrimSpace(version)
 	if version != "" {

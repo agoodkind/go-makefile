@@ -14,6 +14,8 @@ A process killed during an apply can leave hidden `.<binary>-candidate-*` and `.
 
 `InstallReleaseBinary` and `ResolveReleaseTag` live in [selfupdate/install.go](../../selfupdate/install.go). `InstallReleaseBinary` is the first-install API used by [cmd/go-mk-install](../../cmd/go-mk-install). `ResolveReleaseTag` resolves an exact version or the latest rolling or stable channel without downloading an archive.
 
+`InstallReleaseBinaries` installs several binaries of one repository into one bin directory as one unit, for a consumer that ships more than one binary. It resolves the exact version or channel once, stages and validates every candidate in the bin directory, and then renames them with the backup, rollback, and commit marker that `ApplyAll` uses. A failed download, verification, or validation leaves every installed binary unchanged. Unlike `InstallReleaseBinary`, it runs each candidate's validation command before any rename. A candidate that loads a shared library from its own directory needs that library in the bin directory before the install starts.
+
 `VerifyReleaseAssets` lives in [selfupdate/release.go](../../selfupdate/release.go), and [selfupdate/cmd/verify-release](../../selfupdate/cmd/verify-release) exposes it as the post-publish verifier. The reusable release workflow calls that command when the caller passes a `binary` input in [.github/workflows/_release.yml](../../.github/workflows/_release.yml).
 
 ## Verification

@@ -84,11 +84,14 @@ func main() {
 type releaseFixture struct {
 	server   *httptest.Server
 	archives map[string][]byte
+	// The release list includes every archive in refusedDownloads, and the
+	// download path answers each of those archives with HTTP 404.
+	refusedDownloads map[string]bool
 }
 
 func newReleaseFixture(t *testing.T, binaries map[string][]byte) *releaseFixture {
 	t.Helper()
-	fixture := &releaseFixture{archives: map[string][]byte{}}
+	fixture := &releaseFixture{archives: map[string][]byte{}, refusedDownloads: map[string]bool{}}
 	for binary, content := range binaries {
 		assetName := binary + "_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
 		fixture.archives[assetName] = tarGzipSingleFile(t, binary, content)
@@ -96,7 +99,7 @@ func newReleaseFixture(t *testing.T, binaries map[string][]byte) *releaseFixture
 	fixture.server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if archiveName, found := strings.CutPrefix(request.URL.Path, "/downloads/"); found {
 			archive, ok := fixture.archives[archiveName]
-			if !ok {
+			if !ok || fixture.refusedDownloads[archiveName] {
 				http.NotFound(writer, request)
 				return
 			}
