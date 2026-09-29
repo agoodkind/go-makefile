@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,7 +12,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// downloadAttempts bounds the attempts for one download, the first included.
+const downloadAttempts = 3
+
+// downloadRetryDelay is the wait before the second attempt. Each later wait
+// doubles it.
+var downloadRetryDelay = 2 * time.Second
 
 // downloadFile writes url to path, refusing anything larger than maxBytes so a
 // hostile or corrupt asset cannot exhaust the disk. The caller supplies the
@@ -54,6 +63,11 @@ func downloadReleaseAsset(ctx context.Context, options Options, asset releaseAss
 	)
 }
 
+// downloadFileWithHeaders downloads url to path. It retries an HTTP 5xx
+// response or a network error up to downloadAttempts times in total, doubling
+// the delay after each failure. It returns any other failure, including every
+// HTTP 4xx response, without a retry. Callers verify the checksum of the file
+// it writes.
 func downloadFileWithHeaders(
 	ctx context.Context,
 	client *http.Client,
@@ -62,11 +76,58 @@ func downloadFileWithHeaders(
 	maxBytes int64,
 	headers http.Header,
 ) error {
+	delay := downloadRetryDelay
+	for attempt := 1; ; attempt++ {
+		retryable, err := downloadFileOnce(ctx, client, url, path, maxBytes, headers)
+		if err == nil {
+			return nil
+		}
+		if !retryable || attempt >= downloadAttempts {
+			return err
+		}
+		slog.WarnContext(ctx, "update download retrying", "url", url, "attempt", attempt, "delay", delay, "err", err)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			slog.WarnContext(ctx, "update download retry canceled", "url", url, "err", ctx.Err())
+			return fmt.Errorf("download %s: %w", url, ctx.Err())
+		case <-timer.C:
+		}
+		delay *= 2
+	}
+}
+
+// readErrorRecorder records the first error other than io.EOF that its reader
+// returns.
+type readErrorRecorder struct {
+	reader io.Reader
+	err    error
+}
+
+func (recorder *readErrorRecorder) Read(buffer []byte) (int, error) {
+	count, err := recorder.reader.Read(buffer)
+	if err != nil && !errors.Is(err, io.EOF) && recorder.err == nil {
+		recorder.err = err
+	}
+	return count, err
+}
+
+// downloadFileOnce makes one download attempt. The boolean reports whether
+// the failure is an HTTP 5xx response or a network error.
+func downloadFileOnce(
+	ctx context.Context,
+	client *http.Client,
+	url string,
+	path string,
+	maxBytes int64,
+	headers http.Header,
+) (bool, error) {
 	slog.InfoContext(ctx, "update download file", "url", url, "path", path)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		slog.WarnContext(ctx, "update download request build failed", "url", url, "err", err)
-		return fmt.Errorf("build download request: %w", err)
+		return false, fmt.Errorf("build download request: %w", err)
 	}
 	for name, values := range headers {
 		for _, value := range values {
@@ -76,50 +137,55 @@ func downloadFileWithHeaders(
 	resp, err := client.Do(req)
 	if err != nil {
 		slog.WarnContext(ctx, "update download request failed", "url", url, "err", err)
-		return fmt.Errorf("download %s: %w", url, err)
+		return ctx.Err() == nil, fmt.Errorf("download %s: %w", url, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		err := fmt.Errorf("download %s: HTTP %d", url, resp.StatusCode)
 		slog.WarnContext(ctx, "update download status failed", "url", url, "status_code", resp.StatusCode, "err", err)
-		return err
+		return resp.StatusCode >= http.StatusInternalServerError, err
 	}
 	if resp.ContentLength > maxBytes {
 		err := fmt.Errorf("download %s exceeds %d bytes", url, maxBytes)
 		slog.WarnContext(ctx, "update download size rejected", "url", url, "content_length", resp.ContentLength, "err", err)
-		return err
+		return false, err
 	}
 	out, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
 		slog.WarnContext(ctx, "update download temp open failed", "path", path, "err", err)
-		return fmt.Errorf("open download temp: %w", err)
+		return false, fmt.Errorf("open download temp: %w", err)
 	}
 	tmpPath := out.Name()
-	limitedReader := io.LimitReader(resp.Body, maxBytes+1)
-	written, copyErr := io.Copy(out, limitedReader)
+	body := &readErrorRecorder{reader: io.LimitReader(resp.Body, maxBytes+1)}
+	written, copyErr := io.Copy(out, body)
 	closeErr := out.Close()
 	if copyErr != nil {
 		_ = os.Remove(tmpPath)
 		slog.WarnContext(ctx, "update download copy failed", "path", path, "err", copyErr)
-		return fmt.Errorf("write download temp: %w", copyErr)
+		// A response body read error is a network error. A temp file write
+		// error is a local file error and is not retried.
+		if body.err != nil {
+			return ctx.Err() == nil, fmt.Errorf("read download %s: %w", url, copyErr)
+		}
+		return false, fmt.Errorf("write download temp: %w", copyErr)
 	}
 	if written > maxBytes {
 		_ = os.Remove(tmpPath)
 		err := fmt.Errorf("download %s exceeds %d bytes", url, maxBytes)
 		slog.WarnContext(ctx, "update download size exceeded", "url", url, "written", written, "err", err)
-		return err
+		return false, err
 	}
 	if closeErr != nil {
 		_ = os.Remove(tmpPath)
 		slog.WarnContext(ctx, "update download close failed", "path", path, "err", closeErr)
-		return fmt.Errorf("close download temp: %w", closeErr)
+		return false, fmt.Errorf("close download temp: %w", closeErr)
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		_ = os.Remove(tmpPath)
 		slog.WarnContext(ctx, "update download replace failed", "path", path, "err", err)
-		return fmt.Errorf("replace download: %w", err)
+		return false, fmt.Errorf("replace download: %w", err)
 	}
-	return nil
+	return false, nil
 }
 
 func verifyChecksum(ctx context.Context, options Options, latest release, asset releaseAsset, archivePath string) error {
