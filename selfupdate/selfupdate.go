@@ -327,11 +327,11 @@ func (cfg Config) interval() time.Duration {
 
 // signerWorkflowPattern returns an anchored pattern for the build provenance
 // signer. An explicit SignerWorkflowURI matches only that exact URI.
-func (cfg Config) signerWorkflowPattern() string {
+func (cfg Config) signerWorkflowPattern() *regexp.Regexp {
 	if cfg.SignerWorkflowURI == "" {
-		return goMakefileWorkflowPattern
+		return goMakefileWorkflow
 	}
-	return "^" + regexp.QuoteMeta(cfg.SignerWorkflowURI) + "$"
+	return regexp.MustCompile("^" + regexp.QuoteMeta(cfg.SignerWorkflowURI) + "$")
 }
 
 func (cfg Config) validateArgs() []string {

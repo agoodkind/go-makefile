@@ -34,6 +34,8 @@ const (
 	goMakefileWorkflowPattern = `^https://github\.com/agoodkind/go-makefile/\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml@refs/heads/main$`
 )
 
+var goMakefileWorkflow = regexp.MustCompile(goMakefileWorkflowPattern)
+
 //go:embed embed/tuf-repo.github.com/4.root.json
 var githubReleaseTUFBootstrapRoot []byte
 
@@ -147,7 +149,7 @@ func verifyBuildProvenanceAttestation(ctx context.Context, options Options, asse
 	}
 	sourceRepositoryURI := githubRepositoryURI(repo)
 	signerWorkflowPattern := options.Config.signerWorkflowPattern()
-	sanMatcher, err := sigverify.NewSANMatcher("", signerWorkflowPattern)
+	sanMatcher, err := sigverify.NewSANMatcher("", signerWorkflowPattern.String())
 	if err != nil {
 		return fmt.Errorf("build provenance SAN matcher: %w", err)
 	}
@@ -366,7 +368,7 @@ func validateReleaseAttestation(result *sigverify.VerificationResult, repo strin
 	return nil
 }
 
-func validateBuildProvenance(result *sigverify.VerificationResult, repo string, assetName string, digestHex string, signerWorkflowPattern string) error {
+func validateBuildProvenance(result *sigverify.VerificationResult, repo string, assetName string, digestHex string, signerWorkflowPattern *regexp.Regexp) error {
 	if result.Statement == nil {
 		return fmt.Errorf("build provenance statement missing")
 	}
@@ -382,14 +384,9 @@ func validateBuildProvenance(result *sigverify.VerificationResult, repo string, 
 	return validateBuildProvenanceCertificate(result.Signature.Certificate, repo, signerWorkflowPattern)
 }
 
-func validateBuildProvenanceCertificate(summary *fulciocert.Summary, repo string, signerWorkflowPattern string) error {
-	signerWorkflow, err := regexp.Compile(signerWorkflowPattern)
-	if err != nil {
-		slog.Warn("update signer workflow pattern compile failed", "pattern", signerWorkflowPattern, "err", err)
-		return fmt.Errorf("compile signer workflow pattern %q: %w", signerWorkflowPattern, err)
-	}
-	if !signerWorkflow.MatchString(summary.SubjectAlternativeName) {
-		return fmt.Errorf("build provenance SAN %q did not match %q", summary.SubjectAlternativeName, signerWorkflowPattern)
+func validateBuildProvenanceCertificate(summary *fulciocert.Summary, repo string, signerWorkflowPattern *regexp.Regexp) error {
+	if !signerWorkflowPattern.MatchString(summary.SubjectAlternativeName) {
+		return fmt.Errorf("build provenance SAN %q did not match %q", summary.SubjectAlternativeName, signerWorkflowPattern.String())
 	}
 	if summary.Issuer != githubActionsOIDCIssuer {
 		return fmt.Errorf("build provenance issuer %q did not match %q", summary.Issuer, githubActionsOIDCIssuer)
