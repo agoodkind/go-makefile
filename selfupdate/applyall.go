@@ -36,10 +36,14 @@ type stagedCandidate struct {
 // skips the launch check, and sets ApplyResult.LaunchCheckSkipped.
 //
 // A process killed during an update can leave hidden candidate and backup
-// files in the install directory. Before its release check, every later
-// ApplyAll run except a dry run renames each leftover backup over its install
-// path and removes every leftover candidate. A kill during the rename step ends
-// with the set of binaries installed before that update.
+// files in the install directory. After the last rename, ApplyAll writes a
+// commit marker beside the state file, removes the backups, and then removes
+// the marker. Before its release check, every later ApplyAll run except a dry
+// run reads the marker. With the marker present, it removes the leftover
+// backups and keeps the new binaries. Without it, it renames each leftover
+// backup over its install path. Both paths remove every leftover candidate. A
+// kill before the marker ends with the set of binaries installed before that
+// update, and a kill after it ends with the new set.
 func ApplyAll(ctx context.Context, options []Options) ([]ApplyResult, error) {
 	if len(options) == 0 {
 		return nil, fmt.Errorf("update options are required")
@@ -128,7 +132,7 @@ func applySet(ctx context.Context, options []Options, results []ApplyResult) err
 			toInstall = append(toInstall, candidate)
 		}
 	}
-	if err := installCandidates(toInstall); err != nil {
+	if err := installCandidates(toInstall, installCommitMarkerPath(options[0])); err != nil {
 		options[0].Log.WarnContext(ctx, "update install candidates failed", "err", err)
 		return err
 	}
@@ -169,10 +173,15 @@ func anyDryRun(options []Options) bool {
 	return false
 }
 
-// recoverInterruptedInstall runs under the update lock. For each install path
-// it renames one leftover backup over the install path, removes any other
-// leftover backup, and removes every leftover candidate.
+// recoverInterruptedInstall runs under the update lock. When the commit marker
+// exists, it removes every leftover backup and keeps the installed binaries.
+// Otherwise it renames one leftover backup over each install path and removes
+// any other leftover backup. In both cases it removes every leftover candidate
+// and then the marker.
 func recoverInterruptedInstall(options []Options) error {
+	markerPath := installCommitMarkerPath(options[0])
+	_, markerErr := os.Stat(markerPath)
+	committed := markerErr == nil
 	for _, option := range options {
 		if strings.TrimSpace(option.InstallPath) == "" {
 			continue
@@ -190,6 +199,11 @@ func recoverInterruptedInstall(options []Options) error {
 			return fmt.Errorf("find leftover candidates for %s: %w", option.InstallPath, err)
 		}
 		for index, backupPath := range backups {
+			if committed {
+				slog.Warn("update removed leftover backup of a committed install", "path", backupPath)
+				_ = os.Remove(backupPath)
+				continue
+			}
 			if index > 0 {
 				slog.Warn("update removed extra leftover backup", "path", backupPath)
 				_ = os.Remove(backupPath)
@@ -212,6 +226,12 @@ func recoverInterruptedInstall(options []Options) error {
 		for _, candidatePath := range candidates {
 			slog.Warn("update removed leftover candidate", "path", candidatePath)
 			_ = os.Remove(candidatePath)
+		}
+	}
+	if committed {
+		if err := os.Remove(markerPath); err != nil {
+			slog.Warn("update leftover commit marker remove failed", "path", markerPath, "err", err)
+			return fmt.Errorf("remove leftover install commit marker: %w", err)
 		}
 	}
 	return nil
@@ -320,7 +340,7 @@ func stageDryRunCandidate(ctx context.Context, options Options, archivePath stri
 // installCandidates renames every staged candidate over its install path. It
 // first keeps a hard link or copy of each binary it replaces, and it renames
 // those back when a later rename fails.
-func installCandidates(candidates []stagedCandidate) error {
+func installCandidates(candidates []stagedCandidate, markerPath string) error {
 	type replacedBinary struct {
 		installPath string
 		backupPath  string
@@ -356,10 +376,29 @@ func installCandidates(candidates []stagedCandidate) error {
 		}
 		replaced = append(replaced, replacedBinary{installPath: candidate.installPath, backupPath: backupPath})
 	}
+	if len(replaced) == 0 {
+		return nil
+	}
+	if err := os.WriteFile(markerPath, []byte("installed\n"), 0o600); err != nil {
+		joined := errors.Join(err, restore())
+		slog.Warn("update install commit marker write failed", "path", markerPath, "err", joined)
+		return joined
+	}
 	for _, entry := range replaced {
 		if entry.backupPath != "" {
-			_ = os.Remove(entry.backupPath)
+			_ = updateRemoveBackup(entry.backupPath)
 		}
 	}
+	if err := os.Remove(markerPath); err != nil {
+		slog.Warn("update install commit marker remove failed", "path", markerPath, "err", err)
+		return fmt.Errorf("remove install commit marker: %w", err)
+	}
 	return nil
+}
+
+// installCommitMarkerPath returns the path of the file that records a finished
+// set of renames. The file sits beside the state file, outside the install
+// directory.
+func installCommitMarkerPath(options Options) string {
+	return filepath.Join(filepath.Dir(options.StatePath), "update-install-committed")
 }

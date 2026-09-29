@@ -249,25 +249,42 @@ const (
 	interruptedApplyServerEnv  = "SELFUPDATE_INTERRUPTED_APPLY_SERVER"
 	interruptedApplyInstallEnv = "SELFUPDATE_INTERRUPTED_APPLY_INSTALL_DIR"
 	interruptedApplyStateEnv   = "SELFUPDATE_INTERRUPTED_APPLY_STATE_DIR"
+	interruptedApplyPointEnv   = "SELFUPDATE_INTERRUPTED_APPLY_POINT"
 	interruptedApplyExitCode   = 3
+
+	// killDuringRenames exits during the second rename, after alpha is
+	// replaced and before beta is replaced.
+	killDuringRenames = "renames"
+	// killDuringCleanup exits during the first backup removal, after both
+	// renames and the commit marker.
+	killDuringCleanup = "cleanup"
 )
 
 // TestInterruptedApplyHelperProcess runs only inside the child process that
-// TestApplyAllRestoresBinariesAfterKilledApply starts. It applies the alpha and
-// beta set and exits the process during the second rename, after alpha is
-// replaced and before beta is replaced.
+// runInterruptedApply starts. It applies the alpha and beta set and exits the
+// process at the point that SELFUPDATE_INTERRUPTED_APPLY_POINT selects.
 func TestInterruptedApplyHelperProcess(t *testing.T) {
 	if os.Getenv(interruptedApplyHelperEnv) != "1" {
 		return
 	}
 	skipAttestationVerification(t)
-	renameCount := 0
-	updateInstallCandidate = func(candidatePath string, installPath string) error {
-		renameCount++
-		if renameCount == 2 {
-			os.Exit(interruptedApplyExitCode)
+	switch os.Getenv(interruptedApplyPointEnv) {
+	case killDuringRenames:
+		renameCount := 0
+		updateInstallCandidate = func(candidatePath string, installPath string) error {
+			renameCount++
+			if renameCount == 2 {
+				os.Exit(interruptedApplyExitCode)
+			}
+			return installCandidate(candidatePath, installPath)
 		}
-		return installCandidate(candidatePath, installPath)
+	case killDuringCleanup:
+		updateRemoveBackup = func(_ string) error {
+			os.Exit(interruptedApplyExitCode)
+			return nil
+		}
+	default:
+		t.Fatalf("unknown kill point %q", os.Getenv(interruptedApplyPointEnv))
 	}
 	fixture := &releaseFixture{server: &httptest.Server{URL: os.Getenv(interruptedApplyServerEnv)}}
 	installDir := os.Getenv(interruptedApplyInstallEnv)
@@ -280,45 +297,53 @@ func TestInterruptedApplyHelperProcess(t *testing.T) {
 		allOptions[index].Client = http.DefaultClient
 	}
 	_, err := ApplyAll(context.Background(), allOptions)
-	t.Fatalf("ApplyAll() returned before the second rename: %v", err)
+	t.Fatalf("ApplyAll() returned before the kill point: %v", err)
 }
 
-// TestApplyAllRestoresBinariesAfterKilledApply kills a real ApplyAll between
-// its two renames, checks the files that the kill leaves, and then runs
-// ApplyAll again with no newer release. The second run must restore the old
-// alpha from its backup, keep the old beta, and remove every leftover file.
-func TestApplyAllRestoresBinariesAfterKilledApply(t *testing.T) {
+// interruptedApply is one alpha and beta install directory with a child
+// ApplyAll that a test kills at a chosen point.
+type interruptedApply struct {
+	fixture    *releaseFixture
+	candidate  []byte
+	installDir string
+	stateDir   string
+}
+
+func runInterruptedApply(t *testing.T, killPoint string) interruptedApply {
+	t.Helper()
 	pureCandidate := buildProbeBinary(t, pureGoProbeSource, []string{"CGO_ENABLED=0"})
-	fixture := newReleaseFixture(t, map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate})
-	installDir := t.TempDir()
-	stateDir := t.TempDir()
-	writeInstalledBinary(t, filepath.Join(installDir, "alpha"), []byte("old alpha"))
-	writeInstalledBinary(t, filepath.Join(installDir, "beta"), []byte("old beta"))
+	run := interruptedApply{
+		fixture:    newReleaseFixture(t, map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate}),
+		candidate:  pureCandidate,
+		installDir: t.TempDir(),
+		stateDir:   t.TempDir(),
+	}
+	writeInstalledBinary(t, filepath.Join(run.installDir, "alpha"), []byte("old alpha"))
+	writeInstalledBinary(t, filepath.Join(run.installDir, "beta"), []byte("old beta"))
 
 	helper := exec.Command(os.Args[0], "-test.run=^TestInterruptedApplyHelperProcess$", "-test.count=1")
 	helper.Env = append(os.Environ(),
 		interruptedApplyHelperEnv+"=1",
-		interruptedApplyServerEnv+"="+fixture.server.URL,
-		interruptedApplyInstallEnv+"="+installDir,
-		interruptedApplyStateEnv+"="+stateDir,
+		interruptedApplyPointEnv+"="+killPoint,
+		interruptedApplyServerEnv+"="+run.fixture.server.URL,
+		interruptedApplyInstallEnv+"="+run.installDir,
+		interruptedApplyStateEnv+"="+run.stateDir,
 	)
 	output, err := helper.CombinedOutput()
 	var exitError *exec.ExitError
 	if !errors.As(err, &exitError) || exitError.ExitCode() != interruptedApplyExitCode {
 		t.Fatalf("helper process error = %v, want exit code %d\n%s", err, interruptedApplyExitCode, output)
 	}
-	assertFileBytes(t, filepath.Join(installDir, "alpha"), pureCandidate)
-	assertFileBytes(t, filepath.Join(installDir, "beta"), []byte("old beta"))
-	leftovers := hiddenEntryPrefixes(t, installDir)
-	for _, prefix := range []string{".alpha-previous-", ".beta-previous-", ".beta-candidate-"} {
-		if !slices.Contains(leftovers, prefix) {
-			t.Fatalf("killed apply left %v, want an entry starting with %s", leftovers, prefix)
-		}
-	}
+	return run
+}
 
+// applyWithoutNewRelease runs ApplyAll against the same fixture with a current
+// version equal to the latest tag, so only the leftover recovery acts.
+func (run interruptedApply) applyWithoutNewRelease(t *testing.T) {
+	t.Helper()
 	allOptions := []Options{
-		fixture.options(t, "alpha", installDir, stateDir, "version: pure"),
-		fixture.options(t, "beta", installDir, stateDir, "version: pure"),
+		run.fixture.options(t, "alpha", run.installDir, run.stateDir, "version: pure"),
+		run.fixture.options(t, "beta", run.installDir, run.stateDir, "version: pure"),
 	}
 	for index := range allOptions {
 		allOptions[index].Config.CurrentVersion = installDirTestNewTag
@@ -332,9 +357,50 @@ func TestApplyAllRestoresBinariesAfterKilledApply(t *testing.T) {
 			t.Fatalf("result %d Applied=%t UpdateAvailable=%t, want false and false", index, result.Applied, result.UpdateAvailable)
 		}
 	}
-	assertFileBytes(t, filepath.Join(installDir, "alpha"), []byte("old alpha"))
-	assertFileBytes(t, filepath.Join(installDir, "beta"), []byte("old beta"))
-	assertDirectoryEntries(t, installDir, []string{"alpha", "beta"})
+	if _, err := os.Stat(filepath.Join(run.stateDir, "update-install-committed")); !os.IsNotExist(err) {
+		t.Fatalf("commit marker still present after recovery: %v", err)
+	}
+}
+
+func assertHiddenPrefixes(t *testing.T, directory string, want []string) {
+	t.Helper()
+	leftovers := hiddenEntryPrefixes(t, directory)
+	for _, prefix := range want {
+		if !slices.Contains(leftovers, prefix) {
+			t.Fatalf("killed apply left %v, want an entry starting with %s", leftovers, prefix)
+		}
+	}
+}
+
+// TestApplyAllRestoresBinariesAfterKilledApply kills a real ApplyAll between
+// its two renames. The next ApplyAll with no newer release must restore the
+// old alpha from its backup, keep the old beta, and remove every leftover file.
+func TestApplyAllRestoresBinariesAfterKilledApply(t *testing.T) {
+	run := runInterruptedApply(t, killDuringRenames)
+	assertFileBytes(t, filepath.Join(run.installDir, "alpha"), run.candidate)
+	assertFileBytes(t, filepath.Join(run.installDir, "beta"), []byte("old beta"))
+	assertHiddenPrefixes(t, run.installDir, []string{".alpha-previous-", ".beta-previous-", ".beta-candidate-"})
+
+	run.applyWithoutNewRelease(t)
+	assertFileBytes(t, filepath.Join(run.installDir, "alpha"), []byte("old alpha"))
+	assertFileBytes(t, filepath.Join(run.installDir, "beta"), []byte("old beta"))
+	assertDirectoryEntries(t, run.installDir, []string{"alpha", "beta"})
+}
+
+// TestApplyAllKeepsNewBinariesAfterKillDuringCleanup kills a real ApplyAll
+// during backup removal, after both renames and the commit marker. The next
+// ApplyAll with no newer release must keep both new binaries and remove every
+// leftover backup and the marker.
+func TestApplyAllKeepsNewBinariesAfterKillDuringCleanup(t *testing.T) {
+	run := runInterruptedApply(t, killDuringCleanup)
+	assertFileBytes(t, filepath.Join(run.installDir, "alpha"), run.candidate)
+	assertFileBytes(t, filepath.Join(run.installDir, "beta"), run.candidate)
+	assertHiddenPrefixes(t, run.installDir, []string{".alpha-previous-", ".beta-previous-"})
+
+	run.applyWithoutNewRelease(t)
+	assertFileBytes(t, filepath.Join(run.installDir, "alpha"), run.candidate)
+	assertFileBytes(t, filepath.Join(run.installDir, "beta"), run.candidate)
+	assertDirectoryEntries(t, run.installDir, []string{"alpha", "beta"})
 }
 
 // TestApplyAllDryRunLeavesInstallDirectoryUnchanged runs a dry run with a newer

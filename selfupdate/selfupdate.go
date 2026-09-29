@@ -38,6 +38,7 @@ var (
 	updateExtractCandidate                 = extractCandidate
 	updateValidateCandidate                = validateCandidate
 	updateVerifyCandidateSignature         = verifyCandidateSignature
+	updateRemoveBackup                     = os.Remove
 	updateInstallCandidate                 = installCandidate
 )
 
