@@ -117,10 +117,15 @@ func InstallReleaseBinaries(
 		}
 		resolvedOptions = append(resolvedOptions, resolved)
 	}
-	for _, option := range resolvedOptions[1:] {
+	binaries := make(map[string]bool, len(resolvedOptions))
+	for _, option := range resolvedOptions {
 		if option.Config.Repo != resolvedOptions[0].Config.Repo {
 			return nil, fmt.Errorf("install set mixes repositories %s and %s", resolvedOptions[0].Config.Repo, option.Config.Repo)
 		}
+		if binaries[option.Config.Binary] {
+			return nil, fmt.Errorf("install set repeats binary %s", option.Config.Binary)
+		}
+		binaries[option.Config.Binary] = true
 	}
 	var results []InstallReleaseBinaryResult
 	err := updateWithLock(ctx, resolvedOptions[0].StatePath, func() error {
