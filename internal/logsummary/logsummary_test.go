@@ -31,8 +31,7 @@ func TestParseMode(t *testing.T) {
 
 func TestHandlerSummaryDropsInfoAndPassesWarnError(t *testing.T) {
 	var buf bytes.Buffer
-	handler := &Handler{base: slog.NewTextHandler(&buf, nil), mode: ModeSummary}
-	logger := slog.New(handler)
+	logger := slog.New(New(&buf, ModeSummary))
 	logger.Info("lint read file", slog.String("path", "a.go"))
 	logger.Warn("watch out")
 	logger.Error("broke", slog.String("err", "boom"))
@@ -48,8 +47,7 @@ func TestHandlerSummaryDropsInfoAndPassesWarnError(t *testing.T) {
 
 func TestHandlerQuietDropsInfoKeepsError(t *testing.T) {
 	var buf bytes.Buffer
-	handler := &Handler{base: slog.NewTextHandler(&buf, nil), mode: ModeQuiet}
-	logger := slog.New(handler)
+	logger := slog.New(New(&buf, ModeQuiet))
 	logger.Info("lint read file")
 	logger.Error("broke", slog.String("err", "boom"))
 
@@ -64,15 +62,16 @@ func TestHandlerQuietDropsInfoKeepsError(t *testing.T) {
 
 func TestHandlerDebugStreamsInfo(t *testing.T) {
 	var buf bytes.Buffer
-	handler := &Handler{
-		base: slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}),
-		mode: ModeDebug,
-	}
-	logger := slog.New(handler)
+	logger := slog.New(New(&buf, ModeDebug))
+	logger.Debug("lint debug detail")
 	logger.Info("lint read file", slog.String("path", "a.go"))
 
-	if !strings.Contains(buf.String(), "lint read file") {
-		t.Errorf("debug mode must stream INFO:\n%s", buf.String())
+	streamed := buf.String()
+	if !strings.Contains(streamed, "lint read file") {
+		t.Errorf("debug mode must stream INFO:\n%s", streamed)
+	}
+	if !strings.Contains(streamed, "lint debug detail") {
+		t.Errorf("debug mode must stream DEBUG:\n%s", streamed)
 	}
 }
 
