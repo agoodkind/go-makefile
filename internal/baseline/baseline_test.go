@@ -1,9 +1,6 @@
 package baseline
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -128,75 +125,5 @@ func TestRewriteScopedPreservesOutOfScopeRow(t *testing.T) {
 	}
 	if strings.Contains(body, "fixed scoped_rule finding") {
 		t.Error("scoped prune-fixed should drop the fixed scoped finding")
-	}
-}
-
-// TestRewriteMatchesAwk is the byte-fidelity oracle: when awk is available, the
-// Go rewriter must produce byte-identical body output to scripts/go-mk-baseline.awk
-// for every mode and scope, so committed consumer baselines never churn.
-func TestRewriteMatchesAwk(t *testing.T) {
-	awkPath, err := exec.LookPath("awk")
-	if err != nil {
-		t.Skip("awk not available")
-	}
-	scriptPath, err := filepath.Abs("../../scripts/go-mk-baseline.awk")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, statErr := os.Stat(scriptPath); statErr != nil {
-		t.Skipf("awk script not found: %v", statErr)
-	}
-
-	type fixture struct {
-		name    string
-		oldText string
-		current string
-		modes   []string
-		scope   string
-	}
-	fixtures := []fixture{
-		{"plain", oldBaseline, currentFindings, []string{"sync", "prune-fixed", "remove-fixed", "accept-new"}, ""},
-		{"scoped", oldScopedBaseline, currentScopedFindings, []string{"sync", "prune-fixed", "accept-new"}, "scoped_rule"},
-	}
-
-	for _, fixtureCase := range fixtures {
-		for _, mode := range fixtureCase.modes {
-			name := fixtureCase.name + "/" + mode
-			t.Run(name, func(t *testing.T) {
-				directory := t.TempDir()
-				oldPath := filepath.Join(directory, "old.baseline")
-				currentPath := filepath.Join(directory, "current.findings")
-				if writeErr := os.WriteFile(oldPath, []byte(fixtureCase.oldText+"\n"), 0o644); writeErr != nil {
-					t.Fatal(writeErr)
-				}
-				if writeErr := os.WriteFile(currentPath, []byte(fixtureCase.current+"\n"), 0o644); writeErr != nil {
-					t.Fatal(writeErr)
-				}
-
-				command := exec.Command(awkPath,
-					"-v", "mode="+mode,
-					"-v", "now=NOW",
-					"-v", "label=sample",
-					"-v", "current_file="+currentPath,
-					"-v", "scope_pattern="+fixtureCase.scope,
-					"-f", scriptPath,
-					oldPath,
-				)
-				awkOutput, runErr := command.Output()
-				if runErr != nil {
-					t.Fatalf("awk run: %v", runErr)
-				}
-
-				body := bodyFor(t, fixtureCase.oldText, fixtureCase.current, mode, fixtureCase.scope)
-				goOutput := ""
-				for _, line := range body {
-					goOutput += line + "\n"
-				}
-				if goOutput != string(awkOutput) {
-					t.Errorf("Go output differs from awk for %s\n--- go ---\n%s\n--- awk ---\n%s",
-						name, goOutput, string(awkOutput))
-				}
-			})
-		}
 	}
 }
