@@ -1,0 +1,22 @@
+name: Mutation
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    uses: ./.github/workflows/_mutation.yml
+    permissions:
+      contents: read
+    with:
+      # The cmd/go-mk tests take minutes per run, and gremlins runs them once
+      # per mutant. The weekly run mutates the pure internal packages.
+      packages: >-
+        internal/baseline internal/capture internal/findings internal/gate
+        internal/lint internal/lintgate internal/logsummary internal/mutation
+        internal/report
