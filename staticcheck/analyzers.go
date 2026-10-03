@@ -41,5 +41,6 @@ func Analyzers() []*analysis.Analyzer {
 		NoTildePathLiteralAnalyzer,
 		TestPackageAnalyzer,
 		TestSourceFileAnalyzer,
+		TestAssertAnalyzer,
 	}
 }
