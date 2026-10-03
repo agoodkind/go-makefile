@@ -1,8 +1,8 @@
 // Package baseline rewrites lint baseline files and reports neutral update
-// counts. It is the Go port of scripts/go-mk-baseline.awk and the baseline
-// helpers in scripts/go-mk-common.sh. The shell still performs finding capture
-// and the token gate; this package owns the baseline rewrite, the update
-// statistics, and the rendered output.
+// counts. The command layer in cmd/go-mk performs finding capture and the token
+// gate; this package owns the baseline rewrite, the update statistics, and the
+// rendered output. The rewrite keeps the byte format of the awk script it
+// replaced, and committed consumer baselines depend on that format.
 package baseline
 
 import "regexp"
@@ -33,11 +33,9 @@ func collapseLineCol(line string) string {
 	return line[:loc[0]] + ":::" + line[loc[1]:]
 }
 
-// Key reduces a finding to its baseline key. Both go-mk-baseline.awk key_for and
-// go-mk-findings.awk key_for collapse to this same operation here, because the
-// keyize and baseline-extract awk invocations run without pwd/cwd (path
-// normalization happens earlier, during shell capture). So one key function
-// serves both the rewriter dedup and the statistics.
+// Key reduces a finding to its baseline key. The rewriter dedup and the
+// statistics use the same key. The key needs no pwd or cwd prefix removal: the
+// capture step normalizes each path before a finding arrives here.
 func Key(finding string) string {
 	return collapseLineCol(stripDotDot(finding))
 }

@@ -1,12 +1,10 @@
-// Package findings ports the finding-transform logic from
-// scripts/go-mk-findings.awk into pure Go. Each transform takes finding lines
-// and the same parameters the awk reads from its -v assignments and file
-// arguments, then returns the transformed lines. The package never touches the
-// filesystem, the clock, or the process streams: the command layer in
+// Package findings implements the pure finding transforms. Each transform takes
+// finding lines and its parameters, then returns the transformed lines. The
+// package reads no file, no clock, and no process stream: the command layer in
 // cmd/go-mk owns stdin, stdout, and file reads, mirroring the internal/baseline
-// split. Output is matched byte-for-byte against the awk by the oracle test, so
-// the ":" joins, the "\t" columns in baseline and range rows, and the
-// per-action newline handling deliberately reproduce the awk.
+// split. The ":" joins, the "\t" columns in baseline and range rows, and the
+// per-action newline handling keep the byte format of the awk script this
+// package replaced. The tests in transform_test.go pin that format.
 //
 // =============================================================================
 // findings
