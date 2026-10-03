@@ -121,6 +121,20 @@ func clearFailedGateFile() {
 // failing gate's findings come straight from the marker, formatted for display.
 func gateStep(gateName string, marker report.GateMarker, found bool, status int, rest []string) report.StepResult {
 	if found {
+		if marker.Passed && len(marker.Advisory) > 0 {
+			shown, overflowNote := staticcheckAdvisoryDisplay(marker.Advisory)
+			displayLines := formatFindings(shown)
+			if overflowNote != "" {
+				displayLines = append(displayLines, overflowNote)
+			}
+			return report.StepResult{
+				Name:        gateName,
+				Status:      report.StatusAdvisory,
+				Note:        fmt.Sprintf("%d advisory finding%s", len(marker.Advisory), findingPlural(len(marker.Advisory))),
+				Findings:    displayLines,
+				Remediation: marker.Remediation,
+			}
+		}
 		if marker.Passed {
 			return report.StepResult{Name: gateName, Status: report.StatusOK}
 		}

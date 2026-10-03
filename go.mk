@@ -254,6 +254,12 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-lifecycle_silent_close_err \
 	-no_tilde_path_literal
 STATICCHECK_EXTRA_FLAGS         ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
+# Advisory analyzers report test habits in _test.go files. The staticcheck-extra
+# gate prints their findings and writes them to
+# .make/staticcheck-extra-advisory.out. The findings do not fail the gate and do
+# not enter the baseline. Remove a flag from this list to turn that analyzer off.
+STATICCHECK_EXTRA_ADVISORY_FLAGS ?= \
+	-testpackage
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
 STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
@@ -341,6 +347,7 @@ export STATICCHECK_EXTRA_BUILD_REPO
 export STATICCHECK_EXTRA_BUILD_PKG
 export STATICCHECK_EXTRA_INSTALL
 export STATICCHECK_EXTRA_FLAGS
+export STATICCHECK_EXTRA_ADVISORY_FLAGS
 export STATICCHECK_EXTRA_TARGETS
 export STATICCHECK_EXTRA_BASELINE
 export STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS
