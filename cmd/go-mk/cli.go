@@ -170,6 +170,7 @@ func registerEngineCommands(root *cobra.Command) {
 			return statusFromError(runPrepareGeneratedSubmodules())
 		}},
 		{"provision", "Provision go-makefile assets into .make from the git tarball", runProvision},
+		{"mutation", "Run mutation tests and write a report and a summary", runMutation},
 	}
 	for _, entry := range commands {
 		handler := entry.run
