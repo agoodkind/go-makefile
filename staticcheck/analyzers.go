@@ -42,5 +42,6 @@ func Analyzers() []*analysis.Analyzer {
 		TestPackageAnalyzer,
 		TestSourceFileAnalyzer,
 		TestAssertAnalyzer,
+		TestDoubleAnalyzer,
 	}
 }

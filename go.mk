@@ -261,7 +261,8 @@ STATICCHECK_EXTRA_FLAGS         ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK
 STATICCHECK_EXTRA_ADVISORY_FLAGS ?= \
 	-testpackage \
 	-testsourcefile \
-	-testassert
+	-testassert \
+	-testdouble
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
 STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
