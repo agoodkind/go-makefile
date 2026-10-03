@@ -251,11 +251,11 @@ func startup(ctx context.Context) {
 	wantOnce(t, diags, "[RTA004]", "ItIsAMarker")
 }
 
-// TestRTASlogFieldBypassAcceptsMarkerMethodWithReturn covers the
-// signature requirement: a marker-named method that takes args or
-// returns a value does not match the no-arg no-return signature, so
+// TestRTASlogFieldBypassAcceptsMarkerMethodWithParameter covers the
+// signature requirement: a marker-named method with an empty body that
+// takes a parameter does not match the no-arg no-return signature, so
 // the type is not classified as a marker and the detector skips.
-func TestRTASlogFieldBypassAcceptsMarkerMethodWithReturn(t *testing.T) {
+func TestRTASlogFieldBypassAcceptsMarkerMethodWithParameter(t *testing.T) {
 	t.Parallel()
 
 	source := `package supervisor
@@ -269,7 +269,7 @@ type Meta struct {
 	Kind string
 }
 
-func (Meta) IsLivetrackMeta() bool { return true }
+func (Meta) IsLivetrackMeta(reason int) {}
 
 func startup(ctx context.Context) {
 	m := Meta{Kind: "supervisor"}
@@ -279,7 +279,7 @@ func startup(ctx context.Context) {
 	a := newRTASlogFieldBypassAnalyzer()
 	diags := runAnalyzerOnSource(t, a, "supervisor.go", source)
 	if len(diags) != 0 {
-		t.Fatalf("expected no diagnostics when marker method has a return, got %d: %v", len(diags), diags)
+		t.Fatalf("expected no diagnostics when marker method has a parameter, got %d: %v", len(diags), diags)
 	}
 }
 
