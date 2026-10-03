@@ -259,7 +259,8 @@ STATICCHECK_EXTRA_FLAGS         ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK
 # .make/staticcheck-extra-advisory.out. The findings do not fail the gate and do
 # not enter the baseline. Remove a flag from this list to turn that analyzer off.
 STATICCHECK_EXTRA_ADVISORY_FLAGS ?= \
-	-testpackage
+	-testpackage \
+	-testsourcefile
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
 STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS ?= _test\.go:

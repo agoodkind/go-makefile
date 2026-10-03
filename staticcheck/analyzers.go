@@ -40,5 +40,6 @@ func Analyzers() []*analysis.Analyzer {
 		GrpcMethodNameLiteralAnalyzer,
 		NoTildePathLiteralAnalyzer,
 		TestPackageAnalyzer,
+		TestSourceFileAnalyzer,
 	}
 }
