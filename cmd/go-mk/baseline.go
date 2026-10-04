@@ -38,8 +38,6 @@ const (
 	componentGocyclo       baselineComponent = "gocyclo"
 	componentDeadcode      baselineComponent = "deadcode"
 	componentStaticcheck   baselineComponent = "staticcheck-extra"
-	// componentStaticcheckAutoScope is the token-free scoped staticcheck-extra
-	// baseline that a notice directive runs.
 	componentStaticcheckAutoScope baselineComponent = "auto-baseline-staticcheck-scope"
 )
 
@@ -361,11 +359,8 @@ func updateStaticcheckBaseline(collector *baselineCollector, mode string) int {
 	return 0
 }
 
-// autoBaselineStaticcheckScope captures the scoped staticcheck-extra baseline
-// without the token gate, the staticcheck-extra counterpart of
-// autoBaselineGolangciScope. The scoped write adds the findings that match
-// STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN and rewrites no other row. It refuses
-// to run without a scope.
+// The notice pass runs this update without the baseline token. The scope limits
+// the write to the rows that match STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN.
 func autoBaselineStaticcheckScope(collector *baselineCollector) int {
 	scopePattern := os.Getenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN")
 	if scopePattern == "" {

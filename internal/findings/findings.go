@@ -4,7 +4,7 @@
 // cmd/go-mk owns stdin, stdout, and file reads, mirroring the internal/baseline
 // split. The ":" joins, the "\t" columns in baseline and range rows, and the
 // per-action newline handling keep the byte format of the awk script this
-// package replaced. The tests in transform_test.go pin that format.
+// package replaced.
 //
 // =============================================================================
 // findings

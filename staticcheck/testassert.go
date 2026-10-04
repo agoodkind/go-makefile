@@ -147,7 +147,6 @@ func isTestingNamed(typ types.Type, name string) bool {
 	return named.Obj().Pkg().Path() == testingPackagePath && named.Obj().Name() == name
 }
 
-// subtestLiteral returns the function literal passed to (*testing.T).Run.
 func (checker assertionChecker) subtestLiteral(call *ast.CallExpr) *ast.FuncLit {
 	if !checker.isTestRunCall(call) || len(call.Args) < subtestLiteralMinArg {
 		return nil
@@ -159,8 +158,6 @@ func (checker assertionChecker) subtestLiteral(call *ast.CallExpr) *ast.FuncLit 
 	return literal
 }
 
-// testingMethod returns the callee when it is a method declared in package
-// testing, including methods promoted through the testing types.
 func (checker assertionChecker) testingMethod(call *ast.CallExpr) *types.Func {
 	selector, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
@@ -193,8 +190,6 @@ func (checker assertionChecker) isTestRunCall(call *ast.CallExpr) bool {
 	return isTestingNamed(receiver, testTypeName)
 }
 
-// canFail reports whether the body has a call able to fail the test, or consists
-// only of skip calls.
 func (checker assertionChecker) canFail(body *ast.BlockStmt) bool {
 	if checker.onlySkips(body) {
 		return true
@@ -213,11 +208,8 @@ func (checker assertionChecker) canFail(body *ast.BlockStmt) bool {
 	return found
 }
 
-// assertsOnlyErrorNilness reports whether every failing call of the body is in
-// an if statement that compares an error value with nil, and no helper
-// receives a testing.TB value. A helper can assert an outcome.
-//
-// A test that only requires a nil error is reported when it discards another
+// A helper that receives a testing.TB value can assert an outcome, and the body
+// is then not reported. A test that only requires a nil error is reported when it discards another
 // result of the call with the blank identifier. A call with an error as its
 // only result has no other outcome to assert. A test that only requires a
 // non-nil error is reported: a failure for another reason passes it.
@@ -269,10 +261,9 @@ func (checker assertionChecker) assertsOnlyErrorNilness(body *ast.BlockStmt) boo
 	return expectsFailure || checker.discardsResult(body)
 }
 
-// hasOtherOutcomeCheck reports whether the body checks file state with os.Stat
-// or os.Lstat, or stores a testing.TB value in a composite literal. The error
-// of a stat call is the assertion on the file. A stored testing.TB value lets
-// a method of the literal fail the test.
+// The error of an os.Stat or os.Lstat call is the assertion on the file. A
+// testing.TB value stored in a composite literal lets a method of the literal
+// fail the test.
 func (checker assertionChecker) hasOtherOutcomeCheck(body *ast.BlockStmt) bool {
 	found := false
 	ast.Inspect(body, func(node ast.Node) bool {
@@ -299,8 +290,6 @@ func (checker assertionChecker) hasOtherOutcomeCheck(body *ast.BlockStmt) bool {
 	return found
 }
 
-// discardsResult reports whether the body assigns a call with an error result
-// and discards another result of that call with the blank identifier.
 func (checker assertionChecker) discardsResult(body *ast.BlockStmt) bool {
 	found := false
 	errorType := types.Universe.Lookup("error").Type()
@@ -335,7 +324,6 @@ func (checker assertionChecker) discardsResult(body *ast.BlockStmt) bool {
 	return found
 }
 
-// childNodes returns the direct children of a node in source order.
 func childNodes(node ast.Node) []ast.Node {
 	var children []ast.Node
 	first := true

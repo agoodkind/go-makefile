@@ -11,7 +11,6 @@ import (
 	"strings"
 )
 
-// percentScale converts a ratio to a percentage.
 const percentScale = 100
 
 // Report is the subset of one gremlins JSON report that the summary uses. Files
@@ -27,8 +26,7 @@ type Report struct {
 	Files             json.RawMessage `json:"files,omitempty"`
 }
 
-// timedOutStatus is the gremlins status of a mutant with a test run that
-// exceeded the timeout. Gremlins reports no total for this status.
+// Gremlins reports no total for this status.
 const timedOutStatus = "TIMED OUT"
 
 type reportFile struct {

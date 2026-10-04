@@ -105,9 +105,6 @@ func TestDecodeGoListPackagesEmpty(t *testing.T) {
 	}
 }
 
-// TestCheckCgoStubNoopWhenCgoEnabled puts a stub `go` on PATH that lists one
-// non-stdlib cgo package. With cgo enabled, checkCgoStub returns nil. With cgo
-// disabled, checkCgoStub returns an error that includes the package path.
 func TestCheckCgoStubNoopWhenCgoEnabled(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("stub go is a POSIX shell script")

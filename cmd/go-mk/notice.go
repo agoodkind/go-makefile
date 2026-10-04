@@ -58,10 +58,9 @@ func runNotice() int {
 	return runNoticeFor("")
 }
 
-// runNoticeFor runs the notice pass. A non-empty onlyGate limits the pass to
-// the unapplied auto-baseline directives of that gate, prints no summary, and
-// leaves the seen file unchanged. A gate that runs outside the lint chain uses
-// it: a CI job that runs one gate has no earlier notice pass.
+// A non-empty onlyGate limits the pass to the unapplied auto-baseline
+// directives of that gate, prints no summary, and writes no seen file. A CI job
+// that runs one gate has no earlier notice pass.
 func runNoticeFor(onlyGate string) int {
 	noticesFile := lintEnvDefault("_GO_MK_NOTICES_FILE", filepath.Join(makeDir, "notices.txt"))
 	appliedFile := lintEnvDefault("GO_MK_APPLIED_NOTICES", ".go-mk-applied-notices")
@@ -311,14 +310,8 @@ func runNoticeAutoBaseline(record noticeFields, directive noticeDirective, appli
 		". Review with 'git diff " + golangciBaseline + "' and commit it together with " + appliedFile + ".\n")
 }
 
-// noticeGateStaticcheck is the directive gate value for a staticcheck-extra
-// auto-baseline.
 const noticeGateStaticcheck = "staticcheck-extra"
 
-// runNoticeStaticcheckAutoBaseline rolls out the scoped, token-free
-// staticcheck-extra auto-baseline for one notice directive. The directive
-// PATTERN is the baseline scope. It records the id on success and reports a
-// failure without aborting the build.
 func runNoticeStaticcheckAutoBaseline(record noticeFields, directive noticeDirective, appliedFile string, applied map[string]bool) {
 	baselineFile := lintEnvDefault("STATICCHECK_EXTRA_BASELINE", ".staticcheck-extra-baseline.txt")
 	writeStderr("go-makefile notice #" + record.id + ": auto-baselining existing findings for " + record.directive + "\n")

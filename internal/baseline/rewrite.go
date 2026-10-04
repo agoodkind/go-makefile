@@ -55,8 +55,6 @@ func skipInput(line string) bool {
 	return isBlank(line) || strings.HasPrefix(line, "#")
 }
 
-// firstAddedFrom extracts the first_added value from a metadata suffix: it
-// splits on whitespace and takes the field after "first_added=".
 func firstAddedFrom(metadata string) string {
 	for _, field := range strings.Fields(metadata) {
 		if strings.HasPrefix(field, "first_added=") {
@@ -79,7 +77,6 @@ type RewriteInput struct {
 // RewriteBody returns the baseline body lines (without the generated_at
 // header), in insertion order, preserving first_added metadata and out-of-scope
 // rows. The caller writes the header and joins the body with newlines.
-// TestRewriteBody pins the exact output for every mode and scope.
 func RewriteBody(input RewriteInput) ([]string, error) {
 	var scopeRegexp *regexp.Regexp
 	if input.ScopePattern != "" {

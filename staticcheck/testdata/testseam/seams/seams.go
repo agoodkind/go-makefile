@@ -2,7 +2,6 @@ package seams
 
 import "time"
 
-// Now and Wait are clock variables.
 var (
 	Now  = time.Now
 	Wait = time.Sleep
@@ -27,7 +26,6 @@ func realRun() int { return 1 }
 
 func otherRun() int { return 2 }
 
-// Send is a package-level function variable.
 var Send = realSend
 
 type dependencies struct {

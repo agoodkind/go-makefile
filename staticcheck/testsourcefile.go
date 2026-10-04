@@ -41,9 +41,8 @@ var (
 //
 // A read is exempt when the test passes the content to production code or
 // writes it to another file. A path with an element named testdata is exempt
-// in both clauses. A path with
-// a non-constant part is not reported, because the analyzer cannot determine
-// which file the path selects.
+// in both clauses. A path with a non-constant part and no parent directory
+// element is not reported: the analyzer cannot determine the file.
 var TestSourceFileAnalyzer = &analysis.Analyzer{
 	Name: "testsourcefile",
 	Doc:  "rejects a test that reads a repository file by constant path or embeds it outside testdata",
@@ -70,8 +69,7 @@ func runTestSourceFile(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-// readIsProductionInput reports whether the enclosing function passes the
-// content of the read to production code. The content is the non-error result
+// The content is the non-error result
 // of the read and each local variable assigned from an expression that uses
 // it. Production code receives the content when a call to a function declared
 // in a non-test file of the same module has it as an argument, or when the
@@ -145,8 +143,6 @@ func readIsProductionInput(pass *analysis.Pass, body *ast.BlockStmt, read *ast.C
 	return passed
 }
 
-// receivesInput reports whether the callee is os.WriteFile or a function
-// declared in a non-test file of the same module.
 func receivesInput(pass *analysis.Pass, call *ast.CallExpr) bool {
 	function, ok := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
 	if !ok || function.Pkg() == nil {
@@ -198,9 +194,7 @@ func isSourceParserCall(pass *analysis.Pass, call *ast.CallExpr) bool {
 	return function.Name() == "ParseFile" || function.Name() == "ParseDir"
 }
 
-// joinHasParentElement reports whether the path is a Join call with a
-// non-constant part, a ".." element, and no testdata element. A path with only
-// constant parts is handled by constantPathArgument.
+// A path with only constant parts is handled by constantPathArgument.
 func joinHasParentElement(pass *analysis.Pass, expr ast.Expr) bool {
 	call, ok := expr.(*ast.CallExpr)
 	if !ok || !isPathJoinCall(pass, call) {
@@ -238,8 +232,6 @@ func isOSFileOpenCall(pass *analysis.Pass, call *ast.CallExpr) bool {
 	return osFileOpenFunctions[function.Name()]
 }
 
-// constantPathArgument returns the path when the argument is a string constant
-// or a Join call with only string constant arguments.
 func constantPathArgument(pass *analysis.Pass, expr ast.Expr) (string, bool) {
 	if value, ok := constantString(pass, expr); ok {
 		return value, true
@@ -337,8 +329,6 @@ func reportEmbedGroup(
 	}
 }
 
-// outsideTestDataPattern returns the first pattern of an embed directive that
-// has no testdata path element.
 func outsideTestDataPattern(commentText string) (string, bool) {
 	rest, ok := strings.CutPrefix(commentText, embedDirectiveText)
 	if !ok || (rest != "" && rest[0] != ' ' && rest[0] != '\t') {
@@ -352,8 +342,7 @@ func outsideTestDataPattern(commentText string) (string, bool) {
 	return "", false
 }
 
-// embedPatterns splits the directive arguments on whitespace. A quoted pattern
-// may contain whitespace.
+// A quoted pattern may contain whitespace.
 func embedPatterns(arguments string) []string {
 	var patterns []string
 	remaining := strings.TrimSpace(arguments)

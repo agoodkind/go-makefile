@@ -17,8 +17,6 @@ const (
 	seamValueSitePrefix     = "site:"
 )
 
-// seamFieldFact marks a function-typed struct field that production code sets
-// to exactly one value. Value identifies that value.
 type seamFieldFact struct {
 	Value string
 }
@@ -65,8 +63,6 @@ func runTestSeam(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-// productionSeamFields returns each function-typed field of this package with
-// exactly one distinct value across the non-test files of the pass.
 func productionSeamFields(pass *analysis.Pass) map[*types.Var]string {
 	values := make(map[*types.Var]map[string]bool)
 	record := func(field *types.Var, value ast.Expr) {
@@ -103,8 +99,6 @@ func productionSeamFields(pass *analysis.Pass) map[*types.Var]string {
 	return seams
 }
 
-// visitFieldValues calls record for each function-typed struct field that node
-// sets, with the value expression.
 func visitFieldValues(pass *analysis.Pass, node ast.Node, record func(*types.Var, ast.Expr)) {
 	switch typed := node.(type) {
 	case *ast.CompositeLit:
@@ -144,8 +138,7 @@ func functionField(pass *analysis.Pass, ident *ast.Ident) *types.Var {
 	return field
 }
 
-// seamValueKey identifies a value expression. A named function or method has
-// one key at every site. Any other expression has a key per site. A nil value
+// A named function or method has one key at every site. Any other expression has a key per site. A nil value
 // has no key.
 func seamValueKey(pass *analysis.Pass, value ast.Expr) (string, bool) {
 	value = ast.Unparen(value)
@@ -198,8 +191,6 @@ func (finder *seamFinder) inspectNode(file *ast.File, node ast.Node, scope strin
 	}
 }
 
-// savedVariables maps each local variable to the package-level variable that
-// the file copies into it, as in `old := seam`.
 func (finder *seamFinder) savedVariables(file *ast.File) map[*types.Var]*types.Var {
 	saved := make(map[*types.Var]*types.Var)
 	ast.Inspect(file, func(node ast.Node) bool {
@@ -223,8 +214,6 @@ func (finder *seamFinder) savedVariables(file *ast.File) map[*types.Var]*types.V
 	return saved
 }
 
-// restores reports whether the assignment writes a saved copy back to the
-// package-level variable it came from.
 func (finder *seamFinder) restores(left, right ast.Expr) bool {
 	target := finder.packageVariable(left)
 	ident, ok := ast.Unparen(right).(*ast.Ident)
@@ -235,8 +224,6 @@ func (finder *seamFinder) restores(left, right ast.Expr) bool {
 	return ok && finder.saved[local] == target
 }
 
-// packageVariable returns the package-level variable that the expression
-// refers to, or nil.
 func (finder *seamFinder) packageVariable(expr ast.Expr) *types.Var {
 	var ident *ast.Ident
 	switch typed := ast.Unparen(expr).(type) {
@@ -328,8 +315,6 @@ func (finder *seamFinder) exempt(pos token.Pos, directives map[int]bool) bool {
 	return directives[line] || directives[line-1]
 }
 
-// seamDirectiveLines returns the lines of each valid directive comment. A
-// directive with a reason shorter than three words is reported.
 func seamDirectiveLines(pass *analysis.Pass, file *ast.File) map[int]bool {
 	lines := make(map[int]bool)
 	for _, group := range file.Comments {

@@ -16,9 +16,6 @@ const (
 	pwdPrefixOfCwd = "/work/"
 )
 
-// inputLines covers a normal finding, a pwd-prefixed path, a cwd-prefixed path,
-// leading ../ segments stacked twice and once, a line with no colon, and a path
-// that starts with neither prefix.
 var inputLines = []string{
 	"pkg/file.go:10:2: something wrong (linter)",
 	"/work/repo/pkg/file.go:10:2: prefixed by pwd",
@@ -96,8 +93,6 @@ func TestNormalizePath(t *testing.T) {
 	}
 }
 
-// TestKey covers the :line:col: collapse after path normalization.
-// TestNormalizePath covers the prefix combinations.
 func TestKey(t *testing.T) {
 	want := []string{
 		"pkg/file.go::: something wrong (linter)",
@@ -116,8 +111,6 @@ func TestKey(t *testing.T) {
 	}
 }
 
-// TestPrint covers the two-line display form and the single-line form for a
-// finding with no location.
 func TestPrint(t *testing.T) {
 	want := "  pkg/file.go:10:2\n    something wrong (linter)\n" +
 		"  pkg/file.go:10:2\n    prefixed by pwd\n" +
@@ -135,8 +128,6 @@ func TestPrint(t *testing.T) {
 	}
 }
 
-// baselineLines include a labeled row, a row without the marker, a blank line, a
-// whitespace-only line, a comment line, and a pwd-prefixed labeled row.
 var baselineLines = []string{
 	"pkg/file.go:10:2: kept finding\t# sample:first_added=X last_seen=Y",
 	"pkg/other.go:1:1: no marker on this row",

@@ -34,18 +34,12 @@ const (
 	staticcheckTestFlagsEnv = "STATICCHECK_EXTRA_TEST_FLAGS"
 )
 
-// staticcheckFlagsText returns the analyzer flags of one run:
-// STATICCHECK_EXTRA_FLAGS followed by STATICCHECK_EXTRA_TEST_FLAGS. The engine
-// appends the test-habit list itself. A consumer Makefile that assigns
-// STATICCHECK_EXTRA_FLAGS still runs the test-habit analyzers.
+// The engine appends the test-habit list itself. A consumer Makefile that
+// assigns STATICCHECK_EXTRA_FLAGS still runs the test-habit analyzers.
 func staticcheckFlagsText() string {
 	return strings.TrimSpace(os.Getenv(staticcheckFlagsEnv) + " " + os.Getenv(staticcheckTestFlagsEnv))
 }
 
-// staticcheckExcludePattern resolves the exclude regex that capture, the gate,
-// the scoped gate, and the baseline update apply to staticcheck-extra finding
-// lines. lint.StaticcheckDefaultExcludePaths removes the _test.go default when
-// an enabled analyzer reports in test files.
 func staticcheckExcludePattern() string {
 	defaultPatterns := lint.StaticcheckDefaultExcludePaths(
 		lintEnvDefault("STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),

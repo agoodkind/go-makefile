@@ -40,12 +40,8 @@ func ExcludePattern(defaultPatterns, extraPatterns string) string {
 	return strings.Join(fields, "|")
 }
 
-// testFileExcludePath is the default exclude entry that drops every finding in a
-// _test.go file.
 const testFileExcludePath = `_test\.go:`
 
-// staticcheckTestFileFlags lists the staticcheck-extra analyzers that report in
-// _test.go files.
 var staticcheckTestFileFlags = map[string]struct{}{
 	"testdouble":     {},
 	"testpackage":    {},
@@ -75,9 +71,8 @@ func StaticcheckDefaultExcludePaths(defaultPatterns, flagsText string) string {
 	return strings.Join(kept, ",")
 }
 
-// staticcheckTestFileFlagEnabled reports whether flagsText enables an analyzer
-// that reports in _test.go files. A flag is enabled unless its value is false or
-// 0, matching StaticcheckScopePattern.
+// A flag is enabled unless its value is false or 0, matching
+// StaticcheckScopePattern.
 func staticcheckTestFileFlagEnabled(flagsText string) bool {
 	for _, word := range strings.Fields(flagsText) {
 		name, value, isFlag := parseStaticcheckFlagWord(word)

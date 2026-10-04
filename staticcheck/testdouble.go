@@ -43,7 +43,6 @@ var TestDoubleAnalyzer = &analysis.Analyzer{
 	Run:  runTestDouble,
 }
 
-// testTypeDecl is a concrete named type declared in a _test.go file.
 type testTypeDecl struct {
 	spec      *ast.TypeSpec
 	file      *ast.File
@@ -188,9 +187,8 @@ func (finder *testDoubleFinder) report(ordered []*types.TypeName) {
 	}
 }
 
-// wrapsInterface reports whether the test type is a struct with a field of the
-// interface type. Such a type delegates to a real implementation and adds a
-// fault or a recorder around it.
+// A struct with a field of the interface type delegates to a real
+// implementation and adds a fault or a recorder around it.
 func wrapsInterface(obj, target *types.TypeName) bool {
 	structType, ok := obj.Type().Underlying().(*types.Struct)
 	if !ok {
@@ -357,8 +355,6 @@ func (finder *testDoubleFinder) enclosingSignature(stack []ast.Node) *types.Sign
 	return nil
 }
 
-// check records a conversion of value to target when target is an interface of
-// the same module and the value has a test type.
 func (finder *testDoubleFinder) check(target types.Type, value ast.Expr) {
 	if target == nil {
 		return

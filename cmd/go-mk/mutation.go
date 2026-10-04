@@ -1,8 +1,3 @@
-// Mutation test orchestration for go-mk. The mutation command installs the
-// pinned mutation tool, runs it once per package directory, and writes a
-// combined JSON report and a Markdown summary. The pure shaping logic is in
-// internal/mutation. This file owns process execution and file access; boundary
-// functions emit a structured slog event.
 package main
 
 import (
@@ -16,14 +11,12 @@ import (
 	"goodkind.io/go-makefile/internal/mutation"
 )
 
-// defaultMutationInstall pins the mutation tool. Consumers override the release
-// through MUTATION_INSTALL.
 const defaultMutationInstall = "github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0"
 
-// defaultMutationTimeoutCoefficient multiplies the coverage run time to set the
-// timeout of each mutant test run. The coverage run can replay cached test
-// results in milliseconds, and each mutant run compiles the mutated package.
-// The tool default timed out every mutant in that case.
+// The tool multiplies the coverage run time by this value to set each mutant
+// timeout. The coverage run can replay cached test results in milliseconds, and
+// each mutant run compiles the mutated package. The tool default timed out
+// every mutant in that case.
 const defaultMutationTimeoutCoefficient = "20"
 
 const (
@@ -31,13 +24,8 @@ const (
 	defaultMutationSummary = makeDir + "/mutation-summary.md"
 )
 
-// errMutationNoReport signals a tool run that wrote no JSON report. The tool
-// output was already printed.
 const errMutationNoReport sentinelError = "mutation tool wrote no report"
 
-// runMutation runs the mutation tool over MUTATION_PACKAGES and writes the
-// report and the summary. It exits 0 unless the tool fails to run or the score
-// is below a positive MUTATION_MIN_SCORE.
 func runMutation() int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
@@ -76,7 +64,6 @@ func runMutation() int {
 	return 0
 }
 
-// mutationMinimumScore parses MUTATION_MIN_SCORE. An empty value is no minimum.
 func mutationMinimumScore() (float64, error) {
 	text := strings.TrimSpace(os.Getenv("MUTATION_MIN_SCORE"))
 	if text == "" {
@@ -85,8 +72,6 @@ func mutationMinimumScore() (float64, error) {
 	return strconv.ParseFloat(text, 64)
 }
 
-// mutationBinaryPath returns the installed tool path under GOPATH/bin for the
-// install spec.
 func mutationBinaryPath(installSpec string) (string, error) {
 	gopath, err := goEnvPath("GOPATH")
 	if err != nil {
@@ -96,10 +81,8 @@ func mutationBinaryPath(installSpec string) (string, error) {
 	return filepath.Join(gopath, "bin", binaryName), nil
 }
 
-// runMutationPackage runs the tool over one package directory and returns its
-// parsed JSON report. The report file decides success: the tool can exit
-// non-zero and still write a report. The function emits a boundary log before
-// it removes and reads files.
+// The report file decides success: the tool can exit non-zero and still write
+// a report.
 func runMutationPackage(binary, packageDir string, index int) (mutation.Report, error) {
 	slog.Info("mutation run package", slog.String("package", packageDir))
 	reportPath := filepath.Join(makeDir, "mutation."+itoa(index)+".json")
@@ -127,8 +110,6 @@ func runMutationPackage(binary, packageDir string, index int) (mutation.Report, 
 	return mutation.ParseReport(data)
 }
 
-// printMutationLog prints the captured tool output for a package that produced
-// no report.
 func printMutationLog(packageDir, logPath string) {
 	writeStdout("mutation: no report for " + packageDir + "\n")
 	if content, err := readFileContent(logPath); err == nil {
@@ -136,8 +117,6 @@ func printMutationLog(packageDir, logPath string) {
 	}
 }
 
-// writeMutationOutputs writes the combined JSON report and the Markdown summary.
-// It emits a boundary log before the writes.
 func writeMutationOutputs(summary mutation.Summary, rendered string) error {
 	reportPath := lintEnvDefault("MUTATION_REPORT", defaultMutationReport)
 	summaryPath := lintEnvDefault("MUTATION_SUMMARY", defaultMutationSummary)

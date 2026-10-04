@@ -62,12 +62,10 @@ func runTestPackage(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-// reportUnexportedCalls reports each test function that calls an unexported
-// function or method declared in a non-test file of the package under test,
-// and returns the count. A file with such a test gets one finding per test and
-// no file finding. A new test in an older file is then a new finding. A file
-// with no such test gets the file finding: its tests need only the changed
-// package clause.
+// A file with a test that calls an unexported function gets one finding per
+// such test and no file finding. A new test in an older file is then a new
+// finding. A file with no such test gets the file finding: its tests need only
+// the changed package clause.
 func reportUnexportedCalls(pass *analysis.Pass, file *ast.File) int {
 	count := 0
 	for _, declaration := range file.Decls {
@@ -93,9 +91,6 @@ func reportUnexportedCalls(pass *analysis.Pass, file *ast.File) int {
 	return count
 }
 
-// firstUnexportedProductionCallee returns the first unexported function or
-// method, in source order, that the body calls and a non-test file of the
-// package declares.
 func firstUnexportedProductionCallee(pass *analysis.Pass, body *ast.BlockStmt) string {
 	found := ""
 	ast.Inspect(body, func(node ast.Node) bool {

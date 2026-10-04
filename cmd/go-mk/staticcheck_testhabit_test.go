@@ -72,9 +72,6 @@ func TestStaticcheckExtraDoesNotBaselineAConsumerNewerThanTheNotice(t *testing.T
 	}
 }
 
-// newConsumerRepository creates a git repository with a consumer module that
-// includes go.mk from the checkout under test. The first commit has the given
-// date and includes the applied-notices file with notice 1.
 func newConsumerRepository(t *testing.T, commitDate string) string {
 	t.Helper()
 
