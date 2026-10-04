@@ -1,6 +1,8 @@
 package readfile_test
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,6 +32,15 @@ func TestFlagged(t *testing.T) {
 	_, _ = os.Open(filepath.Join("..", "readfile", "a.go")) // want `reads the file at the constant path "../readfile/a.go"`
 	_, _ = os.OpenFile("go.mod", os.O_RDONLY, 0)           // want `reads the file at the constant path "go.mod"`
 	_, _ = os.ReadFile("/var/data.txt")                    // want `reads the file at the constant path "/var/data.txt"`
+}
+
+func TestSourceThroughParent(t *testing.T) {
+	t.Parallel()
+
+	root := t.Name()
+	_, _ = os.ReadFile(filepath.Join(root, "..", "readfile.go")) // want `reads a file through a parent directory path`
+	_, _ = os.ReadFile(filepath.Join(root, "..", "testdata", "x"))
+	_, _ = parser.ParseFile(token.NewFileSet(), root, nil, 0) // want `parses Go source with go/parser`
 }
 
 func TestClean(t *testing.T) {

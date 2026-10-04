@@ -2,6 +2,7 @@ package staticcheck
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 	"strings"
 
@@ -90,6 +91,13 @@ func (checker assertionChecker) checkFile(file *ast.File) {
 			continue
 		}
 		if checker.canFail(function.Body) {
+			if checker.assertsOnlyErrorNilness(function.Body) {
+				reportAtf(
+					checker.pass, file, function.Name.Pos(),
+					"Test %s asserts only that an error is nil or not nil. A test must assert an outcome of the code under test. Add a check on the returned value, on the state that the call changed, or on the kind of the error.",
+					function.Name.Name,
+				)
+			}
 			continue
 		}
 		reportAtf(
@@ -202,6 +210,86 @@ func (checker assertionChecker) canFail(body *ast.BlockStmt) bool {
 		return !found
 	})
 	return found
+}
+
+// assertsOnlyErrorNilness reports whether every failing call of the body is in
+// an if statement that compares an error value with nil, and no helper
+// receives a testing.TB value. A helper can assert an outcome.
+func (checker assertionChecker) assertsOnlyErrorNilness(body *ast.BlockStmt) bool {
+	failingCalls := 0
+	onlyNilness := true
+	var conditions []ast.Expr
+	var visit func(node ast.Node)
+	visit = func(node ast.Node) {
+		if node == nil || !onlyNilness {
+			return
+		}
+		if statement, ok := node.(*ast.IfStmt); ok {
+			if statement.Init != nil {
+				visit(statement.Init)
+			}
+			visit(statement.Cond)
+			conditions = append(conditions, statement.Cond)
+			visit(statement.Body)
+			conditions = conditions[:len(conditions)-1]
+			if statement.Else != nil {
+				visit(statement.Else)
+			}
+			return
+		}
+		if call, ok := node.(*ast.CallExpr); ok {
+			method := checker.testingMethod(call)
+			switch {
+			case method != nil && failingTestingMethods[method.Name()]:
+				failingCalls++
+				if len(conditions) == 0 || !checker.isErrorNilComparison(conditions[len(conditions)-1]) {
+					onlyNilness = false
+				}
+			case method == nil && checker.passesTestingValue(call):
+				onlyNilness = false
+			}
+		}
+		for _, child := range childNodes(node) {
+			visit(child)
+		}
+	}
+	visit(body)
+	return onlyNilness && failingCalls > 0
+}
+
+// childNodes returns the direct children of a node in source order.
+func childNodes(node ast.Node) []ast.Node {
+	var children []ast.Node
+	first := true
+	ast.Inspect(node, func(child ast.Node) bool {
+		if first {
+			first = false
+			return true
+		}
+		if child != nil {
+			children = append(children, child)
+		}
+		return false
+	})
+	return children
+}
+
+func (checker assertionChecker) isErrorNilComparison(condition ast.Expr) bool {
+	binary, ok := ast.Unparen(condition).(*ast.BinaryExpr)
+	if !ok || (binary.Op != token.NEQ && binary.Op != token.EQL) {
+		return false
+	}
+	info := checker.pass.TypesInfo
+	for _, pair := range [][2]ast.Expr{{binary.X, binary.Y}, {binary.Y, binary.X}} {
+		if !info.Types[pair[1]].IsNil() {
+			continue
+		}
+		valueType := info.TypeOf(pair[0])
+		if valueType != nil && types.Identical(valueType, types.Universe.Lookup("error").Type()) {
+			return true
+		}
+	}
+	return false
 }
 
 func (checker assertionChecker) onlySkips(body *ast.BlockStmt) bool {

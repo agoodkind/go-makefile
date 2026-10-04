@@ -177,7 +177,7 @@ func (finder *testDoubleFinder) report(ordered []*types.TypeName) {
 			}
 		}
 		target, converted := finder.converted[obj]
-		if !converted || validDirective {
+		if !converted || validDirective || wrapsInterface(obj, target) {
 			continue
 		}
 		reportAtf(
@@ -186,6 +186,22 @@ func (finder *testDoubleFinder) report(ordered []*types.TypeName) {
 			obj.Name(), target.Pkg().Name(), target.Name(),
 		)
 	}
+}
+
+// wrapsInterface reports whether the test type is a struct with a field of the
+// interface type. Such a type delegates to a real implementation and adds a
+// fault or a recorder around it.
+func wrapsInterface(obj, target *types.TypeName) bool {
+	structType, ok := obj.Type().Underlying().(*types.Struct)
+	if !ok {
+		return false
+	}
+	for i := range structType.NumFields() {
+		if types.Identical(structType.Field(i).Type(), target.Type()) {
+			return true
+		}
+	}
+	return false
 }
 
 func (finder *testDoubleFinder) inspectFile(file *ast.File) {

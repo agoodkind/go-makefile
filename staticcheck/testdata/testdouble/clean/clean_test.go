@@ -38,6 +38,17 @@ func (externalFake) Write(string) {}
 //testdouble:external fake billing service
 type unconvertedExternalFake struct{}
 
+// countingSink wraps a real Sink and counts the writes.
+type countingSink struct {
+	next  Sink
+	count int
+}
+
+func (sink *countingSink) Write(message string) {
+	sink.count++
+	sink.next.Write(message)
+}
+
 type stringerFake struct{}
 
 func (stringerFake) String() string { return "fake" }
@@ -54,6 +65,7 @@ func TestClean(t *testing.T) {
 	record(recorderFake{})
 	Send(externalFake{})
 	Send(Production{})
+	Send(&countingSink{next: Production{}})
 	_ = unconvertedExternalFake{}
 
 	_ = fmt.Sprint(stringerFake{})

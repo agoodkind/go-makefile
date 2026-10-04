@@ -2,7 +2,7 @@ package main // want `This test file declares package main, the package under te
 
 import "testing"
 
-func TestExitCode(t *testing.T) {
+func TestExitCode(t *testing.T) { // want `Test TestExitCode calls unexported functions of the package under test\.`
 	if exitCode() != 0 {
 		t.Fatal("exitCode() != 0")
 	}

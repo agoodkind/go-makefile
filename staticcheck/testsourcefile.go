@@ -21,6 +21,8 @@ const (
 	pathPackagePath    = "path"
 	filepathPackage    = "path/filepath"
 	joinFunctionName   = "Join"
+	goParserPackage    = "go/parser"
+	parentDirElement   = ".."
 )
 
 var (
@@ -61,7 +63,21 @@ func runTestSourceFile(pass *analysis.Pass) (any, error) {
 }
 
 func reportConstantFileRead(pass *analysis.Pass, file *ast.File, call *ast.CallExpr) {
+	if isSourceParserCall(pass, call) {
+		reportAtf(
+			pass, file, call.Pos(),
+			"This test parses Go source with go/parser. A test must assert on behavior and not on the text of a source file. Run the code and assert on its outcome.",
+		)
+		return
+	}
 	if !isOSFileOpenCall(pass, call) || len(call.Args) == 0 {
+		return
+	}
+	if joinHasParentElement(pass, call.Args[0]) {
+		reportAtf(
+			pass, file, call.Pos(),
+			"This test reads a file through a parent directory path. A test must assert on behavior and not on the text of a source, template, or configuration file. Run the code that uses the file and assert on its outcome, or move the test input under testdata.",
+		)
 		return
 	}
 	filePath, ok := constantPathArgument(pass, call.Args[0])
@@ -73,6 +89,42 @@ func reportConstantFileRead(pass *analysis.Pass, file *ast.File, call *ast.CallE
 		"This test reads the file at the constant path %q. A test must assert on behavior and not on the text of a source, template, or configuration file. Run the code that uses the file and assert on its outcome, or move the test input under testdata.",
 		filePath,
 	)
+}
+
+func isSourceParserCall(pass *analysis.Pass, call *ast.CallExpr) bool {
+	function, ok := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
+	if !ok || function.Pkg() == nil || function.Pkg().Path() != goParserPackage {
+		return false
+	}
+	return function.Name() == "ParseFile" || function.Name() == "ParseDir"
+}
+
+// joinHasParentElement reports whether the path is a Join call with a
+// non-constant part, a ".." element, and no testdata element. A path with only
+// constant parts is handled by constantPathArgument.
+func joinHasParentElement(pass *analysis.Pass, expr ast.Expr) bool {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok || !isPathJoinCall(pass, call) {
+		return false
+	}
+	hasParent := false
+	hasVariable := false
+	for _, argument := range call.Args {
+		value, isConstant := constantString(pass, argument)
+		if !isConstant {
+			hasVariable = true
+			continue
+		}
+		if hasTestDataElement(value) {
+			return false
+		}
+		for _, element := range strings.Split(filepath.ToSlash(value), "/") {
+			if element == parentDirElement {
+				hasParent = true
+			}
+		}
+	}
+	return hasParent && hasVariable
 }
 
 func isOSFileOpenCall(pass *analysis.Pass, call *ast.CallExpr) bool {

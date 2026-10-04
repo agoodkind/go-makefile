@@ -1,13 +1,17 @@
 package staticcheck
 
 import (
+	"go/ast"
+	"go/types"
 	"path/filepath"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/types/typeutil"
 )
 
 const (
+	testMainFunctionName      = "TestMain"
 	externalTestPackageSuffix = "_test"
 	exportTestFileName        = "export_test.go"
 	mainPackageName           = "main"
@@ -36,6 +40,7 @@ func runTestPackage(pass *analysis.Pass) (any, error) {
 		if strings.HasSuffix(packageName, externalTestPackageSuffix) {
 			continue
 		}
+		reportUnexportedCalls(pass, file)
 		if packageName == mainPackageName {
 			reportAtf(
 				pass, file, file.Name.Pos(),
@@ -50,4 +55,51 @@ func runTestPackage(pass *analysis.Pass) (any, error) {
 		)
 	}
 	return nil, nil
+}
+
+// reportUnexportedCalls reports each test function that calls an unexported
+// function or method declared in a non-test file of the package under test.
+// The file finding has one baseline row per file. This finding has one row per
+// test function, and a new test in an older file is reported.
+func reportUnexportedCalls(pass *analysis.Pass, file *ast.File) {
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Body == nil || function.Recv != nil {
+			continue
+		}
+		name := function.Name.Name
+		if !strings.HasPrefix(name, testFunctionPrefix) || name == testMainFunctionName {
+			continue
+		}
+		if !callsUnexportedProduction(pass, function.Body) {
+			continue
+		}
+		reportAtf(
+			pass, file, function.Name.Pos(),
+			"Test %s calls unexported functions of the package under test. A test must enter through the exported API or the built command. Call the exported entry point that uses those functions.",
+			name,
+		)
+	}
+}
+
+func callsUnexportedProduction(pass *analysis.Pass, body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(node ast.Node) bool {
+		if found {
+			return false
+		}
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		callee, ok := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
+		if !ok || callee.Exported() || callee.Pkg() != pass.Pkg {
+			return true
+		}
+		if !isTestFile(fileName(pass, callee.Pos())) {
+			found = true
+		}
+		return !found
+	})
+	return found
 }
