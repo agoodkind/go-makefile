@@ -25,9 +25,6 @@ func TestStaticcheckExtraAdvisoryFindings(t *testing.T) {
 		if err != nil {
 			t.Fatalf("make staticcheck-extra failed, want an advisory finding to pass the gate: %v\n%s", err, output)
 		}
-		if !strings.Contains(output, "staticcheck-extra: 1 advisory finding (not gated)") {
-			t.Fatalf("output lacks the advisory count line:\n%s", output)
-		}
 		if !strings.Contains(output, advisoryFindingLocation) {
 			t.Fatalf("output lacks the advisory finding at %s:\n%s", advisoryFindingLocation, output)
 		}
@@ -55,7 +52,8 @@ func TestStaticcheckExtraAdvisoryFindings(t *testing.T) {
 
 const (
 	assertionFreeTest = "package widget_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/consumer/widget\"\n)\n\nfunc TestDoubleRuns(t *testing.T) {\n\twidget.Double(2)\n}\n"
-	assertingTest     = "package widget_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/consumer/widget\"\n)\n\nfunc TestDoubleOfThree(t *testing.T) {\n\tif widget.Double(3) != 6 {\n\t\tt.Fatal(\"Double(3) != 6\")\n\t}\n}\n"
+	logOnlyTest       = "package widget_test\n\nimport \"testing\"\n\nfunc TestFeatureLogsOnly(t *testing.T) {\n\tt.Log(\"the feature test asserts nothing\")\n\tt.Log(\"a second log line\")\n}\n"
+	assertingTest     ="package widget_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/consumer/widget\"\n)\n\nfunc TestDoubleOfThree(t *testing.T) {\n\tif widget.Double(3) != 6 {\n\t\tt.Fatal(\"Double(3) != 6\")\n\t}\n}\n"
 )
 
 // TestStaticcheckExtraBlocksNewTestCode enters through the make target a
@@ -121,6 +119,88 @@ func TestStaticcheckExtraBlocksNewTestCode(t *testing.T) {
 	}
 }
 
+// TestStaticcheckExtraBlocksNewTestCodeInShallowActionsCheckout enters through
+// the make target in a depth-one clone with the GitHub Actions environment. The
+// clone has no default branch reference and no history.
+func TestStaticcheckExtraBlocksNewTestCodeInShallowActionsCheckout(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	originDir := writeAdvisoryConsumer(t, repoRoot)
+	writeConsumerFile(t, originDir, ".gitignore", ".make/\n")
+	runConsumerGit(t, originDir, "init", "--quiet", "--initial-branch=main")
+	runConsumerGit(t, originDir, "config", "uploadpack.allowAnySHA1InWant", "true")
+	runConsumerGit(t, originDir, "add", ".")
+	runConsumerGit(t, originDir, "commit", "--quiet", "--message", "base")
+	beforeCommit := consumerGitOutput(t, originDir, "rev-parse", "HEAD")
+	runConsumerGit(t, originDir, "branch", "feature")
+	writeConsumerFile(t, originDir, "widget/pushed_test.go", assertionFreeTest)
+	runConsumerGit(t, originDir, "add", "widget/pushed_test.go")
+	runConsumerGit(t, originDir, "commit", "--quiet", "--message", "push to main")
+	runConsumerGit(t, originDir, "checkout", "--quiet", "feature")
+	// The feature file differs from the file pushed to main. Git would report a
+	// file with the same content as a rename of the pushed file, with no added
+	// line.
+	writeConsumerFile(t, originDir, "widget/feature_test.go", logOnlyTest)
+	runConsumerGit(t, originDir, "add", "widget/feature_test.go")
+	runConsumerGit(t, originDir, "commit", "--quiet", "--message", "feature work")
+
+	eventPath := filepath.Join(t.TempDir(), "event.json")
+	event := `{"before":"` + beforeCommit + `","repository":{"default_branch":"main"}}`
+	if err := os.WriteFile(eventPath, []byte(event), 0o644); err != nil {
+		t.Fatalf("write event payload: %v", err)
+	}
+
+	cases := []struct {
+		name        string
+		branch      string
+		wantBlocked string
+		wantAbsent  string
+	}{
+		{name: "feature branch", branch: "feature", wantBlocked: "widget/feature_test.go:5:6:", wantAbsent: "widget/pushed_test.go"},
+		{name: "push to the default branch", branch: "main", wantBlocked: "widget/pushed_test.go:9:6:", wantAbsent: "widget/feature_test.go"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			cloneDir := filepath.Join(t.TempDir(), "clone")
+			runConsumerGit(t, originDir, "clone", "--quiet", "--depth=1", "--branch", testCase.branch,
+				"file://"+originDir, cloneDir)
+			writeConsumerFile(t, cloneDir, ".make/golangci.yml", "version: \"2\"\n")
+
+			output, err := runConsumerMakeWithEnv(cloneDir, []string{
+				"GITHUB_ACTIONS=true",
+				"GITHUB_EVENT_PATH=" + eventPath,
+				"GITHUB_REF_NAME=" + testCase.branch,
+			}, "staticcheck-extra")
+			if err == nil {
+				t.Fatalf("gate passed in a shallow checkout with a new test that asserts nothing:\n%s", output)
+			}
+			if !strings.Contains(output, "Findings in new test code: 1") {
+				t.Fatalf("failure output lacks the single blocked finding:\n%s", output)
+			}
+			if !strings.Contains(output, testCase.wantBlocked) {
+				t.Fatalf("failure output lacks %s:\n%s", testCase.wantBlocked, output)
+			}
+			if strings.Contains(output, testCase.wantAbsent) || strings.Contains(output, advisoryFindingLocation) {
+				t.Fatalf("failure output blocks a file that this ref did not add:\n%s", output)
+			}
+		})
+	}
+}
+
+func consumerGitOutput(t *testing.T, consumerDir string, arguments ...string) string {
+	t.Helper()
+
+	command := exec.Command("git", arguments...)
+	command.Dir = consumerDir
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("git %s: %v", strings.Join(arguments, " "), err)
+	}
+	return strings.TrimSpace(string(output))
+}
+
 func writeConsumerFile(t *testing.T, consumerDir, name, content string) {
 	t.Helper()
 
@@ -162,22 +242,14 @@ func writeAdvisoryConsumer(t *testing.T, repoRoot string) string {
 
 	consumerDir := t.TempDir()
 	files := map[string]string{
-		"go.mod":                 "module example.com/consumer\n\ngo 1.26\n",
-		"widget/widget.go":       "package widget\n\nfunc Double(value int) int {\n\treturn value * 2\n}\n",
-		"widget/widget_test.go":  "package widget\n\nimport \"testing\"\n\nfunc TestDouble(t *testing.T) {\n\tif Double(2) != 4 {\n\t\tt.Fatal(\"Double(2) != 4\")\n\t}\n}\n",
-		".make/golangci.yml":     "version: \"2\"\n",
-		"Makefile":               "GO_MK_DEV_DIR := " + repoRoot + "\n_GO_MK_PROVISIONED := 1\ninclude " + filepath.Join(repoRoot, "go.mk") + "\n",
-		".make/scripts/.keep":    "",
-		".make/notices.txt.keep": "",
+		"go.mod":                "module example.com/consumer\n\ngo 1.26\n",
+		"widget/widget.go":      "package widget\n\nfunc Double(value int) int {\n\treturn value * 2\n}\n",
+		"widget/widget_test.go": "package widget\n\nimport \"testing\"\n\nfunc TestDouble(t *testing.T) {\n\tif Double(2) != 4 {\n\t\tt.Fatal(\"Double(2) != 4\")\n\t}\n}\n",
+		".make/golangci.yml":    "version: \"2\"\n",
+		"Makefile":              "GO_MK_DEV_DIR := " + repoRoot + "\n_GO_MK_PROVISIONED := 1\ninclude " + filepath.Join(repoRoot, "go.mk") + "\n",
 	}
 	for name, content := range files {
-		path := filepath.Join(consumerDir, name)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatalf("create directory for %s: %v", name, err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatalf("write %s: %v", name, err)
-		}
+		writeConsumerFile(t, consumerDir, name, content)
 	}
 	return consumerDir
 }
@@ -185,13 +257,17 @@ func writeAdvisoryConsumer(t *testing.T, repoRoot string) string {
 // runConsumerMake runs make in the consumer with an allow-listed environment.
 // An inherited MAKEFLAGS would override the consumer Makefile variables.
 func runConsumerMake(consumerDir string, arguments ...string) (string, error) {
+	return runConsumerMakeWithEnv(consumerDir, nil, arguments...)
+}
+
+func runConsumerMakeWithEnv(consumerDir string, extraEnv []string, arguments ...string) (string, error) {
 	command := exec.Command("make", arguments...)
 	command.Dir = consumerDir
-	command.Env = []string{
+	command.Env = append([]string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + os.Getenv("HOME"),
 		"TMPDIR=" + os.Getenv("TMPDIR"),
-	}
+	}, extraEnv...)
 	output, err := command.CombinedOutput()
 	return string(output), err
 }

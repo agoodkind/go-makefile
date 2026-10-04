@@ -8,6 +8,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log/slog"
 	"os"
 	"strings"
@@ -62,6 +63,9 @@ func newTestBase() (string, bool) {
 	if explicit := strings.TrimSpace(os.Getenv("STATICCHECK_EXTRA_TEST_BASE")); explicit != "" {
 		return explicit, true
 	}
+	if base, ok := shallowActionsBase(); ok {
+		return base, true
+	}
 	head, err := loggedGitOutput("staticcheck new-test git head", "rev-parse", "HEAD")
 	if err != nil || head == "" {
 		return "", false
@@ -78,6 +82,69 @@ func newTestBase() (string, bool) {
 		return pushBase, true
 	}
 	return base, true
+}
+
+// githubPushEvent is the subset of the GitHub Actions event payload that names
+// the default branch and the commit before a push.
+type githubPushEvent struct {
+	Before     string `json:"before"`
+	Repository struct {
+		DefaultBranch string `json:"default_branch"`
+	} `json:"repository"`
+}
+
+// shallowActionsBase resolves the base in a shallow GitHub Actions checkout. A
+// depth-one checkout has no default branch reference and no history for a
+// merge-base. The function fetches one commit: the commit before the push on
+// the default branch, or the tip of the default branch on any other ref. A diff
+// against a single fetched commit needs no history. It returns false outside
+// GitHub Actions and in a clone with full history.
+func shallowActionsBase() (string, bool) {
+	if os.Getenv("GITHUB_ACTIONS") != "true" {
+		return "", false
+	}
+	shallow, err := loggedGitOutput("staticcheck new-test git shallow", "rev-parse", "--is-shallow-repository")
+	if err != nil || shallow != "true" {
+		return "", false
+	}
+	event, ok := readGitHubPushEvent(os.Getenv("GITHUB_EVENT_PATH"))
+	if !ok || event.Repository.DefaultBranch == "" {
+		return "", false
+	}
+	target := event.Repository.DefaultBranch
+	if os.Getenv("GITHUB_REF_NAME") == target {
+		if event.Before == "" || event.Before == zeroSHA {
+			return "", false
+		}
+		target = event.Before
+	}
+	if _, err := loggedGitOutput("staticcheck new-test git fetch base", "fetch", "--no-tags", "--depth=1", "origin", target); err != nil {
+		slog.Warn("staticcheck new-test base fetch failed", slog.String("target", target), slog.String("error", err.Error()))
+		return "", false
+	}
+	base, err := loggedGitOutput("staticcheck new-test git fetch head", "rev-parse", "FETCH_HEAD")
+	if err != nil || base == "" {
+		return "", false
+	}
+	return base, true
+}
+
+// readGitHubPushEvent decodes the event payload file. It emits a boundary log
+// before the read.
+func readGitHubPushEvent(path string) (githubPushEvent, bool) {
+	var event githubPushEvent
+	if path == "" {
+		return event, false
+	}
+	slog.Info("staticcheck new-test read github event", slog.String("path", path))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return event, false
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return event, false
+	}
+	return event, true
 }
 
 // defaultBranchMergeBase returns the merge-base of HEAD and the default branch

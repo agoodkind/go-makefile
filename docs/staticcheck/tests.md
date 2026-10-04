@@ -8,7 +8,13 @@ A finding on a line added relative to the base commit fails the gate. A finding 
 
 The added lines are the lines that `git diff` reports for `_test.go` files between the base commit and the working tree, plus every line of each untracked `_test.go` file. Each analyzer reports at one line: the package clause, the test function name, the type declaration, the import, or the file read. A new test file, a new test function, a new test double type, and a new file read are blocked. An edit inside an older test does not block.
 
-The base commit is the merge-base of `HEAD` and the default branch on `origin`. On the default branch the base is `HEAD`, and only uncommitted test code is blocked. When no base resolves, for example outside a git repository or in a shallow clone without the default branch, every finding is advisory and the report states that.
+The base commit is the merge-base of `HEAD` and the default branch on `origin`. On the default branch the base is `HEAD`, and only uncommitted test code is blocked.
+
+A GitHub Actions job checks out one commit with no history. In that shallow checkout the gate fetches one commit as the base: the tip of the default branch for a branch or pull request build, and the commit before the push for a push to the default branch. A branch behind the default branch is compared with the current tip. Rebase the branch when the gate blocks a test that the default branch already removed.
+
+Git reports a renamed file with unchanged content as a rename with no added line. A rename of an older test file does not block.
+
+When no base resolves, for example outside a git repository, every finding is advisory and the report states that.
 
 `make check` shows the gate as `FAILED` for a finding in new test code and as `ADVISORY` when only older findings exist. The advisory report shows the first 20 findings and the count of the rest. The full list is in `.make/staticcheck-extra-advisory.out`.
 
