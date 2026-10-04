@@ -344,9 +344,12 @@ func TestRunCIChangedFailsSafeOnGoListError(t *testing.T) {
 func TestRunCIChangedEmptyDiffSkips(t *testing.T) {
 	config := baseCIChangedConfig()
 	config.diffNames = func(_, _ string) ([]string, error) { return nil, nil }
-	_, _, output := runCIChangedCapture(t, config)
+	_, stdout, output := runCIChangedCapture(t, config)
 	if !strings.Contains(output, "changed=false") {
 		t.Fatalf("output = %q, want changed=false", output)
+	}
+	if !strings.Contains(stdout, "diff is empty") {
+		t.Fatalf("stdout = %q, want the empty-diff reason", stdout)
 	}
 }
 

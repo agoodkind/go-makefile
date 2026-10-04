@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -398,8 +400,17 @@ func TestRunningExecutableHashUsesStableLabel(t *testing.T) {
 	if fileHash.path != executableManifestLabel {
 		t.Fatalf("executable hash path = %q, want stable label %q", fileHash.path, executableManifestLabel)
 	}
-	if len(fileHash.digest) != 64 {
-		t.Fatalf("executable hash digest = %q, want a 64-char sha256 of the real bytes", fileHash.digest)
+	executablePath, pathErr := os.Executable()
+	if pathErr != nil {
+		t.Fatalf("os.Executable() error: %v", pathErr)
+	}
+	executableBytes, readErr := os.ReadFile(executablePath)
+	if readErr != nil {
+		t.Fatalf("read %s: %v", executablePath, readErr)
+	}
+	wantDigest := sha256.Sum256(executableBytes)
+	if fileHash.digest != hex.EncodeToString(wantDigest[:]) {
+		t.Fatalf("executable hash digest = %q, want the sha256 of the executable bytes", fileHash.digest)
 	}
 }
 
