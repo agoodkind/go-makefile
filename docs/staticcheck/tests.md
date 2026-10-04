@@ -1,8 +1,8 @@
-# Test-habit analyzers
+# Checks for Go tests
 
-The `staticcheck-extra` gate runs five analyzers over `_test.go` files. They report tests that can pass while the behavior under test is broken. The analyzers are on by default.
+The staticcheck-extra gate runs five analyzers on Go test files. The analyzers are enabled by default.
 
-Their findings pass through the same baseline gate as every other `staticcheck-extra` finding: a finding in the committed baseline passes, and a new finding fails. The baseline key ignores line and column, and a baselined finding that moves inside its file still passes.
+The gate accepts findings recorded in the committed baseline and rejects new findings. Baseline matching ignores line and column numbers.
 
 ## One-time baseline of existing findings
 
@@ -25,7 +25,7 @@ A repository that adopts go-makefile after the notice date gets no baseline. Eve
 | `testseam` | A test that sets a function field of a production struct to a value other than the single value that production code sets. | Run the production function. |
 | `testsourcefile` | A test that reads a file by constant path with `os.ReadFile`, `os.Open`, or `os.OpenFile`, reads through a `..` path element, embeds a file with `//go:embed`, or calls `go/parser`. | Run the code that uses the file and assert on the outcome, or move the test input under `testdata`. |
 
-A file gets one `testpackage` finding per test with an unexported call, or one finding at the package clause, and never both.
+testpackage reports either an unexported call in each affected test or the package declaration for the file.
 
 ## Exemptions
 
@@ -51,7 +51,7 @@ The mock libraries are `github.com/golang/mock`, `go.uber.org/mock`, `github.com
 - `testseam` does not report a function passed as a call argument.
 - `testsourcefile` does not report a path built from a helper function or a variable with no `..` element.
 - `testsourcefile` reports a shared input file outside `testdata` when a different function than the reader passes the content to production code.
-- No analyzer reports a pinned error or log wording, a restated implementation, or a test that passes with the protected behavior broken. `make mutation` measures the last case.
+- The analyzers do not detect tests that assert only error or log text, copy the production logic into an expected value, or pass despite broken behavior. Mutation testing checks whether tests fail when production code is changed.
 
 ## Configuration
 
