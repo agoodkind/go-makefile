@@ -51,6 +51,7 @@ var staticcheckTestFileFlags = map[string]struct{}{
 	"testpackage":    {},
 	"testassert":     {},
 	"testsourcefile": {},
+	"testseam":       {},
 }
 
 // StaticcheckDefaultExcludePaths returns the staticcheck-extra default exclude
