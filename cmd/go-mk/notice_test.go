@@ -17,8 +17,6 @@ func TestRunNoticeRecordsDirectiveAsAppliedForFreshRepo(t *testing.T) {
 	root := t.TempDir()
 	chdir(t, root)
 	clearBaselineEnv(t)
-	stubNoticeAdoptionTime(t, time.Time{}, false)
-	forbidNoticeBaseline(t)
 
 	noticesPath := filepath.Join(root, "notices.txt")
 	notices := strings.Join([]string{
@@ -69,8 +67,6 @@ func TestRunNoticeShowsDirectiveWhenFreshAppliedRecordFails(t *testing.T) {
 	root := t.TempDir()
 	chdir(t, root)
 	clearBaselineEnv(t)
-	stubNoticeAdoptionTime(t, time.Time{}, false)
-	forbidNoticeBaseline(t)
 
 	noticesPath := filepath.Join(root, "notices.txt")
 	notices := "1\t" + testDirective + "\tEnabled historical rule\n"
@@ -105,8 +101,6 @@ func TestRunNoticeCreatesFreshAppliedNoticeParentDirectory(t *testing.T) {
 	root := t.TempDir()
 	chdir(t, root)
 	clearBaselineEnv(t)
-	stubNoticeAdoptionTime(t, time.Time{}, false)
-	forbidNoticeBaseline(t)
 
 	noticesPath := filepath.Join(root, "notices.txt")
 	notices := "1\t" + testDirective + "\tEnabled historical rule\n"
@@ -140,8 +134,6 @@ func TestRunNoticeIgnoresEmptyBaselineFilesWhenHistoryIsUnavailable(t *testing.T
 	root := t.TempDir()
 	chdir(t, root)
 	clearBaselineEnv(t)
-	stubNoticeAdoptionTime(t, time.Time{}, false)
-	forbidNoticeBaseline(t)
 
 	if err := os.WriteFile(".golangci-lint-baseline.txt", nil, 0o644); err != nil {
 		t.Fatal(err)
