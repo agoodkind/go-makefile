@@ -253,11 +253,8 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-lifecycle_noop_closer \
 	-lifecycle_silent_close_err \
 	-no_tilde_path_literal
-# Test-habit analyzers report in _test.go files. Their findings pass through
-# the same baseline gate as the other flags. Notice 2 in notices.txt baselines
-# the existing findings of a consumer once. The engine appends this list to
-# STATICCHECK_EXTRA_FLAGS. A consumer Makefile that assigns
-# STATICCHECK_EXTRA_FLAGS still runs the listed analyzers.
+# The engine appends these flags even when a consumer overrides
+# STATICCHECK_EXTRA_FLAGS.
 STATICCHECK_EXTRA_TEST_FLAGS    ?= \
 	-testpackage \
 	-testsourcefile \
