@@ -2,6 +2,7 @@ package cases_test
 
 import (
 	"errors"
+	"os"
 	"strconv"
 	"testing"
 )
@@ -27,6 +28,35 @@ func TestOnlySuccessCheck(t *testing.T) { // want `Test TestOnlySuccessCheck ass
 }
 
 func TestOnlyFailureCheck(t *testing.T) { // want `Test TestOnlyFailureCheck asserts only that an error is nil or not nil\.`
+	if _, err := parse("x"); err == nil {
+		t.Fatal("parse accepted x")
+	}
+}
+
+func validate(input string) error {
+	_, err := parse(input)
+	return err
+}
+
+func TestValidatorAccepts(t *testing.T) {
+	if err := validate("4"); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+}
+
+func TestFileExists(t *testing.T) {
+	if err := validate("4"); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if _, err := os.Stat(t.TempDir()); err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+}
+
+type runner struct{ t *testing.T }
+
+func TestStoredT(t *testing.T) {
+	_ = runner{t: t}
 	if _, err := parse("x"); err == nil {
 		t.Fatal("parse accepted x")
 	}

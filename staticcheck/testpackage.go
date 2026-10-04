@@ -17,10 +17,13 @@ const (
 	mainPackageName           = "main"
 )
 
-// TestPackageAnalyzer flags a _test.go file that declares the package under
-// test. A test in the package under test can call unexported identifiers and
-// pass while the exported behavior is broken. The required form is the external
-// test package <name>_test, which compiles against the exported API only.
+// TestPackageAnalyzer flags tests in the package under test. A test in the
+// package under test can call unexported identifiers and pass while the
+// exported behavior is broken. The required form is the external test package
+// <name>_test, which compiles against the exported API only.
+//
+// A test function that calls an unexported function gets one finding. A file
+// with no such test gets one finding at the package clause.
 //
 // A file named export_test.go is exempt. It is the standard place to expose an
 // unexported identifier to the external test package.
@@ -40,7 +43,9 @@ func runTestPackage(pass *analysis.Pass) (any, error) {
 		if strings.HasSuffix(packageName, externalTestPackageSuffix) {
 			continue
 		}
-		reportUnexportedCalls(pass, file)
+		if reportUnexportedCalls(pass, file) > 0 {
+			continue
+		}
 		if packageName == mainPackageName {
 			reportAtf(
 				pass, file, file.Name.Pos(),
@@ -58,10 +63,13 @@ func runTestPackage(pass *analysis.Pass) (any, error) {
 }
 
 // reportUnexportedCalls reports each test function that calls an unexported
-// function or method declared in a non-test file of the package under test.
-// The file finding has one baseline row per file. This finding has one row per
-// test function, and a new test in an older file is reported.
-func reportUnexportedCalls(pass *analysis.Pass, file *ast.File) {
+// function or method declared in a non-test file of the package under test,
+// and returns the count. A file with such a test gets one finding per test and
+// no file finding. A new test in an older file is then a new finding. A file
+// with no such test gets the file finding: its tests need only the changed
+// package clause.
+func reportUnexportedCalls(pass *analysis.Pass, file *ast.File) int {
+	count := 0
 	for _, declaration := range file.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
 		if !ok || function.Body == nil || function.Recv != nil {
@@ -71,21 +79,27 @@ func reportUnexportedCalls(pass *analysis.Pass, file *ast.File) {
 		if !strings.HasPrefix(name, testFunctionPrefix) || name == testMainFunctionName {
 			continue
 		}
-		if !callsUnexportedProduction(pass, function.Body) {
+		callee := firstUnexportedProductionCallee(pass, function.Body)
+		if callee == "" {
 			continue
 		}
+		count++
 		reportAtf(
 			pass, file, function.Name.Pos(),
-			"Test %s calls unexported functions of the package under test. A test must enter through the exported API or the built command. Call the exported entry point that uses those functions.",
-			name,
+			"Test %s calls the unexported function %s of the package under test. A test must enter through the exported API or the built command. Call the exported entry point that uses %s.",
+			name, callee, callee,
 		)
 	}
+	return count
 }
 
-func callsUnexportedProduction(pass *analysis.Pass, body *ast.BlockStmt) bool {
-	found := false
+// firstUnexportedProductionCallee returns the first unexported function or
+// method, in source order, that the body calls and a non-test file of the
+// package declares.
+func firstUnexportedProductionCallee(pass *analysis.Pass, body *ast.BlockStmt) string {
+	found := ""
 	ast.Inspect(body, func(node ast.Node) bool {
-		if found {
+		if found != "" {
 			return false
 		}
 		call, ok := node.(*ast.CallExpr)
@@ -97,9 +111,9 @@ func callsUnexportedProduction(pass *analysis.Pass, body *ast.BlockStmt) bool {
 			return true
 		}
 		if !isTestFile(fileName(pass, callee.Pos())) {
-			found = true
+			found = callee.Name()
 		}
-		return !found
+		return found == ""
 	})
 	return found
 }

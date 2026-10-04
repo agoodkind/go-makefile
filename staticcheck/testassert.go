@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/types/typeutil"
 )
 
 const (
@@ -215,9 +216,15 @@ func (checker assertionChecker) canFail(body *ast.BlockStmt) bool {
 // assertsOnlyErrorNilness reports whether every failing call of the body is in
 // an if statement that compares an error value with nil, and no helper
 // receives a testing.TB value. A helper can assert an outcome.
+//
+// A test that only requires a nil error is reported when it discards another
+// result of the call with the blank identifier. A call with an error as its
+// only result has no other outcome to assert. A test that only requires a
+// non-nil error is reported: a failure for another reason passes it.
 func (checker assertionChecker) assertsOnlyErrorNilness(body *ast.BlockStmt) bool {
 	failingCalls := 0
 	onlyNilness := true
+	expectsFailure := false
 	var conditions []ast.Expr
 	var visit func(node ast.Node)
 	visit = func(node ast.Node) {
@@ -244,6 +251,8 @@ func (checker assertionChecker) assertsOnlyErrorNilness(body *ast.BlockStmt) boo
 				failingCalls++
 				if len(conditions) == 0 || !checker.isErrorNilComparison(conditions[len(conditions)-1]) {
 					onlyNilness = false
+				} else if binary, isBinary := ast.Unparen(conditions[len(conditions)-1]).(*ast.BinaryExpr); isBinary && binary.Op == token.EQL {
+					expectsFailure = true
 				}
 			case method == nil && checker.passesTestingValue(call):
 				onlyNilness = false
@@ -254,7 +263,76 @@ func (checker assertionChecker) assertsOnlyErrorNilness(body *ast.BlockStmt) boo
 		}
 	}
 	visit(body)
-	return onlyNilness && failingCalls > 0
+	if !onlyNilness || failingCalls == 0 || checker.hasOtherOutcomeCheck(body) {
+		return false
+	}
+	return expectsFailure || checker.discardsResult(body)
+}
+
+// hasOtherOutcomeCheck reports whether the body checks file state with os.Stat
+// or os.Lstat, or stores a testing.TB value in a composite literal. The error
+// of a stat call is the assertion on the file. A stored testing.TB value lets
+// a method of the literal fail the test.
+func (checker assertionChecker) hasOtherOutcomeCheck(body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(node ast.Node) bool {
+		switch typed := node.(type) {
+		case *ast.CallExpr:
+			function, ok := typeutil.Callee(checker.pass.TypesInfo, typed).(*types.Func)
+			if ok && function.Pkg() != nil && function.Pkg().Path() == "os" &&
+				(function.Name() == "Stat" || function.Name() == "Lstat") {
+				found = true
+			}
+		case *ast.CompositeLit:
+			for _, element := range typed.Elts {
+				if pair, ok := element.(*ast.KeyValueExpr); ok {
+					element = pair.Value
+				}
+				elementType := checker.pass.TypesInfo.TypeOf(element)
+				if elementType != nil && types.Implements(elementType, checker.tbInterface) {
+					found = true
+				}
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// discardsResult reports whether the body assigns a call with an error result
+// and discards another result of that call with the blank identifier.
+func (checker assertionChecker) discardsResult(body *ast.BlockStmt) bool {
+	found := false
+	errorType := types.Universe.Lookup("error").Type()
+	ast.Inspect(body, func(node ast.Node) bool {
+		assign, ok := node.(*ast.AssignStmt)
+		if !ok || len(assign.Rhs) != 1 || len(assign.Lhs) < 2 {
+			return !found
+		}
+		if _, isCall := assign.Rhs[0].(*ast.CallExpr); !isCall {
+			return true
+		}
+		tuple, ok := checker.pass.TypesInfo.TypeOf(assign.Rhs[0]).(*types.Tuple)
+		if !ok || tuple.Len() != len(assign.Lhs) {
+			return true
+		}
+		hasError := false
+		hasBlank := false
+		for i, left := range assign.Lhs {
+			if types.Identical(tuple.At(i).Type(), errorType) {
+				hasError = true
+				continue
+			}
+			if ident, isIdent := left.(*ast.Ident); isIdent && ident.Name == "_" {
+				hasBlank = true
+			}
+		}
+		if hasError && hasBlank {
+			found = true
+		}
+		return !found
+	})
+	return found
 }
 
 // childNodes returns the direct children of a node in source order.

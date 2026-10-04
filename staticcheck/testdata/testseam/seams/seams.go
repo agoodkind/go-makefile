@@ -9,7 +9,7 @@ var (
 )
 
 type clockDependencies struct {
-	now func() time.Time
+	now func() time.Time // want now:`seam\(func:time.Now\)`
 }
 
 func newClockDependencies() clockDependencies {

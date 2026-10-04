@@ -33,12 +33,12 @@ func (fact *seamFieldFact) String() string { return "seam(" + fact.Value + ")" }
 // production code sets to exactly one value. A test with a replaced seam does
 // not run the production function behind it.
 //
-// A function with only time.Time and time.Duration parameters and results is
-// a clock and is exempt. A field with no production assignment in its
-// declaring package is not a seam. A field with several distinct production values is a callback and is
-// not a seam. The directive //testseam:external followed by a reason of at
-// least three words, on the line above the replacement, exempts a replacement
-// that fakes a service outside the host.
+// A field with no production assignment in its declaring package is not a
+// seam. A field with several distinct production values is a callback and is
+// not a seam. A clock or sleep function is a seam. The directive
+// //testseam:external followed by a reason of at least three words, on the
+// line above the replacement, exempts a replacement that fakes a service
+// outside the host.
 var TestSeamAnalyzer = &analysis.Analyzer{
 	Name:      "testseam",
 	Doc:       "rejects a test that replaces a function variable or a single-valued function field of the same module",
@@ -49,6 +49,7 @@ var TestSeamAnalyzer = &analysis.Analyzer{
 type seamFinder struct {
 	pass   *analysis.Pass
 	fields map[*types.Var]string
+	saved  map[*types.Var]*types.Var
 }
 
 func runTestSeam(pass *analysis.Pass) (any, error) {
@@ -137,38 +138,10 @@ func functionField(pass *analysis.Pass, ident *ast.Ident) *types.Var {
 	if !ok || !field.IsField() {
 		return nil
 	}
-	signature, isFunction := field.Type().Underlying().(*types.Signature)
-	if !isFunction || isClockSignature(signature) {
+	if _, isFunction := field.Type().Underlying().(*types.Signature); !isFunction {
 		return nil
 	}
 	return field
-}
-
-// isClockSignature reports whether a function type has only time.Time and
-// time.Duration parameters and results, with at least one of them. The shapes
-// of time.Now, time.Sleep, and time.Since match. A test may replace the clock.
-func isClockSignature(signature *types.Signature) bool {
-	count := 0
-	for _, tuple := range []*types.Tuple{signature.Params(), signature.Results()} {
-		for i := range tuple.Len() {
-			if !isTimeType(tuple.At(i).Type()) {
-				return false
-			}
-			count++
-		}
-	}
-	return count > 0
-}
-
-func isTimeType(typ types.Type) bool {
-	if channel, ok := typ.Underlying().(*types.Chan); ok {
-		typ = channel.Elem()
-	}
-	named, ok := types.Unalias(typ).(*types.Named)
-	if !ok || named.Obj().Pkg() == nil || named.Obj().Pkg().Path() != "time" {
-		return false
-	}
-	return named.Obj().Name() == "Time" || named.Obj().Name() == "Duration"
 }
 
 // seamValueKey identifies a value expression. A named function or method has
@@ -196,6 +169,7 @@ func seamValueKey(pass *analysis.Pass, value ast.Expr) (string, bool) {
 
 func (finder *seamFinder) inspectTestFile(file *ast.File) {
 	directives := seamDirectiveLines(finder.pass, file)
+	finder.saved = finder.savedVariables(file)
 	for _, declaration := range file.Decls {
 		scope := testSeamPackageScope
 		if function, ok := declaration.(*ast.FuncDecl); ok {
@@ -216,9 +190,68 @@ func (finder *seamFinder) inspectNode(file *ast.File, node ast.Node, scope strin
 	if !ok || assign.Tok != token.ASSIGN {
 		return
 	}
-	for _, left := range assign.Lhs {
+	for i, left := range assign.Lhs {
+		if len(assign.Rhs) == len(assign.Lhs) && finder.restores(left, assign.Rhs[i]) {
+			continue
+		}
 		finder.checkVariable(file, left, scope, directives)
 	}
+}
+
+// savedVariables maps each local variable to the package-level variable that
+// the file copies into it, as in `old := seam`.
+func (finder *seamFinder) savedVariables(file *ast.File) map[*types.Var]*types.Var {
+	saved := make(map[*types.Var]*types.Var)
+	ast.Inspect(file, func(node ast.Node) bool {
+		assign, ok := node.(*ast.AssignStmt)
+		if !ok || len(assign.Lhs) != len(assign.Rhs) {
+			return true
+		}
+		for i, left := range assign.Lhs {
+			ident, ok := left.(*ast.Ident)
+			if !ok {
+				continue
+			}
+			local, ok := finder.pass.TypesInfo.ObjectOf(ident).(*types.Var)
+			source := finder.packageVariable(assign.Rhs[i])
+			if ok && source != nil && local.Parent() != local.Pkg().Scope() {
+				saved[local] = source
+			}
+		}
+		return true
+	})
+	return saved
+}
+
+// restores reports whether the assignment writes a saved copy back to the
+// package-level variable it came from.
+func (finder *seamFinder) restores(left, right ast.Expr) bool {
+	target := finder.packageVariable(left)
+	ident, ok := ast.Unparen(right).(*ast.Ident)
+	if target == nil || !ok {
+		return false
+	}
+	local, ok := finder.pass.TypesInfo.Uses[ident].(*types.Var)
+	return ok && finder.saved[local] == target
+}
+
+// packageVariable returns the package-level variable that the expression
+// refers to, or nil.
+func (finder *seamFinder) packageVariable(expr ast.Expr) *types.Var {
+	var ident *ast.Ident
+	switch typed := ast.Unparen(expr).(type) {
+	case *ast.Ident:
+		ident = typed
+	case *ast.SelectorExpr:
+		ident = typed.Sel
+	default:
+		return nil
+	}
+	variable, ok := finder.pass.TypesInfo.Uses[ident].(*types.Var)
+	if !ok || variable.IsField() || variable.Pkg() == nil || variable.Parent() != variable.Pkg().Scope() {
+		return nil
+	}
+	return variable
 }
 
 func (finder *seamFinder) checkField(file *ast.File, field *types.Var, value ast.Expr, scope string, directives map[int]bool) {
@@ -275,12 +308,8 @@ func (finder *seamFinder) checkVariable(file *ast.File, left ast.Expr, scope str
 	if isTestFile(fileName(finder.pass, variable.Pos())) || !sameModulePackage(finder.pass, variable.Pkg().Path()) {
 		return
 	}
-	switch underlying := variable.Type().Underlying().(type) {
-	case *types.Signature:
-		if isClockSignature(underlying) {
-			return
-		}
-	case *types.Interface:
+	switch variable.Type().Underlying().(type) {
+	case *types.Signature, *types.Interface:
 	default:
 		return
 	}

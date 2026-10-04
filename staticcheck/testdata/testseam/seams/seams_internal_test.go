@@ -6,6 +6,8 @@ import (
 )
 
 func TestReplacesVariable(t *testing.T) {
+	previous := Send
+	t.Cleanup(func() { Send = previous })
 	Send = func(string) error { return nil } // want `TestReplacesVariable replaces the package variable Send\.`
 	if Send("x") != nil {
 		t.Fatal("Send failed")
@@ -50,11 +52,11 @@ func TestShortDirective(t *testing.T) {
 	}
 }
 
-func TestClockReplacementIsExempt(t *testing.T) {
+func TestClockReplacement(t *testing.T) {
 	fixed := time.Unix(1000, 0)
-	Now = func() time.Time { return fixed }
-	Wait = func(time.Duration) {}
-	deps := clockDependencies{now: func() time.Time { return fixed }}
+	Now = func() time.Time { return fixed }                           // want `TestClockReplacement replaces the package variable Now\.`
+	Wait = func(time.Duration) {}                                     // want `TestClockReplacement replaces the package variable Wait\.`
+	deps := clockDependencies{now: func() time.Time { return fixed }} // want `TestClockReplacement replaces the function field now\.`
 	if !deps.now().Equal(Now()) {
 		t.Fatal("clock")
 	}
