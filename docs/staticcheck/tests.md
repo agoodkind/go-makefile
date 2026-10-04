@@ -31,12 +31,12 @@ The mock libraries are `github.com/golang/mock`, `go.uber.org/mock`, `github.com
 
 ## Configuration
 
-`STATICCHECK_EXTRA_TEST_FLAGS` lists the enabled test-habit analyzers as flags, and the default `STATICCHECK_EXTRA_FLAGS` includes the list. The default is empty. Set the variable before `include bootstrap.mk`, or on the make command line, to enable analyzers:
+`STATICCHECK_EXTRA_TEST_FLAGS` lists the enabled test-habit analyzers as flags. The gate runs `STATICCHECK_EXTRA_FLAGS` followed by this list. The default is empty. Set the variable before `include bootstrap.mk`, or on the make command line, to enable analyzers:
 
 ```make
 STATICCHECK_EXTRA_TEST_FLAGS := -testpackage -testassert -testdouble -testsourcefile
 ```
 
-A consumer that assigns `STATICCHECK_EXTRA_FLAGS` itself adds the flags to that assignment. `STATICCHECK_EXTRA_EXCLUDE_PATHS` drops test-habit findings for matching paths, the same way it drops other findings.
+A consumer that assigns `STATICCHECK_EXTRA_FLAGS` itself needs no change to that assignment. `STATICCHECK_EXTRA_EXCLUDE_PATHS` drops test-habit findings for matching paths, the same way it drops other findings.
 
 The gate drops every `_test.go` finding by default through `STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS`. An enabled test-habit analyzer removes that default entry. The other analyzers skip test files themselves.
