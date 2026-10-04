@@ -4,6 +4,14 @@ on:
   schedule:
     - cron: "0 6 * * 1"
   workflow_dispatch:
+  # A pull request that changes the mutation target or these workflows runs
+  # them. GitHub dispatches a workflow only from the default branch.
+  pull_request:
+    paths:
+      - .github/workflows/mutation.yml
+      - .github/workflows/_mutation.yml
+      - cmd/go-mk/mutation.go
+      - internal/mutation/**
 
 permissions:
   contents: read
