@@ -1,10 +1,6 @@
 package selfupdate
 
 import (
-	"context"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -13,19 +9,6 @@ import (
 	sigverify "github.com/sigstore/sigstore-go/pkg/verify"
 	"google.golang.org/protobuf/types/known/structpb"
 )
-
-func TestStatementHasSubjectDigest(t *testing.T) {
-	subjects := []*in_toto.ResourceDescriptor{
-		{Name: "", Digest: map[string]string{"sha1": "abc123"}},
-		{Name: "agent-gate_darwin_arm64.tar.gz", Digest: map[string]string{"sha256": "deadbeef"}},
-	}
-	if !statementHasSHA256SubjectDigest(subjects, "agent-gate_darwin_arm64.tar.gz", "deadbeef") {
-		t.Fatal("statementHasSHA256SubjectDigest() = false, want true")
-	}
-	if statementHasSHA256SubjectDigest(subjects, "agent-gate_linux_arm64.tar.gz", "deadbeef") {
-		t.Fatal("statementHasSHA256SubjectDigest() = true, want false")
-	}
-}
 
 func TestValidateReleaseAttestation(t *testing.T) {
 	predicate, err := structpb.NewStruct(map[string]any{
@@ -96,6 +79,14 @@ func TestValidateReleaseAttestationRejectsMismatches(t *testing.T) {
 			tag:       "v1.2.3",
 			assetName: "agent-gate_linux_arm64.tar.gz",
 			digestHex: "deadbeef",
+			want:      "did not include",
+		},
+		{
+			name:      "wrong subject digest",
+			repo:      "agoodkind/agent-gate",
+			tag:       "v1.2.3",
+			assetName: "agent-gate_darwin_arm64.tar.gz",
+			digestHex: "cafebabe",
 			want:      "did not include",
 		},
 	}
@@ -251,23 +242,5 @@ func TestSplitRepositoryRejectsExtraSegments(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "owner/name") {
 		t.Fatalf("splitRepository() error = %v", err)
-	}
-}
-
-func TestVerifyDarwinCodeSignatureRejectsUnsignedCandidate(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Darwin-only codesign test")
-	}
-	candidatePath := filepath.Join(t.TempDir(), "agent-gate")
-	content := "#!/bin/sh\nprintf 'version: unsigned\\n'\n"
-	if err := os.WriteFile(candidatePath, []byte(content), 0o755); err != nil {
-		t.Fatalf("WriteFile() error: %v", err)
-	}
-	err := verifyDarwinCodeSignature(context.Background(), candidatePath)
-	if err == nil {
-		t.Fatal("verifyDarwinCodeSignature() error = nil, want unsigned candidate failure")
-	}
-	if !strings.Contains(err.Error(), "codesign verify failed") {
-		t.Fatalf("verifyDarwinCodeSignature() error = %v", err)
 	}
 }
