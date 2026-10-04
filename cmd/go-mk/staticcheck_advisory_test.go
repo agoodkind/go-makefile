@@ -53,6 +53,108 @@ func TestStaticcheckExtraAdvisoryFindings(t *testing.T) {
 	})
 }
 
+const (
+	assertionFreeTest = "package widget_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/consumer/widget\"\n)\n\nfunc TestDoubleRuns(t *testing.T) {\n\twidget.Double(2)\n}\n"
+	assertingTest     = "package widget_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/consumer/widget\"\n)\n\nfunc TestDoubleOfThree(t *testing.T) {\n\tif widget.Double(3) != 6 {\n\t\tt.Fatal(\"Double(3) != 6\")\n\t}\n}\n"
+)
+
+// TestStaticcheckExtraBlocksNewTestCode enters through the make target a
+// consumer runs. The consumer is a git repository with one committed test file
+// in the package under test. That file predates the base commit.
+func TestStaticcheckExtraBlocksNewTestCode(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	consumerDir := writeAdvisoryConsumer(t, repoRoot)
+	writeConsumerFile(t, consumerDir, ".gitignore", ".make/\n")
+	runConsumerGit(t, consumerDir, "init", "--quiet", "--initial-branch=main")
+	runConsumerGit(t, consumerDir, "add", ".")
+	runConsumerGit(t, consumerDir, "commit", "--quiet", "--message", "base")
+	// The remote-tracking reference stands in for a fetched default branch.
+	runConsumerGit(t, consumerDir, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+	output, err := runConsumerMake(consumerDir, "staticcheck-extra")
+	if err != nil {
+		t.Fatalf("gate failed on test code older than the base commit: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "staticcheck-extra: 1 advisory finding (not gated)") {
+		t.Fatalf("output lacks the advisory finding for the older test file:\n%s", output)
+	}
+
+	writeConsumerFile(t, consumerDir, "widget/useful_test.go", assertingTest)
+	output, err = runConsumerMake(consumerDir, "staticcheck-extra")
+	if err != nil {
+		t.Fatalf("gate failed on a new external test with an assertion: %v\n%s", err, output)
+	}
+
+	writeConsumerFile(t, consumerDir, "widget/committed_test.go", assertionFreeTest)
+	runConsumerGit(t, consumerDir, "add", "widget/committed_test.go")
+	runConsumerGit(t, consumerDir, "commit", "--quiet", "--message", "add test")
+	writeConsumerFile(t, consumerDir, "widget/untracked_test.go",
+		strings.Replace(assertionFreeTest, "TestDoubleRuns", "TestDoubleRunsAgain", 1))
+	output, err = runConsumerMake(consumerDir, "staticcheck-extra")
+	if err == nil {
+		t.Fatalf("gate passed with two new tests that assert nothing:\n%s", output)
+	}
+	wantLines := []string{
+		"staticcheck-extra: FAILED",
+		"Findings in new test code: 2",
+		"widget/committed_test.go:9:6:",
+		"widget/untracked_test.go:9:6:",
+	}
+	for _, want := range wantLines {
+		if !strings.Contains(output, want) {
+			t.Fatalf("failure output lacks %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, advisoryFindingLocation) {
+		t.Fatalf("failure output blocks the test file older than the base commit:\n%s", output)
+	}
+
+	output, err = runConsumerMake(consumerDir, "staticcheck-extra", "STATICCHECK_EXTRA_TEST_BLOCK=off")
+	if err != nil {
+		t.Fatalf("gate failed with blocking turned off: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "staticcheck-extra: 3 advisory findings (not gated)") {
+		t.Fatalf("output lacks the three advisory findings with blocking turned off:\n%s", output)
+	}
+}
+
+func writeConsumerFile(t *testing.T, consumerDir, name, content string) {
+	t.Helper()
+
+	path := filepath.Join(consumerDir, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create directory for %s: %v", name, err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+}
+
+// runConsumerGit runs git in the consumer without the user and system
+// configuration. A user configuration can require commit signing.
+func runConsumerGit(t *testing.T, consumerDir string, arguments ...string) {
+	t.Helper()
+
+	command := exec.Command("git", arguments...)
+	command.Dir = consumerDir
+	command.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + os.Getenv("HOME"),
+		"GIT_CONFIG_GLOBAL=" + os.DevNull,
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_AUTHOR_NAME=Test",
+		"GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=Test",
+		"GIT_COMMITTER_EMAIL=test@example.com",
+	}
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(arguments, " "), err, output)
+	}
+}
+
 // writeAdvisoryConsumer creates a consumer module that includes go.mk from the
 // checkout under test.
 func writeAdvisoryConsumer(t *testing.T, repoRoot string) string {

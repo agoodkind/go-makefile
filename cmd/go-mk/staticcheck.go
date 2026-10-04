@@ -335,7 +335,7 @@ const staticcheckAdvisoryDisplayLimit = 20
 
 // staticcheckAdvisoryRemediation is the fix hint printed under the advisory
 // findings.
-const staticcheckAdvisoryRemediation = "Advisory findings do not fail this gate. Fix them before the analyzers become blocking."
+const staticcheckAdvisoryRemediation = "Advisory findings are in test code older than the base commit and do not fail this gate. The same findings in new test code fail the gate."
 
 // staticcheckAdvisoryFindingsPath is the file that lists every advisory finding
 // of the most recent run.
@@ -405,16 +405,21 @@ func staticcheckAdvisoryDisplay(advisory []string) (shown []string, overflowNote
 // staticcheckReportAdvisory shows the advisory findings of a gate that passed.
 // A collecting run records them on the gate marker, and the chain renders the
 // step as ADVISORY. A standalone run prints them under the gate block.
-func staticcheckReportAdvisory(advisory []string) {
+// A non-empty note states why new test findings are not blocked in this run.
+func staticcheckReportAdvisory(advisory []string, note string) {
 	if len(advisory) == 0 {
 		return
+	}
+	remediation := staticcheckAdvisoryRemediation
+	if note != "" {
+		remediation += " " + note
 	}
 	if gateCollecting {
 		recordGateMarker(report.GateMarker{
 			Name:        "staticcheck-extra",
 			Passed:      true,
 			Advisory:    advisory,
-			Remediation: staticcheckAdvisoryRemediation,
+			Remediation: remediation,
 		})
 		return
 	}
@@ -427,7 +432,7 @@ func staticcheckReportAdvisory(advisory []string) {
 	if overflowNote != "" {
 		writeStdout(overflowNote + "\n")
 	}
-	writeStdout("  " + staticcheckAdvisoryRemediation + "\n")
+	writeStdout("  " + remediation + "\n")
 }
 
 // runStaticcheckBin resolves the analyzer binary, mirroring the shell `bin`
@@ -506,6 +511,11 @@ func runStaticcheckExtra() int {
 	if err != nil {
 		return statusFromError(err)
 	}
-	staticcheckReportAdvisory(advisory)
+	blocking, note := staticcheckBlockingFindings(advisory)
+	if len(blocking) > 0 {
+		staticcheckReportNewTestFailure(blocking)
+		return 1
+	}
+	staticcheckReportAdvisory(advisory, note)
 	return 0
 }
