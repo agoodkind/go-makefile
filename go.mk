@@ -254,11 +254,16 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-lifecycle_silent_close_err \
 	-no_tilde_path_literal
 # Test-habit analyzers report in _test.go files. Their findings pass through
-# the same baseline gate as the other flags. The list is empty by default. The
-# analyzer names are -testpackage, -testsourcefile, -testassert, -testdouble.
-# The engine appends this list to STATICCHECK_EXTRA_FLAGS. A consumer Makefile
-# that assigns STATICCHECK_EXTRA_FLAGS still runs the listed analyzers.
-STATICCHECK_EXTRA_TEST_FLAGS    ?=
+# the same baseline gate as the other flags. Notice 2 in notices.txt baselines
+# the existing findings of a consumer once. The engine appends this list to
+# STATICCHECK_EXTRA_FLAGS. A consumer Makefile that assigns
+# STATICCHECK_EXTRA_FLAGS still runs the listed analyzers.
+STATICCHECK_EXTRA_TEST_FLAGS    ?= \
+	-testpackage \
+	-testsourcefile \
+	-testassert \
+	-testdouble \
+	-testseam
 STATICCHECK_EXTRA_FLAGS        ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt

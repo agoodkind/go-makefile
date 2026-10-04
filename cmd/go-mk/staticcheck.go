@@ -366,6 +366,7 @@ func runStaticcheckExtra() int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+	runNoticeFor(noticeGateStaticcheck)
 	// Resolve (build or install) the analyzer binary in-process, the work the
 	// staticcheck-extra-bin make prerequisite used to do, so the gate is one
 	// self-contained go-mk process. The aggregate run resolves it once up front

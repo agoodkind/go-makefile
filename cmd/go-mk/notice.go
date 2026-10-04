@@ -55,6 +55,14 @@ var noticeAdoptionSentinelPaths = []string{
 // failure must never fail a consumer build, matching the shell's `|| true`
 // invocation in go.mk.
 func runNotice() int {
+	return runNoticeFor("")
+}
+
+// runNoticeFor runs the notice pass. A non-empty onlyGate limits the pass to
+// the unapplied auto-baseline directives of that gate, prints no summary, and
+// leaves the seen file unchanged. A gate that runs outside the lint chain uses
+// it: a CI job that runs one gate has no earlier notice pass.
+func runNoticeFor(onlyGate string) int {
 	noticesFile := lintEnvDefault("_GO_MK_NOTICES_FILE", filepath.Join(makeDir, "notices.txt"))
 	appliedFile := lintEnvDefault("GO_MK_APPLIED_NOTICES", ".go-mk-applied-notices")
 	seenFile := filepath.Join(makeDir, ".go-mk-notice-seen")
@@ -83,6 +91,12 @@ func runNotice() int {
 			directive = parseNoticeDirective(record.directive)
 			autoBaselineNotice = shouldAutoBaselineDirective(directive)
 		}
+		if onlyGate != "" {
+			if directiveNotice && directive.gate == onlyGate && !applied[record.id] && autoBaselineNotice {
+				runNoticeAutoBaseline(record, directive, appliedFile, applied)
+			}
+			continue
+		}
 		if directiveNotice && !applied[record.id] {
 			if autoBaselineNotice {
 				runNoticeAutoBaseline(record, directive, appliedFile, applied)
@@ -98,6 +112,9 @@ func runNotice() int {
 		}
 	}
 
+	if onlyGate != "" {
+		return 0
+	}
 	if err := os.MkdirAll(makeDir, 0o755); err != nil {
 		return 0
 	}
@@ -141,6 +158,12 @@ func baselineFileHasContent(path string) bool {
 }
 
 func detectNoticeAdoptionTime() (time.Time, bool) {
+	// A shallow clone shows every file as added in its one commit, and the
+	// adoption date would be the date of that commit.
+	shallow, shallowErr := loggedGitOutput("notice git shallow", "rev-parse", "--is-shallow-repository")
+	if shallowErr == nil && strings.TrimSpace(shallow) == "true" {
+		return time.Time{}, false
+	}
 	args := []string{"log", "--diff-filter=A", "--format=%cI", "--reverse", "--"}
 	args = append(args, noticeAdoptionSentinelPaths...)
 	output, err := loggedGitOutput("notice git adoption", args...)
@@ -250,6 +273,10 @@ func recordFreshNoticeApplied(record noticeFields, appliedFile string, applied m
 // baseline auto-baseline-scope updater with the scope env set, records the id on
 // success, and reports failure without aborting the build.
 func runNoticeAutoBaseline(record noticeFields, directive noticeDirective, appliedFile string, applied map[string]bool) {
+	if directive.gate == noticeGateStaticcheck {
+		runNoticeStaticcheckAutoBaseline(record, directive, appliedFile, applied)
+		return
+	}
 	if directive.gate != "golangci" {
 		writeStderr("go-makefile notice #" + record.id + ": unsupported auto-baseline gate '" + directive.gate + "'; skipping\n")
 		return
@@ -282,6 +309,36 @@ func runNoticeAutoBaseline(record noticeFields, directive noticeDirective, appli
 	applied[record.id] = true
 	writeStderr("go-makefile notice #" + record.id + ": wrote " + golangciBaseline +
 		". Review with 'git diff " + golangciBaseline + "' and commit it together with " + appliedFile + ".\n")
+}
+
+// noticeGateStaticcheck is the directive gate value for a staticcheck-extra
+// auto-baseline.
+const noticeGateStaticcheck = "staticcheck-extra"
+
+// runNoticeStaticcheckAutoBaseline rolls out the scoped, token-free
+// staticcheck-extra auto-baseline for one notice directive. The directive
+// PATTERN is the baseline scope. It records the id on success and reports a
+// failure without aborting the build.
+func runNoticeStaticcheckAutoBaseline(record noticeFields, directive noticeDirective, appliedFile string, applied map[string]bool) {
+	baselineFile := lintEnvDefault("STATICCHECK_EXTRA_BASELINE", ".staticcheck-extra-baseline.txt")
+	writeStderr("go-makefile notice #" + record.id + ": auto-baselining existing findings for " + record.directive + "\n")
+
+	previousPattern, hadPattern := os.LookupEnv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN")
+	_ = os.Setenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN", directive.pattern)
+	code := runNoticeBaselineFunc([]string{string(componentStaticcheckAutoScope)})
+	restoreEnv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN", previousPattern, hadPattern)
+
+	if code != 0 {
+		writeStderr("go-makefile notice #" + record.id + ": auto-baseline failed; it runs again on the next build\n")
+		return
+	}
+	if err := appendAppliedNotice(appliedFile, record.id); err != nil {
+		writeStderr("go-makefile notice #" + record.id + ": could not record applied notice in " + appliedFile + "; the auto-baseline runs again on the next build\n")
+		return
+	}
+	applied[record.id] = true
+	writeStderr("go-makefile notice #" + record.id + ": wrote " + baselineFile +
+		". Review with 'git diff " + baselineFile + "' and commit it together with " + appliedFile + ".\n")
 }
 
 // parseNoticeDirective splits a directive into its scope tokens, mirroring the

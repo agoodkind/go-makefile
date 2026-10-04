@@ -38,6 +38,9 @@ const (
 	componentGocyclo       baselineComponent = "gocyclo"
 	componentDeadcode      baselineComponent = "deadcode"
 	componentStaticcheck   baselineComponent = "staticcheck-extra"
+	// componentStaticcheckAutoScope is the token-free scoped staticcheck-extra
+	// baseline that a notice directive runs.
+	componentStaticcheckAutoScope baselineComponent = "auto-baseline-staticcheck-scope"
 )
 
 // baselineCollector accumulates the manifest records queued by the updaters,
@@ -90,6 +93,8 @@ func runBaseline(args []string) int {
 		updateStatus = carryStatus(updateStatus, updateDeadcodeBaseline(collector, mode))
 	case componentStaticcheck:
 		updateStatus = carryStatus(updateStatus, updateStaticcheckBaseline(collector, mode))
+	case componentStaticcheckAutoScope:
+		updateStatus = carryStatus(updateStatus, autoBaselineStaticcheckScope(collector))
 	default:
 		writeStdout("go-mk: unknown component " + string(component) + "\n")
 		return 2
@@ -351,6 +356,40 @@ func updateStaticcheckBaseline(collector *baselineCollector, mode string) int {
 		FindingsFile:   findingsPath,
 		Mode:           mode,
 		ExcludePattern: excludePattern,
+		ScopePattern:   scopePattern,
+	})
+	return 0
+}
+
+// autoBaselineStaticcheckScope captures the scoped staticcheck-extra baseline
+// without the token gate, the staticcheck-extra counterpart of
+// autoBaselineGolangciScope. The scoped write adds the findings that match
+// STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN and rewrites no other row. It refuses
+// to run without a scope.
+func autoBaselineStaticcheckScope(collector *baselineCollector) int {
+	scopePattern := os.Getenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN")
+	if scopePattern == "" {
+		writeStdout("auto-baseline: missing scope; set STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN\n")
+		return 1
+	}
+	if err := ensureMakeDir(); err != nil {
+		return statusFromError(err)
+	}
+	findingsPath := makeDir + "/staticcheck-extra-scope-baseline.out"
+	rawPath := makeDir + "/staticcheck-extra-scope-baseline.raw.out"
+	if code := runStaticcheckBin(); code != 0 {
+		return code
+	}
+	if err := staticcheckCaptureFindings(rawPath, findingsPath); err != nil {
+		return statusFromError(err)
+	}
+	collector.add(baseline.Component{
+		Title:          "staticcheck-extra",
+		Label:          "staticcheck-extra",
+		BaselineFile:   lintEnvDefault("STATICCHECK_EXTRA_BASELINE", ".staticcheck-extra-baseline.txt"),
+		FindingsFile:   findingsPath,
+		Mode:           string(modeSync),
+		ExcludePattern: staticcheckExcludePattern(),
 		ScopePattern:   scopePattern,
 	})
 	return 0

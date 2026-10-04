@@ -1,8 +1,16 @@
 # Test-habit analyzers
 
-The `staticcheck-extra` binary includes five analyzers for `_test.go` files. They report tests that can pass while the behavior under test is broken. The analyzers are off by default.
+The `staticcheck-extra` gate runs five analyzers over `_test.go` files. They report tests that can pass while the behavior under test is broken. The analyzers are on by default.
 
-When enabled, their findings pass through the same baseline gate as every other `staticcheck-extra` finding: a finding in the committed baseline passes, and a new finding fails. The baseline key ignores line and column, and a baselined finding that moves inside its file still passes.
+Their findings pass through the same baseline gate as every other `staticcheck-extra` finding: a finding in the committed baseline passes, and a new finding fails. The baseline key ignores line and column, and a baselined finding that moves inside its file still passes.
+
+## One-time baseline of existing findings
+
+Notice 2 baselines the existing test-file findings of a consumer once. The first `make check`, `make lint`, or `make staticcheck-extra` after the analyzers arrive writes every current finding in a `_test.go` file to `.staticcheck-extra-baseline.txt` and records the notice in `.go-mk-applied-notices`. The write needs no baseline token and changes no other baseline row. Review the diff and commit both files.
+
+After that commit, a test-habit finding that the baseline lacks fails the gate. Until that commit, each fresh checkout baselines again: a CI job passes and blocks no new finding.
+
+A repository that adopts go-makefile after the notice date gets no baseline. Every test-habit finding fails the gate there from the first build. In a shallow clone the adoption date is unknown, and a repository with a non-empty baseline file counts as older than the notice.
 
 ## Analyzers
 
@@ -47,11 +55,13 @@ The mock libraries are `github.com/golang/mock`, `go.uber.org/mock`, `github.com
 
 ## Configuration
 
-`STATICCHECK_EXTRA_TEST_FLAGS` lists the enabled test-habit analyzers as flags. The gate runs `STATICCHECK_EXTRA_FLAGS` followed by this list. The default is empty. Set the variable before `include bootstrap.mk`, or on the make command line, to enable analyzers:
+`STATICCHECK_EXTRA_TEST_FLAGS` lists the enabled test-habit analyzers as flags. The gate runs `STATICCHECK_EXTRA_FLAGS` followed by this list. The default enables all five. Set the variable before `include bootstrap.mk`, or on the make command line, to run a subset:
 
 ```make
-STATICCHECK_EXTRA_TEST_FLAGS := -testpackage -testassert -testdouble -testseam -testsourcefile
+STATICCHECK_EXTRA_TEST_FLAGS := -testpackage -testassert
 ```
+
+An empty value turns the analyzers off.
 
 A consumer that assigns `STATICCHECK_EXTRA_FLAGS` itself needs no change to that assignment. `STATICCHECK_EXTRA_EXCLUDE_PATHS` drops test-habit findings for matching paths, the same way it drops other findings.
 

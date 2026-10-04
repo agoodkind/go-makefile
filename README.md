@@ -73,10 +73,11 @@ by one fetched file, `go.mk`.
   initial adoption. Commit `.go-mk-applied-notices` only after a notice run creates
   it. Commit baseline files only after a baseline target creates them. Changing a
   baseline requires the token gate.
-- The `staticcheck-extra` binary includes test-habit analyzers for `_test.go`
-  files. They are off by default. See
+- The `staticcheck-extra` gate also runs test-habit analyzers over `_test.go`
+  files. A notice baselines the existing findings of a consumer once, and a new
+  finding fails the gate. See
   [docs/staticcheck/tests.md](docs/staticcheck/tests.md) for each rule and for
-  the variable that enables the analyzers.
+  the variable that selects the analyzers.
 - `make mutation` runs mutation tests and writes a report and a summary under
   `.make/`. For a weekly run in CI, see
   [docs/ci/mutation.md](docs/ci/mutation.md).
