@@ -6,9 +6,8 @@ import (
 )
 
 // baselineFinding extracts the finding portion of a baseline line, stripping the
-// metadata marker, mirroring baseline_finding in go-mk-findings.awk. Blank and
-// comment lines yield "". Path normalization here is the leading-"../" strip
-// only, because the baseline-extract awk runs without pwd/cwd.
+// metadata marker. Blank and comment lines yield "". Path normalization here is
+// the leading-"../" strip only; a baseline row has no pwd or cwd prefix.
 func baselineFinding(line, label string) string {
 	if skipInput(line) {
 		return ""

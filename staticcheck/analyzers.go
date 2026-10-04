@@ -39,5 +39,10 @@ func Analyzers() []*analysis.Analyzer {
 		LifecycleSilentCloseErrAnalyzer,
 		GrpcMethodNameLiteralAnalyzer,
 		NoTildePathLiteralAnalyzer,
+		TestPackageAnalyzer,
+		TestSourceFileAnalyzer,
+		TestAssertAnalyzer,
+		TestDoubleAnalyzer,
+		TestSeamAnalyzer,
 	}
 }

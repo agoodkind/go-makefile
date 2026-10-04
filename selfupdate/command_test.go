@@ -64,6 +64,7 @@ func TestRunUpdateCommandDryRunPrintsApplyFacts(t *testing.T) {
 		"available: true",
 		"applied: false",
 		"dry_run: true",
+		"launch_check: skipped",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stdout = %q, want substring %q", output, want)

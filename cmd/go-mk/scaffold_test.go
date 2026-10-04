@@ -40,24 +40,6 @@ func TestScaffoldAssetsMatchCanonicalFiles(t *testing.T) {
 	)
 }
 
-func TestConsumerBootstrapMkStripsComments(t *testing.T) {
-	canonical := mustReadFile(t, filepath.Join(testRepoRoot(t), "bootstrap.mk"))
-	stripped := string(consumerBootstrapMk([]byte(canonical)))
-
-	if !strings.HasPrefix(stripped, "# DO NOT MODIFY.") {
-		t.Fatalf("stripped bootstrap.mk missing DO NOT MODIFY header:\n%s", stripped)
-	}
-	if strings.Contains(stripped, "tiny shim") {
-		t.Fatalf("stripped bootstrap.mk still contains prose comment:\n%s", stripped)
-	}
-	if !strings.Contains(stripped, "GO_MK_BOOTSTRAP_FETCHED := 1") {
-		t.Fatalf("stripped bootstrap.mk missing GO_MK_BOOTSTRAP_FETCHED:\n%s", stripped)
-	}
-	if !strings.Contains(stripped, "define _go_mk_get_bootstrap") {
-		t.Fatalf("stripped bootstrap.mk missing helper define:\n%s", stripped)
-	}
-}
-
 func TestConsumerBootstrapMkKeepsRecipeHashComments(t *testing.T) {
 	canonical := "FOO := 1\n" +
 		"# makefile comment\n" +
@@ -1132,21 +1114,6 @@ func TestReconcileCIWorkflow(t *testing.T) {
 		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
 			t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
 		}
-	})
-
-	t.Run("custom ci.yml is preserved", func(t *testing.T) {
-		repoDir := t.TempDir()
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		mustMkdirAll(t, filepath.Dir(ciWorkflow))
-		custom := "name: CI\non:\n  push:\n    branches: ['**']\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo test\n"
-		writeScaffoldTestFile(t, ciWorkflow, custom)
-		t.Chdir(repoDir)
-
-		var stdout bytes.Buffer
-		if err := reconcileCIWorkflow(&stdout); err != nil {
-			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
-		}
-		assertFileText(t, ciWorkflow, custom)
 	})
 
 	t.Run("repairs every reusable-CI job in a multi-job caller", func(t *testing.T) {

@@ -106,9 +106,30 @@ func TestDecodeGoListPackagesEmpty(t *testing.T) {
 }
 
 func TestCheckCgoStubNoopWhenCgoEnabled(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("stub go is a POSIX shell script")
+	}
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "go")
+	script := "#!/bin/sh\n" +
+		`printf '%s\n' '{"ImportPath":"github.com/mattn/go-sqlite3","Standard":false,"CgoFiles":["sqlite3.go"]}'` + "\n"
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+		t.Fatalf("write stub go: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
 	t.Setenv("CGO_ENABLED", "1")
 	if err := checkCgoStub(); err != nil {
 		t.Fatalf("checkCgoStub() with cgo on should be a no-op, got %v", err)
+	}
+
+	t.Setenv("CGO_ENABLED", "0")
+	err := checkCgoStub()
+	if err == nil {
+		t.Fatal("checkCgoStub() with cgo off and a cgo package in the graph should fail")
+	}
+	if !strings.Contains(err.Error(), "github.com/mattn/go-sqlite3") {
+		t.Fatalf("checkCgoStub() error = %v, want the cgo package path", err)
 	}
 }
 

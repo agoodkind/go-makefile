@@ -40,6 +40,52 @@ func ExcludePattern(defaultPatterns, extraPatterns string) string {
 	return strings.Join(fields, "|")
 }
 
+const testFileExcludePath = `_test\.go:`
+
+var staticcheckTestFileFlags = map[string]struct{}{
+	"testdouble":     {},
+	"testpackage":    {},
+	"testassert":     {},
+	"testsourcefile": {},
+	"testseam":       {},
+}
+
+// StaticcheckDefaultExcludePaths returns the staticcheck-extra default exclude
+// list for the enabled flags. It removes the _test.go entry when flagsText
+// enables an analyzer that reports in test files. The _test.go entry would drop
+// every finding of such an analyzer. The other analyzers skip test files
+// themselves. Every other entry is returned unchanged, in order.
+//
+// ---- StaticcheckDefaultExcludePaths ----
+func StaticcheckDefaultExcludePaths(defaultPatterns, flagsText string) string {
+	if !staticcheckTestFileFlagEnabled(flagsText) {
+		return defaultPatterns
+	}
+	kept := make([]string, 0)
+	for _, field := range strings.Split(defaultPatterns, ",") {
+		if field == testFileExcludePath {
+			continue
+		}
+		kept = append(kept, field)
+	}
+	return strings.Join(kept, ",")
+}
+
+// A flag is enabled unless its value is false or 0, matching
+// StaticcheckScopePattern.
+func staticcheckTestFileFlagEnabled(flagsText string) bool {
+	for _, word := range strings.Fields(flagsText) {
+		name, value, isFlag := parseStaticcheckFlagWord(word)
+		if !isFlag || value == "false" || value == "0" {
+			continue
+		}
+		if _, ok := staticcheckTestFileFlags[name]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // GolangciScopePattern resolves the grep -E scope regex for a scoped
 // golangci-lint baseline or run, mirroring go_mk_golangci_baseline_scope_pattern.
 // An explicit pattern wins; otherwise a RULE name is the narrowest scope and

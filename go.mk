@@ -1,7 +1,7 @@
 .PHONY: build deploy clean help \
 	lint lint-tools lint-golangci lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
 	lint-golangci-scope lint-golangci-baseline-scope lint-golangci-baseline-scope-accept-new \
-	lint-files lint-diff lint-format lint-gocyclo lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new fmt vet test govulncheck build-gate build-check check \
+	lint-files lint-diff lint-format lint-gocyclo lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new fmt vet test mutation govulncheck build-gate build-check check \
 	lint-deadcode lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new staticcheck-extra-bin \
 	baseline baseline-bin baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
@@ -253,11 +253,38 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-lifecycle_noop_closer \
 	-lifecycle_silent_close_err \
 	-no_tilde_path_literal
-STATICCHECK_EXTRA_FLAGS         ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
+# Test-habit analyzers report in _test.go files. Their findings pass through
+# the same baseline gate as the other flags. Notice 2 in notices.txt baselines
+# the existing findings of a consumer once. The engine appends this list to
+# STATICCHECK_EXTRA_FLAGS. A consumer Makefile that assigns
+# STATICCHECK_EXTRA_FLAGS still runs the listed analyzers.
+STATICCHECK_EXTRA_TEST_FLAGS    ?= \
+	-testpackage \
+	-testsourcefile \
+	-testassert \
+	-testdouble \
+	-testseam
+STATICCHECK_EXTRA_FLAGS        ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
 STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
 STATICCHECK_EXTRA_EXCLUDE_PATHS ?=
+
+# mutation: mutation tests with gremlins. The target runs the tool once per
+# directory in MUTATION_PACKAGES, writes the combined JSON report to
+# MUTATION_REPORT and a Markdown summary to MUTATION_SUMMARY, and exits 0. Set
+# MUTATION_MIN_SCORE to a percentage from 0 to 100 to fail the target when
+# killed / (killed + lived) is below that score. MUTATION_FLAGS passes extra
+# flags to `gremlins unleash`, for example --tags or --workers.
+MUTATION_INSTALL   ?= github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+MUTATION_PACKAGES  ?= .
+MUTATION_FLAGS     ?=
+# The per-mutant timeout is the coverage run time multiplied by this
+# coefficient. Timed-out mutants do not count toward the score.
+MUTATION_TIMEOUT_COEFFICIENT ?= 20
+MUTATION_MIN_SCORE ?=
+MUTATION_REPORT    ?= .make/mutation-report.json
+MUTATION_SUMMARY   ?= .make/mutation-summary.md
 
 # go-mk engine binary, built on demand from this (root) module. The install
 # spec follows GO_MK_API_REF, the same ref the assets under .make came from,
@@ -341,10 +368,18 @@ export STATICCHECK_EXTRA_BUILD_REPO
 export STATICCHECK_EXTRA_BUILD_PKG
 export STATICCHECK_EXTRA_INSTALL
 export STATICCHECK_EXTRA_FLAGS
+export STATICCHECK_EXTRA_TEST_FLAGS
 export STATICCHECK_EXTRA_TARGETS
 export STATICCHECK_EXTRA_BASELINE
 export STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS
 export STATICCHECK_EXTRA_EXCLUDE_PATHS
+export MUTATION_INSTALL
+export MUTATION_PACKAGES
+export MUTATION_FLAGS
+export MUTATION_TIMEOUT_COEFFICIENT
+export MUTATION_MIN_SCORE
+export MUTATION_REPORT
+export MUTATION_SUMMARY
 export GO_MK_BIN
 export GO_MK_BUILD_REPO
 export GO_MK_BUILD_PKG
@@ -379,6 +414,7 @@ help:
 	@printf '  %-40s %s\n' 'build-check' 'vet + lint + govulncheck + Go version'
 	@printf '  %-40s %s\n' 'fmt' 'apply configured Go formatters'
 	@printf '  %-40s %s\n' 'test' 'go test ./...'
+	@printf '  %-40s %s\n' 'mutation MUTATION_PACKAGES=...' 'mutation tests; report and summary under .make'
 	@printf '  %-40s %s\n' 'go-version-check' 'report whether go.mod tracks the latest Go release'
 	@printf '\n%s\n' 'Scoped iteration:'
 	@printf '  %-40s %s\n' 'lint-diff' 'run scoped lint against staged Go files'
@@ -441,6 +477,9 @@ vet: go-mk-bin
 
 test: go-mk-bin
 	@"$(__GO_MK_ENGINE)" test
+
+mutation: go-mk-bin
+	@"$(__GO_MK_ENGINE)" mutation
 
 govulncheck: go-mk-bin
 	@"$(__GO_MK_ENGINE)" govulncheck
@@ -766,7 +805,7 @@ endif
 # ordering (go-mk-cgo-dep-x: | $(GO_MK_GENERATE)).
 GO_MK_PREREQS := go-mk-workspace $(GO_MK_GENERATE) $(if $(strip $(GO_MK_CGO_DEPS)),go-mk-cgo-deps)
 ifneq ($(strip $(GO_MK_PREREQS)),)
-build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test govulncheck: | $(GO_MK_PREREQS)
+build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test mutation govulncheck: | $(GO_MK_PREREQS)
 endif
 
 # go-mk-generate runs only the consumer codegen prerequisite, so a CI prepare

@@ -145,10 +145,8 @@ type findingsOptions struct {
 }
 
 // runFindings reads finding lines from stdin, dispatches to the matching pure
-// transform in internal/findings, and writes the result to stdout. It mirrors
-// the awk invocation surface in scripts/go-mk-findings.awk so the shell and this
-// binary stay interchangeable. This command layer owns stdin and stdout; the
-// findings package stays pure.
+// transform in internal/findings, and writes the result to stdout. This command
+// layer owns stdin and stdout; the findings package stays pure.
 func runFindings(args []string) error {
 	options, err := parseFindingsOptions(args)
 	if err != nil {

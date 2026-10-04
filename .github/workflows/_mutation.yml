@@ -1,0 +1,93 @@
+name: Mutation
+
+# A reusable workflow cannot own a schedule for its caller. The caller sets
+# `schedule` and `workflow_dispatch`.
+
+on:
+  workflow_call:
+    inputs:
+      packages:
+        description: >-
+          Space-separated directories to mutate, passed as MUTATION_PACKAGES.
+          Gremlins runs once per directory and the reports are combined.
+        required: false
+        type: string
+        default: .
+      min_score:
+        description: >-
+          Minimum mutation score as a percentage from 0 to 100, passed as
+          MUTATION_MIN_SCORE. The run fails when killed / (killed + lived) falls
+          below it. Empty reports the score without failing the run.
+        required: false
+        type: string
+        default: ""
+      timeout_coefficient:
+        description: >-
+          Multiplier on each mutant's test timeout, passed as
+          MUTATION_TIMEOUT_COEFFICIENT. Raise it when slow tests time out.
+        required: false
+        type: string
+        default: "20"
+      flags:
+        description: Extra `gremlins unleash` flags, passed as MUTATION_FLAGS.
+        required: false
+        type: string
+        default: ""
+      working_directory:
+        description: Directory where make targets run.
+        required: false
+        type: string
+        default: .
+      runs_on:
+        description: Runner label for the mutation job.
+        required: false
+        type: string
+        default: ubuntu-latest
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  mutation:
+    name: Mutation
+    runs-on: ${{ inputs.runs_on }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ inputs.working_directory }}/go.mod
+          cache-dependency-path: |
+            ${{ inputs.working_directory }}/go.mod
+            ${{ inputs.working_directory }}/go.sum
+            ${{ inputs.working_directory }}/go.work
+            ${{ inputs.working_directory }}/go.work.sum
+      - name: Run mutation tests
+        env:
+          MUTATION_PACKAGES: ${{ inputs.packages }}
+          MUTATION_MIN_SCORE: ${{ inputs.min_score }}
+          MUTATION_TIMEOUT_COEFFICIENT: ${{ inputs.timeout_coefficient }}
+          MUTATION_FLAGS: ${{ inputs.flags }}
+        run: make mutation
+        working-directory: ${{ inputs.working_directory }}
+      - name: Publish mutation summary
+        if: always()
+        env:
+          SUMMARY_FILE: ${{ inputs.working_directory }}/.make/mutation-summary.md
+        shell: bash
+        run: |
+          if [[ -f "${SUMMARY_FILE}" ]]; then
+            cat "${SUMMARY_FILE}" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "No mutation summary was written." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-report
+          path: |
+            ${{ inputs.working_directory }}/.make/mutation-report.json
+            ${{ inputs.working_directory }}/.make/mutation-summary.md
+          if-no-files-found: warn

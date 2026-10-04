@@ -29,6 +29,25 @@ const errStaticcheckBin sentinelError = "staticcheck-extra bin resolution failed
 // mirroring the shell STATICCHECK_EXTRA_INSTALL default.
 const staticcheckInstallDefault = "goodkind.io/go-makefile/staticcheck/cmd/staticcheck-extra@latest"
 
+const (
+	staticcheckFlagsEnv     = "STATICCHECK_EXTRA_FLAGS"
+	staticcheckTestFlagsEnv = "STATICCHECK_EXTRA_TEST_FLAGS"
+)
+
+// The engine appends the test-habit list itself. A consumer Makefile that
+// assigns STATICCHECK_EXTRA_FLAGS still runs the test-habit analyzers.
+func staticcheckFlagsText() string {
+	return strings.TrimSpace(os.Getenv(staticcheckFlagsEnv) + " " + os.Getenv(staticcheckTestFlagsEnv))
+}
+
+func staticcheckExcludePattern() string {
+	defaultPatterns := lint.StaticcheckDefaultExcludePaths(
+		lintEnvDefault("STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
+		staticcheckFlagsText(),
+	)
+	return lint.ExcludePattern(defaultPatterns, os.Getenv("STATICCHECK_EXTRA_EXCLUDE_PATHS"))
+}
+
 // staticcheckOutputPath returns the resolved binary path under the repository
 // root, mirroring staticcheck_output_path: ${_GO_MK_ROOT:-${PWD}}/.make/
 // staticcheck-extra. It is absolute so a dev build with the working directory
@@ -51,7 +70,7 @@ func staticcheckOutputPath() (string, error) {
 // "Name" line. A binary that cannot run is treated as missing every flag. It runs
 // a process, so it emits a boundary log.
 func staticcheckMissingFlags(candidate string) bool {
-	flagsText := os.Getenv("STATICCHECK_EXTRA_FLAGS")
+	flagsText := staticcheckFlagsText()
 	if strings.TrimSpace(flagsText) == "" {
 		return false
 	}
@@ -283,15 +302,12 @@ func staticcheckCaptureFindings(rawPath, findingsPath string) error {
 		writeStdout("staticcheck-extra: binary " + selected + " not executable; skipping\n")
 		return writeFindingsFile(findingsPath, nil)
 	}
-	flagArgs := splitWords(os.Getenv("STATICCHECK_EXTRA_FLAGS"))
+	flagArgs := splitWords(staticcheckFlagsText())
 	targetArgs, err := expandedPackageTargets(splitWords(lintEnvDefault("STATICCHECK_EXTRA_TARGETS", "./...")))
 	if err != nil {
 		return err
 	}
-	excludePattern := lint.ExcludePattern(
-		lintEnvDefault("STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
-		os.Getenv("STATICCHECK_EXTRA_EXCLUDE_PATHS"),
-	)
+	excludePattern := staticcheckExcludePattern()
 	args := make([]string, 0, len(flagArgs)+len(targetArgs))
 	args = append(args, flagArgs...)
 	args = append(args, targetArgs...)
@@ -344,6 +360,7 @@ func runStaticcheckExtra() int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+	runNoticeFor(noticeGateStaticcheck)
 	// Resolve (build or install) the analyzer binary in-process, the work the
 	// staticcheck-extra-bin make prerequisite used to do, so the gate is one
 	// self-contained go-mk process. The aggregate run resolves it once up front
@@ -355,15 +372,12 @@ func runStaticcheckExtra() int {
 	}
 	rawPath := filepath.Join(makeDir, "staticcheck-extra.raw.out")
 	findingsPath := filepath.Join(makeDir, "staticcheck-extra.out")
-	excludePattern := lint.ExcludePattern(
-		lintEnvDefault("STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
-		os.Getenv("STATICCHECK_EXTRA_EXCLUDE_PATHS"),
-	)
+	excludePattern := staticcheckExcludePattern()
 	scopePattern := lint.StaticcheckScopePattern(
 		os.Getenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN"),
-		os.Getenv("STATICCHECK_EXTRA_FLAGS"),
+		staticcheckFlagsText(),
 	)
-	suppressFixed := lint.StaticcheckSuppressFixed(os.Getenv("STATICCHECK_EXTRA_FLAGS"), scopePattern)
+	suppressFixed := lint.StaticcheckSuppressFixed(staticcheckFlagsText(), scopePattern)
 	if err := staticcheckCaptureFindings(rawPath, findingsPath); err != nil {
 		return statusFromError(err)
 	}

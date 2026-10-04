@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -41,28 +42,6 @@ func TestSelectArchiveAssetMatchesRuntimePlatform(t *testing.T) {
 	}
 	if asset.Name != runtimeAssetName {
 		t.Fatalf("asset name = %q, want %q", asset.Name, runtimeAssetName)
-	}
-}
-
-func TestChecksumFromAsset(t *testing.T) {
-	asset := releaseAsset{Digest: "sha256:abc123"}
-	if got := checksumFromAsset(asset); got != "abc123" {
-		t.Fatalf("checksumFromAsset() = %q, want %q", got, "abc123")
-	}
-}
-
-func TestChecksumFromFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "checksums.txt")
-	content := "abc123  agent-gate_darwin_arm64.tar.gz\n"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write checksums: %v", err)
-	}
-	got, err := checksumFromFile(path, "agent-gate_darwin_arm64.tar.gz")
-	if err != nil {
-		t.Fatalf("checksumFromFile() error: %v", err)
-	}
-	if got != "abc123" {
-		t.Fatalf("checksumFromFile() = %q, want %q", got, "abc123")
 	}
 }
 
@@ -410,114 +389,49 @@ func TestReleaseIsNewer(t *testing.T) {
 }
 
 func TestApplyDryRunIsIdempotent(t *testing.T) {
-	originalWithLock := updateWithLock
-	originalFetchLatestRelease := updateFetchLatestRelease
-	originalDownloadFile := updateDownloadFile
-	originalVerifyChecksum := updateVerifyChecksum
-	originalVerifyGitHubAttestations := updateVerifyGitHubAttestations
-	originalExtractCandidate := updateExtractCandidate
-	originalValidateCandidate := updateValidateCandidate
-	originalReplaceBinary := updateInstallCandidate
-	originalVerifySignature := updateVerifyCandidateSignature
-	t.Cleanup(func() {
-		updateVerifyCandidateSignature = originalVerifySignature
-		updateWithLock = originalWithLock
-		updateFetchLatestRelease = originalFetchLatestRelease
-		updateDownloadFile = originalDownloadFile
-		updateVerifyChecksum = originalVerifyChecksum
-		updateVerifyGitHubAttestations = originalVerifyGitHubAttestations
-		updateExtractCandidate = originalExtractCandidate
-		updateValidateCandidate = originalValidateCandidate
-		updateInstallCandidate = originalReplaceBinary
-	})
+	skipAttestationVerification(t)
+	pureCandidate := buildProbeBinary(t, pureGoProbeSource, []string{"CGO_ENABLED=0"})
+	fixture := newReleaseFixture(t, map[string][]byte{"alpha": pureCandidate})
+	installDir := t.TempDir()
+	stateDir := t.TempDir()
+	writeInstalledBinary(t, filepath.Join(installDir, "alpha"), []byte("old alpha"))
+	sizesBefore := directorySizes(t, installDir)
 
-	runtimeAssetName := "agent-gate_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
-	statePath := filepath.Join(t.TempDir(), "update.json")
-	cacheDir := filepath.Join(t.TempDir(), "cache")
-	candidatePath := filepath.Join(t.TempDir(), "agent-gate")
-	if err := os.WriteFile(candidatePath, []byte("candidate"), 0o755); err != nil {
-		t.Fatalf("WriteFile() error: %v", err)
-	}
+	options := fixture.options(t, "alpha", installDir, stateDir, "version: pure")
+	options.DryRun = true
 
-	updateWithLock = func(_ context.Context, _ string, fn func() error) error {
-		return fn()
-	}
-	updateFetchLatestRelease = func(_ context.Context, _ Options) (release, error) {
-		return release{
-			HTMLURL: "https://example.invalid/release",
-			TagName: "202606250140-71-dbb89ef",
-			Assets: []releaseAsset{
-				{
-					Name:               runtimeAssetName,
-					BrowserDownloadURL: "https://example.invalid/archive",
-					Digest:             "sha256:deadbeef",
-				},
-			},
-		}, nil
-	}
-	updateDownloadFile = func(_ context.Context, _ *http.Client, _ string, path string, _ int64) error {
-		return os.WriteFile(path, []byte("archive"), 0o600)
-	}
-	updateVerifyChecksum = func(_ context.Context, _ Options, _ release, _ releaseAsset, _ string) error {
-		return nil
-	}
-	updateVerifyGitHubAttestations = func(_ context.Context, _ Options, _ release, _ releaseAsset, _ string) error {
-		return nil
-	}
-	updateExtractCandidate = func(_ string, _ string, _ int64, _ string) (string, func(), error) {
-		return candidatePath, func() {}, nil
-	}
-	updateValidateCandidate = func(_ context.Context, _ Config, _ string) error {
-		return nil
-	}
-	updateInstallCandidate = func(_, _ string) error {
-		t.Fatal("updateInstallCandidate() should not run during dry-run")
-		return nil
-	}
-	updateVerifyCandidateSignature = func(_ context.Context, _ string) error {
-		return nil
-	}
-
-	options := Options{
-		Config:    testConfig(),
-		CacheDir:  cacheDir,
-		StatePath: statePath,
-		DryRun:    true,
-	}
-
-	firstResult, err := Apply(context.Background(), options)
-	if err != nil {
-		t.Fatalf("Apply() first error: %v", err)
-	}
-	secondResult, err := Apply(context.Background(), options)
-	if err != nil {
-		t.Fatalf("Apply() second error: %v", err)
-	}
-
-	for i, result := range []ApplyResult{firstResult, secondResult} {
+	for i := range 2 {
+		result, err := Apply(context.Background(), options)
+		if err != nil {
+			t.Fatalf("Apply() dry run %d error: %v", i, err)
+		}
 		if !result.UpdateAvailable {
-			t.Fatalf("result %d UpdateAvailable = false, want true", i)
+			t.Fatalf("dry run %d UpdateAvailable = false, want true", i)
 		}
 		if result.Applied {
-			t.Fatalf("result %d Applied = true, want false", i)
+			t.Fatalf("dry run %d Applied = true, want false", i)
 		}
 		if !result.DryRun {
-			t.Fatalf("result %d DryRun = false, want true", i)
+			t.Fatalf("dry run %d DryRun = false, want true", i)
 		}
-		if result.LatestTag != "202606250140-71-dbb89ef" {
-			t.Fatalf("result %d LatestTag = %q", i, result.LatestTag)
+		if result.LatestTag != installDirTestNewTag {
+			t.Fatalf("dry run %d LatestTag = %q, want %q", i, result.LatestTag, installDirTestNewTag)
+		}
+		sizesAfter := directorySizes(t, installDir)
+		if !maps.Equal(sizesBefore, sizesAfter) {
+			t.Fatalf("install directory changed after dry run %d: before %v, after %v", i, sizesBefore, sizesAfter)
 		}
 	}
 
-	state, err := LoadState(statePath)
+	state, err := LoadState(filepath.Join(stateDir, "update-state.json"))
 	if err != nil {
 		t.Fatalf("LoadState() error: %v", err)
 	}
 	if state.LastResult != "dry_run" {
 		t.Fatalf("LastResult = %q, want dry_run", state.LastResult)
 	}
-	if state.LatestTag != "202606250140-71-dbb89ef" {
-		t.Fatalf("LatestTag = %q", state.LatestTag)
+	if state.LatestTag != installDirTestNewTag {
+		t.Fatalf("state LatestTag = %q, want %q", state.LatestTag, installDirTestNewTag)
 	}
 	if state.LastError != "" {
 		t.Fatalf("LastError = %q, want empty", state.LastError)

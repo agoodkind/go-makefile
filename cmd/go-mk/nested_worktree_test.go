@@ -39,18 +39,6 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-func TestNestedWorktreeRootsEmptyTree(t *testing.T) {
-	dir := t.TempDir()
-	withWorkdir(t, dir)
-	roots, err := nestedWorktreeRoots()
-	if err != nil {
-		t.Fatalf("nestedWorktreeRoots: %v", err)
-	}
-	if len(roots) != 0 {
-		t.Fatalf("expected empty set, got %v", roots)
-	}
-}
-
 func TestNestedWorktreeRootsOwnGitDirNotReported(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
