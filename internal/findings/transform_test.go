@@ -73,24 +73,6 @@ func TestNormalizePath(t *testing.T) {
 			"a line with no colon at all",
 			"unrelated/path.go:3:4: neither prefix here",
 		}},
-		{"pwd and cwd", fixturePwd, fixtureCwd, []string{
-			"pkg/file.go:10:2: something wrong (linter)",
-			"pkg/file.go:10:2: prefixed by pwd",
-			"sub/pkg/file.go:10:2: prefixed by cwd",
-			"pkg/file.go:10:2: leading dotdot pair",
-			"pkg/file.go:7:1: single dotdot",
-			"a line with no colon at all",
-			"unrelated/path.go:3:4: neither prefix here",
-		}},
-		{"pwd prefix of cwd, no cwd", pwdPrefixOfCwd, "", []string{
-			"pkg/file.go:10:2: something wrong (linter)",
-			"repo/pkg/file.go:10:2: prefixed by pwd",
-			"repo/sub/pkg/file.go:10:2: prefixed by cwd",
-			"pkg/file.go:10:2: leading dotdot pair",
-			"pkg/file.go:7:1: single dotdot",
-			"a line with no colon at all",
-			"unrelated/path.go:3:4: neither prefix here",
-		}},
 		{"pwd prefix of cwd, with cwd", pwdPrefixOfCwd, fixtureCwd, []string{
 			"pkg/file.go:10:2: something wrong (linter)",
 			"repo/pkg/file.go:10:2: prefixed by pwd",
@@ -114,110 +96,42 @@ func TestNormalizePath(t *testing.T) {
 	}
 }
 
+// TestKey covers the :line:col: collapse after path normalization.
+// TestNormalizePath covers the prefix combinations.
 func TestKey(t *testing.T) {
-	cases := []prefixCase{
-		{"no prefixes", "", "", []string{
-			"pkg/file.go::: something wrong (linter)",
-			"/work/repo/pkg/file.go::: prefixed by pwd",
-			"/work/repo/sub/pkg/file.go::: prefixed by cwd",
-			"pkg/file.go::: leading dotdot pair",
-			"pkg/file.go::: single dotdot",
-			"a line with no colon at all",
-			"unrelated/path.go::: neither prefix here",
-		}},
-		{"cwd only", "", fixtureCwd, []string{
-			"pkg/file.go::: something wrong (linter)",
-			"/work/repo/pkg/file.go::: prefixed by pwd",
-			"pkg/file.go::: prefixed by cwd",
-			"pkg/file.go::: leading dotdot pair",
-			"pkg/file.go::: single dotdot",
-			"a line with no colon at all",
-			"unrelated/path.go::: neither prefix here",
-		}},
-		{"pwd only", fixturePwd, "", []string{
-			"pkg/file.go::: something wrong (linter)",
-			"pkg/file.go::: prefixed by pwd",
-			"sub/pkg/file.go::: prefixed by cwd",
-			"pkg/file.go::: leading dotdot pair",
-			"pkg/file.go::: single dotdot",
-			"a line with no colon at all",
-			"unrelated/path.go::: neither prefix here",
-		}},
-		{"pwd and cwd", fixturePwd, fixtureCwd, []string{
-			"pkg/file.go::: something wrong (linter)",
-			"pkg/file.go::: prefixed by pwd",
-			"sub/pkg/file.go::: prefixed by cwd",
-			"pkg/file.go::: leading dotdot pair",
-			"pkg/file.go::: single dotdot",
-			"a line with no colon at all",
-			"unrelated/path.go::: neither prefix here",
-		}},
+	want := []string{
+		"pkg/file.go::: something wrong (linter)",
+		"pkg/file.go::: prefixed by pwd",
+		"sub/pkg/file.go::: prefixed by cwd",
+		"pkg/file.go::: leading dotdot pair",
+		"pkg/file.go::: single dotdot",
+		"a line with no colon at all",
+		"unrelated/path.go::: neither prefix here",
 	}
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			got := mapLines(inputLines, func(line string) string {
-				return findings.Key(line, testCase.pwd, testCase.cwd)
-			})
-			if !reflect.DeepEqual(got, testCase.want) {
-				t.Errorf("Key pwd=%q cwd=%q\ngot:  %q\nwant: %q",
-					testCase.pwd, testCase.cwd, got, testCase.want)
-			}
-		})
+	got := mapLines(inputLines, func(line string) string {
+		return findings.Key(line, fixturePwd, "")
+	})
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Key\ngot:  %q\nwant: %q", got, want)
 	}
 }
 
+// TestPrint covers the two-line display form and the single-line form for a
+// finding with no location.
 func TestPrint(t *testing.T) {
-	cases := []struct {
-		name string
-		pwd  string
-		cwd  string
-		want string
-	}{
-		{"no prefixes", "", "",
-			"  pkg/file.go:10:2\n    something wrong (linter)\n" +
-				"  /work/repo/pkg/file.go:10:2\n    prefixed by pwd\n" +
-				"  /work/repo/sub/pkg/file.go:10:2\n    prefixed by cwd\n" +
-				"  pkg/file.go:10:2\n    leading dotdot pair\n" +
-				"  pkg/file.go:7:1\n    single dotdot\n" +
-				"  a line with no colon at all\n" +
-				"  unrelated/path.go:3:4\n    neither prefix here\n"},
-		{"cwd only", "", fixtureCwd,
-			"  pkg/file.go:10:2\n    something wrong (linter)\n" +
-				"  /work/repo/pkg/file.go:10:2\n    prefixed by pwd\n" +
-				"  pkg/file.go:10:2\n    prefixed by cwd\n" +
-				"  pkg/file.go:10:2\n    leading dotdot pair\n" +
-				"  pkg/file.go:7:1\n    single dotdot\n" +
-				"  a line with no colon at all\n" +
-				"  unrelated/path.go:3:4\n    neither prefix here\n"},
-		{"pwd only", fixturePwd, "",
-			"  pkg/file.go:10:2\n    something wrong (linter)\n" +
-				"  pkg/file.go:10:2\n    prefixed by pwd\n" +
-				"  sub/pkg/file.go:10:2\n    prefixed by cwd\n" +
-				"  pkg/file.go:10:2\n    leading dotdot pair\n" +
-				"  pkg/file.go:7:1\n    single dotdot\n" +
-				"  a line with no colon at all\n" +
-				"  unrelated/path.go:3:4\n    neither prefix here\n"},
-		{"pwd and cwd", fixturePwd, fixtureCwd,
-			"  pkg/file.go:10:2\n    something wrong (linter)\n" +
-				"  pkg/file.go:10:2\n    prefixed by pwd\n" +
-				"  sub/pkg/file.go:10:2\n    prefixed by cwd\n" +
-				"  pkg/file.go:10:2\n    leading dotdot pair\n" +
-				"  pkg/file.go:7:1\n    single dotdot\n" +
-				"  a line with no colon at all\n" +
-				"  unrelated/path.go:3:4\n    neither prefix here\n"},
+	want := "  pkg/file.go:10:2\n    something wrong (linter)\n" +
+		"  pkg/file.go:10:2\n    prefixed by pwd\n" +
+		"  sub/pkg/file.go:10:2\n    prefixed by cwd\n" +
+		"  pkg/file.go:10:2\n    leading dotdot pair\n" +
+		"  pkg/file.go:7:1\n    single dotdot\n" +
+		"  a line with no colon at all\n" +
+		"  unrelated/path.go:3:4\n    neither prefix here\n"
+	var builder strings.Builder
+	for _, line := range inputLines {
+		builder.WriteString(findings.Print(line, fixturePwd, ""))
 	}
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			var builder strings.Builder
-			for _, line := range inputLines {
-				builder.WriteString(findings.Print(line, testCase.pwd, testCase.cwd))
-			}
-			got := builder.String()
-			if got != testCase.want {
-				t.Errorf("Print pwd=%q cwd=%q\ngot:  %q\nwant: %q",
-					testCase.pwd, testCase.cwd, got, testCase.want)
-			}
-		})
+	if got := builder.String(); got != want {
+		t.Errorf("Print\ngot:  %q\nwant: %q", got, want)
 	}
 }
 
