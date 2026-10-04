@@ -29,6 +29,7 @@ A file gets one `testpackage` finding per test with an unexported call, or one f
 - `testseam` skips a replacement with the directive `//testseam:external <reason>` on the same line or on the line above. The reason has at least three words.
 - `testseam` skips an assignment that writes a saved copy back, as in `old := seam` followed by `seam = old`.
 - `testseam` skips a function field with no production value in its declaring package, and a function field with several distinct production values. The second case is a callback.
+- `testsourcefile` skips a read when the same function passes the content to a function of the module declared in a non-test file, or writes it to another file with `os.WriteFile`. The content includes each local variable assigned from it. Such a file is test input.
 - `testsourcefile` skips a path with a `testdata` element, a path with a non-constant part and no `..` element, and a constant path under `/dev/`, `/proc/`, `/sys/`, or `/etc/`.
 
 The mock libraries are `github.com/golang/mock`, `go.uber.org/mock`, `github.com/stretchr/testify/mock`, `github.com/vektra/mockery`, and `github.com/maxbrunsfeld/counterfeiter`.
@@ -41,7 +42,7 @@ The mock libraries are `github.com/golang/mock`, `go.uber.org/mock`, `github.com
 - `testseam` reports a clock or sleep replacement. It has no exemption by function type.
 - `testseam` does not report a function passed as a call argument.
 - `testsourcefile` does not report a path built from a helper function or a variable with no `..` element.
-- `testsourcefile` reports a shared input file outside `testdata`, such as an example document that production code also loads.
+- `testsourcefile` reports a shared input file outside `testdata` when a different function than the reader passes the content to production code.
 - No analyzer reports a pinned error or log wording, a restated implementation, or a test that passes with the protected behavior broken. `make mutation` measures the last case.
 
 ## Configuration

@@ -39,7 +39,9 @@ var (
 // file passes while the behavior that uses the file is broken. The required
 // form runs the code that uses the file and asserts on its outcome.
 //
-// A path with an element named testdata is exempt in both clauses. A path with
+// A read is exempt when the test passes the content to production code or
+// writes it to another file. A path with an element named testdata is exempt
+// in both clauses. A path with
 // a non-constant part is not reported, because the analyzer cannot determine
 // which file the path selects.
 var TestSourceFileAnalyzer = &analysis.Analyzer{
@@ -51,18 +53,112 @@ var TestSourceFileAnalyzer = &analysis.Analyzer{
 func runTestSourceFile(pass *analysis.Pass) (any, error) {
 	for _, file := range analyzableTestFiles(pass) {
 		reportEmbedDirectives(pass, file)
-		ast.Inspect(file, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if ok {
-				reportConstantFileRead(pass, file, call)
+		for _, declaration := range file.Decls {
+			var body *ast.BlockStmt
+			if function, ok := declaration.(*ast.FuncDecl); ok {
+				body = function.Body
 			}
-			return true
-		})
+			ast.Inspect(declaration, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if ok {
+					reportConstantFileRead(pass, file, body, call)
+				}
+				return true
+			})
+		}
 	}
 	return nil, nil
 }
 
-func reportConstantFileRead(pass *analysis.Pass, file *ast.File, call *ast.CallExpr) {
+// readIsProductionInput reports whether the enclosing function passes the
+// content of the read to production code. The content is the non-error result
+// of the read and each local variable assigned from an expression that uses
+// it. Production code receives the content when a call to a function declared
+// in a non-test file of the same module has it as an argument, or when the
+// test writes it to another file with os.WriteFile. Such a file is test input
+// and not text under assertion.
+func readIsProductionInput(pass *analysis.Pass, body *ast.BlockStmt, read *ast.CallExpr) bool {
+	if body == nil {
+		return false
+	}
+	tainted := make(map[types.Object]bool)
+	uses := func(expr ast.Node) bool {
+		found := false
+		ast.Inspect(expr, func(node ast.Node) bool {
+			if node == read {
+				found = true
+			}
+			if ident, ok := node.(*ast.Ident); ok && tainted[pass.TypesInfo.ObjectOf(ident)] {
+				found = true
+			}
+			return !found
+		})
+		return found
+	}
+	for changed := true; changed; {
+		changed = false
+		ast.Inspect(body, func(node ast.Node) bool {
+			assign, ok := node.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+			fromRead := false
+			for _, right := range assign.Rhs {
+				if uses(right) {
+					fromRead = true
+				}
+			}
+			if !fromRead {
+				return true
+			}
+			for _, left := range assign.Lhs {
+				ident, ok := left.(*ast.Ident)
+				if !ok || ident.Name == "_" {
+					continue
+				}
+				obj := pass.TypesInfo.ObjectOf(ident)
+				if obj == nil || tainted[obj] || isErrorType(obj.Type()) {
+					continue
+				}
+				tainted[obj] = true
+				changed = true
+			}
+			return true
+		})
+	}
+	passed := false
+	ast.Inspect(body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || call == read || passed {
+			return !passed
+		}
+		if !receivesInput(pass, call) {
+			return true
+		}
+		for _, argument := range call.Args {
+			if uses(argument) {
+				passed = true
+			}
+		}
+		return !passed
+	})
+	return passed
+}
+
+// receivesInput reports whether the callee is os.WriteFile or a function
+// declared in a non-test file of the same module.
+func receivesInput(pass *analysis.Pass, call *ast.CallExpr) bool {
+	function, ok := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
+	if !ok || function.Pkg() == nil {
+		return false
+	}
+	if function.Pkg().Path() == osPackagePath && function.Name() == "WriteFile" {
+		return true
+	}
+	return sameModulePackage(pass, function.Pkg().Path()) && !isTestFile(fileName(pass, function.Pos()))
+}
+
+func reportConstantFileRead(pass *analysis.Pass, file *ast.File, body *ast.BlockStmt, call *ast.CallExpr) {
 	if isSourceParserCall(pass, call) {
 		reportAtf(
 			pass, file, call.Pos(),
@@ -71,6 +167,9 @@ func reportConstantFileRead(pass *analysis.Pass, file *ast.File, call *ast.CallE
 		return
 	}
 	if !isOSFileOpenCall(pass, call) || len(call.Args) == 0 {
+		return
+	}
+	if readIsProductionInput(pass, body, call) {
 		return
 	}
 	if joinHasParentElement(pass, call.Args[0]) {
