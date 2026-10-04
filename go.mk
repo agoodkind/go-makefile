@@ -253,22 +253,11 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-lifecycle_noop_closer \
 	-lifecycle_silent_close_err \
 	-no_tilde_path_literal
-STATICCHECK_EXTRA_FLAGS         ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
-# Test-habit analyzers report in _test.go files. The staticcheck-extra gate
-# writes their findings to .make/staticcheck-extra-advisory.out. A finding on a
-# line added relative to the base commit fails the gate. A finding on an older
-# line is advisory. The findings do not enter the baseline. Remove a flag from
-# this list to turn that analyzer off.
-STATICCHECK_EXTRA_ADVISORY_FLAGS ?= \
-	-testpackage \
-	-testsourcefile \
-	-testassert \
-	-testdouble
-# STATICCHECK_EXTRA_TEST_BLOCK := off keeps every test-habit finding advisory.
-# STATICCHECK_EXTRA_TEST_BASE sets the base commit. The default base is the
-# merge-base of HEAD and the default branch on origin.
-STATICCHECK_EXTRA_TEST_BLOCK    ?= new
-STATICCHECK_EXTRA_TEST_BASE     ?=
+# Test-habit analyzers report in _test.go files. Their findings pass through
+# the same baseline gate as the other flags. The list is empty by default. The
+# analyzer names are -testpackage, -testsourcefile, -testassert, -testdouble.
+STATICCHECK_EXTRA_TEST_FLAGS    ?=
+STATICCHECK_EXTRA_FLAGS        ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS) $(STATICCHECK_EXTRA_TEST_FLAGS)
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
 STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
@@ -372,9 +361,6 @@ export STATICCHECK_EXTRA_BUILD_REPO
 export STATICCHECK_EXTRA_BUILD_PKG
 export STATICCHECK_EXTRA_INSTALL
 export STATICCHECK_EXTRA_FLAGS
-export STATICCHECK_EXTRA_ADVISORY_FLAGS
-export STATICCHECK_EXTRA_TEST_BLOCK
-export STATICCHECK_EXTRA_TEST_BASE
 export STATICCHECK_EXTRA_TARGETS
 export STATICCHECK_EXTRA_BASELINE
 export STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS

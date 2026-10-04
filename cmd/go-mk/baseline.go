@@ -324,10 +324,7 @@ func updateStaticcheckBaseline(collector *baselineCollector, mode string) int {
 	}
 	findingsPath := makeDir + "/staticcheck-extra.out"
 	rawPath := makeDir + "/staticcheck-extra.raw.out"
-	excludePattern := lint.ExcludePattern(
-		lintEnvDefault("STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
-		os.Getenv("STATICCHECK_EXTRA_EXCLUDE_PATHS"),
-	)
+	excludePattern := staticcheckExcludePattern()
 	scopePattern := lint.StaticcheckScopePattern(
 		os.Getenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN"),
 		os.Getenv("STATICCHECK_EXTRA_FLAGS"),

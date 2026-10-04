@@ -18,7 +18,6 @@ import (
 
 	"goodkind.io/go-makefile/internal/findings"
 	"goodkind.io/go-makefile/internal/lint"
-	"goodkind.io/go-makefile/internal/report"
 )
 
 // errStaticcheckBin signals that staticcheck-extra binary resolution failed with
@@ -29,6 +28,18 @@ const errStaticcheckBin sentinelError = "staticcheck-extra bin resolution failed
 // staticcheckInstallDefault is the default go install spec for the analyzer,
 // mirroring the shell STATICCHECK_EXTRA_INSTALL default.
 const staticcheckInstallDefault = "goodkind.io/go-makefile/staticcheck/cmd/staticcheck-extra@latest"
+
+// staticcheckExcludePattern resolves the exclude regex that capture, the gate,
+// the scoped gate, and the baseline update apply to staticcheck-extra finding
+// lines. lint.StaticcheckDefaultExcludePaths removes the _test.go default when
+// an enabled analyzer reports in test files.
+func staticcheckExcludePattern() string {
+	defaultPatterns := lint.StaticcheckDefaultExcludePaths(
+		lintEnvDefault("STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
+		os.Getenv("STATICCHECK_EXTRA_FLAGS"),
+	)
+	return lint.ExcludePattern(defaultPatterns, os.Getenv("STATICCHECK_EXTRA_EXCLUDE_PATHS"))
+}
 
 // staticcheckOutputPath returns the resolved binary path under the repository
 // root, mirroring staticcheck_output_path: ${_GO_MK_ROOT:-${PWD}}/.make/
@@ -52,13 +63,7 @@ func staticcheckOutputPath() (string, error) {
 // "Name" line. A binary that cannot run is treated as missing every flag. It runs
 // a process, so it emits a boundary log.
 func staticcheckMissingFlags(candidate string) bool {
-	return staticcheckBinaryLacksFlags(candidate, os.Getenv("STATICCHECK_EXTRA_FLAGS"))
-}
-
-// staticcheckBinaryLacksFlags reports whether the candidate binary fails to
-// advertise every flag in flagsText. An empty flagsText lacks no flag. It emits
-// a boundary log before it runs the candidate.
-func staticcheckBinaryLacksFlags(candidate, flagsText string) bool {
+	flagsText := os.Getenv("STATICCHECK_EXTRA_FLAGS")
 	if strings.TrimSpace(flagsText) == "" {
 		return false
 	}
@@ -295,144 +300,24 @@ func staticcheckCaptureFindings(rawPath, findingsPath string) error {
 	if err != nil {
 		return err
 	}
-	excludePattern := lint.ExcludePattern(
-		lintEnvDefault("STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
-		os.Getenv("STATICCHECK_EXTRA_EXCLUDE_PATHS"),
-	)
-	normalized, err := staticcheckRunAnalyzers(selected, flagArgs, targetArgs, rawPath)
-	if err != nil {
-		return err
-	}
-	filtered := filterExcluded(normalized, excludePattern)
-	return writeFindingsFile(findingsPath, sortedUnique(filtered))
-}
-
-// staticcheckRunAnalyzers runs the analyzer binary with the given flags over the
-// package targets, writes the combined output to rawPath, and returns each
-// output line with its path normalized against the repository root.
-func staticcheckRunAnalyzers(binary string, flagArgs, targetArgs []string, rawPath string) ([]string, error) {
+	excludePattern := staticcheckExcludePattern()
 	args := make([]string, 0, len(flagArgs)+len(targetArgs))
 	args = append(args, flagArgs...)
 	args = append(args, targetArgs...)
-	if _, err := captureCommand(binary, args, rawPath); err != nil {
-		return nil, err
+	if _, err := captureCommand(selected, args, rawPath); err != nil {
+		return err
 	}
 	rawLines, err := readFileLines(rawPath)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	root := lintRoot()
 	normalized := make([]string, 0, len(rawLines))
 	for _, line := range rawLines {
 		normalized = append(normalized, findings.NormalizePath(line, root, root))
 	}
-	return normalized, nil
-}
-
-// staticcheckAdvisoryDisplayLimit caps the advisory findings one report shows.
-// The findings file lists every advisory finding.
-const staticcheckAdvisoryDisplayLimit = 20
-
-// staticcheckAdvisoryRemediation is the fix hint printed under the advisory
-// findings.
-const staticcheckAdvisoryRemediation = "Advisory findings are in test code older than the base commit and do not fail this gate. The same findings in new test code fail the gate."
-
-// staticcheckAdvisoryFindingsPath is the file that lists every advisory finding
-// of the most recent run.
-func staticcheckAdvisoryFindingsPath() string {
-	return filepath.Join(makeDir, "staticcheck-extra-advisory.out")
-}
-
-// staticcheckCaptureAdvisory runs the analyzers in
-// STATICCHECK_EXTRA_ADVISORY_FLAGS and returns their findings. The advisory
-// analyzers report in _test.go files. The gated run excludes _test.go findings.
-// This run applies only STATICCHECK_EXTRA_EXCLUDE_PATHS. It returns no findings
-// when the flag list is empty, when no analyzer binary is resolved, or when the
-// binary predates a listed analyzer.
-func staticcheckCaptureAdvisory() ([]string, error) {
-	flagsText := os.Getenv("STATICCHECK_EXTRA_ADVISORY_FLAGS")
-	if strings.TrimSpace(flagsText) == "" {
-		return nil, nil
-	}
-	selected, err := staticcheckSelectedBin()
-	if err != nil {
-		return nil, err
-	}
-	if selected == "" || !isExecutable(selected) {
-		return nil, nil
-	}
-	if staticcheckBinaryLacksFlags(selected, flagsText) {
-		slog.Warn("staticcheck advisory analyzers skipped; binary lacks a listed flag",
-			slog.String("binary", selected), slog.String("flags", flagsText))
-		return nil, nil
-	}
-	targetArgs, err := expandedPackageTargets(splitWords(lintEnvDefault("STATICCHECK_EXTRA_TARGETS", "./...")))
-	if err != nil {
-		return nil, err
-	}
-	rawPath := filepath.Join(makeDir, "staticcheck-extra-advisory.raw.out")
-	normalized, err := staticcheckRunAnalyzers(selected, splitWords(flagsText), targetArgs, rawPath)
-	if err != nil {
-		return nil, err
-	}
-	located := make([]string, 0, len(normalized))
-	for _, line := range normalized {
-		if goLocationPattern.MatchString(line) {
-			located = append(located, line)
-		}
-	}
-	excludePattern := lint.ExcludePattern("", os.Getenv("STATICCHECK_EXTRA_EXCLUDE_PATHS"))
-	advisory := sortedUnique(filterExcluded(located, excludePattern))
-	if err := writeFindingsFile(staticcheckAdvisoryFindingsPath(), advisory); err != nil {
-		return nil, err
-	}
-	return advisory, nil
-}
-
-// staticcheckAdvisoryDisplay returns the advisory findings one report shows: the
-// first staticcheckAdvisoryDisplayLimit findings, then one line that gives the
-// count of the remaining findings and the file that lists them.
-func staticcheckAdvisoryDisplay(advisory []string) (shown []string, overflowNote string) {
-	if len(advisory) <= staticcheckAdvisoryDisplayLimit {
-		return advisory, ""
-	}
-	remaining := len(advisory) - staticcheckAdvisoryDisplayLimit
-	note := "... " + itoa(remaining) + " more advisory finding" + findingPlural(remaining) +
-		" in " + staticcheckAdvisoryFindingsPath()
-	return advisory[:staticcheckAdvisoryDisplayLimit], note
-}
-
-// staticcheckReportAdvisory shows the advisory findings of a gate that passed.
-// A collecting run records them on the gate marker, and the chain renders the
-// step as ADVISORY. A standalone run prints them under the gate block.
-// A non-empty note states why new test findings are not blocked in this run.
-func staticcheckReportAdvisory(advisory []string, note string) {
-	if len(advisory) == 0 {
-		return
-	}
-	remediation := staticcheckAdvisoryRemediation
-	if note != "" {
-		remediation += " " + note
-	}
-	if gateCollecting {
-		recordGateMarker(report.GateMarker{
-			Name:        "staticcheck-extra",
-			Passed:      true,
-			Advisory:    advisory,
-			Remediation: remediation,
-		})
-		return
-	}
-	shown, overflowNote := staticcheckAdvisoryDisplay(advisory)
-	writeStdout("staticcheck-extra: " + itoa(len(advisory)) + " advisory finding" +
-		findingPlural(len(advisory)) + " (not gated)\n")
-	for _, line := range shown {
-		writeStdout(line + "\n")
-	}
-	if overflowNote != "" {
-		writeStdout(overflowNote + "\n")
-	}
-	writeStdout("  " + remediation + "\n")
+	filtered := filterExcluded(normalized, excludePattern)
+	return writeFindingsFile(findingsPath, sortedUnique(filtered))
 }
 
 // runStaticcheckBin resolves the analyzer binary, mirroring the shell `bin`
@@ -479,10 +364,7 @@ func runStaticcheckExtra() int {
 	}
 	rawPath := filepath.Join(makeDir, "staticcheck-extra.raw.out")
 	findingsPath := filepath.Join(makeDir, "staticcheck-extra.out")
-	excludePattern := lint.ExcludePattern(
-		lintEnvDefault("STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
-		os.Getenv("STATICCHECK_EXTRA_EXCLUDE_PATHS"),
-	)
+	excludePattern := staticcheckExcludePattern()
 	scopePattern := lint.StaticcheckScopePattern(
 		os.Getenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN"),
 		os.Getenv("STATICCHECK_EXTRA_FLAGS"),
@@ -507,15 +389,5 @@ func runStaticcheckExtra() int {
 	if !passed {
 		return 1
 	}
-	advisory, err := staticcheckCaptureAdvisory()
-	if err != nil {
-		return statusFromError(err)
-	}
-	blocking, note := staticcheckBlockingFindings(advisory)
-	if len(blocking) > 0 {
-		staticcheckReportNewTestFailure(blocking)
-		return 1
-	}
-	staticcheckReportAdvisory(advisory, note)
 	return 0
 }

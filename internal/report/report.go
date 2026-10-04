@@ -50,12 +50,10 @@ type Report struct {
 // GateMarker is one lint gate's verdict as the command layer hands it back: the
 // gate's own pass/fail, its new findings, and its remediation hint. The command
 // layer turns it into a StepResult; the gate's detection stays untouched.
-// Advisory lists the non-blocking findings of a gate that passed.
 type GateMarker struct {
 	Name        string
 	Passed      bool
 	Findings    []string
-	Advisory    []string
 	Remediation string
 }
 

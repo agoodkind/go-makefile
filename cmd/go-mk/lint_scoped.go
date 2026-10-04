@@ -315,10 +315,7 @@ func runLintFiles() int {
 		if _, err := captureCommand(staticcheckBin, staticcheckArgs, staticcheckRaw); err != nil {
 			return statusFromError(err)
 		}
-		excludePattern := lint.ExcludePattern(
-			lintEnvDefault("STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
-			os.Getenv("STATICCHECK_EXTRA_EXCLUDE_PATHS"),
-		)
+		excludePattern := staticcheckExcludePattern()
 		ok, err := runScopedGate(
 			"staticcheck-extra", staticcheckRaw,
 			filepath.Join(makeDir, "lint-files.staticcheck.out"),
