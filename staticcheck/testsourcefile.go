@@ -69,12 +69,10 @@ func runTestSourceFile(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-// The content is the non-error result
-// of the read and each local variable assigned from an expression that uses
-// it. Production code receives the content when a call to a function declared
-// in a non-test file of the same module has it as an argument, or when the
-// test writes it to another file with os.WriteFile. Such a file is test input
-// and not text under assertion.
+// The content is the non-error result of the read and each local variable
+// assigned from an expression that uses it. A read is test input, not text
+// under assertion, when the content is an argument of os.WriteFile or of a
+// function of the same module declared in a non-test file.
 func readIsProductionInput(pass *analysis.Pass, body *ast.BlockStmt, read *ast.CallExpr) bool {
 	if body == nil {
 		return false
