@@ -256,8 +256,10 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 # Test-habit analyzers report in _test.go files. Their findings pass through
 # the same baseline gate as the other flags. The list is empty by default. The
 # analyzer names are -testpackage, -testsourcefile, -testassert, -testdouble.
+# The engine appends this list to STATICCHECK_EXTRA_FLAGS. A consumer Makefile
+# that assigns STATICCHECK_EXTRA_FLAGS still runs the listed analyzers.
 STATICCHECK_EXTRA_TEST_FLAGS    ?=
-STATICCHECK_EXTRA_FLAGS        ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS) $(STATICCHECK_EXTRA_TEST_FLAGS)
+STATICCHECK_EXTRA_FLAGS        ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt
 STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
@@ -361,6 +363,7 @@ export STATICCHECK_EXTRA_BUILD_REPO
 export STATICCHECK_EXTRA_BUILD_PKG
 export STATICCHECK_EXTRA_INSTALL
 export STATICCHECK_EXTRA_FLAGS
+export STATICCHECK_EXTRA_TEST_FLAGS
 export STATICCHECK_EXTRA_TARGETS
 export STATICCHECK_EXTRA_BASELINE
 export STATICCHECK_EXTRA_DEFAULT_EXCLUDE_PATHS

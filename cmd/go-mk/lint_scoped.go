@@ -311,7 +311,7 @@ func runLintFiles() int {
 	staticcheckBin := resolveStaticcheckBin()
 	if staticcheckBin != "" {
 		staticcheckRaw := filepath.Join(makeDir, "lint-files.staticcheck.raw.out")
-		staticcheckArgs := append(splitWords(os.Getenv("STATICCHECK_EXTRA_FLAGS")), packages...)
+		staticcheckArgs := append(splitWords(staticcheckFlagsText()), packages...)
 		if _, err := captureCommand(staticcheckBin, staticcheckArgs, staticcheckRaw); err != nil {
 			return statusFromError(err)
 		}

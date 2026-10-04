@@ -327,7 +327,7 @@ func updateStaticcheckBaseline(collector *baselineCollector, mode string) int {
 	excludePattern := staticcheckExcludePattern()
 	scopePattern := lint.StaticcheckScopePattern(
 		os.Getenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN"),
-		os.Getenv("STATICCHECK_EXTRA_FLAGS"),
+		staticcheckFlagsText(),
 	)
 	if os.Getenv("STATICCHECK_EXTRA_FLAGS") != "" && scopePattern == "" {
 		switch baselineMode(mode) {
