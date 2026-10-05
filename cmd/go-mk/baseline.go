@@ -378,6 +378,9 @@ func autoBaselineStaticcheckScope(collector *baselineCollector) int {
 	if err := staticcheckCaptureFindings(rawPath, findingsPath); err != nil {
 		return statusFromError(err)
 	}
+	if err := addOtherPlatformFindings(findingsPath); err != nil {
+		return statusFromError(err)
+	}
 	collector.add(baseline.Component{
 		Title:          "staticcheck-extra",
 		Label:          "staticcheck-extra",
