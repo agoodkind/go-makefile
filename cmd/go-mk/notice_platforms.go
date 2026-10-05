@@ -8,12 +8,9 @@ import (
 	"strings"
 )
 
-// One analysis pass does not include a test file that builds only for another
-// platform. The notice runs inside one pass: the host, or the first
-// GO_MK_PLATFORMS target. It then analyzes each platform of
-// platformStubPlatforms and keeps their findings in files that the first pass
-// does not build. A cross pass runs with cgo off. A file that the first pass
-// builds can report type errors in a cross pass, and those lines are dropped.
+// The notice runs inside one analysis pass. That pass does not analyze a test
+// file that builds only for another platform. A cross pass runs with cgo off
+// and can report type errors in files that the first pass builds.
 func addOtherPlatformFindings(findingsPath string) error {
 	current := currentPlatform()
 	targets := otherNoticePlatforms(current)
@@ -73,7 +70,7 @@ func otherNoticePlatforms(current platformTarget) []platformTarget {
 	return targets
 }
 
-// The paths are relative to the lint root, the form a finding line starts with.
+// A finding line starts with a path relative to the lint root.
 func currentTestFiles() (map[string]bool, error) {
 	slog.Info("notice list test files", slog.String("platform", currentPlatform().label()))
 	command := exec.Command(
