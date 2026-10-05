@@ -12,7 +12,8 @@ import (
 // host, or the first GO_MK_PLATFORMS target. That analysis skips each test file
 // with a build constraint for another platform. For a platform other than the
 // host, lintEnv sets CGO_ENABLED=0 unless GO_MK_CC is set. staticcheck-extra
-// then reports type errors in some files that the first platform also builds.
+// then reports type errors in some files that the first platform also builds,
+// and addOtherPlatformFindings drops each finding in those files.
 func addOtherPlatformFindings(findingsPath string) error {
 	current := currentPlatform()
 	targets := otherNoticePlatforms(current)
@@ -73,7 +74,7 @@ func otherNoticePlatforms(current platformTarget) []platformTarget {
 }
 
 // staticcheckCaptureFindings writes each finding with a file path relative to
-// lintRoot.
+// lintRoot. currentTestFiles returns test file paths in the same form.
 func currentTestFiles() (map[string]bool, error) {
 	slog.Info("notice list test files", slog.String("platform", currentPlatform().label()))
 	command := exec.Command(
