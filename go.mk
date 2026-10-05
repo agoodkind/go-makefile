@@ -803,10 +803,10 @@ endif
 # is a cheap no-op (one `go env GOWORK`) when no workspace is active. This block
 # sits before the module include so the recipe-less build rule merges onto
 # go-build.mk's build recipe. The CI matrix split legs lint-format and
-# lint-gocyclo are deliberately omitted: gofumpt/goimports and gocyclo are
-# textual or AST-only, they never compile or resolve packages, and they pass on a
-# fresh runner without generated sources or a go.work, so attaching the
-# prerequisite would only add cost. ci-changed is also omitted so detection stays
+# lint-gocyclo do not compile packages and take no codegen or cgo prerequisite.
+# goimports in lint-format resolves imports, and in a module that declares
+# GO_MK_WORKSPACE_USE it fails without go.work, so lint-format alone takes
+# go-mk-workspace there. ci-changed is also omitted so detection stays
 # cheap and never runs codegen or go-mk-workspace. A declared GO_MK_CGO_DEPS adds
 # go-mk-cgo-deps so the C libraries exist before any target compiles the cgo
 # package; a dep recipe that needs generated inputs first declares its own
@@ -814,6 +814,9 @@ endif
 GO_MK_PREREQS := go-mk-workspace $(GO_MK_GENERATE) $(if $(strip $(GO_MK_CGO_DEPS)),go-mk-cgo-deps)
 ifneq ($(strip $(GO_MK_PREREQS)),)
 build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test mutation govulncheck: | $(GO_MK_PREREQS)
+endif
+ifneq ($(strip $(GO_MK_WORKSPACE_USE)),)
+lint-format: | go-mk-workspace
 endif
 
 # go-mk-generate runs only the consumer codegen prerequisite, so a CI prepare
