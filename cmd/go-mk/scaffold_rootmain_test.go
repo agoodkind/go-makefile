@@ -8,7 +8,39 @@ import (
 	"testing"
 )
 
+const rootModule = "module example.com/rootmain\n\ngo 1.26\n"
+
 func TestScaffoldTreatsARootMainPackageAsABinary(t *testing.T) {
+	output, makefile := scaffoldModule(t, map[string]string{
+		"go.mod":  rootModule,
+		"main.go": "package main\n\nfunc main() {}\n",
+	})
+	if !strings.Contains(output, "layout:  binary") {
+		t.Fatalf("scaffold output lacks the binary layout:\n%s", output)
+	}
+	for _, want := range []string{"BINARY := rootmain\n", "CMD    := .\n"} {
+		if !strings.Contains(makefile, want) {
+			t.Fatalf("Makefile lacks %q:\n%s", want, makefile)
+		}
+	}
+}
+
+func TestScaffoldTreatsALibraryWithAnIgnoredGeneratorAsALibrary(t *testing.T) {
+	output, makefile := scaffoldModule(t, map[string]string{
+		"go.mod": rootModule,
+		"lib.go": "package rootmain\n\nfunc Value() int { return 1 }\n",
+		"gen.go": "//go:build ignore\n\npackage main\n\nfunc main() {}\n",
+	})
+	if !strings.Contains(output, "layout:  library") {
+		t.Fatalf("scaffold output lacks the library layout:\n%s", output)
+	}
+	if !strings.Contains(makefile, "LIBRARY := 1\n") {
+		t.Fatalf("Makefile lacks the library setting:\n%s", makefile)
+	}
+}
+
+func scaffoldModule(t *testing.T, files map[string]string) (string, string) {
+	t.Helper()
 	engine := filepath.Join(t.TempDir(), "go-mk")
 	build := exec.Command("go", "build", "-o", engine, ".")
 	if output, err := build.CombinedOutput(); err != nil {
@@ -16,16 +48,11 @@ func TestScaffoldTreatsARootMainPackageAsABinary(t *testing.T) {
 	}
 
 	repoDir := filepath.Join(t.TempDir(), "rootmain")
-	files := map[string]string{
-		"go.mod":  "module example.com/rootmain\n\ngo 1.26\n",
-		"main.go": "package main\n\nfunc main() {}\n",
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatalf("create %s: %v", repoDir, err)
 	}
 	for name, content := range files {
-		path := filepath.Join(repoDir, name)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatalf("create directory for %s: %v", name, err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(repoDir, name), []byte(content), 0o644); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
@@ -41,17 +68,9 @@ func TestScaffoldTreatsARootMainPackageAsABinary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("go-mk scaffold: %v\n%s", err, output)
 	}
-	if !strings.Contains(string(output), "layout:  binary") {
-		t.Fatalf("scaffold output lacks the binary layout:\n%s", output)
-	}
-
 	makefile, err := os.ReadFile(filepath.Join(repoDir, "Makefile"))
 	if err != nil {
 		t.Fatalf("read Makefile: %v", err)
 	}
-	for _, want := range []string{"BINARY := rootmain\n", "CMD    := .\n"} {
-		if !strings.Contains(string(makefile), want) {
-			t.Fatalf("Makefile lacks %q:\n%s", want, makefile)
-		}
-	}
+	return string(output), string(makefile)
 }

@@ -7,8 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"go/parser"
-	"go/token"
+	"go/build"
 	"io"
 	"log/slog"
 	"os"
@@ -326,7 +325,7 @@ func resolveScaffoldLayout(options scaffoldOptions) (string, error) {
 	if len(directories) > 0 {
 		return "binary", nil
 	}
-	rootMain, err := rootDeclaresMainPackage()
+	rootMain, err := directoryBuildsCommand(".")
 	if err != nil {
 		return "", err
 	}
@@ -336,25 +335,20 @@ func resolveScaffoldLayout(options scaffoldOptions) (string, error) {
 	return "library", nil
 }
 
-func rootDeclaresMainPackage() (bool, error) {
-	entries, err := os.ReadDir(".")
+// build.ImportDir applies the build constraints of the host. A file with
+// //go:build ignore does not count, and a directory with two packages returns
+// an error.
+func directoryBuildsCommand(dir string) (bool, error) {
+	pkg, err := build.ImportDir(dir, 0)
+	var noGo *build.NoGoError
+	if errors.As(err, &noGo) {
+		return false, nil
+	}
 	if err != nil {
-		return false, err
+		slog.Error("scaffold read root package", slog.String("dir", dir), slog.String("err", err.Error()))
+		return false, fmt.Errorf("read the Go package in %s: %w", dir, err)
 	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		file, err := parser.ParseFile(token.NewFileSet(), name, nil, parser.PackageClauseOnly)
-		if err != nil {
-			continue
-		}
-		if file.Name.Name == "main" {
-			return true, nil
-		}
-	}
-	return false, nil
+	return pkg.IsCommand(), nil
 }
 
 func buildScaffoldContext(modulePath string, layout string) (scaffoldContext, error) {
@@ -377,7 +371,7 @@ func buildScaffoldContext(modulePath string, layout string) (scaffoldContext, er
 		binaryName = directories[0]
 		cmdPath = "./cmd/" + directories[0]
 	} else if len(directories) == 0 {
-		rootMain, err := rootDeclaresMainPackage()
+		rootMain, err := directoryBuildsCommand(".")
 		if err != nil {
 			return scaffoldContext{}, err
 		}
