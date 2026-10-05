@@ -311,7 +311,8 @@ func staticcheckCaptureFindings(rawPath, findingsPath string) error {
 	args := make([]string, 0, len(flagArgs)+len(targetArgs))
 	args = append(args, flagArgs...)
 	args = append(args, targetArgs...)
-	if _, err := captureCommand(selected, args, rawPath); err != nil {
+	status, err := captureCommand(selected, args, rawPath)
+	if err != nil {
 		return err
 	}
 	rawLines, err := readFileLines(rawPath)
@@ -322,6 +323,9 @@ func staticcheckCaptureFindings(rawPath, findingsPath string) error {
 	normalized := make([]string, 0, len(rawLines))
 	for _, line := range rawLines {
 		normalized = append(normalized, findings.NormalizePath(line, root, root))
+	}
+	if status == staticcheckBuildFailureStatus {
+		return staticcheckBuildFailure(normalized)
 	}
 	filtered := filterExcluded(normalized, excludePattern)
 	return writeFindingsFile(findingsPath, sortedUnique(filtered))
@@ -379,6 +383,10 @@ func runStaticcheckExtra() int {
 	)
 	suppressFixed := lint.StaticcheckSuppressFixed(staticcheckFlagsText(), scopePattern)
 	if err := staticcheckCaptureFindings(rawPath, findingsPath); err != nil {
+		var buildErr *staticcheckBuildError
+		if errors.As(err, &buildErr) {
+			return reportStaticcheckBuildFailure(buildErr)
+		}
 		return statusFromError(err)
 	}
 	current, err := readFileLines(findingsPath)

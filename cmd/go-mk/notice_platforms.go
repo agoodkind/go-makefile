@@ -13,10 +13,6 @@ import (
 	"goodkind.io/go-makefile/internal/findings"
 )
 
-// staticcheck-extra exits with status 3 when it reports diagnostics and with
-// status 1 when a package fails to load or type-check.
-const staticcheckDiagnosticsStatus = 3
-
 // runStaticcheckExtra applies notice 2 during the analysis of one platform: the
 // host, or the first GO_MK_PLATFORMS target. That analysis skips each test file
 // with a build constraint for another platform. addOtherPlatformFindings
