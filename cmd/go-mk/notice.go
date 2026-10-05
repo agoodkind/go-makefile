@@ -78,8 +78,8 @@ func runNoticeFor(onlyGate string) int {
 	if err != nil {
 		return 0
 	}
-	// GitHub Actions deletes the checkout after the run. Files that a notice
-	// writes there are not committed.
+	// GitHub Actions deletes the checkout after the run. No commit records the
+	// files that a notice writes in that checkout.
 	if currentCIProofEnv().inRun() {
 		reportUnappliedNoticesInCI(records, applied)
 		return 0

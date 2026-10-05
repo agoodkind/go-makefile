@@ -96,8 +96,8 @@ func currentCIProofEnv() ciProofEnv {
 	}
 }
 
-// GITHUB_ACTIONS alone can be set in a local shell. GITHUB_RUN_ID is set only
-// in a real run.
+// A local shell can export GITHUB_ACTIONS. Only the GitHub Actions runner sets
+// GITHUB_RUN_ID.
 func (env ciProofEnv) inRun() bool {
 	return env.githubActions == "true" && strings.TrimSpace(env.githubRunID) != ""
 }
