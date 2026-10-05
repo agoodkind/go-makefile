@@ -361,6 +361,10 @@ func clearBaselineEnv(t *testing.T) {
 	t.Setenv("GOCYCLO_BASELINE", "")
 	t.Setenv("DEADCODE_BASELINE", "")
 	t.Setenv("STATICCHECK_EXTRA_BASELINE", "")
+	// The GitHub Actions runner sets these variables, and runNoticeFor does not
+	// apply notices in a GitHub Actions run.
+	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv("GITHUB_RUN_ID", "")
 }
 
 func chdir(t *testing.T, directory string) {
