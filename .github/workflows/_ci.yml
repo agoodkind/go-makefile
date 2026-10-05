@@ -91,13 +91,13 @@ on:
         default: true
       release_platforms:
         description: >-
-          Space-separated os/arch targets for the compile and release gates,
-          passed to the shared build and package components. Defaults to all
-          four release platforms. Set this to match the consumer's release.yml
-          platforms value.
+          Space-separated os/arch targets for the compile and release gates.
+          Empty uses the module's GO_MK_PLATFORMS list from `make
+          go-mk-platforms`. Set GO_MK_PLATFORMS in the module Makefile instead
+          of this input.
         required: false
         type: string
-        default: "darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
+        default: ""
       darwin_runner:
         description: >-
           macOS runner label for native darwin compile jobs, passed to the
@@ -142,6 +142,7 @@ jobs:
       changed: ${{ steps.detect.outputs.changed }}
       releases: ${{ steps.release-detect.outputs.releases }}
       job_matrix: ${{ steps.job-layout.outputs.matrix }}
+      platforms: ${{ steps.platforms.outputs.platforms }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -171,6 +172,17 @@ jobs:
         env:
           GO_MK_JOB_LAYOUT: ${{ inputs.job_layout }}
         run: make go-mk-ci-job-layout
+        working-directory: ${{ inputs.working_directory }}
+      - name: Resolve platforms
+        id: platforms
+        env:
+          RELEASE_PLATFORMS_INPUT: ${{ inputs.release_platforms }}
+        run: |
+          if [ -n "${RELEASE_PLATFORMS_INPUT}" ]; then
+            echo "platforms=${RELEASE_PLATFORMS_INPUT}" >> "${GITHUB_OUTPUT}"
+          else
+            make go-mk-platforms
+          fi
         working-directory: ${{ inputs.working_directory }}
       # make ci-changed runs only the cheap detector path. The engine uses
       # `go list -e` plus declared trigger dirs, writes changed=<bool> to
@@ -282,7 +294,7 @@ jobs:
       cgo: ${{ inputs.cgo }}
       apt_packages: ${{ inputs.apt_packages }}
       submodules: ${{ inputs.submodules }}
-      platforms: ${{ inputs.release_platforms }}
+      platforms: ${{ needs.prepare.outputs.platforms }}
       darwin_runner: ${{ inputs.darwin_runner }}
       working_directory: ${{ inputs.working_directory }}
 
@@ -424,7 +436,7 @@ jobs:
     secrets: inherit
     with:
       submodules: ${{ inputs.submodules }}
-      platforms: ${{ inputs.release_platforms }}
+      platforms: ${{ needs.prepare.outputs.platforms }}
       working_directory: ${{ inputs.working_directory }}
 
   release:

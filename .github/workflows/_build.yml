@@ -38,12 +38,10 @@ on:
         default: ""
       platforms:
         description: >-
-          Space-separated os/arch targets to build. Defaults to all four
-          release platforms. A macOS-only consumer restricts this to the two
-          darwin targets.
-        required: false
+          Space-separated os/arch targets to build. _ci.yml and _release.yml
+          pass the module's resolved platform list.
+        required: true
         type: string
-        default: "darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
       darwin_runner:
         description: >-
           GitHub-hosted macOS runner label for the darwin targets. Empty keeps

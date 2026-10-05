@@ -38,12 +38,10 @@ on:
         default: ""
       platforms:
         description: >-
-          Space-separated os/arch targets to package. Defaults to all four
-          release platforms and must match the platforms the compile component
-          built.
-        required: false
+          Space-separated os/arch targets to package. It must match the
+          platforms the compile component built.
+        required: true
         type: string
-        default: "darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
       working_directory:
         description: Directory where make targets run.
         required: false

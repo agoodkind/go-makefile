@@ -56,12 +56,12 @@ on:
         default: ""
       platforms:
         description: >-
-          Space-separated os/arch targets to build, passed to the shared build
-          component. Defaults to all four release platforms; freebsd/amd64 and
-          freebsd/arm64 are also accepted.
+          Space-separated os/arch targets to build. Empty uses the module's
+          GO_MK_PLATFORMS list from `make go-mk-platforms`. Set GO_MK_PLATFORMS
+          in the module Makefile instead of this input.
         required: false
         type: string
-        default: "darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
+        default: ""
       darwin_runner:
         description: >-
           macOS runner label for native darwin builds, passed to the shared
@@ -93,6 +93,7 @@ jobs:
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
       module_suffix: ${{ steps.module.outputs.suffix }}
+      platforms: ${{ steps.platforms.outputs.platforms }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -132,6 +133,16 @@ jobs:
           RELEASE_STAGE: tag
         run: make release
         working-directory: ${{ inputs.working_directory }}
+      - id: platforms
+        env:
+          PLATFORMS_INPUT: ${{ inputs.platforms }}
+        run: |
+          if [ -n "${PLATFORMS_INPUT}" ]; then
+            echo "platforms=${PLATFORMS_INPUT}" >> "${GITHUB_OUTPUT}"
+          else
+            make go-mk-platforms
+          fi
+        working-directory: ${{ inputs.working_directory }}
 
   # The compile matrix lives in the shared build component. It uploads the raw
   # per-platform binaries the package job consumes.
@@ -148,7 +159,7 @@ jobs:
       apt_packages: ${{ inputs.apt_packages }}
       submodules: ${{ inputs.submodules }}
       release_tag: ${{ needs.tag.outputs.tag }}
-      platforms: ${{ inputs.platforms }}
+      platforms: ${{ needs.tag.outputs.platforms }}
       darwin_runner: ${{ inputs.darwin_runner }}
       working_directory: ${{ inputs.working_directory }}
 
@@ -168,7 +179,7 @@ jobs:
       quill_version: ${{ inputs.quill_version }}
       require_darwin_codesign: ${{ inputs.require_darwin_codesign }}
       release_tag: ${{ needs.tag.outputs.tag }}
-      platforms: ${{ inputs.platforms }}
+      platforms: ${{ needs.tag.outputs.platforms }}
       working_directory: ${{ inputs.working_directory }}
 
   publish:
