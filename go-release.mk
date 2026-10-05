@@ -9,7 +9,9 @@
 #   RELEASE_BINS                    full name:cmd[:opts] set to release (default BINARY:CMD; must
 #                                   include BINARY). opts is a comma-separated key=value list:
 #                                   cgo=1 and platforms=<os>/<arch>, the latter repeatable.
-#   RELEASE_PLATFORMS               os/arch list (default darwin+linux, amd64+arm64)
+#   RELEASE_PLATFORMS               os/arch list for this run. Each release job sets
+#                                   it to one platform. Empty builds every
+#                                   GO_MK_PLATFORMS target.
 #   RELEASE_ENTITLEMENTS            optional entitlements XML for darwin signing
 #   REQUIRE_DARWIN_CODESIGN         fail darwin release builds when signing
 #                                   material is absent
@@ -23,7 +25,7 @@
 
 .PHONY: release
 
-RELEASE_PLATFORMS    ?= darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
+RELEASE_PLATFORMS    ?=
 RELEASE_BINS         ?=
 RELEASE_ENTITLEMENTS ?=
 REQUIRE_DARWIN_CODESIGN ?=

@@ -52,15 +52,7 @@ type platformCgoPresence struct {
 // and was failed for darwin, where its own comments record that sysrepo cannot
 // exist because darwin has never shipped robust pthread mutexes.
 func platformStubPlatforms() []string {
-	declared := platformMatrix()
-	if len(declared) == 0 {
-		return strings.Fields(defaultReleasePlatforms)
-	}
-	platforms := make([]string, 0, len(declared))
-	for _, target := range declared {
-		platforms = append(platforms, target.label())
-	}
-	return platforms
+	return declaredPlatforms()
 }
 
 // platformStubAllowlist parses GO_MK_PLATFORM_STUB_OPTIONAL into a set of

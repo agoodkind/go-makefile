@@ -192,6 +192,9 @@ go-mk-cache-manifest:
 go-mk-ci-job-layout:
 	$(ROOT_GO_MK) go-mk-ci-job-layout
 
+go-mk-platforms:
+	$(ROOT_GO_MK) go-mk-platforms
+
 go-mk-golangci-cache-save-decision:
 	$(ROOT_GO_MK) go-mk-golangci-cache-save-decision
 
