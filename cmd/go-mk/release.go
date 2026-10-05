@@ -271,7 +271,7 @@ func loadReleaseConfig() (releaseConfig, error) {
 	}
 	primaryBinary := binaries[0]
 	platformsText := strings.TrimSpace(os.Getenv("RELEASE_PLATFORMS"))
-	// A release job sets RELEASE_PLATFORMS to its one platform.
+	// A release job sets `RELEASE_PLATFORMS` to its one platform.
 	if platformsText == "" {
 		platformsText = strings.Join(declaredPlatforms(), " ")
 	}

@@ -20,8 +20,8 @@ func declaredPlatforms() []string {
 	return platforms
 }
 
-// The reusable workflows read platforms=<list> from GITHUB_OUTPUT to plan the
-// compile and package matrices.
+// The reusable workflows read `platforms=<list>` from `GITHUB_OUTPUT` to plan
+// the compile and package matrices.
 func runPlatforms() int {
 	list := strings.Join(declaredPlatforms(), " ")
 	writeStdout(list + "\n")

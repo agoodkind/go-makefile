@@ -56,10 +56,10 @@ on:
         default: ""
       platforms:
         description: >-
-          This input lists the space-separated os/arch targets to build. An
-          empty value uses the module's GO_MK_PLATFORMS list from `make
-          go-mk-platforms`. Set GO_MK_PLATFORMS
-          in the module Makefile instead of this input.
+          This input lists the space-separated `os/arch` targets to build. An
+          empty value uses the module's `GO_MK_PLATFORMS` list from `make
+          go-mk-platforms`. Set `GO_MK_PLATFORMS` in the module `Makefile`
+          instead of this input.
         required: false
         type: string
         default: ""

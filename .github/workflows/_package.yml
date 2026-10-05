@@ -38,7 +38,7 @@ on:
         default: ""
       platforms:
         description: >-
-          The caller passes the space-separated os/arch targets to package.
+          The caller passes the space-separated `os/arch` targets to package.
           The list must match the platforms the compile component built.
         required: true
         type: string
