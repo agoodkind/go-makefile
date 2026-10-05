@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"io"
 	"log/slog"
 	"os"
@@ -324,7 +326,35 @@ func resolveScaffoldLayout(options scaffoldOptions) (string, error) {
 	if len(directories) > 0 {
 		return "binary", nil
 	}
+	rootMain, err := rootDeclaresMainPackage()
+	if err != nil {
+		return "", err
+	}
+	if rootMain {
+		return "binary", nil
+	}
 	return "library", nil
+}
+
+func rootDeclaresMainPackage() (bool, error) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), name, nil, parser.PackageClauseOnly)
+		if err != nil {
+			continue
+		}
+		if file.Name.Name == "main" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func buildScaffoldContext(modulePath string, layout string) (scaffoldContext, error) {
@@ -346,6 +376,14 @@ func buildScaffoldContext(modulePath string, layout string) (scaffoldContext, er
 	} else if len(directories) == 1 {
 		binaryName = directories[0]
 		cmdPath = "./cmd/" + directories[0]
+	} else if len(directories) == 0 {
+		rootMain, err := rootDeclaresMainPackage()
+		if err != nil {
+			return scaffoldContext{}, err
+		}
+		if rootMain {
+			cmdPath = "."
+		}
 	}
 	context.Binary = binaryName
 	context.Cmd = cmdPath
