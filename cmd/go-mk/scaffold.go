@@ -335,9 +335,9 @@ func resolveScaffoldLayout(options scaffoldOptions) (string, error) {
 	return "library", nil
 }
 
-// build.ImportDir applies the build constraints of the host. A file with
-// //go:build ignore does not count, and a directory with two packages returns
-// an error.
+// The scaffold skips a file that the host build excludes, such as a
+// //go:build ignore generator, and rejects a directory with two packages.
+// build.ImportDir applies the host build constraints and returns that error.
 func directoryBuildsCommand(dir string) (bool, error) {
 	pkg, err := build.ImportDir(dir, 0)
 	var noGo *build.NoGoError
