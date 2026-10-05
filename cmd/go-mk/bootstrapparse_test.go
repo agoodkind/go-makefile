@@ -248,6 +248,49 @@ func TestOfflineParseDoesNotDestroyCachedAssets(t *testing.T) {
 	}
 }
 
+// The consumer parses the real go.mk from a served tarball. The engine install
+// spec must name the tarball commit, not the ref that proxy.golang.org resolves.
+func TestEngineInstallUsesTheTarballCommit(t *testing.T) {
+	const tarballCommit = "0123456789abcdef0123456789abcdef01234567"
+	goMk, err := os.ReadFile(filepath.Join(repoRootForTest(t), "go.mk"))
+	if err != nil {
+		t.Fatalf("read go.mk: %v", err)
+	}
+	testCases := []struct {
+		name        string
+		commit      string
+		wantInstall string
+	}{
+		{name: "tarball with a commit", commit: tarballCommit, wantInstall: "goodkind.io/go-makefile/cmd/go-mk@" + tarballCommit},
+		{name: "tarball without a commit", commit: "", wantInstall: "goodkind.io/go-makefile/cmd/go-mk@main"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			files := consumerFiles(t)
+			files["go.mk"] = string(goMk)
+			server := newFetchServer(t, files)
+			server.SetCommitTree(testCase.commit, files)
+			dir := newConsumer(t)
+			makefile := "BINARY := probe\nCMD := ./cmd/probe\ninclude bootstrap.mk\n\n" +
+				"print-engine-install:\n\t@printf 'install=%s\\n' '$(GO_MK_INSTALL)'\n"
+			if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0o644); err != nil {
+				t.Fatalf("write Makefile: %v", err)
+			}
+
+			command := exec.Command("make", "print-engine-install")
+			command.Dir = dir
+			command.Env = testProcessEnvironment(map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+			output, err := command.CombinedOutput()
+			if err != nil {
+				t.Fatalf("make print-engine-install: %v\n%s", err, output)
+			}
+			if !strings.Contains(string(output), "install="+testCase.wantInstall+"\n") {
+				t.Fatalf("output lacks install=%s:\n%s", testCase.wantInstall, output)
+			}
+		})
+	}
+}
+
 // TestProvisionedRejectsAnEmptyHelper covers the provisioned guard, which used
 // $(wildcard) and so accepted any path that exists. An empty helper satisfies
 // that, and bash exits 0 on an empty script, so GO_MK_PROVISION came back "ok"

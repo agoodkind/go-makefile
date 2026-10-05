@@ -303,7 +303,14 @@ GO_MK_API_REF      ?= main
 GO_MK_BIN          ?=
 GO_MK_BUILD_REPO   ?= $(if $(and $(GO_MK_DEV_DIR),$(wildcard $(GO_MK_DEV_DIR)/cmd/go-mk)),$(GO_MK_DEV_DIR))
 GO_MK_BUILD_PKG    ?= $(if $(GO_MK_BUILD_REPO),./cmd/go-mk)
-GO_MK_INSTALL      ?= goodkind.io/go-makefile/cmd/go-mk@$(GO_MK_API_REF)
+# go-mk provision writes .make/.go-mk-commit with the commit of the codeload
+# tarball that supplied this go.mk. proxy.golang.org can resolve
+# GO_MK_API_REF=main to an older commit for 30 minutes or more after a merge,
+# and an engine from that commit fails on commands this go.mk runs. The install
+# spec uses the recorded commit. A fork GO_MK_API_REPO does not use the commit:
+# goodkind.io/go-makefile does not contain a fork commit.
+GO_MK_ENGINE_COMMIT := $(if $(filter agoodkind/go-makefile,$(GO_MK_API_REPO)),$(if $(wildcard .make/.go-mk-commit),$(strip $(shell cat .make/.go-mk-commit))))
+GO_MK_INSTALL      ?= goodkind.io/go-makefile/cmd/go-mk@$(or $(GO_MK_ENGINE_COMMIT),$(GO_MK_API_REF))
 
 # Path to the resolved go-mk engine binary. go-mk-bin.sh prints the configured
 # GO_MK_BIN or the on-demand .make/go-mk build output. The lint targets depend

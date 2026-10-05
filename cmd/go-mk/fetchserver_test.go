@@ -184,10 +184,16 @@ func (s *fetchServer) CodeloadBase() string {
 	return s.URL
 }
 
-// SetFiles replaces the served tree and recomputes the ETag, so a test can
-// simulate upstream moving.
+// SetFiles replaces the served tree and recomputes the ETag. Tests simulate
+// upstream moving with a second SetFiles.
 func (s *fetchServer) SetFiles(files map[string]string) {
-	tarball := buildTarball(files)
+	s.SetCommitTree("", files)
+}
+
+// SetCommitTree serves files with commit in the pax global header. codeload and
+// git archive record the archived commit there.
+func (s *fetchServer) SetCommitTree(commit string, files map[string]string) {
+	tarball := buildTarball(commit, files)
 	digest := sha256.Sum256(tarball)
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -321,10 +327,22 @@ func randomAssetBody(byteCount int) string {
 // buildTarball produces a gzipped tar whose entries all sit under one top-level
 // directory, matching a GitHub source archive. Entries are sorted so the same
 // file set always produces the same bytes and therefore the same ETag.
-func buildTarball(files map[string]string) []byte {
+func buildTarball(commit string, files map[string]string) []byte {
 	var buffer bytes.Buffer
 	gzipWriter := gzip.NewWriter(&buffer)
 	tarWriter := tar.NewWriter(gzipWriter)
+
+	if commit != "" {
+		globalHeader := &tar.Header{
+			Typeflag:   tar.TypeXGlobalHeader,
+			Name:       "pax_global_header",
+			PAXRecords: map[string]string{"comment": commit},
+			Format:     tar.FormatPAX,
+		}
+		if err := tarWriter.WriteHeader(globalHeader); err != nil {
+			panic(err)
+		}
+	}
 
 	names := make([]string, 0, len(files))
 	for name := range files {
