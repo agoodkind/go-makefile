@@ -1,0 +1,186 @@
+name: Release modules
+
+# One release for several Go modules in one repository. The tag job computes one
+# tag in the first module. The compile and package jobs run once per module and
+# stamp every binary with that tag. The publish job downloads the archives of
+# every module and publishes them with one checksums.txt under that tag.
+#
+# Each `modules` entry is a JSON object. `working_directory` is required.
+# `platforms`, `cgo`, `apt_packages`, and `darwin_runner` match the _release.yml
+# inputs of the same name and apply to that module only.
+
+on:
+  workflow_call:
+    inputs:
+      modules:
+        description: >-
+          JSON array of module objects, for example
+          [{"working_directory": "gateway", "platforms": "linux/amd64 linux/arm64"},
+          {"working_directory": "provider", "platforms": "darwin/arm64 linux/amd64"}].
+          The first module publishes the release.
+        required: true
+        type: string
+      submodules:
+        description: Submodule checkout mode passed straight to actions/checkout.
+        required: false
+        type: string
+        default: "false"
+      quill_version:
+        description: Pinned anchore/quill version to install for darwin signing.
+        required: false
+        type: string
+        default: "v0.7.1"
+      require_darwin_codesign:
+        description: Fail darwin release builds when signing material is absent.
+        required: false
+        type: boolean
+        default: false
+      binary:
+        description: Space-separated binary asset prefixes to verify after publish.
+        required: false
+        type: string
+        default: ""
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  tag:
+    name: Tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      publish_directory: ${{ steps.publish.outputs.directory }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: ${{ inputs.submodules }}
+      - id: publish
+        env:
+          PUBLISH_DIRECTORY: ${{ fromJSON(inputs.modules)[0].working_directory }}
+        run: echo "directory=${PUBLISH_DIRECTORY}" >> "${GITHUB_OUTPUT}"
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ steps.publish.outputs.directory }}/go.mod
+          cache-dependency-path: |
+            ${{ steps.publish.outputs.directory }}/go.mod
+            ${{ steps.publish.outputs.directory }}/go.sum
+      - id: tag
+        env:
+          RELEASE_STAGE: tag
+        run: make release
+        working-directory: ${{ steps.publish.outputs.directory }}
+
+  compile:
+    name: Compile ${{ matrix.module.working_directory }}
+    needs: tag
+    strategy:
+      matrix:
+        module: ${{ fromJSON(inputs.modules) }}
+    permissions:
+      contents: read
+    uses: agoodkind/go-makefile/.github/workflows/_build.yml@main
+    secrets: inherit
+    with:
+      cgo: ${{ matrix.module.cgo == true }}
+      apt_packages: ${{ matrix.module.apt_packages || '' }}
+      submodules: ${{ inputs.submodules }}
+      release_tag: ${{ needs.tag.outputs.tag }}
+      platforms: ${{ matrix.module.platforms || 'darwin/amd64 darwin/arm64 linux/amd64 linux/arm64' }}
+      darwin_runner: ${{ matrix.module.darwin_runner || '' }}
+      working_directory: ${{ matrix.module.working_directory }}
+
+  package:
+    name: Package ${{ matrix.module.working_directory }}
+    needs: [tag, compile]
+    strategy:
+      matrix:
+        module: ${{ fromJSON(inputs.modules) }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: agoodkind/go-makefile/.github/workflows/_package.yml@main
+    secrets: inherit
+    with:
+      submodules: ${{ inputs.submodules }}
+      quill_version: ${{ inputs.quill_version }}
+      require_darwin_codesign: ${{ inputs.require_darwin_codesign }}
+      release_tag: ${{ needs.tag.outputs.tag }}
+      platforms: ${{ matrix.module.platforms || 'darwin/amd64 darwin/arm64 linux/amd64 linux/arm64' }}
+      working_directory: ${{ matrix.module.working_directory }}
+
+  publish:
+    name: Publish
+    needs: [tag, package]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: ${{ inputs.submodules }}
+      # _package.yml uploads each module archive as release-<module>-<goos>-<goarch>.
+      # This pattern collects the archives of every module.
+      - uses: actions/download-artifact@v8
+        with:
+          path: ${{ needs.tag.outputs.publish_directory }}/dist
+          pattern: release-*
+          merge-multiple: true
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ needs.tag.outputs.publish_directory }}/go.mod
+          cache-dependency-path: |
+            ${{ needs.tag.outputs.publish_directory }}/go.mod
+            ${{ needs.tag.outputs.publish_directory }}/go.sum
+      - name: Publish
+        env:
+          RELEASE_STAGE: publish
+          RELEASE_TAG: ${{ needs.tag.outputs.tag }}
+        run: make release
+        working-directory: ${{ needs.tag.outputs.publish_directory }}
+      - name: Attest checksums
+        uses: actions/attest@v4.2.2
+        with:
+          subject-path: ${{ needs.tag.outputs.publish_directory }}/dist/checksums.txt
+
+  verify:
+    name: Verify
+    needs: [tag, publish]
+    if: inputs.binary != ''
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: ${{ inputs.submodules }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ needs.tag.outputs.publish_directory }}/go.mod
+      - name: Verify release assets
+        env:
+          RELEASE_BINARIES: ${{ inputs.binary }}
+          RELEASE_TAG: ${{ needs.tag.outputs.tag }}
+        run: |
+          for binary in ${RELEASE_BINARIES}; do
+            attempt=1
+            while [ "${attempt}" -le 5 ]; do
+              if go run goodkind.io/go-makefile/selfupdate/cmd/verify-release@main --repo "${GITHUB_REPOSITORY}" --tag "${RELEASE_TAG}" --binary "${binary}"; then
+                break
+              fi
+              if [ "${attempt}" -eq 5 ]; then
+                exit 1
+              fi
+              sleep 30
+              attempt=$((attempt + 1))
+            done
+          done
