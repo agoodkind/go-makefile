@@ -98,6 +98,12 @@ func runBaseline(args []string) int {
 		return 2
 	}
 
+	if len(collector.components) == 0 && updateStatus == 0 && baselineComponentUsesGate(component) {
+		if reason := baselineGateClosedReason(); reason != "" {
+			writeStdout("baseline: no baseline was updated: " + reason + "\n")
+		}
+	}
+
 	if err := flushBaseline(collector); err != nil {
 		writeStderr("go-mk: " + err.Error() + "\n")
 		updateStatus = carryStatus(updateStatus, 1)
@@ -152,14 +158,33 @@ func flushBaseline(collector *baselineCollector) error {
 // confirm check passes, so a routine make run with BASELINE_CONFIRM unset never
 // invokes it.
 func baselineGatePasses() bool {
+	return baselineGateClosedReason() == ""
+}
+
+const (
+	gateClosedNoConfirm    = "BASELINE_CONFIRM is not set to yes"
+	gateClosedTokenCommand = "the token command failed"
+	gateClosedTokenValue   = "BASELINE_TOKEN does not match the token"
+)
+
+// baselineGateClosedReason returns an empty string when the gate is open.
+func baselineGateClosedReason() string {
 	if !gate.ConfirmAccepted(os.Getenv("BASELINE_CONFIRM")) {
-		return false
+		return gateClosedNoConfirm
 	}
 	expectedRaw, ok := gateTokenExpected(os.Getenv("BASELINE_TOKEN_CMD"))
 	if !ok {
-		return false
+		return gateClosedTokenCommand
 	}
-	return gate.TokensMatch(expectedRaw, os.Getenv("BASELINE_TOKEN"))
+	if !gate.TokensMatch(expectedRaw, os.Getenv("BASELINE_TOKEN")) {
+		return gateClosedTokenValue
+	}
+	return ""
+}
+
+// The notice components run without the token gate.
+func baselineComponentUsesGate(component baselineComponent) bool {
+	return component != componentAutoScope && component != componentStaticcheckAutoScope
 }
 
 // updateGolangciBaseline captures the full golangci-lint baseline and queues its
