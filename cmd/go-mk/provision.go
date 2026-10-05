@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
@@ -9,16 +11,21 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 )
 
+// A git commit id is 40 hex digits for SHA-1 or 64 for SHA-256.
+var commitIDPattern = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
+
 const (
 	provisionMakeDir     = ".make"
 	provisionSelfAsset   = "scripts/go-mk-bootstrap.sh"
 	provisionStatePath   = ".make/.go-mk-fetch-state"
+	provisionCommitPath  = ".make/.go-mk-commit"
 	provisionLockWait    = 30 * time.Second
 	defaultCodeloadBase  = "https://codeload.github.com"
 	defaultProvisionRepo = "agoodkind/go-makefile"
@@ -309,6 +316,7 @@ func downloadAndInstallProvision(cfg provisionConfig) error {
 	if err := provisionAssetsComplete(cfg, provisionMakeDir); err != nil {
 		return fmt.Errorf("error: .make is incomplete after install")
 	}
+	recordProvisionCommit(archivePath)
 	etagValue := etagFromHeaders(headersPath)
 	if etagValue == "" {
 		_ = os.Remove(provisionStatePath)
@@ -424,7 +432,56 @@ func clearProvisionState() error {
 	if _, err := os.Lstat(provisionStatePath); err == nil {
 		return fmt.Errorf("error: could not remove %s, so refusing to modify .make while stale validation state survives: %s", provisionStatePath, removalError)
 	}
+	if err := os.Remove(provisionCommitPath); err != nil && !os.IsNotExist(err) {
+		slog.Error("provision clear commit failed", slog.String("path", provisionCommitPath), slog.String("err", err.Error()))
+		return fmt.Errorf("error: could not remove %s before replacing .make: %w", provisionCommitPath, err)
+	}
 	return nil
+}
+
+// go.mk installs the go-mk engine at the commit in provisionCommitPath. A
+// `go install ...@main` through proxy.golang.org can return an older commit than
+// the codeload tarball, and that engine lacks commands the newer go.mk runs.
+// Without a readable commit, the file stays absent and go.mk installs at
+// GO_MK_API_REF.
+func recordProvisionCommit(archivePath string) {
+	commit, err := tarballCommit(archivePath)
+	if err != nil || commit == "" {
+		slog.Warn("provision archive has no commit id", slog.String("archive", archivePath))
+		return
+	}
+	slog.Info("provision write commit", slog.String("commit", commit))
+	if err := os.WriteFile(provisionCommitPath, []byte(commit+"\n"), 0o644); err != nil {
+		slog.Error("provision write commit failed", slog.String("path", provisionCommitPath), slog.String("err", err.Error()))
+		_ = os.Remove(provisionCommitPath)
+	}
+}
+
+// codeload and git archive write the commit id as the `comment` record of the
+// pax global header, the first entry of the archive.
+func tarballCommit(archivePath string) (string, error) {
+	archiveFile, err := os.Open(archivePath)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = archiveFile.Close() }()
+	gzipReader, err := gzip.NewReader(archiveFile)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = gzipReader.Close() }()
+	header, err := tar.NewReader(gzipReader).Next()
+	if err != nil {
+		return "", err
+	}
+	if header.Typeflag != tar.TypeXGlobalHeader {
+		return "", nil
+	}
+	commit := strings.TrimSpace(header.PAXRecords["comment"])
+	if !commitIDPattern.MatchString(commit) {
+		return "", nil
+	}
+	return commit, nil
 }
 
 func serveProvisionFromDiskWarning(cfg provisionConfig) {
