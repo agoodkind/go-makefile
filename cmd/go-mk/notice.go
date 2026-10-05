@@ -78,6 +78,12 @@ func runNoticeFor(onlyGate string) int {
 	if err != nil {
 		return 0
 	}
+	// A CI checkout is discarded after the run. A notice applied there writes
+	// files that no commit records, and the gate then passes on every run.
+	if runningInGitHubActions() {
+		reportUnappliedNoticesInCI(records, applied)
+		return 0
+	}
 	for _, record := range records {
 		numericID, ok := atoiNotice(record.id)
 		if !ok {
@@ -119,6 +125,22 @@ func runNoticeFor(onlyGate string) int {
 	}
 	_ = writeSeenFile(seenFile, maxSeen)
 	return 0
+}
+
+// GITHUB_ACTIONS alone can be set in a local shell. GITHUB_RUN_ID is set only
+// in a real run.
+func runningInGitHubActions() bool {
+	return os.Getenv("GITHUB_ACTIONS") == "true" && strings.TrimSpace(os.Getenv("GITHUB_RUN_ID")) != ""
+}
+
+func reportUnappliedNoticesInCI(records []noticeFields, applied map[string]bool) {
+	for _, record := range records {
+		directiveNotice := record.directive != "" && record.directive != "-"
+		if !directiveNotice || applied[record.id] {
+			continue
+		}
+		writeStderr("go-makefile notice #" + record.id + " is not applied. Run make check locally, then commit the files it changes or fix the findings.\n")
+	}
 }
 
 // shouldAutoBaselineDirective reports whether this repo had adopted go-makefile
