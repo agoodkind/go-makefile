@@ -78,6 +78,12 @@ func runNoticeFor(onlyGate string) int {
 	if err != nil {
 		return 0
 	}
+	// GitHub Actions deletes the checkout after the run. No commit records the
+	// files that a notice writes in that checkout.
+	if currentCIProofEnv().inRun() {
+		reportUnappliedNoticesInCI(records, applied)
+		return 0
+	}
 	for _, record := range records {
 		numericID, ok := atoiNotice(record.id)
 		if !ok {
@@ -119,6 +125,16 @@ func runNoticeFor(onlyGate string) int {
 	}
 	_ = writeSeenFile(seenFile, maxSeen)
 	return 0
+}
+
+func reportUnappliedNoticesInCI(records []noticeFields, applied map[string]bool) {
+	for _, record := range records {
+		directiveNotice := record.directive != "" && record.directive != "-"
+		if !directiveNotice || applied[record.id] {
+			continue
+		}
+		writeStderr("go-makefile notice #" + record.id + " is not applied. Run make check locally, then commit the files it changes or fix the findings.\n")
+	}
 }
 
 // shouldAutoBaselineDirective reports whether this repo had adopted go-makefile
