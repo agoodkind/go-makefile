@@ -78,9 +78,9 @@ func runNoticeFor(onlyGate string) int {
 	if err != nil {
 		return 0
 	}
-	// A CI checkout is discarded after the run. A notice applied there writes
-	// files that no commit records, and the gate then passes on every run.
-	if runningInGitHubActions() {
+	// GitHub Actions deletes the checkout after the run. Files that a notice
+	// writes there are not committed.
+	if currentCIProofEnv().inRun() {
 		reportUnappliedNoticesInCI(records, applied)
 		return 0
 	}
@@ -125,12 +125,6 @@ func runNoticeFor(onlyGate string) int {
 	}
 	_ = writeSeenFile(seenFile, maxSeen)
 	return 0
-}
-
-// GITHUB_ACTIONS alone can be set in a local shell. GITHUB_RUN_ID is set only
-// in a real run.
-func runningInGitHubActions() bool {
-	return os.Getenv("GITHUB_ACTIONS") == "true" && strings.TrimSpace(os.Getenv("GITHUB_RUN_ID")) != ""
 }
 
 func reportUnappliedNoticesInCI(records []noticeFields, applied map[string]bool) {
