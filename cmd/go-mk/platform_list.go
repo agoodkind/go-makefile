@@ -7,7 +7,7 @@ import (
 )
 
 // declaredPlatforms returns the os/arch targets the module ships: the
-// GO_MK_PLATFORMS list, or defaultReleasePlatforms when that list is empty.
+// `GO_MK_PLATFORMS` list, or `defaultReleasePlatforms` when that list is empty.
 func declaredPlatforms() []string {
 	declared := platformMatrix()
 	if len(declared) == 0 {
