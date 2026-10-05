@@ -167,7 +167,6 @@ const (
 	gateClosedTokenValue   = "BASELINE_TOKEN does not match the token"
 )
 
-// baselineGateClosedReason returns an empty string when the gate is open.
 func baselineGateClosedReason() string {
 	if !gate.ConfirmAccepted(os.Getenv("BASELINE_CONFIRM")) {
 		return gateClosedNoConfirm
