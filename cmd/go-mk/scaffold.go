@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/build"
 	"io"
 	"log/slog"
 	"os"
@@ -324,7 +325,30 @@ func resolveScaffoldLayout(options scaffoldOptions) (string, error) {
 	if len(directories) > 0 {
 		return "binary", nil
 	}
+	rootMain, err := directoryBuildsCommand(".")
+	if err != nil {
+		return "", err
+	}
+	if rootMain {
+		return "binary", nil
+	}
 	return "library", nil
+}
+
+// The scaffold skips a file that the host build excludes, such as a
+// //go:build ignore generator, and rejects a directory with two packages.
+// build.ImportDir applies the host build constraints and returns that error.
+func directoryBuildsCommand(dir string) (bool, error) {
+	pkg, err := build.ImportDir(dir, 0)
+	var noGo *build.NoGoError
+	if errors.As(err, &noGo) {
+		return false, nil
+	}
+	if err != nil {
+		slog.Error("scaffold read root package", slog.String("dir", dir), slog.String("err", err.Error()))
+		return false, fmt.Errorf("read the Go package in %s: %w", dir, err)
+	}
+	return pkg.IsCommand(), nil
 }
 
 func buildScaffoldContext(modulePath string, layout string) (scaffoldContext, error) {
@@ -346,6 +370,14 @@ func buildScaffoldContext(modulePath string, layout string) (scaffoldContext, er
 	} else if len(directories) == 1 {
 		binaryName = directories[0]
 		cmdPath = "./cmd/" + directories[0]
+	} else if len(directories) == 0 {
+		rootMain, err := directoryBuildsCommand(".")
+		if err != nil {
+			return scaffoldContext{}, err
+		}
+		if rootMain {
+			cmdPath = "."
+		}
 	}
 	context.Binary = binaryName
 	context.Cmd = cmdPath
