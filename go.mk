@@ -387,6 +387,11 @@ export GO_MK_INSTALL
 # CI validate every platform from this one committed declaration. Empty leaves
 # the host-only behavior unchanged.
 export GO_MK_PLATFORMS
+# The release, the reusable workflows, and the cgo stub check use this list
+# when GO_MK_PLATFORMS is empty. The engine reads it from the environment.
+GO_MK_DEFAULT_PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
+export GO_MK_DEFAULT_PLATFORMS
+GO_MK_RESOLVED_PLATFORMS = $(or $(strip $(GO_MK_PLATFORMS)),$(GO_MK_DEFAULT_PLATFORMS))
 
 ifeq ($(filter go-build.mk,$(GO_MK_MODULES)),)
 build: go-mk-bin
@@ -497,8 +502,11 @@ go-mk-cache-manifest: go-mk-bin
 go-mk-ci-job-layout: go-mk-bin
 	@"$(__GO_MK_ENGINE)" ci-job-layout
 
-go-mk-platforms: go-mk-bin
-	@"$(__GO_MK_ENGINE)" platforms
+# The workflows run this target before go-mk-bin. A new engine command here
+# fails every consumer until proxy.golang.org serves that engine for @main.
+go-mk-platforms:
+	@printf '%s\n' '$(GO_MK_RESOLVED_PLATFORMS)'
+	@if [ -n "$${GITHUB_OUTPUT:-}" ]; then printf 'platforms=%s\n' '$(GO_MK_RESOLVED_PLATFORMS)' >> "$${GITHUB_OUTPUT}"; fi
 
 go-mk-golangci-cache-save-decision: go-mk-bin
 	@"$(__GO_MK_ENGINE)" golangci-cache-save-decision
