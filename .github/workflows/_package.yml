@@ -38,8 +38,8 @@ on:
         default: ""
       platforms:
         description: >-
-          Space-separated os/arch targets to package. It must match the
-          platforms the compile component built.
+          The caller passes the space-separated os/arch targets to package.
+          The list must match the platforms the compile component built.
         required: true
         type: string
       working_directory:

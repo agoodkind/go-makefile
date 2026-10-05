@@ -91,9 +91,9 @@ on:
         default: true
       release_platforms:
         description: >-
-          Space-separated os/arch targets for the compile and release gates.
-          Empty uses the module's GO_MK_PLATFORMS list from `make
-          go-mk-platforms`. Set GO_MK_PLATFORMS in the module Makefile instead
+          This input lists the space-separated os/arch targets for the compile
+          and release gates. An empty value uses the module's GO_MK_PLATFORMS
+          list from `make go-mk-platforms`. Set GO_MK_PLATFORMS in the module Makefile instead
           of this input.
         required: false
         type: string

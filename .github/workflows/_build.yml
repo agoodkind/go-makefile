@@ -38,8 +38,8 @@ on:
         default: ""
       platforms:
         description: >-
-          Space-separated os/arch targets to build. _ci.yml and _release.yml
-          pass the module's resolved platform list.
+          The caller passes the space-separated os/arch targets to build.
+          _ci.yml and _release.yml pass the module's resolved platform list.
         required: true
         type: string
       darwin_runner:
