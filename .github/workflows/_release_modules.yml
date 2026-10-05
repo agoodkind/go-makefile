@@ -6,8 +6,9 @@ name: Release modules
 # every module and publishes them with one checksums.txt under that tag.
 #
 # Each `modules` entry is a JSON object. `working_directory` is required.
-# `platforms`, `cgo`, `apt_packages`, and `darwin_runner` match the _release.yml
-# inputs of the same name and apply to that module only.
+# `cgo`, `apt_packages`, and `darwin_runner` match the _release.yml inputs of the
+# same name and apply to that module only. Each module's platforms come from
+# `make go-mk-platforms` in its directory, which reads GO_MK_PLATFORMS.
 
 on:
   workflow_call:
@@ -15,8 +16,8 @@ on:
       modules:
         description: >-
           JSON array of module objects, for example
-          [{"working_directory": "gateway", "platforms": "linux/amd64 linux/arm64"},
-          {"working_directory": "provider", "platforms": "darwin/arm64 linux/amd64"}].
+          [{"working_directory": "gateway", "cgo": true},
+          {"working_directory": "provider"}].
           The first module publishes the release.
         required: true
         type: string
@@ -55,6 +56,7 @@ jobs:
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
       publish_directory: ${{ steps.publish.outputs.directory }}
+      modules: ${{ steps.platforms.outputs.modules }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -75,13 +77,32 @@ jobs:
           RELEASE_STAGE: tag
         run: make release
         working-directory: ${{ steps.publish.outputs.directory }}
+      - id: platforms
+        env:
+          MODULES: ${{ inputs.modules }}
+        run: |
+          resolved='[]'
+          for index in $(jq -r 'keys[]' <<<"${MODULES}"); do
+            directory=$(jq -r --argjson index "${index}" '.[$index].working_directory' <<<"${MODULES}")
+            platforms_output=$(mktemp)
+            GITHUB_OUTPUT="${platforms_output}" make -C "${directory}" go-mk-platforms
+            platforms=$(sed -n 's/^platforms=//p' "${platforms_output}")
+            rm -f "${platforms_output}"
+            if [ -z "${platforms}" ]; then
+              echo "make go-mk-platforms in ${directory} wrote no platforms" >&2
+              exit 1
+            fi
+            module=$(jq -c --argjson index "${index}" --arg platforms "${platforms}" '.[$index] + {platforms: $platforms}' <<<"${MODULES}")
+            resolved=$(jq -c --argjson module "${module}" '. + [$module]' <<<"${resolved}")
+          done
+          echo "modules=${resolved}" >> "${GITHUB_OUTPUT}"
 
   compile:
     name: Compile ${{ matrix.module.working_directory }}
     needs: tag
     strategy:
       matrix:
-        module: ${{ fromJSON(inputs.modules) }}
+        module: ${{ fromJSON(needs.tag.outputs.modules) }}
     permissions:
       contents: read
     uses: agoodkind/go-makefile/.github/workflows/_build.yml@main
@@ -91,7 +112,7 @@ jobs:
       apt_packages: ${{ matrix.module.apt_packages || '' }}
       submodules: ${{ inputs.submodules }}
       release_tag: ${{ needs.tag.outputs.tag }}
-      platforms: ${{ matrix.module.platforms || 'darwin/amd64 darwin/arm64 linux/amd64 linux/arm64' }}
+      platforms: ${{ matrix.module.platforms }}
       darwin_runner: ${{ matrix.module.darwin_runner || '' }}
       working_directory: ${{ matrix.module.working_directory }}
 
@@ -100,7 +121,7 @@ jobs:
     needs: [tag, compile]
     strategy:
       matrix:
-        module: ${{ fromJSON(inputs.modules) }}
+        module: ${{ fromJSON(needs.tag.outputs.modules) }}
     permissions:
       contents: read
       id-token: write
@@ -112,7 +133,7 @@ jobs:
       quill_version: ${{ inputs.quill_version }}
       require_darwin_codesign: ${{ inputs.require_darwin_codesign }}
       release_tag: ${{ needs.tag.outputs.tag }}
-      platforms: ${{ matrix.module.platforms || 'darwin/amd64 darwin/arm64 linux/amd64 linux/arm64' }}
+      platforms: ${{ matrix.module.platforms }}
       working_directory: ${{ matrix.module.working_directory }}
 
   publish:
