@@ -8,9 +8,11 @@ import (
 	"strings"
 )
 
-// The notice runs inside one analysis pass. That pass does not analyze a test
-// file that builds only for another platform. A cross pass runs with cgo off
-// and can report type errors in files that the first pass builds.
+// runStaticcheckExtra applies notice 2 during the analysis of one platform: the
+// host, or the first GO_MK_PLATFORMS target. That analysis skips each test file
+// with a build constraint for another platform. For a platform other than the
+// host, lintEnv sets CGO_ENABLED=0 unless GO_MK_CC is set. staticcheck-extra
+// then reports type errors in some files that the first platform also builds.
 func addOtherPlatformFindings(findingsPath string) error {
 	current := currentPlatform()
 	targets := otherNoticePlatforms(current)
@@ -70,7 +72,8 @@ func otherNoticePlatforms(current platformTarget) []platformTarget {
 	return targets
 }
 
-// A finding line starts with a path relative to the lint root.
+// staticcheckCaptureFindings writes each finding with a file path relative to
+// lintRoot.
 func currentTestFiles() (map[string]bool, error) {
 	slog.Info("notice list test files", slog.String("platform", currentPlatform().label()))
 	command := exec.Command(
@@ -83,8 +86,8 @@ func currentTestFiles() (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	// go list and the working directory can name the same directory through
-	// different symbolic links, as with /var and /private/var on macOS.
+	// go list and lintRoot can return different paths for one directory when
+	// the path contains a symbolic link, as with /var and /private/var on macOS.
 	root, err := filepath.EvalSymlinks(lintRoot())
 	if err != nil {
 		return nil, err
