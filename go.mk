@@ -394,11 +394,13 @@ export GO_MK_INSTALL
 # CI validate every platform from this one committed declaration. Empty leaves
 # the host-only behavior unchanged.
 export GO_MK_PLATFORMS
-# The release, the reusable workflows, and the cgo stub check use this list
-# when GO_MK_PLATFORMS is empty. The engine reads it from the environment.
+# GO_MK_RESOLVED_PLATFORMS uses RELEASE_PLATFORMS when nonempty,
+# otherwise GO_MK_PLATFORMS when nonempty.
+# GO_MK_DEFAULT_PLATFORMS is the final fallback.
+# The engine also reads GO_MK_DEFAULT_PLATFORMS from the environment.
 GO_MK_DEFAULT_PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 export GO_MK_DEFAULT_PLATFORMS
-GO_MK_RESOLVED_PLATFORMS = $(or $(strip $(GO_MK_PLATFORMS)),$(GO_MK_DEFAULT_PLATFORMS))
+GO_MK_RESOLVED_PLATFORMS = $(or $(strip $(RELEASE_PLATFORMS)),$(strip $(GO_MK_PLATFORMS)),$(GO_MK_DEFAULT_PLATFORMS))
 
 ifeq ($(filter go-build.mk,$(GO_MK_MODULES)),)
 build: go-mk-bin
