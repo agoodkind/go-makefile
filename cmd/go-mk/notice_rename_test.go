@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestNoticeKeepsTheAdoptionDateAfterAModuleMove(t *testing.T) {
+func TestNoticeUsesTheOriginalAdoptionDateAfterAModuleMove(t *testing.T) {
 	repositoryDir := newConsumerRepository(t, beforeNoticeDate)
 	moduleEntries := []string{"go.mod", "widget", ".gitignore", appliedNoticeFile, "Makefile"}
 	if err := os.MkdirAll(filepath.Join(repositoryDir, "gateway"), 0o755); err != nil {
