@@ -179,25 +179,42 @@ func detectNoticeAdoptionTime() (time.Time, bool) {
 	if shallowErr == nil && strings.TrimSpace(shallow) == "true" {
 		return time.Time{}, false
 	}
-	args := []string{"log", "--diff-filter=A", "--format=%cI", "--reverse", "--"}
-	args = append(args, noticeAdoptionSentinelPaths...)
-	output, err := loggedGitOutput("notice git adoption", args...)
+	earliest := time.Time{}
+	found := false
+	for _, sentinelPath := range noticeAdoptionSentinelPaths {
+		added, ok := sentinelAddTime(sentinelPath)
+		if !ok {
+			continue
+		}
+		if !found || added.Before(earliest) {
+			earliest = added
+			found = true
+		}
+	}
+	return earliest, found
+}
+
+// --follow accepts one path per query and depends on Git rename detection.
+func sentinelAddTime(sentinelPath string) (time.Time, bool) {
+	output, err := loggedGitOutput("notice git adoption",
+		"log", "--follow", "--diff-filter=A", "--format=%cI", "--", sentinelPath)
 	if err != nil {
 		return time.Time{}, false
 	}
+	added := time.Time{}
+	found := false
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
-		value := strings.TrimSpace(scanner.Text())
-		if value == "" {
-			continue
-		}
-		parsed, err := time.Parse(time.RFC3339, value)
+		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(scanner.Text()))
 		if err != nil {
 			continue
 		}
-		return parsed, true
+		if !found || parsed.Before(added) {
+			added = parsed
+			found = true
+		}
 	}
-	return time.Time{}, false
+	return added, found
 }
 
 // readNoticeRecords reads the notices file into records, skipping blank lines
