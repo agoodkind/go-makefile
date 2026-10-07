@@ -250,10 +250,16 @@ jobs:
           MODULE_DIRECTORY: ${{ inputs.working_directory }}
         run: |
           required_assets="$(make --no-print-directory --silent -C "${MODULE_DIRECTORY}" go-mk-release-assets | tr '\n' ' ')"
+          verify_ref=main
+          if [ -s "${MODULE_DIRECTORY}/.make/.go-mk-commit" ]; then
+            verify_ref="$(cat "${MODULE_DIRECTORY}/.make/.go-mk-commit")"
+          else
+            echo "verify-release runs at main: ${MODULE_DIRECTORY}/.make/.go-mk-commit is absent"
+          fi
           for binary in ${RELEASE_BINARIES}; do
             attempt=1
             while [ "${attempt}" -le 5 ]; do
-              if go run goodkind.io/go-makefile/selfupdate/cmd/verify-release@main --repo "${GITHUB_REPOSITORY}" --tag "${RELEASE_TAG}" --binary "${binary}" --required-assets "${required_assets}"; then
+              if go run "goodkind.io/go-makefile/selfupdate/cmd/verify-release@${verify_ref}" --repo "${GITHUB_REPOSITORY}" --tag "${RELEASE_TAG}" --binary "${binary}" --required-assets "${required_assets}"; then
                 break
               fi
               if [ "${attempt}" -eq 5 ]; then
