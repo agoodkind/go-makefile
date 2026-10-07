@@ -83,6 +83,8 @@ type Options struct {
 	StatePath   string
 	DryRun      bool
 	Log         *slog.Logger
+	// VerifyReleaseAssets rejects releases missing these assets before any download.
+	RequiredAssets []string
 }
 
 // CheckResult describes the current and latest release view.

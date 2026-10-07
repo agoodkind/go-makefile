@@ -118,6 +118,9 @@ func VerifyReleaseAssets(ctx context.Context, options Options, tag string) error
 	if err != nil {
 		return err
 	}
+	if missing := missingRequiredAssets(latest.Assets, resolvedOptions.RequiredAssets); len(missing) > 0 {
+		return fmt.Errorf("release %s lacks required assets: %s", tag, strings.Join(missing, ", "))
+	}
 	if !releaseHasNamedBinaryAssets(latest.Assets, resolvedOptions.Config.Binary) {
 		return fmt.Errorf("no release assets matched %s_*.tar.gz in %s", resolvedOptions.Config.Binary, tag)
 	}
@@ -200,6 +203,20 @@ func releaseVerificationAssets(assets []releaseAsset) []releaseAsset {
 		matches = append(matches, asset)
 	}
 	return matches
+}
+
+func missingRequiredAssets(assets []releaseAsset, required []string) []string {
+	missing := []string{}
+	present := make(map[string]bool, len(assets))
+	for _, asset := range assets {
+		present[asset.Name] = true
+	}
+	for _, name := range required {
+		if !present[name] {
+			missing = append(missing, name)
+		}
+	}
+	return missing
 }
 
 func releaseHasNamedBinaryAssets(assets []releaseAsset, binary string) bool {

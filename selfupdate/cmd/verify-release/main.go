@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"sync/atomic"
 
 	"goodkind.io/go-makefile/selfupdate"
@@ -32,6 +33,7 @@ func runVerifyRelease(
 	tag := flagSet.String("tag", "", "release tag to verify")
 	binary := flagSet.String("binary", "", "release binary name")
 	apiBaseURL := flagSet.String("api-base", "", "GitHub API base URL")
+	requiredAssets := flagSet.String("required-assets", "", "space-separated asset file names required in the release")
 	if err := flagSet.Parse(args); err != nil {
 		return 1
 	}
@@ -59,7 +61,8 @@ func runVerifyRelease(
 			APIBaseURL: *apiBaseURL,
 			AuthToken:  os.Getenv("GITHUB_TOKEN"),
 		},
-		Log: slog.New(handler),
+		Log:            slog.New(handler),
+		RequiredAssets: strings.Fields(*requiredAssets),
 	}
 	if err := verify(ctx, options, *tag); err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
