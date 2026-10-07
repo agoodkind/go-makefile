@@ -246,11 +246,14 @@ jobs:
         env:
           RELEASE_BINARIES: ${{ inputs.binary }}
           RELEASE_TAG: ${{ needs.tag.outputs.tag }}
+          RELEASE_PLATFORMS: ${{ needs.tag.outputs.platforms }}
+          MODULE_DIRECTORY: ${{ inputs.working_directory }}
         run: |
+          required_assets="$(make --no-print-directory --silent -C "${MODULE_DIRECTORY}" go-mk-release-assets | tr '\n' ' ')"
           for binary in ${RELEASE_BINARIES}; do
             attempt=1
             while [ "${attempt}" -le 5 ]; do
-              if go run goodkind.io/go-makefile/selfupdate/cmd/verify-release@main --repo "${GITHUB_REPOSITORY}" --tag "${RELEASE_TAG}" --binary "${binary}"; then
+              if go run goodkind.io/go-makefile/selfupdate/cmd/verify-release@main --repo "${GITHUB_REPOSITORY}" --tag "${RELEASE_TAG}" --binary "${binary}" --required-assets "${required_assets}"; then
                 break
               fi
               if [ "${attempt}" -eq 5 ]; then
