@@ -118,11 +118,11 @@ func VerifyReleaseAssets(ctx context.Context, options Options, tag string) error
 	if err != nil {
 		return err
 	}
-	if !releaseHasNamedBinaryAssets(latest.Assets, resolvedOptions.Config.Binary) {
-		return fmt.Errorf("no release assets matched %s_*.tar.gz in %s", resolvedOptions.Config.Binary, tag)
-	}
 	if missing := missingRequiredAssets(latest.Assets, resolvedOptions.Config.RequiredAssets); len(missing) > 0 {
 		return fmt.Errorf("release %s lacks required assets: %s", tag, strings.Join(missing, ", "))
+	}
+	if !releaseHasNamedBinaryAssets(latest.Assets, resolvedOptions.Config.Binary) {
+		return fmt.Errorf("no release assets matched %s_*.tar.gz in %s", resolvedOptions.Config.Binary, tag)
 	}
 	assets := releaseVerificationAssets(latest.Assets)
 	if err := os.MkdirAll(resolvedOptions.CacheDir, 0o700); err != nil {
