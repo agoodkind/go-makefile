@@ -157,6 +157,7 @@ func registerEngineCommands(root *cobra.Command) {
 		{"notice", "Print pending one-time pipeline notices", runNotice},
 		{"build-check", "Run the full non-test quality gate: vet, lint, and govulncheck", runBuildCheck},
 		{"release", "Cross-compile, sign, archive, and publish a GitHub release", runRelease},
+		{"release-assets", "Print the archive file name of each binary and platform in a release", runReleaseAssets},
 		{"build", "Build every declared binary into the dist directory", runBuild},
 		{"install", "Build and install every declared binary", runInstall},
 		{"uninstall", "Remove every declared binary from its install directory", runUninstall},

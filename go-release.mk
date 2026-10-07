@@ -44,6 +44,10 @@ export GO_MK_CGO_OPTIONAL
 release: | go-mk-bin
 	@"$(__GO_MK_ENGINE)" release
 
+.PHONY: go-mk-release-assets
+go-mk-release-assets: | go-mk-bin
+	@"$(__GO_MK_ENGINE)" release-assets
+
 # GO_MK_PREREQS (see go.mk): codegen and go.work routing. Only the stages that
 # compile the module (compile, the transitional fused build stage, or the
 # single-runner all-in-one pipeline with no stage) need generated parsers/proto

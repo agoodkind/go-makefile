@@ -72,6 +72,8 @@ type Config struct {
 	// nothing, so a dev build is never auto-replaced by a release. It is
 	// appended at the end so unkeyed Config literals keep compiling.
 	CurrentDirty bool
+	// VerifyReleaseAssets rejects releases missing these assets before any download.
+	RequiredAssets []string
 }
 
 // Options configures one update check or apply operation.

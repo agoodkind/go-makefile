@@ -121,6 +121,9 @@ func VerifyReleaseAssets(ctx context.Context, options Options, tag string) error
 	if !releaseHasNamedBinaryAssets(latest.Assets, resolvedOptions.Config.Binary) {
 		return fmt.Errorf("no release assets matched %s_*.tar.gz in %s", resolvedOptions.Config.Binary, tag)
 	}
+	if missing := missingRequiredAssets(latest.Assets, resolvedOptions.Config.RequiredAssets); len(missing) > 0 {
+		return fmt.Errorf("release %s lacks required assets: %s", tag, strings.Join(missing, ", "))
+	}
 	assets := releaseVerificationAssets(latest.Assets)
 	if err := os.MkdirAll(resolvedOptions.CacheDir, 0o700); err != nil {
 		resolvedOptions.Log.WarnContext(ctx, "release verification cache dir create failed", "path", resolvedOptions.CacheDir, "err", err)
@@ -200,6 +203,16 @@ func releaseVerificationAssets(assets []releaseAsset) []releaseAsset {
 		matches = append(matches, asset)
 	}
 	return matches
+}
+
+func missingRequiredAssets(assets []releaseAsset, required []string) []string {
+	missing := []string{}
+	for _, name := range required {
+		if _, found := findAsset(assets, name); !found {
+			missing = append(missing, name)
+		}
+	}
+	return missing
 }
 
 func releaseHasNamedBinaryAssets(assets []releaseAsset, binary string) bool {
