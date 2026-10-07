@@ -60,10 +60,9 @@ func runVerifyRelease(
 			Binary:     *binary,
 			APIBaseURL: *apiBaseURL,
 			AuthToken:  os.Getenv("GITHUB_TOKEN"),
-
-			RequiredAssets: strings.Fields(*requiredAssets),
 		},
-		Log: slog.New(handler),
+		Log:            slog.New(handler),
+		RequiredAssets: strings.Fields(*requiredAssets),
 	}
 	if err := verify(ctx, options, *tag); err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)

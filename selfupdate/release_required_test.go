@@ -11,38 +11,44 @@ import (
 	"goodkind.io/go-makefile/selfupdate"
 )
 
-func TestVerifyReleaseAssetsRequiresEveryListedAsset(t *testing.T) {
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+func newReleaseServer(t *testing.T, assets []map[string]any) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/repos/agoodkind/agent-gate/releases/tags/v1.2.3" {
 			http.NotFound(writer, request)
 			return
 		}
-		response := map[string]any{
-			"tag_name": "v1.2.3",
-			"assets": []map[string]any{
-				{
-					"name":                 "agent-gate_linux_amd64.tar.gz",
-					"browser_download_url": server.URL + "/downloads/agent-gate_linux_amd64.tar.gz",
-				},
-			},
-		}
+		response := map[string]any{"tag_name": "v1.2.3", "assets": assets}
 		if err := json.NewEncoder(writer).Encode(response); err != nil {
 			t.Errorf("encode response: %v", err)
 		}
 	}))
 	t.Cleanup(server.Close)
+	return server
+}
 
-	options := selfupdate.Options{
+func requiredAssetOptions(server *httptest.Server, t *testing.T, required []string) selfupdate.Options {
+	t.Helper()
+	return selfupdate.Options{
 		Config: selfupdate.Config{
-			Repo:           "agoodkind/agent-gate",
-			Binary:         "agent-gate",
-			APIBaseURL:     server.URL,
-			RequiredAssets: []string{"agent-gate_linux_amd64.tar.gz", "agent-gate_linux_arm64.tar.gz"},
+			Repo:       "agoodkind/agent-gate",
+			Binary:     "agent-gate",
+			APIBaseURL: server.URL,
 		},
-		Client:   server.Client(),
-		CacheDir: t.TempDir(),
+		Client:         server.Client(),
+		CacheDir:       t.TempDir(),
+		RequiredAssets: required,
 	}
+}
+
+func TestVerifyReleaseAssetsRequiresEveryListedAsset(t *testing.T) {
+	server := newReleaseServer(t, []map[string]any{
+		{
+			"name":                 "agent-gate_linux_amd64.tar.gz",
+			"browser_download_url": "http://127.0.0.1/downloads/agent-gate_linux_amd64.tar.gz",
+		},
+	})
+	options := requiredAssetOptions(server, t, []string{"agent-gate_linux_amd64.tar.gz", "agent-gate_linux_arm64.tar.gz"})
 
 	err := selfupdate.VerifyReleaseAssets(context.Background(), options, "v1.2.3")
 	if err == nil {
@@ -57,28 +63,8 @@ func TestVerifyReleaseAssetsRequiresEveryListedAsset(t *testing.T) {
 }
 
 func TestVerifyReleaseAssetsReportsRequiredAssetsBeforeTheBinaryCheck(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/repos/agoodkind/agent-gate/releases/tags/v1.2.3" {
-			http.NotFound(writer, request)
-			return
-		}
-		response := map[string]any{"tag_name": "v1.2.3", "assets": []map[string]any{}}
-		if err := json.NewEncoder(writer).Encode(response); err != nil {
-			t.Errorf("encode response: %v", err)
-		}
-	}))
-	t.Cleanup(server.Close)
-
-	options := selfupdate.Options{
-		Config: selfupdate.Config{
-			Repo:           "agoodkind/agent-gate",
-			Binary:         "agent-gate",
-			APIBaseURL:     server.URL,
-			RequiredAssets: []string{"agent-gate_linux_amd64.tar.gz", "agent-gate_linux_arm64.tar.gz"},
-		},
-		Client:   server.Client(),
-		CacheDir: t.TempDir(),
-	}
+	server := newReleaseServer(t, []map[string]any{})
+	options := requiredAssetOptions(server, t, []string{"agent-gate_linux_amd64.tar.gz", "agent-gate_linux_arm64.tar.gz"})
 
 	err := selfupdate.VerifyReleaseAssets(context.Background(), options, "v1.2.3")
 	if err == nil {
@@ -90,7 +76,7 @@ func TestVerifyReleaseAssetsReportsRequiredAssetsBeforeTheBinaryCheck(t *testing
 	if strings.Contains(err.Error(), "no release assets matched") {
 		t.Fatalf("VerifyReleaseAssets() error = %v, want the required assets error before the binary error", err)
 	}
-	for _, name := range options.Config.RequiredAssets {
+	for _, name := range options.RequiredAssets {
 		if !strings.Contains(err.Error(), name) {
 			t.Fatalf("VerifyReleaseAssets() error = %v, want it to list %s", err, name)
 		}
@@ -98,31 +84,8 @@ func TestVerifyReleaseAssetsReportsRequiredAssetsBeforeTheBinaryCheck(t *testing
 }
 
 func TestVerifyReleaseAssetsReportsMissingDownloadURLForRequiredAsset(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/repos/agoodkind/agent-gate/releases/tags/v1.2.3" {
-			http.NotFound(writer, request)
-			return
-		}
-		response := map[string]any{
-			"tag_name": "v1.2.3",
-			"assets":   []map[string]any{{"name": "agent-gate_linux_amd64.tar.gz"}},
-		}
-		if err := json.NewEncoder(writer).Encode(response); err != nil {
-			t.Errorf("encode response: %v", err)
-		}
-	}))
-	t.Cleanup(server.Close)
-
-	options := selfupdate.Options{
-		Config: selfupdate.Config{
-			Repo:           "agoodkind/agent-gate",
-			Binary:         "agent-gate",
-			APIBaseURL:     server.URL,
-			RequiredAssets: []string{"agent-gate_linux_amd64.tar.gz"},
-		},
-		Client:   server.Client(),
-		CacheDir: t.TempDir(),
-	}
+	server := newReleaseServer(t, []map[string]any{{"name": "agent-gate_linux_amd64.tar.gz"}})
+	options := requiredAssetOptions(server, t, []string{"agent-gate_linux_amd64.tar.gz"})
 
 	err := selfupdate.VerifyReleaseAssets(context.Background(), options, "v1.2.3")
 	if err == nil {

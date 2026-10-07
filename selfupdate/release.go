@@ -118,7 +118,7 @@ func VerifyReleaseAssets(ctx context.Context, options Options, tag string) error
 	if err != nil {
 		return err
 	}
-	if missing := missingRequiredAssets(latest.Assets, resolvedOptions.Config.RequiredAssets); len(missing) > 0 {
+	if missing := missingRequiredAssets(latest.Assets, resolvedOptions.RequiredAssets); len(missing) > 0 {
 		return fmt.Errorf("release %s lacks required assets: %s", tag, strings.Join(missing, ", "))
 	}
 	if !releaseHasNamedBinaryAssets(latest.Assets, resolvedOptions.Config.Binary) {
