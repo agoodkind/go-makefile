@@ -207,8 +207,12 @@ func releaseVerificationAssets(assets []releaseAsset) []releaseAsset {
 
 func missingRequiredAssets(assets []releaseAsset, required []string) []string {
 	missing := []string{}
+	present := make(map[string]bool, len(assets))
+	for _, asset := range assets {
+		present[asset.Name] = true
+	}
 	for _, name := range required {
-		if _, found := findAsset(assets, name); !found {
+		if !present[name] {
 			missing = append(missing, name)
 		}
 	}
