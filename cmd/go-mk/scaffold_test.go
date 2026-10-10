@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"text/template"
 )
 
 func TestReadModulePathAllowsTrailingComment(t *testing.T) {
@@ -28,16 +29,90 @@ func TestReadModulePathAllowsTrailingComment(t *testing.T) {
 	}
 }
 
-func TestScaffoldAssetsMatchCanonicalFiles(t *testing.T) {
+func TestScaffoldRendersCanonicalFiles(t *testing.T) {
 	repoRoot := testRepoRoot(t)
-	assertFilesEqual(t,
-		filepath.Join(repoRoot, "bootstrap.mk"),
-		filepath.Join(filepath.Dir(testFilePath(t)), "scaffold_assets", "bootstrap.mk"),
-	)
-	assertFilesEqual(t,
-		filepath.Join(repoRoot, "templates", "Makefile.tmpl"),
-		filepath.Join(filepath.Dir(testFilePath(t)), "scaffold_assets", "Makefile.tmpl"),
-	)
+	canonicalMakefile := mustReadFile(t, filepath.Join(repoRoot, "templates", "Makefile.tmpl"))
+	canonicalBootstrap := scaffoldGoldenBootstrap(t, repoRoot)
+	for _, layout := range []string{"library", "binary"} {
+		t.Run(layout, func(t *testing.T) {
+			repoDir := t.TempDir()
+			scaffoldGoldenEnvironment(t, repoDir)
+			initGitRepo(t, repoDir)
+			writeScaffoldTestGoMod(t, repoDir, "example.com/canonical")
+			context := scaffoldContext{Layout: layout}
+			if layout == "binary" {
+				mustMkdirAll(t, filepath.Join(repoDir, "cmd", "canonical"))
+				mustMkdirAll(t, filepath.Join(repoDir, "internal", "version"))
+				context.Binary = "canonical"
+				context.Cmd = "./cmd/canonical"
+				context.Vpkg = "example.com/canonical/internal/version"
+			}
+			t.Chdir(repoDir)
+			runScaffoldForTest(t, scaffoldOptions{
+				forceLibrary: layout == "library",
+				forceBinary:  layout == "binary",
+				yes:          true,
+			})
+			want := scaffoldGoldenRender(t, canonicalMakefile, context)
+			if got := mustReadFile(t, filepath.Join(repoDir, "Makefile")); got != want {
+				t.Fatalf("scaffold Makefile differs from canonical rendering\nwant:\n%s\ngot:\n%s", want, got)
+			}
+			assertFileText(t, filepath.Join(repoDir, "bootstrap.mk"), canonicalBootstrap)
+		})
+	}
+}
+
+func scaffoldGoldenBootstrap(t *testing.T, repoRoot string) string {
+	t.Helper()
+	canonical := mustReadFile(t, filepath.Join(repoRoot, "bootstrap.mk"))
+	return string(consumerBootstrapMk([]byte(canonical)))
+}
+
+func scaffoldGoldenRender(t *testing.T, canonical string, context scaffoldContext) string {
+	t.Helper()
+	tmpl, err := template.New("canonical").Delims("[[", "]]").Option("missingkey=error").Parse(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := tmpl.Execute(&output, context); err != nil {
+		t.Fatal(err)
+	}
+	return output.String()
+}
+
+func scaffoldGoldenEnvironment(t *testing.T, tempDir string) {
+	t.Helper()
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if key != "PATH" && key != "SystemRoot" {
+			t.Setenv(key, "")
+		}
+	}
+	gitConfig := filepath.Join(tempDir, "gitconfig")
+	writeScaffoldTestFile(t, gitConfig, "")
+	for key, value := range map[string]string{
+		"HOME":                tempDir,
+		"XDG_CACHE_HOME":      filepath.Join(tempDir, "cache"),
+		"XDG_CONFIG_HOME":     filepath.Join(tempDir, "config"),
+		"GOCACHE":             filepath.Join(tempDir, "go-cache"),
+		"GOMODCACHE":          filepath.Join(tempDir, "go-mod-cache"),
+		"GOPATH":              filepath.Join(tempDir, "go-path"),
+		"GOENV":               "off",
+		"GOWORK":              "off",
+		"GIT_CONFIG_GLOBAL":   gitConfig,
+		"GIT_CONFIG_SYSTEM":   os.DevNull,
+		"GIT_AUTHOR_NAME":     "Scaffold Test",
+		"GIT_AUTHOR_EMAIL":    "scaffold@example.com",
+		"GIT_COMMITTER_NAME":  "Scaffold Test",
+		"GIT_COMMITTER_EMAIL": "scaffold@example.com",
+	} {
+		t.Setenv(key, value)
+	}
+	// Go telemetry can start a child that writes after the scaffold returns.
+	if output, err := exec.Command("go", "telemetry", "off").CombinedOutput(); err != nil {
+		t.Fatalf("disable Go telemetry: %v\n%s", err, output)
+	}
 }
 
 func TestConsumerBootstrapMkKeepsRecipeHashComments(t *testing.T) {

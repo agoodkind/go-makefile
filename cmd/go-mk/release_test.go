@@ -1,12 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -346,32 +351,33 @@ func TestSignAndNotarizeDarwinBinaryRetriesThenSucceeds(t *testing.T) {
 }
 
 func TestSignAndNotarizeDarwinBinaryReturnsLastError(t *testing.T) {
-	originalRunProcess := releaseRunProcess
-	originalSleep := releaseSleep
-	originalAttempts := darwinSignAttempts
-	originalDelay := darwinSignRetryInterval
-	t.Cleanup(func() {
-		releaseRunProcess = originalRunProcess
-		releaseSleep = originalSleep
-		darwinSignAttempts = originalAttempts
-		darwinSignRetryInterval = originalDelay
-	})
-
-	callCount := 0
-	releaseRunProcess = func(_ string, _ []string, _ []string) error {
-		callCount++
-		return errStubRetry
+	quill := relProcQuill(t)
+	workDir := relProcEnvironment(t)
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(key, "QUILL_") {
+			t.Setenv(key, "")
+		}
 	}
-	releaseSleep = func(_ time.Duration) {}
-	darwinSignAttempts = 2
-	darwinSignRetryInterval = 0
-
-	err := signAndNotarizeDarwinBinary("quill", "dist/agent-gate", "")
-	if err != errStubRetry {
-		t.Fatalf("signAndNotarizeDarwinBinary() error = %v, want %v", err, errStubRetry)
+	binPath := filepath.Join(workDir, "not-macho")
+	if err := os.WriteFile(binPath, []byte("not a Mach-O binary\n"), 0o600); err != nil {
+		t.Fatalf("write signing input: %v", err)
 	}
-	if callCount != 2 {
-		t.Fatalf("callCount = %d, want 2", callCount)
+	relProcDisableRetryDelay(t)
+	var logs bytes.Buffer
+	originalLogger := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(originalLogger) })
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	err := signAndNotarizeDarwinBinary(quill, binPath, "")
+	var exitError *exec.ExitError
+	if !errors.As(err, &exitError) {
+		t.Fatalf("signAndNotarizeDarwinBinary() error = %v, want process exit error", err)
+	}
+	if exitError.ExitCode() != 1 {
+		t.Fatalf("quill exit code = %d, want 1", exitError.ExitCode())
+	}
+	if got := strings.Count(logs.String(), `msg="release run process"`); got != darwinSignAttempts {
+		t.Fatalf("quill attempts = %d, want %d\n%s", got, darwinSignAttempts, logs.String())
 	}
 }
 
@@ -422,18 +428,9 @@ func TestBuildPlatformEnv(t *testing.T) {
 	}
 }
 
-// TestProvisionCgoDepsNoOpWhenUnset proves an empty GO_MK_CGO_DEPS starts no
-// process and returns an empty path, the hard constraint that keeps a pure-Go
-// release byte-identical.
 func TestProvisionCgoDepsNoOpWhenUnset(t *testing.T) {
+	fixture := relProcCgoFixture(t)
 	t.Setenv("GO_MK_CGO_DEPS", "")
-	originalRunProcess := releaseRunProcess
-	t.Cleanup(func() { releaseRunProcess = originalRunProcess })
-	called := false
-	releaseRunProcess = func(_ string, _ []string, _ []string) error {
-		called = true
-		return nil
-	}
 	dir, err := provisionCgoDeps("linux", "amd64")
 	if err != nil {
 		t.Fatalf("provisionCgoDeps error = %v, want nil", err)
@@ -441,65 +438,44 @@ func TestProvisionCgoDepsNoOpWhenUnset(t *testing.T) {
 	if dir != "" {
 		t.Fatalf("provisionCgoDeps dir = %q, want empty", dir)
 	}
-	if called {
-		t.Fatal("provisionCgoDeps ran a process for an empty GO_MK_CGO_DEPS, want no-op")
-	}
+	relProcAssertHook(t, fixture, false)
 }
 
-// TestProvisionCgoDepsRunsHookAndComposesEnv proves a declared GO_MK_CGO_DEPS
-// invokes the make hook with the per-target os/arch and prefix, and returns the
-// pkg-config directory under that prefix.
 func TestProvisionCgoDepsRunsHookAndComposesEnv(t *testing.T) {
-	t.Setenv("GO_MK_CGO_DEPS", "demolib")
-	originalRunProcess := releaseRunProcess
-	t.Cleanup(func() { releaseRunProcess = originalRunProcess })
-	var gotName string
-	var gotArgs, gotEnv []string
-	releaseRunProcess = func(name string, args []string, env []string) error {
-		gotName, gotArgs, gotEnv = name, args, env
-		return nil
-	}
+	fixture := relProcCgoFixture(t)
+	t.Setenv("GO_MK_CC", "target-cc")
+	t.Setenv("GO_MK_CXX", "target-cxx")
+	t.Setenv("CC", "host-cc")
+	t.Setenv("CXX", "host-cxx")
 	dir, err := provisionCgoDeps("darwin", "arm64")
 	if err != nil {
 		t.Fatalf("provisionCgoDeps error = %v", err)
 	}
-	workDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd error = %v", err)
-	}
-	wantPrefix := cgoPrefixForTarget(workDir, "darwin", "arm64")
+	wantPrefix := filepath.Join(fixture.workDir, ".make", "cgo", "darwin-arm64")
 	wantDir := filepath.Join(wantPrefix, "lib", "pkgconfig")
 	if dir != wantDir {
 		t.Fatalf("provisionCgoDeps dir = %q, want %q", dir, wantDir)
 	}
-	if gotName != "make" {
-		t.Fatalf("ran %q, want make", gotName)
-	}
-	if len(gotArgs) != 1 || gotArgs[0] != cgoDepsTarget {
-		t.Fatalf("args = %v, want [%s]", gotArgs, cgoDepsTarget)
-	}
-	for _, want := range []string{
+	relProcAssertHook(t, fixture, true)
+	wantEnv := strings.Join([]string{
 		"GO_MK_TARGET_GOOS=darwin",
 		"GO_MK_TARGET_GOARCH=arm64",
 		"GO_MK_CGO_PREFIX=" + wantPrefix,
-	} {
-		if !envContains(gotEnv, want) {
-			t.Fatalf("hook env missing %q: %v", want, gotEnv)
-		}
+		"CC=target-cc", "CXX=target-cxx", "",
+	}, "\n")
+	if got := relProcReadFile(t, fixture.envPath); got != wantEnv {
+		t.Fatalf("hook environment = %q, want %q", got, wantEnv)
+	}
+	if got := relProcReadFile(t, filepath.Join(dir, "demolib.pc")); got != "Name: demolib\n" {
+		t.Fatalf("pkg-config file = %q, want demolib metadata", got)
 	}
 }
 
 func TestProvisionCgoDepsSkipsWarmCache(t *testing.T) {
-	t.Setenv("GO_MK_CGO_DEPS", "demolib")
+	engine, fixture := relProcCgoCommandFixture(t)
 	t.Setenv("GO_MK_CGO_CACHE_HIT", "true")
 	t.Setenv("GO_MK_CGO_CACHE_KEY", "cache-key-1")
-	t.Chdir(t.TempDir())
-
-	workDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd error = %v", err)
-	}
-	prefix := cgoPrefixForTarget(workDir, "darwin", "arm64")
+	prefix := filepath.Join(fixture.workDir, ".make", "cgo", "darwin-arm64")
 	pkgConfigDir := filepath.Join(prefix, "lib", "pkgconfig")
 	if err := os.MkdirAll(pkgConfigDir, 0o755); err != nil {
 		t.Fatalf("mkdir pkg-config dir: %v", err)
@@ -509,37 +485,18 @@ func TestProvisionCgoDepsSkipsWarmCache(t *testing.T) {
 		t.Fatalf("write stamp: %v", err)
 	}
 
-	originalRunProcess := releaseRunProcess
-	t.Cleanup(func() { releaseRunProcess = originalRunProcess })
-	called := false
-	releaseRunProcess = func(_ string, _ []string, _ []string) error {
-		called = true
-		return nil
-	}
-
-	dir, err := provisionCgoDeps("darwin", "arm64")
-	if err != nil {
-		t.Fatalf("provisionCgoDeps error = %v, want nil", err)
-	}
-	if dir != pkgConfigDir {
-		t.Fatalf("provisionCgoDeps dir = %q, want %q", dir, pkgConfigDir)
-	}
-	if called {
-		t.Fatal("provisionCgoDeps ran make on a warm cgo cache, want skip")
+	relProcRunCgoCompile(t, engine, fixture, "darwin/arm64")
+	relProcAssertHook(t, fixture, false)
+	if got := relProcReadFile(t, stampPath); got != "cache-key-1" {
+		t.Fatalf("stamp content = %q, want cache-key-1", got)
 	}
 }
 
 func TestProvisionCgoDepsSkipsWarmCacheWithTrailingNewlineStamp(t *testing.T) {
-	t.Setenv("GO_MK_CGO_DEPS", "demolib")
+	engine, fixture := relProcCgoCommandFixture(t)
 	t.Setenv("GO_MK_CGO_CACHE_HIT", "true")
 	t.Setenv("GO_MK_CGO_CACHE_KEY", "cache-key-1")
-	t.Chdir(t.TempDir())
-
-	workDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd error = %v", err)
-	}
-	prefix := cgoPrefixForTarget(workDir, "darwin", "arm64")
+	prefix := filepath.Join(fixture.workDir, ".make", "cgo", "darwin-arm64")
 	pkgConfigDir := filepath.Join(prefix, "lib", "pkgconfig")
 	if err := os.MkdirAll(pkgConfigDir, 0o755); err != nil {
 		t.Fatalf("mkdir pkg-config dir: %v", err)
@@ -549,19 +506,10 @@ func TestProvisionCgoDepsSkipsWarmCacheWithTrailingNewlineStamp(t *testing.T) {
 		t.Fatalf("write stamp: %v", err)
 	}
 
-	originalRunProcess := releaseRunProcess
-	t.Cleanup(func() { releaseRunProcess = originalRunProcess })
-	called := false
-	releaseRunProcess = func(_ string, _ []string, _ []string) error {
-		called = true
-		return nil
-	}
-
-	if _, err := provisionCgoDeps("darwin", "arm64"); err != nil {
-		t.Fatalf("provisionCgoDeps error = %v, want nil", err)
-	}
-	if called {
-		t.Fatal("provisionCgoDeps rebuilt on a stamp that only differs by a trailing newline, want skip")
+	relProcRunCgoCompile(t, engine, fixture, "darwin/arm64")
+	relProcAssertHook(t, fixture, false)
+	if got := relProcReadFile(t, stampPath); got != "cache-key-1\n" {
+		t.Fatalf("stamp content = %q, want cache-key-1 with a newline", got)
 	}
 }
 
@@ -679,16 +627,10 @@ func TestProvisionCgoDepsRunsWhenWarmCacheConditionFails(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			t.Setenv("GO_MK_CGO_DEPS", "demolib")
+			engine, fixture := relProcCgoCommandFixture(t)
 			t.Setenv("GO_MK_CGO_CACHE_HIT", testCase.cacheHit)
 			t.Setenv("GO_MK_CGO_CACHE_KEY", testCase.cacheKey)
-			t.Chdir(t.TempDir())
-
-			workDir, err := os.Getwd()
-			if err != nil {
-				t.Fatalf("Getwd error = %v", err)
-			}
-			prefix := cgoPrefixForTarget(workDir, "darwin", "arm64")
+			prefix := filepath.Join(fixture.workDir, ".make", "cgo", "darwin-arm64")
 			pkgConfigDir := filepath.Join(prefix, "lib", "pkgconfig")
 			if testCase.createPkgConfig {
 				if err := os.MkdirAll(pkgConfigDir, 0o755); err != nil {
@@ -709,26 +651,10 @@ func TestProvisionCgoDepsRunsWhenWarmCacheConditionFails(t *testing.T) {
 				}
 			}
 
-			originalRunProcess := releaseRunProcess
-			t.Cleanup(func() { releaseRunProcess = originalRunProcess })
-			callCount := 0
-			releaseRunProcess = func(_ string, _ []string, _ []string) error {
-				callCount++
-				if err := os.MkdirAll(pkgConfigDir, 0o755); err != nil {
-					t.Fatalf("mkdir pkg-config dir in hook: %v", err)
-				}
-				return nil
-			}
-
-			dir, err := provisionCgoDeps("darwin", "arm64")
-			if err != nil {
-				t.Fatalf("provisionCgoDeps error = %v, want nil", err)
-			}
-			if dir != pkgConfigDir {
-				t.Fatalf("provisionCgoDeps dir = %q, want %q", dir, pkgConfigDir)
-			}
-			if callCount != 1 {
-				t.Fatalf("releaseRunProcess call count = %d, want 1", callCount)
+			relProcRunCgoCompile(t, engine, fixture, "darwin/arm64")
+			relProcAssertHook(t, fixture, true)
+			if got := relProcReadFile(t, filepath.Join(pkgConfigDir, "demolib.pc")); got != "Name: demolib\n" {
+				t.Fatalf("pkg-config file = %q, want demolib metadata", got)
 			}
 			gotStamp, err := os.ReadFile(stampPath)
 			if testCase.cacheKey == "" {
@@ -746,26 +672,12 @@ func TestProvisionCgoDepsRunsWhenWarmCacheConditionFails(t *testing.T) {
 }
 
 func TestProvisionCgoDepsWritesStampAfterSuccess(t *testing.T) {
-	t.Setenv("GO_MK_CGO_DEPS", "demolib")
+	engine, fixture := relProcCgoCommandFixture(t)
 	t.Setenv("GO_MK_CGO_CACHE_KEY", "cache-key-1")
-	t.Chdir(t.TempDir())
+	prefix := filepath.Join(fixture.workDir, ".make", "cgo", "linux-amd64")
 
-	workDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd error = %v", err)
-	}
-	prefix := cgoPrefixForTarget(workDir, "linux", "amd64")
-	pkgConfigDir := filepath.Join(prefix, "lib", "pkgconfig")
-
-	originalRunProcess := releaseRunProcess
-	t.Cleanup(func() { releaseRunProcess = originalRunProcess })
-	releaseRunProcess = func(_ string, _ []string, _ []string) error {
-		return os.MkdirAll(pkgConfigDir, 0o755)
-	}
-
-	if _, err := provisionCgoDeps("linux", "amd64"); err != nil {
-		t.Fatalf("provisionCgoDeps error = %v, want nil", err)
-	}
+	relProcRunCgoCompile(t, engine, fixture, "linux/amd64")
+	relProcAssertHook(t, fixture, true)
 	stampPath := filepath.Join(prefix, ".go-mk-cgo-cache-key")
 	gotStamp, err := os.ReadFile(stampPath)
 	if err != nil {
@@ -777,26 +689,12 @@ func TestProvisionCgoDepsWritesStampAfterSuccess(t *testing.T) {
 }
 
 func TestProvisionCgoDepsDoesNotWriteStampWhenKeyIsEmpty(t *testing.T) {
-	t.Setenv("GO_MK_CGO_DEPS", "demolib")
+	engine, fixture := relProcCgoCommandFixture(t)
 	t.Setenv("GO_MK_CGO_CACHE_KEY", "")
-	t.Chdir(t.TempDir())
+	prefix := filepath.Join(fixture.workDir, ".make", "cgo", "linux-amd64")
 
-	workDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd error = %v", err)
-	}
-	prefix := cgoPrefixForTarget(workDir, "linux", "amd64")
-	pkgConfigDir := filepath.Join(prefix, "lib", "pkgconfig")
-
-	originalRunProcess := releaseRunProcess
-	t.Cleanup(func() { releaseRunProcess = originalRunProcess })
-	releaseRunProcess = func(_ string, _ []string, _ []string) error {
-		return os.MkdirAll(pkgConfigDir, 0o755)
-	}
-
-	if _, err := provisionCgoDeps("linux", "amd64"); err != nil {
-		t.Fatalf("provisionCgoDeps error = %v, want nil", err)
-	}
+	relProcRunCgoCompile(t, engine, fixture, "linux/amd64")
+	relProcAssertHook(t, fixture, true)
 	stampPath := filepath.Join(prefix, ".go-mk-cgo-cache-key")
 	if _, err := os.Stat(stampPath); !os.IsNotExist(err) {
 		t.Fatalf("stamp stat error = %v, want missing stamp", err)
@@ -957,6 +855,242 @@ func pkgConfigEntry(env []string) string {
 		}
 	}
 	return ""
+}
+
+type relProcFixture struct {
+	workDir    string
+	markerPath string
+	envPath    string
+}
+
+func relProcEnvironment(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("release process fixtures use POSIX shell scripts")
+	}
+	workDir := t.TempDir()
+	t.Chdir(workDir)
+	for key, value := range map[string]string{
+		"HOME": workDir, "XDG_CACHE_HOME": filepath.Join(workDir, "cache"),
+		"XDG_CONFIG_HOME": filepath.Join(workDir, "config"), "PATH": "/usr/bin:/bin",
+		"GIT_CONFIG_GLOBAL": filepath.Join(workDir, "gitconfig"), "GIT_CONFIG_SYSTEM": "/dev/null",
+		"GIT_AUTHOR_NAME": "Release Test", "GIT_AUTHOR_EMAIL": "release@example.test",
+		"GIT_COMMITTER_NAME": "Release Test", "GIT_COMMITTER_EMAIL": "release@example.test",
+		"MAKEFLAGS": "", "MFLAGS": "", "MAKELEVEL": "", "MAKEFILES": "", "GNUMAKEFLAGS": "",
+		"GO_MK_CGO_DEPS": "demolib", "GO_MK_CGO_CACHE_HIT": "", "GO_MK_CGO_CACHE_KEY": "",
+		"GO_MK_TARGET_GOOS": "", "GO_MK_TARGET_GOARCH": "", "GO_MK_CGO_PREFIX": "",
+		"GO_MK_CC": "", "GO_MK_CXX": "", "CC": "", "CXX": "", "PKG_CONFIG_PATH": "",
+		"QUILL_SIGN_P12": "", "QUILL_SIGN_PASSWORD": "", "QUILL_NOTARY_KEY": "",
+	} {
+		t.Setenv(key, value)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "gitconfig"), nil, 0o600); err != nil {
+		t.Fatalf("write git config: %v", err)
+	}
+	// macOS resolves temporary directory symlinks when the process reads its working directory.
+	resolvedDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("read working directory: %v", err)
+	}
+	return resolvedDir
+}
+
+func relProcCgoFixture(t *testing.T) relProcFixture {
+	t.Helper()
+	workDir := relProcEnvironment(t)
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Fatalf("find make: %v", err)
+	}
+	makefile := `.PHONY: go-mk-cgo-deps
+go-mk-cgo-deps:
+	@printf '%s\n' "GO_MK_TARGET_GOOS=$$GO_MK_TARGET_GOOS" "GO_MK_TARGET_GOARCH=$$GO_MK_TARGET_GOARCH" "GO_MK_CGO_PREFIX=$$GO_MK_CGO_PREFIX" "CC=$$CC" "CXX=$$CXX" > hook.env
+	@printf 'hook\n' >> hook.marker
+	@if test -z "$$GO_MK_CGO_PREFIX"; then printf 'GO_MK_CGO_PREFIX is unset\n' >&2; exit 1; fi
+	@mkdir -p "$$GO_MK_CGO_PREFIX/lib/pkgconfig"
+	@printf 'Name: demolib\n' > "$$GO_MK_CGO_PREFIX/lib/pkgconfig/demolib.pc"
+`
+	if err := os.WriteFile(filepath.Join(workDir, "Makefile"), []byte(makefile), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+	return relProcFixture{
+		workDir: workDir, markerPath: filepath.Join(workDir, "hook.marker"),
+		envPath: filepath.Join(workDir, "hook.env"),
+	}
+}
+
+func relProcCgoCommandFixture(t *testing.T) (string, relProcFixture) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("release process fixtures use POSIX shell scripts")
+	}
+	goPath, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatalf("find go: %v", err)
+	}
+	buildDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(buildDir, "gitconfig"), nil, 0o600); err != nil {
+		t.Fatalf("write build git config: %v", err)
+	}
+	for key, value := range map[string]string{
+		"HOME": buildDir, "GOCACHE": filepath.Join(buildDir, "cache"),
+		"GOPATH": filepath.Join(buildDir, "go"), "GOMODCACHE": filepath.Join(buildDir, "modules"),
+		"GOENV": "off", "GOWORK": "off", "GOFLAGS": "-modcacherw", "GOTOOLCHAIN": "local",
+		"GOOS": runtime.GOOS, "GOARCH": runtime.GOARCH, "CGO_ENABLED": "0",
+		"GIT_CONFIG_GLOBAL": filepath.Join(buildDir, "gitconfig"), "GIT_CONFIG_SYSTEM": "/dev/null",
+		"GIT_AUTHOR_NAME": "Release Test", "GIT_AUTHOR_EMAIL": "release@example.test",
+		"GIT_COMMITTER_NAME": "Release Test", "GIT_COMMITTER_EMAIL": "release@example.test",
+	} {
+		t.Setenv(key, value)
+	}
+	engine := builtTestEngine(t)
+	fixture := relProcCgoFixture(t)
+	t.Setenv("PATH", filepath.Dir(goPath)+string(os.PathListSeparator)+"/usr/bin:/bin")
+	for name, content := range map[string]string{
+		"go.mod":  "module example.test/release\n\ngo 1.26\n",
+		"main.go": "package main\n\nfunc main() {}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(fixture.workDir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	for _, arguments := range [][]string{
+		{"init"}, {"add", "."}, {"-c", "commit.gpgsign=false", "commit", "-m", "Add release fixture"},
+	} {
+		command := exec.Command("git", arguments...)
+		command.Dir = fixture.workDir
+		command.Env = relProcCgoCommandEnv(fixture)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(arguments, " "), err, output)
+		}
+	}
+	return engine, fixture
+}
+
+func relProcCgoCommandEnv(fixture relProcFixture) []string {
+	environment := []string{
+		"BINARY=consumer", "CMD=.", "RELEASE_STAGE=compile", "RELEASE_TAG=v1.0.0",
+		"HOME=" + fixture.workDir, "GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_CONFIG_GLOBAL=" + filepath.Join(fixture.workDir, "gitconfig"),
+		"GIT_AUTHOR_NAME=Release Test", "GIT_AUTHOR_EMAIL=release@example.test",
+		"GIT_COMMITTER_NAME=Release Test", "GIT_COMMITTER_EMAIL=release@example.test",
+		"GOENV=off", "GOWORK=off", "GOTOOLCHAIN=local", "CGO_ENABLED=0",
+		"XDG_CACHE_HOME=" + filepath.Join(fixture.workDir, "cache"),
+		"XDG_CONFIG_HOME=" + filepath.Join(fixture.workDir, "config"),
+	}
+	for _, key := range []string{
+		"PATH", "GOCACHE", "GOPATH", "GOMODCACHE",
+		"GO_MK_CGO_DEPS", "GO_MK_CGO_CACHE_KEY", "GO_MK_CGO_CACHE_HIT",
+	} {
+		environment = append(environment, key+"="+os.Getenv(key))
+	}
+	return environment
+}
+
+func relProcRunCgoCompile(t *testing.T, engine string, fixture relProcFixture, platform string) {
+	t.Helper()
+	command := exec.Command(engine, "release")
+	command.Dir = fixture.workDir
+	command.Env = append(relProcCgoCommandEnv(fixture), "RELEASE_PLATFORMS="+platform)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("go-mk release compile: %v\n%s", err, output)
+	}
+	osName, arch, _ := strings.Cut(platform, "/")
+	if _, err := os.Stat(filepath.Join(fixture.workDir, "dist", "consumer_"+osName+"_"+arch, "consumer")); err != nil {
+		t.Fatalf("stat compiled consumer: %v", err)
+	}
+}
+
+func relProcReadFile(t *testing.T, path string) string {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", filepath.Base(path), err)
+	}
+	return string(content)
+}
+
+func relProcAssertHook(t *testing.T, fixture relProcFixture, wantRan bool) {
+	t.Helper()
+	if !wantRan {
+		if _, err := os.Stat(fixture.markerPath); !os.IsNotExist(err) {
+			t.Fatalf("hook marker stat error = %v, want missing marker", err)
+		}
+		return
+	}
+	if got := relProcReadFile(t, fixture.markerPath); got != "hook\n" {
+		t.Fatalf("hook marker = %q, want one hook invocation", got)
+	}
+}
+
+var (
+	relProcQuillOnce   sync.Once
+	relProcQuillBinary []byte
+	relProcQuillError  error
+)
+
+func relProcQuill(t *testing.T) string {
+	t.Helper()
+	relProcQuillOnce.Do(func() {
+		const installSpec = "github.com/anchore/quill/cmd/quill@v0.7.1"
+		goPath, err := exec.LookPath("go")
+		if err != nil {
+			relProcQuillError = fmt.Errorf("find Go toolchain: %w", err)
+			return
+		}
+		installDir := t.TempDir()
+		cacheCommand := exec.Command(goPath, "env", "GOMODCACHE", "GOCACHE")
+		cacheCommand.Dir = installDir
+		cacheCommand.Env = []string{
+			"HOME=" + os.Getenv("HOME"), "GOENV=off", "GOWORK=off",
+			"PATH=" + filepath.Dir(goPath) + string(os.PathListSeparator) + "/usr/bin:/bin",
+		}
+		for _, key := range []string{"GOPATH", "GOMODCACHE", "GOCACHE"} {
+			if value := os.Getenv(key); value != "" {
+				cacheCommand.Env = append(cacheCommand.Env, key+"="+value)
+			}
+		}
+		cacheOutput, err := cacheCommand.CombinedOutput()
+		if err != nil {
+			relProcQuillError = fmt.Errorf("resolve ambient Go caches: %w\n%s", err, cacheOutput)
+			return
+		}
+		cachePaths := strings.Split(strings.TrimSpace(string(cacheOutput)), "\n")
+		if len(cachePaths) != 2 {
+			relProcQuillError = fmt.Errorf("resolve ambient Go caches: want two paths, got %q", cacheOutput)
+			return
+		}
+		command := exec.Command(goPath, "install", installSpec)
+		command.Dir = installDir
+		command.Env = []string{
+			"HOME=" + installDir, "GOBIN=" + installDir,
+			"GOPATH=" + filepath.Join(installDir, "go"),
+			"GOMODCACHE=" + cachePaths[0], "GOCACHE=" + cachePaths[1],
+			"GOENV=off", "GOWORK=off", "GOTOOLCHAIN=local", "CGO_ENABLED=0",
+			"GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH,
+			"PATH=" + filepath.Dir(goPath) + string(os.PathListSeparator) + "/usr/bin:/bin",
+		}
+		if output, err := command.CombinedOutput(); err != nil {
+			relProcQuillError = fmt.Errorf("go install %s failed; downloading quill is required: %w\n%s", installSpec, err, output)
+			return
+		}
+		relProcQuillBinary, relProcQuillError = os.ReadFile(filepath.Join(installDir, "quill"))
+	})
+	if relProcQuillError != nil {
+		t.Fatalf("install real quill: %v", relProcQuillError)
+	}
+	// Each invocation copies the installed binary because test cleanup removes temporary directories.
+	quillPath := filepath.Join(t.TempDir(), "quill")
+	if err := os.WriteFile(quillPath, relProcQuillBinary, 0o755); err != nil {
+		t.Fatalf("write installed quill binary: %v", err)
+	}
+	return quillPath
+}
+
+func relProcDisableRetryDelay(t *testing.T) {
+	t.Helper()
+	originalDelay := darwinSignRetryInterval
+	t.Cleanup(func() { darwinSignRetryInterval = originalDelay })
+	darwinSignRetryInterval = 0
 }
 
 var errStubRetry = sentinelRetryError("retry me")
