@@ -439,64 +439,71 @@ func TestApplyDryRunIsIdempotent(t *testing.T) {
 }
 
 func TestApplyCurrentIsIdempotent(t *testing.T) {
-	originalWithLock := updateWithLock
-	originalFetchLatestRelease := updateFetchLatestRelease
-	originalDownloadFile := updateDownloadFile
-	t.Cleanup(func() {
-		updateWithLock = originalWithLock
-		updateFetchLatestRelease = originalFetchLatestRelease
-		updateDownloadFile = originalDownloadFile
-	})
+	homeDir := t.TempDir()
+	defaultCacheDir := t.TempDir()
+	defaultStateDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
+	t.Setenv("XDG_CACHE_HOME", defaultCacheDir)
+	t.Setenv("XDG_STATE_HOME", defaultStateDir)
 
 	runtimeAssetName := "agent-gate_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
 	statePath := filepath.Join(t.TempDir(), "update.json")
-	downloadCallCount := 0
+	cacheDir := t.TempDir()
+	installDir := t.TempDir()
+	installPath := filepath.Join(installDir, "agent-gate")
+	installedContent := []byte("current agent-gate")
+	writeInstalledBinary(t, installPath, installedContent)
 
-	updateWithLock = func(_ context.Context, _ string, fn func() error) error {
-		return fn()
-	}
-	updateFetchLatestRelease = func(_ context.Context, _ Options) (release, error) {
-		return release{
-			HTMLURL: "https://example.invalid/release",
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/repos/agoodkind/agent-gate/releases" {
+			t.Errorf("unexpected request for current release: %s", request.URL.Path)
+			http.NotFound(writer, request)
+			return
+		}
+		response := []release{{
+			HTMLURL: server.URL + "/release",
 			TagName: testCurrentVersion,
 			Assets: []releaseAsset{
 				{
 					Name:               runtimeAssetName,
-					BrowserDownloadURL: "https://example.invalid/archive",
-					Digest:             "sha256:deadbeef",
+					BrowserDownloadURL: server.URL + "/archive",
 				},
 			},
-		}, nil
-	}
-	updateDownloadFile = func(_ context.Context, _ *http.Client, _, _ string, _ int64) error {
-		downloadCallCount++
-		return nil
-	}
+		}}
+		if err := json.NewEncoder(writer).Encode(response); err != nil {
+			t.Errorf("encode release list: %v", err)
+		}
+	}))
+	t.Cleanup(server.Close)
 
+	config := testConfig()
+	config.APIBaseURL = server.URL
 	options := Options{
-		Config:    testConfig(),
-		StatePath: statePath,
+		Config:      config,
+		Client:      server.Client(),
+		InstallPath: installPath,
+		CacheDir:    cacheDir,
+		StatePath:   statePath,
 	}
 
-	firstResult, err := Apply(context.Background(), options)
-	if err != nil {
-		t.Fatalf("Apply() first error: %v", err)
-	}
-	secondResult, err := Apply(context.Background(), options)
-	if err != nil {
-		t.Fatalf("Apply() second error: %v", err)
-	}
-
-	for i, result := range []ApplyResult{firstResult, secondResult} {
+	for i := range 2 {
+		result, err := Apply(context.Background(), options)
+		if err != nil {
+			t.Fatalf("Apply() %d error: %v", i, err)
+		}
 		if result.UpdateAvailable {
 			t.Fatalf("result %d UpdateAvailable = true, want false", i)
 		}
 		if result.Applied {
 			t.Fatalf("result %d Applied = true, want false", i)
 		}
-	}
-	if downloadCallCount != 0 {
-		t.Fatalf("downloadCallCount = %d, want 0", downloadCallCount)
+		assertFileBytes(t, installPath, installedContent)
+		assertDirectoryEntries(t, installDir, []string{"agent-gate"})
+		for _, directory := range []string{cacheDir, defaultCacheDir, defaultStateDir, homeDir} {
+			assertDirectoryEntries(t, directory, nil)
+		}
 	}
 
 	state, err := LoadState(statePath)
