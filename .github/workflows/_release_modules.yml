@@ -198,7 +198,7 @@ jobs:
           for index in $(jq -r 'keys[]' <<<"${MODULES}"); do
             directory=$(jq -r --argjson index "${index}" '.[$index].working_directory' <<<"${MODULES}")
             module_platforms=$(jq -r --argjson index "${index}" '.[$index].platforms' <<<"${MODULES}")
-            module_assets="$(RELEASE_PLATFORMS="${module_platforms}" make --no-print-directory --silent -C "${directory}" go-mk-release-assets | tr '\n' ' ')"
+            module_assets="$(set -o pipefail; RELEASE_PLATFORMS="${module_platforms}" make --no-print-directory --silent -C "${directory}" go-mk-release-assets | tr '\n' ' ')"
             required_assets="${required_assets} ${module_assets}"
           done
           if [ -z "$(printf '%s' "${required_assets}" | tr -d '[:space:]')" ]; then
