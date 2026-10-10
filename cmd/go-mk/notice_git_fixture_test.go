@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	gomk "goodkind.io/go-makefile/cmd/go-mk"
 )
 
 func TestRunNoticeRecordsDirectiveWhenAdoptionIsAfterNotice(t *testing.T) {
@@ -51,25 +53,14 @@ func noticeGitEnvironment(t *testing.T) []string {
 	if err := os.WriteFile(globalConfig, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return []string{
-		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + home,
-		"XDG_CONFIG_HOME=" + home,
-		"XDG_CACHE_HOME=" + filepath.Join(home, "cache"),
-		"GIT_CONFIG_GLOBAL=" + globalConfig,
-		"GIT_CONFIG_SYSTEM=/dev/null",
-		"GIT_AUTHOR_NAME=Notice test",
-		"GIT_AUTHOR_EMAIL=notice@example.invalid",
-		"GIT_COMMITTER_NAME=Notice test",
-		"GIT_COMMITTER_EMAIL=notice@example.invalid",
-		"GOPATH=" + filepath.Join(home, "go"),
-		"GOCACHE=" + filepath.Join(home, "go-build"),
-		"GOMODCACHE=" + filepath.Join(home, "go-mod"),
-		"GOENV=off",
-		"GOFLAGS=-modcacherw",
-		"GOTOOLCHAIN=local",
-		"CGO_ENABLED=0",
-	}
+	return gomk.IsolatedTestEnvironment(home, map[string]string{
+		"XDG_CONFIG_HOME":     home,
+		"GIT_AUTHOR_NAME":     "Notice test",
+		"GIT_AUTHOR_EMAIL":    "notice@example.invalid",
+		"GIT_COMMITTER_NAME":  "Notice test",
+		"GIT_COMMITTER_EMAIL": "notice@example.invalid",
+		"GOPATH":              filepath.Join(home, "go"),
+	})
 }
 
 func noticeGitBuildEngine(t *testing.T, environment []string) string {

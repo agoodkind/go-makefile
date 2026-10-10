@@ -5,7 +5,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+
+	gomk "goodkind.io/go-makefile/cmd/go-mk"
 )
 
 type subRepoFixture struct {
@@ -62,22 +65,27 @@ func subRepoColdCheckout(t *testing.T) subRepoFixture {
 	gitConfig := filepath.Join(fixture, "gitconfig")
 	subRepoWriteFile(t, gitConfig, "[protocol \"file\"]\n\tallow = always\n"+
 		"[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n")
-	env := []string{
-		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + home,
-		"XDG_CACHE_HOME=" + filepath.Join(home, "cache"),
-		"XDG_CONFIG_HOME=" + filepath.Join(home, "config"),
-		"GIT_CONFIG_GLOBAL=" + gitConfig,
-		"GIT_CONFIG_SYSTEM=/dev/null",
-		"GIT_CONFIG_COUNT=0",
-		"GIT_ALLOW_PROTOCOL=file",
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_AUTHOR_NAME=Submodule Test",
-		"GIT_AUTHOR_EMAIL=submodule-test@example.invalid",
-		"GIT_COMMITTER_NAME=Submodule Test",
-		"GIT_COMMITTER_EMAIL=submodule-test@example.invalid",
+	environment := gomk.IsolatedTestEnvironment(fixture, map[string]string{
+		"HOME":                home,
+		"XDG_CACHE_HOME":      filepath.Join(home, "cache"),
+		"XDG_CONFIG_HOME":     filepath.Join(home, "config"),
+		"GIT_CONFIG_COUNT":    "0",
+		"GIT_ALLOW_PROTOCOL":  "file",
+		"GIT_TERMINAL_PROMPT": "0",
+		"GIT_AUTHOR_NAME":     "Submodule Test",
+		"GIT_AUTHOR_EMAIL":    "submodule-test@example.invalid",
+		"GIT_COMMITTER_NAME":  "Submodule Test",
+		"GIT_COMMITTER_EMAIL": "submodule-test@example.invalid",
+	})
+	binary := subRepoBuildEngine(t, fixture, environment)
+	// The Go settings apply only to the engine build in this fixture.
+	var env []string
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, "GO") || strings.HasPrefix(entry, "CGO_ENABLED=") {
+			continue
+		}
+		env = append(env, entry)
 	}
-	binary := subRepoBuildEngine(t, fixture, env)
 
 	parent := subRepoInit(t, env, filepath.Join(fixture, "gksyntax"), "other/file.go", "package other\n")
 	for _, language := range []string{"swift", "perl", "dart"} {
@@ -98,15 +106,8 @@ func subRepoBuildEngine(t *testing.T, fixture string, env []string) string {
 	binary := filepath.Join(fixture, "go-mk")
 	command := exec.Command("go", "build", "-o", binary, ".")
 	command.Env = append(env,
-		"GOCACHE="+filepath.Join(fixture, "go-build"),
-		"GOMODCACHE="+filepath.Join(fixture, "go-mod"),
-		"GOPATH="+filepath.Join(fixture, "go-path"),
-		"GOENV=off",
-		"GOFLAGS=-modcacherw",
-		"GOTOOLCHAIN=local",
 		"GOPROXY=https://proxy.golang.org",
 		"GOSUMDB=sum.golang.org",
-		"CGO_ENABLED=0",
 	)
 	output, err := command.CombinedOutput()
 	if err != nil {

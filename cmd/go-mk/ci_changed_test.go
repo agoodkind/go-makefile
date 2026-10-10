@@ -398,6 +398,37 @@ type ciGitFixture struct {
 	binary string
 }
 
+// IsolatedTestEnvironment is exported for the command fixtures in main_test.
+func IsolatedTestEnvironment(root string, overrides map[string]string) []string {
+	values := map[string]string{
+		"PATH":                os.Getenv("PATH"),
+		"HOME":                root,
+		"XDG_CONFIG_HOME":     filepath.Join(root, "config"),
+		"XDG_CACHE_HOME":      filepath.Join(root, "cache"),
+		"GIT_CONFIG_GLOBAL":   filepath.Join(root, "gitconfig"),
+		"GIT_CONFIG_SYSTEM":   os.DevNull,
+		"GIT_AUTHOR_NAME":     "CI fixture",
+		"GIT_AUTHOR_EMAIL":    "ci-fixture@example.invalid",
+		"GIT_COMMITTER_NAME":  "CI fixture",
+		"GIT_COMMITTER_EMAIL": "ci-fixture@example.invalid",
+		"GOPATH":              filepath.Join(root, "go-path"),
+		"GOCACHE":             filepath.Join(root, "go-build"),
+		"GOMODCACHE":          filepath.Join(root, "go-mod"),
+		"GOENV":               "off",
+		"GOFLAGS":             "-modcacherw",
+		"GOTOOLCHAIN":         "local",
+		"CGO_ENABLED":         "0",
+	}
+	for key, value := range overrides {
+		values[key] = value
+	}
+	environment := make([]string, 0, len(values))
+	for key, value := range values {
+		environment = append(environment, key+"="+value)
+	}
+	return environment
+}
+
 func ciGitFixtureNew(t *testing.T) ciGitFixture {
 	t.Helper()
 	binary := builtTestEngine(t)
@@ -409,30 +440,24 @@ func ciGitFixtureNew(t *testing.T) ciGitFixture {
 	if err := os.WriteFile(globalConfig, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for key, value := range map[string]string{
-		"HOME":                directory,
-		"XDG_CONFIG_HOME":     filepath.Join(directory, "config"),
-		"XDG_CACHE_HOME":      filepath.Join(directory, "cache"),
-		"GIT_CONFIG_GLOBAL":   globalConfig,
-		"GIT_CONFIG_SYSTEM":   os.DevNull,
+	environment := IsolatedTestEnvironment(directory, map[string]string{
 		"GIT_CONFIG_COUNT":    "0",
-		"GIT_AUTHOR_NAME":     "CI fixture",
-		"GIT_AUTHOR_EMAIL":    "ci-fixture@example.invalid",
-		"GIT_COMMITTER_NAME":  "CI fixture",
-		"GIT_COMMITTER_EMAIL": "ci-fixture@example.invalid",
 		"GIT_TERMINAL_PROMPT": "0",
 		"GIT_ALLOW_PROTOCOL":  "file",
 		"GOCACHE":             filepath.Join(directory, "go-cache"),
 		"GOMODCACHE":          filepath.Join(directory, "go-mod-cache"),
-		"GOPATH":              filepath.Join(directory, "go-path"),
-		"GOENV":               "off",
 		"GOFLAGS":             "",
 		"GOWORK":              "off",
 		"GOPROXY":             "off",
-		"GOTOOLCHAIN":         "local",
 		"GO111MODULE":         "on",
 		"TEST_TELEMETRY_DIR":  filepath.Join(directory, "telemetry"),
-	} {
+	})
+	for _, entry := range environment {
+		key, value, _ := strings.Cut(entry, "=")
+		// This fixture inherits PATH and CGO_ENABLED from the test process.
+		if key == "PATH" || key == "CGO_ENABLED" {
+			continue
+		}
 		t.Setenv(key, value)
 	}
 	// Go telemetry children can write after go list exits.
