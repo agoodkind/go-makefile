@@ -191,11 +191,30 @@ jobs:
         env:
           RELEASE_BINARIES: ${{ inputs.binary }}
           RELEASE_TAG: ${{ needs.tag.outputs.tag }}
+          MODULES: ${{ needs.tag.outputs.modules }}
+          PUBLISH_DIRECTORY: ${{ needs.tag.outputs.publish_directory }}
         run: |
+          required_assets=""
+          for index in $(jq -r 'keys[]' <<<"${MODULES}"); do
+            directory=$(jq -r --argjson index "${index}" '.[$index].working_directory' <<<"${MODULES}")
+            module_platforms=$(jq -r --argjson index "${index}" '.[$index].platforms' <<<"${MODULES}")
+            module_assets="$(RELEASE_PLATFORMS="${module_platforms}" make --no-print-directory --silent -C "${directory}" go-mk-release-assets | tr '\n' ' ')"
+            required_assets="${required_assets} ${module_assets}"
+          done
+          if [ -z "$(printf '%s' "${required_assets}" | tr -d '[:space:]')" ]; then
+            echo "make go-mk-release-assets wrote no asset names" >&2
+            exit 1
+          fi
+          verify_ref=main
+          if [ -s "${PUBLISH_DIRECTORY}/.make/.go-mk-commit" ]; then
+            verify_ref="$(cat "${PUBLISH_DIRECTORY}/.make/.go-mk-commit")"
+          else
+            echo "verify-release runs at main: ${PUBLISH_DIRECTORY}/.make/.go-mk-commit is absent"
+          fi
           for binary in ${RELEASE_BINARIES}; do
             attempt=1
             while [ "${attempt}" -le 5 ]; do
-              if go run goodkind.io/go-makefile/selfupdate/cmd/verify-release@main --repo "${GITHUB_REPOSITORY}" --tag "${RELEASE_TAG}" --binary "${binary}"; then
+              if go run "goodkind.io/go-makefile/selfupdate/cmd/verify-release@${verify_ref}" --repo "${GITHUB_REPOSITORY}" --tag "${RELEASE_TAG}" --binary "${binary}" --required-assets "${required_assets}"; then
                 break
               fi
               if [ "${attempt}" -eq 5 ]; then
