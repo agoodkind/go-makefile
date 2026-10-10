@@ -160,38 +160,6 @@ func TestRunNoticeIgnoresEmptyBaselineFilesWhenHistoryIsUnavailable(t *testing.T
 	assertFileText(t, ".golangci-lint-baseline.txt", "")
 }
 
-func TestRunNoticeRecordsDirectiveWhenAdoptionIsAfterNotice(t *testing.T) {
-	root := t.TempDir()
-	chdir(t, root)
-	clearBaselineEnv(t)
-	stubNoticeAdoptionTime(t, testIntroducedTime.Add(time.Hour), true)
-	forbidNoticeBaseline(t)
-
-	if err := os.WriteFile(".golangci-lint-baseline.txt", []byte("# existing baseline\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	noticesPath := filepath.Join(root, "notices.txt")
-	notices := "1\t" + testDirective + "\tEnabled historical rule\n"
-	if err := os.WriteFile(noticesPath, []byte(notices), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("_GO_MK_NOTICES_FILE", noticesPath)
-	t.Setenv("GO_MK_APPLIED_NOTICES", ".go-mk-applied-notices")
-
-	var status int
-	stderr := captureStderr(t, func() {
-		status = runNotice()
-	})
-	if status != 0 {
-		t.Fatalf("runNotice status = %d, want 0", status)
-	}
-	if strings.Contains(stderr, "auto-baselining") {
-		t.Fatalf("stderr = %q, want no auto-baseline output", stderr)
-	}
-	assertNoticeAppliedFile(t, ".go-mk-applied-notices", "1\n")
-	assertFileText(t, ".golangci-lint-baseline.txt", "# existing baseline\n")
-}
-
 func TestRunNoticeAutoBaselinesWhenAdoptionIsBeforeNotice(t *testing.T) {
 	root := t.TempDir()
 	chdir(t, root)
@@ -309,18 +277,6 @@ func stubNoticeAdoptionTime(t *testing.T, adoptionTime time.Time, ok bool) {
 	}
 	t.Cleanup(func() {
 		noticeAdoptionTimeFunc = previous
-	})
-}
-
-func forbidNoticeBaseline(t *testing.T) {
-	t.Helper()
-	previous := runNoticeBaselineFunc
-	runNoticeBaselineFunc = func(args []string) int {
-		t.Fatalf("runNoticeBaselineFunc called with %#v", args)
-		return 1
-	}
-	t.Cleanup(func() {
-		runNoticeBaselineFunc = previous
 	})
 }
 

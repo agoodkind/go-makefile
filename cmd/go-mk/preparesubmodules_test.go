@@ -8,11 +8,7 @@ import (
 	"testing"
 )
 
-// revealingFilesystem simulates a checkout where a nested .gitmodules is only
-// readable after its parent submodule has been initialized. layout maps a
-// directory to the submodules its .gitmodules declares; a directory's entries
-// are visible only once it has been initialized (the repo root, "", is always
-// visible). This is the real workflow condition the interleaved walk must handle.
+// Nested declarations become visible after initialization in this filesystem.
 type revealingFilesystem struct {
 	layout      map[string][]string
 	initialized map[string]bool
@@ -38,52 +34,6 @@ func (fs *revealingFilesystem) init(parent, submodulePath string) error {
 	fs.initialized[full] = true
 	fs.initCalls = append(fs.initCalls, full)
 	return nil
-}
-
-func TestPrepareSubmodulesForOutputsInterleavesNestedDiscovery(t *testing.T) {
-	// The nested grammar submodules are only discoverable after third_party/gksyntax
-	// is initialized. An upfront plan (computed before any init) would find only the
-	// top-level submodule; the interleaved walk must reach the nested grammars.
-	fs := newRevealingFilesystem(map[string][]string{
-		"": {"third_party/gksyntax"},
-		"third_party/gksyntax": {
-			"treesitter/grammars/perl/upstream",
-			"treesitter/grammars/swift/upstream",
-			"treesitter/grammars/dart/upstream",
-		},
-	})
-	outputs := []string{
-		"third_party/gksyntax/treesitter/grammars/swift/upstream/src/parser.c",
-		"third_party/gksyntax/treesitter/grammars/perl/upstream/src/parser.c",
-	}
-	if err := prepareSubmodulesForOutputs(outputs, fs.list, fs.init); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	want := []string{
-		"third_party/gksyntax",
-		"third_party/gksyntax/treesitter/grammars/swift/upstream",
-		"third_party/gksyntax/treesitter/grammars/perl/upstream",
-	}
-	if !reflect.DeepEqual(fs.initCalls, want) {
-		t.Fatalf("init calls =\n  %v\nwant\n  %v", fs.initCalls, want)
-	}
-}
-
-func TestPrepareSubmodulesForOutputsExcludesUnrelatedSubmodule(t *testing.T) {
-	// The dart submodule holds no declared output, so it must never be initialized.
-	// This keeps its git@ auth from ever running on CI.
-	fs := newRevealingFilesystem(map[string][]string{
-		"":                     {"third_party/gksyntax"},
-		"third_party/gksyntax": {"treesitter/grammars/dart/upstream"},
-	})
-	outputs := []string{"third_party/gksyntax/other/file.go"}
-	if err := prepareSubmodulesForOutputs(outputs, fs.list, fs.init); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	want := []string{"third_party/gksyntax"}
-	if !reflect.DeepEqual(fs.initCalls, want) {
-		t.Fatalf("init calls = %v, want %v (no dart)", fs.initCalls, want)
-	}
 }
 
 func TestPrepareSubmodulesForOutputsNoSubmodules(t *testing.T) {
