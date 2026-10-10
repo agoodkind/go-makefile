@@ -97,6 +97,13 @@ linters:
       include:
         - 'goodkind\.io/.*/internal/.*'
 
+    gosec:
+      # v2.14 bundles gosec 2.29, which adds the G703 taint-analysis rule. Keep
+      # the established v2.13 policy until consumers adopt its findings as
+      # reviewed changes.
+      excludes:
+        - G703
+
     modernize:
       # v2.13 adds these analyzers. Keep the established v2.12 policy until
       # consumers adopt their findings as reviewed changes.
@@ -106,6 +113,9 @@ linters:
         - importcomment
         - reflecttypeassert
         - slicesclip
+        # v2.14 reports strings.LastIndex as replaceable by strings.CutLast
+        # in modules on Go 1.27.
+        - stringscut
 
     wrapcheck:
       ignore-sigs:
