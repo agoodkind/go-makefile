@@ -3,8 +3,9 @@ package main
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"slices"
+	"runtime"
 	"testing"
 )
 
@@ -119,97 +120,57 @@ func TestDirWritable(t *testing.T) {
 }
 
 func TestInstallAllRunsHooksAroundInstalls(t *testing.T) {
-	restoreInstallSeams(t)
-	calls := []string{}
-	runInstallHookFunc = func(label string, command string) error {
-		calls = append(calls, "hook:"+label+":"+command)
-		return nil
-	}
-	installOneFunc = func(_ installConfig, bin binSpec) error {
-		calls = append(calls, "install:"+bin.name)
-		return nil
-	}
-
-	cfg := installConfig{
-		bins: []binSpec{
-			{name: "first"},
-			{name: "second"},
-		},
-		installPreCommand:  "pre command",
-		installPostCommand: "post command",
-	}
+	cfg, logPath := installFixDist(t)
 	if err := installAll(cfg); err != nil {
 		t.Fatalf("installAll: %v", err)
 	}
-	want := []string{
-		"hook:pre:pre command",
-		"install:first",
-		"install:second",
-		"hook:post:post command",
-	}
-	if !slices.Equal(calls, want) {
-		t.Fatalf("calls = %v, want %v", calls, want)
+	installFixAssertLog(t, logPath, "pre\nfirst\nsecond\npost\n")
+	for _, bin := range cfg.bins {
+		source, err := os.ReadFile(filepath.Join(cfg.distDir, bin.name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		installed, err := os.ReadFile(filepath.Join(bin.dir, bin.name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(installed) != string(source) {
+			t.Fatalf("installed %q = %q, want dist contents %q", bin.name, installed, source)
+		}
 	}
 }
 
 func TestInstallAllRunsPostHookAfterInstallFailure(t *testing.T) {
-	restoreInstallSeams(t)
-	installErr := errors.New("install failed")
-	postErr := errors.New("post failed")
-	calls := []string{}
-	runInstallHookFunc = func(label string, _ string) error {
-		calls = append(calls, "hook:"+label)
-		if label == "post" {
-			return postErr
-		}
-		return nil
-	}
-	installOneFunc = func(_ installConfig, bin binSpec) error {
-		calls = append(calls, "install:"+bin.name)
-		return installErr
+	cfg, logPath := installFixDist(t)
+	t.Setenv("INSTALL_FIX_RUN_BINARIES", "0")
+	t.Setenv("INSTALL_FIX_POST_STATUS", "31")
+	missingSource := filepath.Join(cfg.distDir, cfg.bins[0].name)
+	if err := os.Remove(missingSource); err != nil {
+		t.Fatal(err)
 	}
 
-	err := installAll(installConfig{
-		bins:               []binSpec{{name: "tool"}},
-		installPreCommand:  "pre",
-		installPostCommand: "post",
-	})
-	if !errors.Is(err, installErr) {
-		t.Fatalf("installAll error = %v, want install error", err)
+	err := installAll(cfg)
+	installFixAssertLog(t, logPath, "pre\npost\n")
+	installFixAssertAbsent(t, cfg)
+	var installErr *os.PathError
+	if !errors.As(err, &installErr) || installErr.Path != missingSource || !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("installAll error = %v, want missing dist file %q", err, missingSource)
 	}
-	if !errors.Is(err, postErr) {
-		t.Fatalf("installAll error = %v, want post error", err)
-	}
-	want := []string{"hook:pre", "install:tool", "hook:post"}
-	if !slices.Equal(calls, want) {
-		t.Fatalf("calls = %v, want %v", calls, want)
+	var postErr *exec.ExitError
+	if !errors.As(err, &postErr) || postErr.ExitCode() != 31 {
+		t.Fatalf("installAll error = %v, want post hook exit status 31", err)
 	}
 }
 
 func TestInstallAllSkipsInstallAndPostWhenPreHookFails(t *testing.T) {
-	restoreInstallSeams(t)
-	preErr := errors.New("pre failed")
-	calls := []string{}
-	runInstallHookFunc = func(label string, _ string) error {
-		calls = append(calls, "hook:"+label)
-		return preErr
-	}
-	installOneFunc = func(_ installConfig, bin binSpec) error {
-		calls = append(calls, "install:"+bin.name)
-		return nil
-	}
-
-	err := installAll(installConfig{
-		bins:               []binSpec{{name: "tool"}},
-		installPreCommand:  "pre",
-		installPostCommand: "post",
-	})
-	if !errors.Is(err, preErr) {
-		t.Fatalf("installAll error = %v, want pre error", err)
-	}
-	want := []string{"hook:pre"}
-	if !slices.Equal(calls, want) {
-		t.Fatalf("calls = %v, want %v", calls, want)
+	cfg, logPath := installFixDist(t)
+	t.Setenv("INSTALL_FIX_PRE_STATUS", "23")
+	err := installAll(cfg)
+	installFixAssertLog(t, logPath, "pre\n")
+	installFixAssertAbsent(t, cfg)
+	var preErr *exec.ExitError
+	if !errors.As(err, &preErr) || preErr.ExitCode() != 23 {
+		t.Fatalf("installAll error = %v, want pre hook exit status 23", err)
 	}
 }
 
@@ -221,4 +182,86 @@ func restoreInstallSeams(t *testing.T) {
 		installOneFunc = originalInstallOneFunc
 		runInstallHookFunc = originalRunInstallHookFunc
 	})
+}
+
+func installFixDist(t *testing.T) (installConfig, string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("shell hooks require sh")
+	}
+	root := t.TempDir()
+	distDir := filepath.Join(root, "dist")
+	installDir := filepath.Join(root, "installed")
+	logPath := filepath.Join(root, "hooks.log")
+	if err := os.Mkdir(distDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"first", "second"} {
+		installFixWriteScript(t, filepath.Join(distDir, name), "printf '%s\\n' '"+name+"'\n")
+	}
+	prePath := filepath.Join(root, "pre.sh")
+	installFixWriteScript(t, prePath, `for name in first second; do
+    if test -e "$INSTALL_FIX_DIR/$name"; then
+        printf 'pre hook found an installed binary: %s\n' "$name" >&2
+        exit 1
+    fi
+done
+printf 'pre\n' >> "$INSTALL_FIX_LOG"
+exit "$INSTALL_FIX_PRE_STATUS"
+`)
+	postPath := filepath.Join(root, "post.sh")
+	installFixWriteScript(t, postPath, `if test "$INSTALL_FIX_RUN_BINARIES" = 1; then
+    "$INSTALL_FIX_DIR/first" >> "$INSTALL_FIX_LOG"
+    "$INSTALL_FIX_DIR/second" >> "$INSTALL_FIX_LOG"
+fi
+printf 'post\n' >> "$INSTALL_FIX_LOG"
+exit "$INSTALL_FIX_POST_STATUS"
+`)
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("INSTALL_FIX_DIR", installDir)
+	t.Setenv("INSTALL_FIX_LOG", logPath)
+	t.Setenv("INSTALL_FIX_PRE_HOOK", prePath)
+	t.Setenv("INSTALL_FIX_POST_HOOK", postPath)
+	t.Setenv("INSTALL_FIX_PRE_STATUS", "0")
+	t.Setenv("INSTALL_FIX_POST_STATUS", "0")
+	t.Setenv("INSTALL_FIX_RUN_BINARIES", "1")
+	return installConfig{
+		bins: []binSpec{
+			{name: "first", mainPkg: "./cmd/first", dir: installDir},
+			{name: "second", mainPkg: "./cmd/second", dir: installDir},
+		},
+		distDir:            distDir,
+		installPreCommand:  `sh "$INSTALL_FIX_PRE_HOOK"`,
+		installPostCommand: `sh "$INSTALL_FIX_POST_HOOK"`,
+	}, logPath
+}
+
+func installFixWriteScript(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nset -eu\n"+body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func installFixAssertLog(t *testing.T, path, want string) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Fatalf("hook log = %q, want %q", got, want)
+	}
+}
+
+func installFixAssertAbsent(t *testing.T, cfg installConfig) {
+	t.Helper()
+	for _, bin := range cfg.bins {
+		target := filepath.Join(bin.dir, bin.name)
+		if _, err := os.Stat(target); !os.IsNotExist(err) {
+			t.Fatalf("installed binary %q: stat error = %v, want file absent", target, err)
+		}
+	}
 }
