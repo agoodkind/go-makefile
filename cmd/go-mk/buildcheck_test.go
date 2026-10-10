@@ -169,10 +169,12 @@ func govulncheckTools(t *testing.T) string {
 		if govulncheckToolsErr != nil {
 			return
 		}
+		telemetryDir := filepath.Join(govulncheckToolsDir, "telemetry")
+		writeFile(t, filepath.Join(telemetryDir, "mode"), "off\n")
 		// Go computes the ambient cache paths without reading the user's Go settings.
 		cacheCommand := exec.Command("go", "env", "GOMODCACHE", "GOCACHE")
 		cacheCommand.Env = testProcessEnvironment(map[string]string{
-			"GOENV": "off", "GOTELEMETRY": "off",
+			"GOENV": "off", "GOFLAGS": "-modcacherw", "TEST_TELEMETRY_DIR": telemetryDir,
 			"GOMODCACHE": os.Getenv("GOMODCACHE"), "GOCACHE": os.Getenv("GOCACHE"),
 			"GOPATH": os.Getenv("GOPATH"),
 		})
@@ -210,8 +212,9 @@ func govulncheckTools(t *testing.T) string {
 		command := exec.Command("go", "install", installSpec)
 		command.Dir = govulncheckToolsDir
 		command.Env = testProcessEnvironment(map[string]string{
-			"HOME": govulncheckToolsDir, "GOENV": "off", "GOTELEMETRY": "off",
-			"GOWORK": "off", "GOTOOLCHAIN": "local",
+			"HOME": govulncheckToolsDir, "GOENV": "off", "GOFLAGS": "-modcacherw",
+			"TEST_TELEMETRY_DIR": telemetryDir,
+			"GOWORK":             "off", "GOTOOLCHAIN": "local",
 			"GOBIN": govulncheckToolsDir, "GOPATH": filepath.Join(govulncheckToolsDir, "go"),
 			"GOMODCACHE": govulncheckCaches[0], "GOCACHE": govulncheckCaches[1],
 			"GOPROXY": "https://proxy.golang.org", "GOSUMDB": "sum.golang.org",
@@ -223,8 +226,9 @@ func govulncheckTools(t *testing.T) string {
 		command = exec.Command("go", "env", "GOROOT")
 		command.Dir = govulncheckToolsDir
 		command.Env = testProcessEnvironment(map[string]string{
-			"HOME": govulncheckToolsDir, "GOENV": "off", "GOTELEMETRY": "off",
-			"GOWORK": "off", "GOTOOLCHAIN": govulncheckFallbackToolchain,
+			"HOME": govulncheckToolsDir, "GOENV": "off", "GOFLAGS": "-modcacherw",
+			"TEST_TELEMETRY_DIR": telemetryDir,
+			"GOWORK":             "off", "GOTOOLCHAIN": govulncheckFallbackToolchain,
 			"GOBIN": "", "GOPATH": filepath.Join(govulncheckToolsDir, "go"),
 			"GOMODCACHE": govulncheckCaches[0], "GOCACHE": govulncheckCaches[1],
 			"GOPROXY": "https://proxy.golang.org", "GOSUMDB": "sum.golang.org",
@@ -250,8 +254,8 @@ func govulncheckProject(t *testing.T) (string, map[string]string) {
 	govulncheckTools(t)
 	dir := t.TempDir()
 	env := map[string]string{
-		"HOME": dir, "GOENV": "off", "GOTELEMETRY": "off",
-		"GOWORK": "off", "GOTOOLCHAIN": "local", "GOFLAGS": "",
+		"HOME": dir, "GOENV": "off", "XDG_CONFIG_HOME": filepath.Join(dir, ".config"),
+		"GOWORK": "off", "GOTOOLCHAIN": "local", "GOFLAGS": "-modcacherw",
 		"GOOS": "", "GOARCH": "", "CGO_ENABLED": "0",
 		"GOBIN": filepath.Join(dir, "custom-bin"), "GOPATH": filepath.Join(dir, "go"),
 		"GOMODCACHE": govulncheckCaches[0], "GOCACHE": govulncheckCaches[1],
@@ -265,6 +269,12 @@ func govulncheckProject(t *testing.T) (string, map[string]string) {
 	for name, value := range env {
 		t.Setenv(name, value)
 	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("resolve fixture Go telemetry directory: %v", err)
+	}
+	// GOTELEMETRY is not settable. The mode file prevents telemetry child processes.
+	writeFile(t, filepath.Join(configDir, "go", "telemetry", "mode"), "off\n")
 	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/probe\n\ngo 1.24\n")
 	writeFile(t, filepath.Join(dir, "main.go"),
 		"package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"probe\") }\n")
