@@ -421,7 +421,7 @@ endif
 help:
 	@printf '%s\n' 'Canonical entry points:'
 	@printf '  %-40s %s\n' 'build' 'local build-check, then compile; CI skips inline gate only with OIDC proof'
-	@printf '  %-40s %s\n' 'check' 'alias for lint'
+	@printf '  %-40s %s\n' 'check' 'unsupported; run make build directly'
 	@printf '  %-40s %s\n' 'lint' 'run every lint gate'
 	@printf '  %-40s %s\n' 'build-check' 'vet + lint + govulncheck + Go version'
 	@printf '  %-40s %s\n' 'fmt' 'apply configured Go formatters'
@@ -584,7 +584,8 @@ build-check: go-mk-bin
 build-gate: go-mk-bin
 	@"$(__GO_MK_ENGINE)" build-gate
 
-check: lint
+check:
+	$(error make check is not supported. Run make build directly.)
 
 baseline: go-mk-bin
 	@BASELINE_UPDATE_MODE=sync "$(__GO_MK_ENGINE)" baseline all
@@ -830,7 +831,7 @@ endif
 # ordering (go-mk-cgo-dep-x: | $(GO_MK_GENERATE)).
 GO_MK_PREREQS := go-mk-workspace $(GO_MK_GENERATE) $(if $(strip $(GO_MK_CGO_DEPS)),go-mk-cgo-deps)
 ifneq ($(strip $(GO_MK_PREREQS)),)
-build build-check check lint lint-golangci lint-deadcode staticcheck-extra vet test mutation govulncheck: | $(GO_MK_PREREQS)
+build build-check lint lint-golangci lint-deadcode staticcheck-extra vet test mutation govulncheck: | $(GO_MK_PREREQS)
 endif
 ifneq ($(strip $(GO_MK_WORKSPACE_USE)),)
 lint-format: | go-mk-workspace
