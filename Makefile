@@ -1,7 +1,7 @@
 # go-makefile's own Makefile. This repo is the source of the central
 # pipeline every other repo consumes. It eats its own dog food by running
 # go.mk against itself. Run `make help` for the canonical entry points
-# (build/check/lint/fmt) and per-linter sub-targets.
+# (build/lint/fmt) and per-linter sub-targets.
 #
 # Layout: two Go modules in this tree.
 #   .            render.go (scaffold renderer) plus the project README/configs.
@@ -38,7 +38,7 @@ STATIC_LINT_ARGS += $(GO_MK_LOCAL_ARGS)
 ROOT_GO_MK   := $(MAKE) -f $(GO_MK) $(ROOT_LINT_ARGS)
 STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
 
-.DEFAULT_GOAL := check
+.DEFAULT_GOAL := help
 
 .PHONY: build release check lint fmt vet test mutation govulncheck go-version-check build-check ci-changed go-mk-cache-manifest go-mk-ci-job-layout go-mk-golangci-cache-save-decision go-mk-generate \
         lint-tools lint-golangci lint-files lint-diff lint-format lint-gocyclo lint-deadcode lint-make-vars staticcheck-extra \
@@ -230,7 +230,8 @@ smoke-fetch:
 lint-make-vars:
 	@perl scripts/dangling-make-vars.pl go.mk go-build.mk go-release.mk go-service.mk bootstrap.mk
 
-check: lint-make-vars lint
+check:
+	$(error make check is not supported. Run make build directly.)
 
 help:
 	$(ROOT_GO_MK) help
