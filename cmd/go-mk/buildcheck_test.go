@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"os/exec"
@@ -27,6 +28,15 @@ func TestGovulncheckInstallationFailureIsAdvisory(t *testing.T) {
 
 func TestPrepareGovulncheckCheckInstallsBeforeRun(t *testing.T) {
 	dir, env := govulncheckProject(t)
+	download := exec.Command("go", "mod", "download")
+	download.Dir = filepath.Join(repoRootForTest(t), "staticcheck")
+	downloadEnvironment := maps.Clone(env)
+	downloadEnvironment["GOPROXY"] = "https://proxy.golang.org"
+	downloadEnvironment["GOSUMDB"] = "sum.golang.org"
+	download.Env = testProcessEnvironment(downloadEnvironment)
+	if output, err := download.CombinedOutput(); err != nil {
+		t.Fatalf("download analyzer dependencies: %v\n%s", err, output)
+	}
 	govulncheckCopyBinary(t, env["GOBIN"])
 	writeFile(t, filepath.Join(dir, "install", "main.go"), "package main\n\nfunc main() {}\n")
 	// These installs compile the fixture's own command because no lint gate runs.
