@@ -634,7 +634,8 @@ GO_MK_GENERATE_OUTPUTS ?=
 # materializes a gitignored go.work from those paths before any compile, so a
 # fresh checkout, worktree, or CI run routes the modules without a committed
 # go.work or a go.mod replace (the latter is rejected by gomoddirectives). An
-# existing go.work is left untouched, so a developer override survives.
+# existing workspace keeps its use-paths and compatibility minimum. An explicit
+# module toolchain preference updates the workspace toolchain.
 GO_MK_WORKSPACE_USE ?=
 
 # GO_MK_WORKSPACE_NO_AUTOSHADOW: opt-out for the inherited-go.work self-heal. When
@@ -766,8 +767,9 @@ endif
 #    for this directory, never when it legitimately covers it (a real monorepo
 #    root). GO_MK_WORKSPACE_NO_AUTOSHADOW=1 prints the cause instead of writing.
 #
-# An existing local go.work is always left untouched, so a deliberate developer
-# workspace survives. When no go.work is active anywhere, the recipe exits after
+# An existing local go.work keeps its use-paths and go minimum. An explicit
+# toolchain in go.mod updates only the workspace toolchain. When a workspace is
+# inactive, the recipe exits after
 # one `go env GOWORK` call, so a repo without workspaces pays only that.
 #
 # Both branches force the output path with GOWORK=$(CURDIR)/go.work so `go work
@@ -776,9 +778,9 @@ endif
 # "already exists" instead of writing the local file. Forcing the path is a no-op
 # for a standalone checkout where GOWORK is empty.
 .PHONY: go-mk-workspace
-go-mk-workspace:
+go-mk-workspace: go-mk-bin
 	@if [ -f go.work ]; then \
-		:; \
+		"$(__GO_MK_ENGINE)" workspace-toolchain; \
 	elif [ -n "$(strip $(GO_MK_WORKSPACE_USE))" ]; then \
 		echo "go-mk-workspace: creating go.work (use $(GO_MK_WORKSPACE_USE))"; \
 		GOWORK="$(CURDIR)/go.work" go work init $(GO_MK_WORKSPACE_USE); \
