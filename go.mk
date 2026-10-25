@@ -188,10 +188,10 @@ GOCYCLO_INSTALL        ?= github.com/fzipp/gocyclo/cmd/gocyclo@latest
 GOCYCLO_BASELINE       ?= .gocyclo-baseline.txt
 GOCYCLO_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
 GOCYCLO_EXCLUDE_PATHS  ?=
-# v2.14.0 uses golang.org/x/tools v0.50.0, which reads Go 1.27 export data.
-GOLANGCI_LINT_INSTALL  ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
-GOFUMPT_INSTALL        ?= mvdan.cc/gofumpt@v0.10.0
-GOIMPORTS_INSTALL      ?= golang.org/x/tools/cmd/goimports@v0.45.0
+# v2.15.0 uses golang.org/x/tools v0.52.0, which reads Go 1.27 export data.
+GOLANGCI_LINT_INSTALL  ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+GOFUMPT_INSTALL        ?= mvdan.cc/gofumpt@v0.12.0
+GOIMPORTS_INSTALL      ?= golang.org/x/tools/cmd/goimports@v0.52.0
 GO_BUILD_OUTPUT        ?= $(if $(strip $(CMD)),$(BINARY),)
 GO_BUILD_FLAGS         ?=
 GO_BUILD_OUTPUT_FLAGS  ?= $(if $(strip $(GO_BUILD_OUTPUT)),-o $(GO_BUILD_OUTPUT),)
@@ -200,8 +200,8 @@ GO_TEST_TARGETS        ?= ./...
 GO_TEST_LDFLAGS        ?=
 GO_VET_TARGETS         ?= ./...
 GOVULNCHECK_TARGETS    ?= ./...
-# v1.8.0 uses golang.org/x/tools v0.50.0, which handles Go 1.27 type analysis.
-GOVULNCHECK_INSTALL    ?= golang.org/x/vuln/cmd/govulncheck@v1.8.0
+# v1.9.0 uses golang.org/x/tools v0.52.0, which handles Go 1.27 type analysis.
+GOVULNCHECK_INSTALL    ?= golang.org/x/vuln/cmd/govulncheck@v1.9.0
 GO_INSTALL_FLAGS       ?= $(filter-out -o %,$(GO_BUILD_FLAGS))
 GO_INSTALL_TARGET      ?= $(CMD)
 
