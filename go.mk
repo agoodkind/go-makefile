@@ -767,10 +767,10 @@ endif
 #    for this directory, never when it legitimately covers it (a real monorepo
 #    root). GO_MK_WORKSPACE_NO_AUTOSHADOW=1 prints the cause instead of writing.
 #
-# An existing local go.work keeps its use-paths and go minimum. An explicit
-# toolchain in go.mod updates only the workspace toolchain. When a workspace is
-# inactive, the recipe exits after
-# one `go env GOWORK` call, so a repo without workspaces pays only that.
+# An existing local go.work keeps its use-paths and go minimum.
+# An explicit toolchain in go.mod updates only the workspace toolchain.
+# go-mk-bin prepares the engine before this recipe runs.
+# Without a local go.work or GO_MK_WORKSPACE_USE, the recipe checks `go env GOWORK` for an inherited workspace.
 #
 # Both branches force the output path with GOWORK=$(CURDIR)/go.work so `go work
 # init` writes a local file. Without it, a nested worktree inherits the parent's
@@ -810,12 +810,10 @@ ifneq ($(strip $(GO_MK_GENERATE)),)
 go-mk-workspace: | $(GO_MK_GENERATE)
 endif
 
-# Combined order-only prerequisites attached to every target that loads or
-# compiles packages. go-mk-workspace is always present: it self-heals an
-# inherited go.work even for a repo that declares no GO_MK_WORKSPACE_USE, and it
-# is a cheap no-op (one `go env GOWORK`) when no workspace is active. This block
-# sits before the module include so the recipe-less build rule merges onto
-# go-build.mk's build recipe.
+# These order-only prerequisites apply to every target that loads or compiles packages.
+# go-mk-workspace prepares the engine and checks workspace routing.
+# It also checks inherited workspaces when GO_MK_WORKSPACE_USE is empty.
+# The module include adds the build recipe from go-build.mk to this build rule.
 #
 # The CI legs lint-format and lint-gocyclo compile no package. Neither one
 # takes a codegen or cgo prerequisite.
