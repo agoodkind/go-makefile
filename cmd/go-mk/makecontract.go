@@ -45,6 +45,42 @@ type makeRecipeLocation struct {
 	old    bool
 }
 
+type makeReplayArguments struct {
+	arguments []string
+	remaining []string
+	hasFile   bool
+}
+
+type makeDefaultFile string
+
+type makeLongArgumentOption struct {
+	name       string
+	takesValue bool
+	directory  bool
+	file       bool
+}
+
+var makeLongArgumentOptions = []makeLongArgumentOption{
+	{name: "directory", takesValue: true, directory: true},
+	{name: "file", takesValue: true, file: true},
+	{name: "makefile", takesValue: true, file: true},
+	{name: "include-dir", takesValue: true},
+	{name: "old-file", takesValue: true},
+	{name: "assume-old", takesValue: true},
+	{name: "what-if", takesValue: true},
+	{name: "new-file", takesValue: true},
+	{name: "assume-new", takesValue: true},
+	{name: "eval", takesValue: true},
+	{name: "jobserver-auth", takesValue: true},
+	{name: "jobserver-fds", takesValue: true},
+	{name: "jobs"},
+	{name: "load-average"},
+	{name: "max-load"},
+	{name: "output-sync"},
+	{name: "debug"},
+	{name: "shuffle"},
+}
+
 var makeRecipeWarning = regexp.MustCompile("(?m)^(.+):([0-9]+): warning: (overriding|ignoring old) (?:commands|recipe) for target [`'](.+)'\\r?$")
 
 func runValidateMake(arguments []string) int {
@@ -111,10 +147,18 @@ func validateMakeContract(options makeContractOptions) error {
 	if err := stopFile.Close(); err != nil {
 		return fmt.Errorf("cannot close the Make validation file: %w", err)
 	}
-	replayArguments, err := makeContractArguments(invocation.arguments[1:], stopPath)
+	replay, err := makeContractArguments(invocation.arguments[1:])
 	if err != nil {
 		return err
 	}
+	var defaultFile makeDefaultFile
+	if !replay.hasFile {
+		defaultFile, err = defaultMakeContractFile()
+		if err != nil {
+			return err
+		}
+	}
+	replayArguments := finishMakeContractArguments(replay, defaultFile, stopPath)
 	command := exec.Command(invocation.executable, replayArguments...)
 	command.Env = setEnvVar(invocation.environment, "LC_ALL", "C")
 	var output bytes.Buffer
@@ -132,38 +176,38 @@ func validateMakeContract(options makeContractOptions) error {
 
 // makeContractArguments preserves argument boundaries while removing directory
 // options because the running Make process has already changed directories.
-func makeContractArguments(arguments []string, stopPath string) ([]string, error) {
-	result := make([]string, 0, len(arguments)+7)
-	hasFile := false
+func makeContractArguments(arguments []string) (makeReplayArguments, error) {
+	result := makeReplayArguments{arguments: make([]string, 0, len(arguments)+7)}
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
 		if argument == "--" {
-			return finishMakeContractArguments(result, hasFile, stopPath, arguments[index:])
+			result.remaining = arguments[index:]
+			return result, nil
 		}
 		option := makeContractOption(argument)
 		if option.next {
 			if index+1 >= len(arguments) {
-				return nil, fmt.Errorf("a Make option requires a value")
+				return makeReplayArguments{}, fmt.Errorf("a Make option requires a value")
 			}
 			index++
 			option.value = arguments[index]
 		}
 		if option.file && option.value == "-" {
-			return nil, fmt.Errorf("recipe validation requires a saved Makefile; replace the standard-input Makefile with a file path")
+			return makeReplayArguments{}, fmt.Errorf("recipe validation requires a saved Makefile; replace the standard-input Makefile with a file path")
 		}
-		hasFile = hasFile || option.file
+		result.hasFile = result.hasFile || option.file
 		if option.directory {
 			if option.retained != "" {
-				result = append(result, option.retained)
+				result.arguments = append(result.arguments, option.retained)
 			}
 			continue
 		}
-		result = append(result, argument)
+		result.arguments = append(result.arguments, argument)
 		if option.next {
-			result = append(result, option.value)
+			result.arguments = append(result.arguments, option.value)
 		}
 	}
-	return finishMakeContractArguments(result, hasFile, stopPath, nil)
+	return result, nil
 }
 
 type makeArgumentOption struct {
@@ -177,10 +221,8 @@ type makeArgumentOption struct {
 func makeContractOption(argument string) makeArgumentOption {
 	if strings.HasPrefix(argument, "--") {
 		name, value, inline := strings.Cut(argument[2:], "=")
-		for _, option := range []string{"directory", "file", "makefile", "include-dir", "old-file", "assume-old", "what-if", "new-file", "assume-new", "eval", "jobserver-auth", "jobserver-fds"} {
-			if name != "" && strings.HasPrefix(option, name) {
-				return makeArgumentOption{directory: option == "directory", file: option == "file" || option == "makefile", next: !inline, value: value}
-			}
+		if option, found := makeContractLongOption(name); found {
+			return makeArgumentOption{directory: option.directory, file: option.file, next: option.takesValue && !inline, value: value}
 		}
 		return makeArgumentOption{}
 	}
@@ -203,22 +245,44 @@ func makeContractOption(argument string) makeArgumentOption {
 	return makeArgumentOption{}
 }
 
-func finishMakeContractArguments(result []string, hasFile bool, stopPath string, remaining []string) ([]string, error) {
-	if !hasFile {
-		defaultFile, err := defaultMakeContractFile()
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, "-f", defaultFile)
+func makeContractLongOption(name string) (makeLongArgumentOption, bool) {
+	if name == "" {
+		return makeLongArgumentOption{}, false
 	}
-	result = append(result, "_GO_MK_VALIDATE_PARSE=1", "_GO_MK_PROVISIONED=1", "-j1", "-f", stopPath)
-	return append(result, remaining...), nil
+	var selected makeLongArgumentOption
+	matchCount := 0
+	for _, option := range makeLongArgumentOptions {
+		if option.name == name {
+			return option, true
+		}
+		if strings.HasPrefix(option.name, name) {
+			selected = option
+			matchCount++
+		}
+	}
+	return selected, matchCount == 1
 }
 
-func defaultMakeContractFile() (string, error) {
+func finishMakeContractArguments(replay makeReplayArguments, defaultFile makeDefaultFile, stopPath string) []string {
+	result := replay.arguments
+	if !replay.hasFile {
+		result = append(result, "-f", string(defaultFile))
+	}
+	result = append(result, "_GO_MK_VALIDATE_PARSE=1", "_GO_MK_PROVISIONED=1", "-j1", "-f", stopPath)
+	return append(result, replay.remaining...)
+}
+
+func defaultMakeContractFile() (makeDefaultFile, error) {
 	for _, name := range []string{"GNUmakefile", "makefile", "Makefile"} {
-		if info, err := os.Stat(name); err == nil && !info.IsDir() {
-			return name, nil
+		info, err := os.Stat(name)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if !info.IsDir() {
+			return makeDefaultFile(name), nil
 		}
 	}
 	return "", fmt.Errorf("cannot find the default Makefile for recipe validation; pass its path with -f")
@@ -227,7 +291,11 @@ func defaultMakeContractFile() (string, error) {
 func findMakeRecipeConflict(output string, sharedFiles []string) error {
 	shared := make(map[string]bool, len(sharedFiles))
 	for _, path := range sharedFiles {
-		shared[makeContractPath(path)] = true
+		resolved, err := makeContractPath(path)
+		if err != nil {
+			return err
+		}
+		shared[resolved] = true
 	}
 	var replacement makeRecipeLocation
 	for _, match := range makeRecipeWarning.FindAllStringSubmatch(output, -1) {
@@ -241,8 +309,14 @@ func findMakeRecipeConflict(output string, sharedFiles []string) error {
 		if replacement.target != location.target {
 			continue
 		}
-		newShared := shared[makeContractPath(replacement.path)]
-		oldShared := shared[makeContractPath(location.path)]
+		newShared, err := makeContractSharedLocation(replacement.path, shared)
+		if err != nil {
+			return err
+		}
+		oldShared, err := makeContractSharedLocation(location.path, shared)
+		if err != nil {
+			return err
+		}
 		if newShared == oldShared {
 			continue
 		}
@@ -255,14 +329,25 @@ func findMakeRecipeConflict(output string, sharedFiles []string) error {
 	return nil
 }
 
-func makeContractPath(path string) string {
+func makeContractSharedLocation(path string, shared map[string]bool) (bool, error) {
+	if path == "<builtin>" {
+		return false, nil
+	}
+	resolved, err := makeContractPath(path)
+	if err != nil {
+		return false, err
+	}
+	return shared[resolved], nil
+}
+
+func makeContractPath(path string) (string, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
-		return filepath.Clean(path)
+		return "", err
 	}
 	physical, err := filepath.EvalSymlinks(absolute)
-	if err == nil {
-		return physical
+	if err != nil {
+		return "", err
 	}
-	return absolute
+	return physical, nil
 }

@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -56,9 +57,58 @@ func TestMakeRejectsConsumerRecipeReplacements(t *testing.T) {
 				output, err := command.CombinedOutput()
 				assertMakeContractFailure(t, consumer, output, err)
 			})
+			t.Run("abbreviated-directory-option", func(t *testing.T) {
+				consumer := makeContractConsumer(t, repoRoot, "after.mk")
+				command := makeContractCommand(makePath, repoRoot, engine, repoRoot, []string{"--dir", consumer, "help"})
+				output, err := command.CombinedOutput()
+				assertMakeContractFailure(t, consumer, output, err)
+			})
 			t.Run("separated-goals", func(t *testing.T) {
 				consumer := makeContractConsumer(t, repoRoot, "after.mk")
 				command := makeContractCommand(makePath, consumer, engine, repoRoot, []string{"-f", "Makefile", "--", "help"})
+				output, err := command.CombinedOutput()
+				assertMakeContractFailure(t, consumer, output, err)
+			})
+			t.Run("jobs-option", func(t *testing.T) {
+				consumer := makeContractConsumer(t, repoRoot, "valid.mk")
+				command := makeContractCommand(makePath, consumer, engine, repoRoot, []string{"help", "--jobs"})
+				output, err := command.CombinedOutput()
+				if err != nil || !strings.Contains(string(output), "Canonical entry points:") {
+					t.Fatalf("help with --jobs failed: %v\n%s", err, output)
+				}
+			})
+			t.Run("explicit-file-without-default", func(t *testing.T) {
+				consumer := makeContractConsumer(t, repoRoot, "valid.mk")
+				if err := os.Rename(filepath.Join(consumer, "Makefile"), filepath.Join(consumer, "consumer.mk")); err != nil {
+					t.Fatal(err)
+				}
+				command := makeContractCommand(makePath, consumer, engine, repoRoot, []string{"-f", "consumer.mk", "help"})
+				output, err := command.CombinedOutput()
+				if err != nil || !strings.Contains(string(output), "Canonical entry points:") {
+					t.Fatalf("explicit Makefile required an unrelated default file: %v\n%s", err, output)
+				}
+			})
+			if makeName == "gmake" {
+				t.Run("builtin-source-location", func(t *testing.T) {
+					consumer := makeContractConsumer(t, repoRoot, "valid.mk")
+					body, err := os.ReadFile(filepath.Join("testdata", "makecontract", "builtin-custom.mk"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					command := makeContractCommand(makePath, consumer, engine, repoRoot, []string{"--eval=" + string(body), "help", "builtin-custom"})
+					output, err := command.CombinedOutput()
+					if err != nil || !strings.Contains(string(output), "Canonical entry points:") {
+						t.Fatalf("consumer-only built-in definitions failed validation: %v\n%s", err, output)
+					}
+					if _, err := os.Stat(filepath.Join(consumer, "builtin-ran")); err != nil {
+						t.Fatalf("Make did not execute the consumer-only command: %v", err)
+					}
+				})
+			}
+			t.Run("nested-make", func(t *testing.T) {
+				consumer := makeContractConsumer(t, repoRoot, "nested.mk")
+				copyMakeContractFile(t, filepath.Join("testdata", "makecontract", "nested-child.mk"), filepath.Join(consumer, "nested-child.mk"))
+				command := makeContractCommand(makePath, consumer, engine, repoRoot, []string{"nested"})
 				output, err := command.CombinedOutput()
 				assertMakeContractFailure(t, consumer, output, err)
 			})
@@ -118,6 +168,24 @@ func TestMakeRejectsConsumerRecipeReplacements(t *testing.T) {
 					t.Fatalf("Make ran the consumer prerequisite after acquisition failed: %v", err)
 				}
 			})
+			t.Run("host-engine-acquisition", func(t *testing.T) {
+				consumer := makeContractConsumer(t, repoRoot, "valid.mk")
+				projectOS := "linux"
+				if runtime.GOOS == "linux" {
+					projectOS = "darwin"
+				}
+				command := exec.Command(makePath, "help")
+				command.Dir = consumer
+				command.Env = []string{
+					"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "TMPDIR=" + os.Getenv("TMPDIR"),
+					"GOPATH=" + os.Getenv("GOPATH"), "GO_MK_DEV_DIR=" + repoRoot, "_GO_MK_PROVISIONED=1", "GOWORK=off",
+					"CC=go-mk-missing-project-compiler", "CGO_ENABLED=1", "GOOS=" + projectOS, "GOARCH=amd64",
+				}
+				output, err := command.CombinedOutput()
+				if err != nil || !strings.Contains(string(output), "Canonical entry points:") {
+					t.Fatalf("host engine acquisition used project compiler settings: %v\n%s", err, output)
+				}
+			})
 		})
 	}
 }
@@ -149,7 +217,7 @@ func copyMakeContractFile(t *testing.T, source, destination string) {
 func makeContractCommand(makePath, directory, engine, repoRoot string, arguments []string) *exec.Cmd {
 	command := exec.Command(makePath, arguments...)
 	command.Dir = directory
-	command.Env = append(os.Environ(), "GO_MK_DEV_DIR="+repoRoot, "GO_MK_BIN="+engine, "_GO_MK_PROVISIONED=1", "MAKEFLAGS=", "GOWORK=off")
+	command.Env = append(os.Environ(), "GO_MK_DEV_DIR="+repoRoot, "GO_MK_BIN="+engine, "_GO_MK_PROVISIONED=1", "MAKEFLAGS=", "MAKELEVEL=0", "GOWORK=off")
 	return command
 }
 
@@ -158,7 +226,7 @@ func assertMakeContractFailure(t *testing.T, consumer string, output []byte, com
 	if commandError == nil {
 		t.Fatalf("consumer recipe replacement succeeded:\n%s", output)
 	}
-	if !regexp.MustCompile(`(?i)(?:makefile|extra\.mk):[0-9]+ replaces`).Match(output) {
+	if !regexp.MustCompile(`(?i)(?:makefile|extra\.mk|nested-child\.mk):[0-9]+ replaces`).Match(output) {
 		t.Fatalf("consumer error omitted its source location: %v\n%s", commandError, output)
 	}
 	for _, expected := range []string{"shared recipe for target", "If this is a new error, please correct it now by moving the consumer recipe to a separate target and updating its callers."} {
