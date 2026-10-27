@@ -26,23 +26,38 @@ engine_provides() {
     esac
 }
 
+run_host_go() {
+    local host_goos
+    local host_goarch
+    host_goos=$(go env GOHOSTOS) || return 1
+    host_goarch=$(go env GOHOSTARCH) || return 1
+    env CGO_ENABLED=0 GOOS="${host_goos}" GOARCH="${host_goarch}" "$@"
+}
+
 obtain_go_mk() {
+    local required_command="$1"
+    shift
+    local -a acquisition_environment
+    acquisition_environment=("$@")
     mkdir -p "$(dirname "${OUTPUT}")"
-    if [[ -n "${GO_MK_BUILD_REPO:-}" ]] && [[ -d "${GO_MK_BUILD_REPO}" ]] && command -v go >/dev/null 2>&1; then
+    if [[ -n "${GO_MK_BUILD_REPO:-}" ]]; then
         local tmp_path
         tmp_path=$(mktemp "${OUTPUT}.XXXXXX") || return 1
-        if go build -C "${GO_MK_BUILD_REPO}" -o "${tmp_path}" "${GO_MK_BUILD_PKG:-./cmd/go-mk}" \
+        # Bash 3 treats empty arrays as unset with set -u.
+        if run_host_go ${acquisition_environment[@]+"${acquisition_environment[@]}"} go build -C "${GO_MK_BUILD_REPO}" -o "${tmp_path}" "${GO_MK_BUILD_PKG:-./cmd/go-mk}" \
             && mv "${tmp_path}" "${OUTPUT}"; then
             printf '%s\n' "${OUTPUT}"
             return 0
         fi
         rm -f "${tmp_path}"
+        printf 'go-mk-bin: dev build failed; correct GO_MK_BUILD_REPO before running targets\n' >&2
+        return 1
     fi
     # A symlink here is an engine some earlier version shared with every other
     # consumer on the machine. It is replaced rather than reused, whatever it
     # currently points at, so this consumer ends up owning its own binary.
     if [[ ! -L "${OUTPUT}" && -f "${OUTPUT}" && -x "${OUTPUT}" ]] \
-        && engine_provides "${OUTPUT}" "resolve-bin"; then
+        && engine_provides "${OUTPUT}" "${required_command}"; then
         printf '%s\n' "${OUTPUT}"
         return 0
     fi
@@ -57,10 +72,15 @@ obtain_go_mk() {
     local install_spec="${GO_MK_INSTALL:-goodkind.io/go-makefile/cmd/go-mk@main}"
     local staging
     staging=$(mktemp -d "$(dirname "${OUTPUT}")/.go-mk-install.XXXXXX") || return 1
-    if ! env GOBIN="${staging}" \
+    if ! run_host_go GOBIN="${staging}" ${acquisition_environment[@]+"${acquisition_environment[@]}"} \
         go install "${install_spec}"; then
         rm -rf "${staging}"
         printf 'go-mk-bin: could not go install %s\n' "${install_spec}" >&2
+        return 1
+    fi
+    if ! engine_provides "${staging}/go-mk" "${required_command}"; then
+        rm -rf "${staging}"
+        printf 'go-mk-bin: the installed engine does not provide %s; update GO_MK_INSTALL to a revision that provides this command\n' "${required_command}" >&2
         return 1
     fi
     if ! mv "${staging}/go-mk" "${OUTPUT}"; then
@@ -72,5 +92,37 @@ obtain_go_mk() {
     printf '%s\n' "${OUTPUT}"
 }
 
-go_mk_bin=$(obtain_go_mk) || exit 1
-exec "${go_mk_bin}" resolve-bin "${1:-bin}"
+run_make_validation() {
+    local validation_status=0
+    local go_mk_bin="${GO_MK_BIN:-}"
+    if [[ -z "${go_mk_bin}" ]]; then
+        local -a acquisition_environment
+        acquisition_environment=()
+        if [[ "${GO_MK_INSTALL:-goodkind.io/go-makefile/cmd/go-mk@main}" == "goodkind.io/go-makefile/cmd/go-mk@main" ]] \
+            && [[ ! -s "$(dirname "${OUTPUT}")/.go-mk-commit" ]]; then
+            acquisition_environment+=("GOPROXY=direct")
+        fi
+        if go_mk_bin=$(obtain_go_mk validate-make ${acquisition_environment[@]+"${acquisition_environment[@]}"}); then
+            :
+        else
+            validation_status=$?
+        fi
+    fi
+    if [[ "${validation_status}" -eq 0 ]]; then
+        if "${go_mk_bin}" validate-make "$@"; then
+            :
+        else
+            validation_status=$?
+        fi
+    fi
+    printf '\n__GO_MK_VALIDATE_EXIT_%s\n' "${validation_status}"
+    return "${validation_status}"
+}
+
+if [[ "${1:-bin}" == "validate-make" ]]; then
+    shift
+    run_make_validation "$@"
+else
+    go_mk_bin=$(obtain_go_mk resolve-bin) || exit 1
+    exec "${go_mk_bin}" resolve-bin "${1:-bin}"
+fi

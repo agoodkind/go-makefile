@@ -847,3 +847,13 @@ go-mk-generate: | $(GO_MK_GENERATE)
 
 # Include opt-in modules at end so they see all go.mk definitions.
 $(foreach m,$(GO_MK_MODULES),$(eval -include .make/$(m)))
+
+# Validate a complete parse before Make can run consumer recipes.
+_GO_MK_VALIDATE_PARSE ?=
+ifneq ($(strip $(_GO_MK_VALIDATE_PARSE)),1)
+__GO_MK_VALIDATE_PID := $(shell echo $$PPID)
+__GO_MK_VALIDATE_RESULT := $(shell GO_MK_BIN="$(GO_MK_BIN)" GO_MK_BUILD_REPO="$(GO_MK_BUILD_REPO)" GO_MK_BUILD_PKG="$(GO_MK_BUILD_PKG)" GO_MK_INSTALL="$(GO_MK_INSTALL)" bash "$(_GO_MK_HELPER_DIR)/go-mk-bin.sh" validate-make --make-pid "$(__GO_MK_VALIDATE_PID)" --shared-file "$(_GO_MK_SELF)" $(foreach m,$(GO_MK_MODULES),--shared-file ".make/$(m)") 2>&1)
+ifneq ($(lastword $(__GO_MK_VALIDATE_RESULT)),__GO_MK_VALIDATE_EXIT_0)
+$(error $(or $(strip $(filter-out __GO_MK_VALIDATE_EXIT_%,$(__GO_MK_VALIDATE_RESULT))),go-makefile recipe validation failed; check engine installation))
+endif
+endif

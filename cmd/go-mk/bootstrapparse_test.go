@@ -62,9 +62,14 @@ func newConsumer(t *testing.T) string {
 // forward it, so use runMakeWithCommandLineVars for the other two.
 func runMake(t *testing.T, dir string, env map[string]string) (string, int) {
 	t.Helper()
+	seedTestEngine(t, dir)
+	environment := map[string]string{"GO_MK_BIN": filepath.Join(dir, ".make", "go-mk")}
+	for key, value := range env {
+		environment[key] = value
+	}
 	command := exec.Command("make", "-n", "help")
 	command.Dir = dir
-	command.Env = testProcessEnvironment(env)
+	command.Env = testProcessEnvironment(environment)
 	var combined strings.Builder
 	command.Stdout = &combined
 	command.Stderr = &combined
@@ -89,13 +94,14 @@ func runMake(t *testing.T, dir string, env map[string]string) (string, int) {
 // cannot reach.
 func runMakeWithCommandLineVars(t *testing.T, dir string, vars map[string]string) (string, int) {
 	t.Helper()
+	seedTestEngine(t, dir)
 	arguments := []string{"-n", "help"}
 	for key, value := range vars {
 		arguments = append(arguments, key+"="+value)
 	}
 	command := exec.Command("make", arguments...)
 	command.Dir = dir
-	command.Env = testProcessEnvironment(nil)
+	command.Env = testProcessEnvironment(map[string]string{"GO_MK_BIN": filepath.Join(dir, ".make", "go-mk")})
 	var combined strings.Builder
 	command.Stdout = &combined
 	command.Stderr = &combined
@@ -215,12 +221,13 @@ func consumerFiles(t *testing.T) map[string]string {
 	t.Helper()
 	files := helperFiles()
 	files["go.mk"] = "help:\n\t@printf 'stub help\\n'\n"
-	helperBody, err := os.ReadFile(
-		filepath.Join(repoRootForTest(t), "scripts", "go-mk-bootstrap.sh"))
-	if err != nil {
-		t.Fatalf("read scripts/go-mk-bootstrap.sh: %v", err)
+	for _, asset := range []string{"scripts/go-mk-bootstrap.sh", "scripts/go-mk-bin.sh"} {
+		helperBody, err := os.ReadFile(filepath.Join(repoRootForTest(t), asset))
+		if err != nil {
+			t.Fatalf("read %s: %v", asset, err)
+		}
+		files[asset] = string(helperBody)
 	}
-	files["scripts/go-mk-bootstrap.sh"] = string(helperBody)
 	return files
 }
 
@@ -279,7 +286,10 @@ func TestEngineInstallUsesTheTarballCommit(t *testing.T) {
 
 			command := exec.Command("make", "print-engine-install")
 			command.Dir = dir
-			command.Env = testProcessEnvironment(map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+			command.Env = testProcessEnvironment(map[string]string{
+				"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+				"GO_MK_BIN":           filepath.Join(dir, ".make", "go-mk"),
+			})
 			output, err := command.CombinedOutput()
 			if err != nil {
 				t.Fatalf("make print-engine-install: %v\n%s", err, output)
@@ -570,7 +580,7 @@ endif
 //
 // This is fully hermetic (no network, no fetch server): GO_MK_DEV_DIR
 // points at a directory seeded with the current go.mk, golangci.yml, and a
-// scripts/go-mk-bin.sh sentinel. That sentinel is what makes go.mk resolve
+// scripts/go-mk-bin.sh helper. The helper file makes go.mk resolve
 // GO_MK_HELPER_DIR to the dev dir instead of .make/scripts, so it never
 // requires scripts/go-mk-fetch-one.sh, scripts/go-mk-sync.sh, or
 // notices.txt, none of which the old bootstrap.mk ever fetched.
@@ -597,9 +607,9 @@ func TestOldBootstrapMkParsesWithCurrentGoMkAndNoGoMkProvision(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(devDir, "scripts"), 0o755); err != nil {
 		t.Fatalf("mkdir dev scripts dir: %v", err)
 	}
-	sentinel := filepath.Join(devDir, "scripts", "go-mk-bin.sh")
-	if err := os.WriteFile(sentinel, []byte("#!/usr/bin/env bash\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write go-mk-bin.sh sentinel: %v", err)
+	helper := filepath.Join(devDir, "scripts", "go-mk-bin.sh")
+	if err := copyFile(filepath.Join(repoRoot, "scripts", "go-mk-bin.sh"), helper); err != nil {
+		t.Fatalf("copy go-mk-bin.sh: %v", err)
 	}
 
 	dir := t.TempDir()
@@ -743,10 +753,10 @@ $(shell mkdir -p .make && curl -sS -o .make/snapshot.tar.gz "$(GO_MK_CODELOAD_BA
 	// production on every run of this test, so the server saw only one request
 	// and the test silently depended on the network and on whatever was on
 	// main rather than on the fixture above.
+	// Recipe validation parses the legacy bootstrap and adds one archive request.
 	requests := server.Requests()
-	if len(requests) != 2 {
-		t.Fatalf("server saw %d requests, want 2 (the old bootstrap fetch plus go.mk's own prime); "+
-			"a missing one escaped to production instead of the test server", len(requests))
+	if len(requests) != 3 {
+		t.Fatalf("server saw %d archive requests, want 3 from the outer bootstrap, its prime, and validation bootstrap", len(requests))
 	}
 	for index, request := range requests {
 		if want := "/agoodkind/go-makefile/tar.gz/main"; request.Path != want {
