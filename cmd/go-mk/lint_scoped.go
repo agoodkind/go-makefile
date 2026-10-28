@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"goodkind.io/go-makefile/internal/findings"
@@ -139,10 +140,47 @@ func runVet() error {
 // whitespace-split for package and flag lists, which cannot carry a quoted
 // multi-word value.
 func runTest() error {
+	if _, err := testJSONVerbosity(splitWords(os.Getenv("GOFLAGS")), "GOFLAGS"); err != nil {
+		return err
+	}
 	targets := splitWords(lintEnvDefault("GO_TEST_TARGETS", "./..."))
-	args := append([]string{"test"}, testLdflagsArgs()...)
+	targets, err := testJSONVerbosity(targets, "GO_TEST_TARGETS")
+	if err != nil {
+		return err
+	}
+	args := append([]string{"test", "-json", "-v=test2json"}, testLdflagsArgs()...)
 	args = append(args, targets...)
-	return runLintCPU("go", args)
+	return runGoTest(args)
+}
+
+// testJSONVerbosity preserves verbose output with Go's event framing markers.
+// Plain -v overrides the markers that -json normally enables.
+func testJSONVerbosity(arguments []string, source string) ([]string, error) {
+	testArguments := false
+	for index, argument := range arguments {
+		if argument == "-args" {
+			testArguments = true
+			continue
+		}
+		flag, value, hasValue := strings.Cut(argument, "=")
+		if flag != "-v" && flag != "-test.v" {
+			continue
+		}
+		if testArguments && flag != "-test.v" {
+			continue
+		}
+		if hasValue && value != "test2json" {
+			enabled, err := strconv.ParseBool(value)
+			if err != nil {
+				continue
+			}
+			if !enabled {
+				return nil, errors.New(source + " cannot disable verbose output during live test reporting; remove " + argument)
+			}
+		}
+		arguments[index] = "-test.v=test2json"
+	}
+	return arguments, nil
 }
 
 // testLdflagsArgs returns the -ldflags flag and its value as two argv elements
