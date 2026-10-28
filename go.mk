@@ -188,10 +188,10 @@ GOCYCLO_INSTALL        ?= github.com/fzipp/gocyclo/cmd/gocyclo@latest
 GOCYCLO_BASELINE       ?= .gocyclo-baseline.txt
 GOCYCLO_DEFAULT_EXCLUDE_PATHS ?= _test\.go:
 GOCYCLO_EXCLUDE_PATHS  ?=
-# v2.14.0 uses golang.org/x/tools v0.50.0, which reads Go 1.27 export data.
-GOLANGCI_LINT_INSTALL  ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
-GOFUMPT_INSTALL        ?= mvdan.cc/gofumpt@v0.10.0
-GOIMPORTS_INSTALL      ?= golang.org/x/tools/cmd/goimports@v0.45.0
+# v2.15.0 uses golang.org/x/tools v0.52.0, which reads Go 1.27 export data.
+GOLANGCI_LINT_INSTALL  ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+GOFUMPT_INSTALL        ?= mvdan.cc/gofumpt@v0.12.0
+GOIMPORTS_INSTALL      ?= golang.org/x/tools/cmd/goimports@v0.52.0
 GO_BUILD_OUTPUT        ?= $(if $(strip $(CMD)),$(BINARY),)
 GO_BUILD_FLAGS         ?=
 GO_BUILD_OUTPUT_FLAGS  ?= $(if $(strip $(GO_BUILD_OUTPUT)),-o $(GO_BUILD_OUTPUT),)
@@ -200,8 +200,8 @@ GO_TEST_TARGETS        ?= ./...
 GO_TEST_LDFLAGS        ?=
 GO_VET_TARGETS         ?= ./...
 GOVULNCHECK_TARGETS    ?= ./...
-# v1.8.0 uses golang.org/x/tools v0.50.0, which handles Go 1.27 type analysis.
-GOVULNCHECK_INSTALL    ?= golang.org/x/vuln/cmd/govulncheck@v1.8.0
+# v1.9.0 uses golang.org/x/tools v0.52.0, which handles Go 1.27 type analysis.
+GOVULNCHECK_INSTALL    ?= golang.org/x/vuln/cmd/govulncheck@v1.9.0
 GO_INSTALL_FLAGS       ?= $(filter-out -o %,$(GO_BUILD_FLAGS))
 GO_INSTALL_TARGET      ?= $(CMD)
 
@@ -634,7 +634,8 @@ GO_MK_GENERATE_OUTPUTS ?=
 # materializes a gitignored go.work from those paths before any compile, so a
 # fresh checkout, worktree, or CI run routes the modules without a committed
 # go.work or a go.mod replace (the latter is rejected by gomoddirectives). An
-# existing go.work is left untouched, so a developer override survives.
+# existing workspace keeps its use-paths and compatibility minimum. An explicit
+# module toolchain preference updates the workspace toolchain.
 GO_MK_WORKSPACE_USE ?=
 
 # GO_MK_WORKSPACE_NO_AUTOSHADOW: opt-out for the inherited-go.work self-heal. When
@@ -766,9 +767,10 @@ endif
 #    for this directory, never when it legitimately covers it (a real monorepo
 #    root). GO_MK_WORKSPACE_NO_AUTOSHADOW=1 prints the cause instead of writing.
 #
-# An existing local go.work is always left untouched, so a deliberate developer
-# workspace survives. When no go.work is active anywhere, the recipe exits after
-# one `go env GOWORK` call, so a repo without workspaces pays only that.
+# An existing local go.work keeps its use-paths and go minimum.
+# An explicit toolchain in go.mod updates only the workspace toolchain.
+# go-mk-bin prepares the engine before this recipe runs.
+# Without a local go.work or GO_MK_WORKSPACE_USE, the recipe checks `go env GOWORK` for an inherited workspace.
 #
 # Both branches force the output path with GOWORK=$(CURDIR)/go.work so `go work
 # init` writes a local file. Without it, a nested worktree inherits the parent's
@@ -776,9 +778,9 @@ endif
 # "already exists" instead of writing the local file. Forcing the path is a no-op
 # for a standalone checkout where GOWORK is empty.
 .PHONY: go-mk-workspace
-go-mk-workspace:
+go-mk-workspace: go-mk-bin
 	@if [ -f go.work ]; then \
-		:; \
+		"$(__GO_MK_ENGINE)" workspace-toolchain; \
 	elif [ -n "$(strip $(GO_MK_WORKSPACE_USE))" ]; then \
 		echo "go-mk-workspace: creating go.work (use $(GO_MK_WORKSPACE_USE))"; \
 		GOWORK="$(CURDIR)/go.work" go work init $(GO_MK_WORKSPACE_USE); \
@@ -808,12 +810,10 @@ ifneq ($(strip $(GO_MK_GENERATE)),)
 go-mk-workspace: | $(GO_MK_GENERATE)
 endif
 
-# Combined order-only prerequisites attached to every target that loads or
-# compiles packages. go-mk-workspace is always present: it self-heals an
-# inherited go.work even for a repo that declares no GO_MK_WORKSPACE_USE, and it
-# is a cheap no-op (one `go env GOWORK`) when no workspace is active. This block
-# sits before the module include so the recipe-less build rule merges onto
-# go-build.mk's build recipe.
+# These order-only prerequisites apply to every target that loads or compiles packages.
+# go-mk-workspace prepares the engine and checks workspace routing.
+# It also checks inherited workspaces when GO_MK_WORKSPACE_USE is empty.
+# The module include adds the build recipe from go-build.mk to this build rule.
 #
 # The CI legs lint-format and lint-gocyclo compile no package. Neither one
 # takes a codegen or cgo prerequisite.
