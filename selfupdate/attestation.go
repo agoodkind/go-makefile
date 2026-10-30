@@ -95,6 +95,11 @@ func verifyReleaseAssetAttestation(ctx context.Context, options Options, latest 
 		options.Log.WarnContext(ctx, "update release tag resolve failed", "repo", repo, "tag", latest.TagName, "err", err)
 		return err
 	}
+	return verifyReleaseAttestationAtCommit(ctx, options, latest, asset, tagCommitSHA, digestHex, digestBytes)
+}
+
+func verifyReleaseAttestationAtCommit(ctx context.Context, options Options, latest release, asset releaseAsset, tagCommitSHA string, digestHex string, digestBytes []byte) error {
+	repo := options.Config.Repo
 	attestations, err := fetchAttestations(ctx, options, repo, "sha1:"+tagCommitSHA, "release")
 	if err != nil {
 		options.Log.WarnContext(ctx, "update release attestation fetch failed", "repo", repo, "tag", latest.TagName, "err", err)
@@ -141,36 +146,58 @@ func verifyReleaseAssetAttestation(ctx context.Context, options Options, latest 
 }
 
 func verifyBuildProvenanceAttestation(ctx context.Context, options Options, asset releaseAsset, digestHex string, digestBytes []byte) error {
+	_, err := verifyBuildProvenanceFromSource(ctx, options, asset, digestHex, digestBytes, buildProvenanceSource{})
+	return err
+}
+
+// buildProvenanceSource specifies the expected source revision and ref of a
+// build provenance certificate. The certificate check compares each field only
+// when it is not empty.
+type buildProvenanceSource struct {
+	Revision string
+	Ref      string
+}
+
+func verifyBuildProvenanceFromSource(
+	ctx context.Context,
+	options Options,
+	asset releaseAsset,
+	digestHex string,
+	digestBytes []byte,
+	source buildProvenanceSource,
+) (*fulciocert.Summary, error) {
 	repo := options.Config.Repo
 	attestations, err := fetchAttestations(ctx, options, repo, "sha256:"+digestHex, githubBuildProvenancePredicateType)
 	if err != nil {
 		options.Log.WarnContext(ctx, "update build provenance fetch failed", "repo", repo, "asset", asset.Name, "err", err)
-		return fmt.Errorf("fetch build provenance attestation: %w", err)
+		return nil, fmt.Errorf("fetch build provenance attestation: %w", err)
 	}
 	sourceRepositoryURI := githubRepositoryURI(repo)
 	signerWorkflowPattern := options.Config.signerWorkflowPattern()
 	sanMatcher, err := sigverify.NewSANMatcher("", signerWorkflowPattern.String())
 	if err != nil {
-		return fmt.Errorf("build provenance SAN matcher: %w", err)
+		return nil, fmt.Errorf("build provenance SAN matcher: %w", err)
 	}
 	issuerMatcher, err := sigverify.NewIssuerMatcher(githubActionsOIDCIssuer, "")
 	if err != nil {
-		return fmt.Errorf("build provenance issuer matcher: %w", err)
+		return nil, fmt.Errorf("build provenance issuer matcher: %w", err)
 	}
 	// Fulcio extensions support only exact values, so
 	// validateBuildProvenanceCertificate checks BuildSignerURI against the
 	// verified SAN after verification.
 	identity, err := sigverify.NewCertificateIdentity(sanMatcher, issuerMatcher, fulciocert.Extensions{
-		RunnerEnvironment:   githubHostedRunnerEnvironment,
-		SourceRepositoryURI: sourceRepositoryURI,
+		RunnerEnvironment:      githubHostedRunnerEnvironment,
+		SourceRepositoryURI:    sourceRepositoryURI,
+		SourceRepositoryDigest: source.Revision,
+		SourceRepositoryRef:    source.Ref,
 	})
 	if err != nil {
-		return fmt.Errorf("build provenance certificate identity: %w", err)
+		return nil, fmt.Errorf("build provenance certificate identity: %w", err)
 	}
 	verifier, err := newBuildProvenanceVerifier()
 	if err != nil {
 		options.Log.WarnContext(ctx, "update build provenance verifier create failed", "repo", repo, "asset", asset.Name, "err", err)
-		return err
+		return nil, err
 	}
 	policy := sigverify.NewPolicy(
 		sigverify.WithArtifactDigest("sha256", digestBytes),
@@ -187,12 +214,12 @@ func verifyBuildProvenanceAttestation(ctx context.Context, options Options, asse
 			lastErr = validateErr
 			continue
 		}
-		return nil
+		return result.Signature.Certificate, nil
 	}
 	if lastErr == nil {
-		return fmt.Errorf("build provenance attestation missing for %s", asset.Name)
+		return nil, fmt.Errorf("build provenance attestation missing for %s", asset.Name)
 	}
-	return fmt.Errorf("build provenance verification failed: %w", lastErr)
+	return nil, fmt.Errorf("build provenance verification failed: %w", lastErr)
 }
 
 func newBuildProvenanceVerifier() (*sigverify.Verifier, error) {

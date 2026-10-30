@@ -189,11 +189,29 @@ func downloadFileOnce(
 }
 
 func verifyChecksum(ctx context.Context, options Options, latest release, asset releaseAsset, archivePath string) error {
+	want, err := releaseAssetChecksum(ctx, options, latest, asset)
+	if err != nil {
+		return err
+	}
+	got, err := sha256File(archivePath)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(want, got) {
+		return fmt.Errorf("checksum mismatch for %s: expected %s, got %s", asset.Name, want, got)
+	}
+	return nil
+}
+
+// releaseAssetChecksum returns the published SHA-256 of asset. It reads the
+// asset digest from the release metadata when available. Otherwise, it reads
+// the asset entry from checksums.txt.
+func releaseAssetChecksum(ctx context.Context, options Options, latest release, asset releaseAsset) (string, error) {
 	want := checksumFromAsset(asset)
 	if want == "" {
 		checksums, ok := findAsset(latest.Assets, "checksums.txt")
 		if !ok {
-			return fmt.Errorf("checksum unavailable for %s", asset.Name)
+			return "", fmt.Errorf("checksum unavailable for %s", asset.Name)
 		}
 		// Cache checksums.txt once per release: a multi-binary release verifies
 		// many archives, so re-downloading the shared checksums file per asset
@@ -205,23 +223,16 @@ func verifyChecksum(ctx context.Context, options Options, latest release, asset 
 		checksumsPath := filepath.Join(options.CacheDir, "checksums-"+checksumsCacheKey(options.Config.Repo, latest.TagName)+".txt")
 		if _, statErr := os.Stat(checksumsPath); statErr != nil {
 			if err := downloadReleaseAsset(ctx, options, checksums, checksumsPath); err != nil {
-				return err
+				return "", err
 			}
 		}
 		resolved, err := checksumFromFile(checksumsPath, asset.Name)
 		if err != nil {
-			return err
+			return "", err
 		}
 		want = resolved
 	}
-	got, err := sha256File(archivePath)
-	if err != nil {
-		return err
-	}
-	if !strings.EqualFold(want, got) {
-		return fmt.Errorf("checksum mismatch for %s: expected %s, got %s", asset.Name, want, got)
-	}
-	return nil
+	return want, nil
 }
 
 // checksumsCacheKey derives a filesystem-safe, collision-free cache-file key
