@@ -41,7 +41,7 @@ func runNoAnyOrEmptyInterface(pass *analysis.Pass) (any, error) {
 // walkFileForBannedShapes traverses every node in file and dispatches each
 // kind to its specific check helper. Splitting per-node-kind keeps each
 // branch readable and the cognitive complexity inside the inspector low.
-func walkFileForBannedShapes(pass *analysis.Pass, file *ast.File, required map[*ast.FuncType]*types.Signature) {
+func walkFileForBannedShapes(pass *analysis.Pass, file *ast.File, required map[*ast.FuncType][]*types.Signature) {
 	ast.Inspect(file, func(n ast.Node) bool {
 		if signature, ok := n.(*ast.FuncType); ok && required[signature] != nil {
 			checkRequiredFunction(pass, file, signature, required[signature])

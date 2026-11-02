@@ -28,3 +28,23 @@ type GenericHandler[T any] func(any, T)
 type GenericCodec[T any] interface {
 	Encode(any, T) error
 }
+
+type Scanner[T any] interface{ Scan(T) error }
+type Callback[T any] func(T) error
+type FixedScanner interface{ Scanner[any] }
+
+func AcceptGeneric[T any](Scanner[T])  {}
+func AcceptFixed(Scanner[any])         {}
+func HandleFixed(Callback[any])        {}
+func HandleGeneric[T any](Callback[T]) {}
+
+type First[T any] interface {
+	Build() func(map[any]T, func(any, T))
+}
+
+type Second[T comparable] interface {
+	Build() func(map[T]any, func(T, any))
+}
+
+func AcceptFirst[T any](First[T])          {}
+func AcceptSecond[T comparable](Second[T]) {}

@@ -14,14 +14,15 @@ import (
 type signatureBoundaries struct {
 	pass     *analysis.Pass
 	methods  map[*types.Func]*ast.FuncType
-	required map[*ast.FuncType]*types.Signature
+	required map[*ast.FuncType][]*types.Signature
+	count    int
 	origins  signatureOrigins
 }
 
-func externalSignatureRequirements(pass *analysis.Pass) map[*ast.FuncType]*types.Signature {
+func externalSignatureRequirements(pass *analysis.Pass) map[*ast.FuncType][]*types.Signature {
 	boundaries := &signatureBoundaries{
 		pass: pass, methods: make(map[*types.Func]*ast.FuncType),
-		required: make(map[*ast.FuncType]*types.Signature),
+		required: make(map[*ast.FuncType][]*types.Signature),
 	}
 	for _, file := range pass.Files {
 		for _, declaration := range file.Decls {
@@ -35,8 +36,8 @@ func externalSignatureRequirements(pass *analysis.Pass) map[*ast.FuncType]*types
 		}
 	}
 	// Revisit return contexts after discovering additional required methods.
-	for previousCount := -1; previousCount != len(boundaries.required); {
-		previousCount = len(boundaries.required)
+	for previousCount := -1; previousCount != boundaries.count; {
+		previousCount = boundaries.count
 		for _, file := range pass.Files {
 			boundaries.walk(file)
 		}
@@ -103,6 +104,10 @@ func (boundaries *signatureBoundaries) call(call *ast.CallExpr) {
 	if !ok {
 		return
 	}
+	pattern := signature
+	if boundaries.externalFunction(signature) {
+		pattern = boundaries.origins.original(signature)
+	}
 	for index, argument := range call.Args {
 		parameterIndex := index
 		if signature.Variadic() && index >= signature.Params().Len()-1 {
@@ -112,10 +117,16 @@ func (boundaries *signatureBoundaries) call(call *ast.CallExpr) {
 			break
 		}
 		expected := signature.Params().At(parameterIndex).Type()
+		required := pattern.Params().At(parameterIndex).Type()
 		if signature.Variadic() && parameterIndex == signature.Params().Len()-1 && !call.Ellipsis.IsValid() {
 			expected = requiredElement(expected)
+			required = requiredElement(required)
 		}
-		boundaries.require(argument, expected)
+		if boundaries.externalFunction(signature) {
+			boundaries.requirePattern(argument, expected, required)
+		} else {
+			boundaries.require(argument, expected)
+		}
 	}
 }
 
@@ -182,13 +193,15 @@ func (boundaries *signatureBoundaries) returns(statement *ast.ReturnStmt, stack 
 		default:
 			continue
 		}
-		signature := boundaries.required[function]
-		if signature == nil {
-			signature, _ = actual.(*types.Signature)
-		}
 		actualSignature, _ := actual.(*types.Signature)
-		if signature != nil && actualSignature != nil && signature.Results().Len() == len(statement.Results) {
-			for resultIndex, result := range statement.Results {
+		if actualSignature == nil || actualSignature.Results().Len() != len(statement.Results) {
+			return
+		}
+		for resultIndex, result := range statement.Results {
+			if len(boundaries.required[function]) == 0 {
+				boundaries.require(result, actualSignature.Results().At(resultIndex).Type())
+			}
+			for _, signature := range boundaries.required[function] {
 				boundaries.requirePattern(result, actualSignature.Results().At(resultIndex).Type(), signature.Results().At(resultIndex).Type())
 			}
 		}
@@ -197,7 +210,28 @@ func (boundaries *signatureBoundaries) returns(statement *ast.ReturnStmt, stack 
 }
 
 func (boundaries *signatureBoundaries) require(expression ast.Expr, expected types.Type) {
-	boundaries.requirePattern(expression, expected, expected)
+	if expected == nil {
+		return
+	}
+	definition := typeDefiningObject(expected)
+	external := definition != nil && objectIsExternal(boundaries.pass, definition)
+	if !external {
+		if alias, ok := expected.(*types.Alias); ok {
+			boundaries.require(expression, alias.Rhs())
+			return
+		}
+		if contract, ok := expected.Underlying().(*types.Interface); ok {
+			for embedded := range contract.EmbeddedTypes() {
+				boundaries.require(expression, embedded)
+			}
+			return
+		}
+	}
+	pattern := boundaries.originalPattern(expected)
+	if signature, ok := pattern.(*types.Signature); ok {
+		pattern = boundaries.origins.original(signature)
+	}
+	boundaries.requirePattern(expression, expected, pattern)
 }
 
 func (boundaries *signatureBoundaries) requirePattern(expression ast.Expr, expected, pattern types.Type) {
@@ -209,18 +243,35 @@ func (boundaries *signatureBoundaries) requirePattern(expression ast.Expr, expec
 		return
 	}
 	if literal, ok := ast.Unparen(expression).(*ast.FuncLit); ok {
-		if signature, ok := originalType(pattern).Underlying().(*types.Signature); ok && boundaries.externalFunction(pattern) {
-			boundaries.required[literal.Type] = boundaries.origins.original(signature)
+		if signature, ok := pattern.Underlying().(*types.Signature); ok && boundaries.externalFunction(pattern) {
+			boundaries.add(literal.Type, signature)
 		}
 	}
 	if contract, ok := expected.Underlying().(*types.Interface); ok {
-		boundaries.implementation(actual, contract)
+		if required, ok := pattern.Underlying().(*types.Interface); ok {
+			boundaries.implementation(actual, contract, required)
+		}
 	}
 }
 
-func originalType(target types.Type) types.Type {
-	if named, ok := types.Unalias(target).(*types.Named); ok {
-		return named.Origin()
+func (boundaries *signatureBoundaries) add(function *ast.FuncType, signature *types.Signature) {
+	for _, existing := range boundaries.required[function] {
+		if types.Identical(existing, signature) {
+			return
+		}
+	}
+	boundaries.required[function] = append(boundaries.required[function], signature)
+	boundaries.count++
+}
+
+// originalPattern removes type choices made by local declarations while
+// preserving instantiations written inside external declarations.
+func (boundaries *signatureBoundaries) originalPattern(target types.Type) types.Type {
+	switch shape := target.(type) {
+	case *types.Named:
+		return shape.Origin()
+	case *types.Alias:
+		return shape.Origin()
 	}
 	return target
 }
@@ -243,7 +294,7 @@ func (boundaries *signatureBoundaries) externalFunction(target types.Type) bool 
 	return false
 }
 
-func (boundaries *signatureBoundaries) implementation(actual types.Type, contract *types.Interface) {
+func (boundaries *signatureBoundaries) implementation(actual types.Type, contract, pattern *types.Interface) {
 	if !types.Implements(actual, contract) {
 		return
 	}
@@ -257,8 +308,11 @@ func (boundaries *signatureBoundaries) implementation(actual types.Type, contrac
 			continue
 		}
 		if declaration := boundaries.methods[method.Origin()]; declaration != nil {
-			if signature, ok := requiredMethod.Origin().Type().(*types.Signature); ok {
-				boundaries.required[declaration] = signature
+			original, _, _ := types.LookupFieldOrMethod(pattern, false, requiredMethod.Pkg(), requiredMethod.Name())
+			if original != nil {
+				if signature, ok := original.Type().(*types.Signature); ok {
+					boundaries.add(declaration, signature)
+				}
 			}
 		}
 	}
