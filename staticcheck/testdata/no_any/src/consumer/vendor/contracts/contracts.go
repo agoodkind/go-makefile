@@ -33,6 +33,14 @@ type Scanner[T any] interface{ Scan(T) error }
 type Callback[T any] func(T) error
 type FixedScanner interface{ Scanner[any] }
 
+type FixedFields struct {
+	Callback Callback[any]
+}
+
+type SelectedFields[T any] struct {
+	Callback Callback[T]
+}
+
 func AcceptGeneric[T any](Scanner[T])  {}
 func AcceptFixed(Scanner[any])         {}
 func HandleFixed(Callback[any])        {}

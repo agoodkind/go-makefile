@@ -88,6 +88,14 @@ func (boundaries *signatureBoundaries) assignment(statement *ast.AssignStmt) {
 				continue
 			}
 		}
+		if selector, ok := ast.Unparen(target).(*ast.SelectorExpr); ok {
+			if selection := boundaries.pass.TypesInfo.Selections[selector]; selection != nil {
+				if field, ok := selection.Obj().(*types.Var); ok && field.IsField() {
+					boundaries.requireField(value, field)
+					continue
+				}
+			}
+		}
 		boundaries.require(value, boundaries.pass.TypesInfo.TypeOf(target))
 	}
 }
@@ -145,7 +153,7 @@ func (boundaries *signatureBoundaries) composite(literal *ast.CompositeLit) {
 		case *types.Struct:
 			field := compositeField(shape, index, pair)
 			if field != nil {
-				boundaries.require(value, field.Type())
+				boundaries.requireField(value, field)
 			}
 		case *types.Map:
 			if keyed {
@@ -158,6 +166,17 @@ func (boundaries *signatureBoundaries) composite(literal *ast.CompositeLit) {
 			boundaries.require(value, shape.Elem())
 		}
 	}
+}
+
+// requireField preserves arguments fixed by the field declaration before
+// instantiation substitutes the enclosing type's caller-selected arguments.
+func (boundaries *signatureBoundaries) requireField(expression ast.Expr, field *types.Var) {
+	original := field.Origin()
+	if objectIsExternal(boundaries.pass, original) {
+		boundaries.requirePattern(expression, field.Type(), original.Type())
+		return
+	}
+	boundaries.require(expression, field.Type())
 }
 
 func compositeField(shape *types.Struct, index int, pair *ast.KeyValueExpr) *types.Var {
