@@ -15,19 +15,9 @@ import (
 // or contains one as a leaf element of a map, slice, array, channel, or
 // pointer.
 //
-// There is no per-file or per-package allowlist. Every Go file in the
-// project (excluding tests, generated code, and the analyzer's own source)
-// is checked uniformly. Files that legitimately need to handle dynamic
-// payloads at the protocol boundary must do so behind a typed adapter
-// (json.RawMessage, a sealed interface marker, a deeply enumerated
-// struct shape) rather than by passing `any` through internal helpers.
-//
-// The historical per-file allowlist was removed because it enabled
-// helper-extraction laundering: an LLM could split a complex function
-// into smaller helpers inside an allowlisted file, drive cyclomatic
-// complexity numbers down, and silently spread `any` through the new
-// helpers. With no allowlist, every helper that takes or returns `any`
-// must justify itself in code review, which is visible.
+// External named types and signatures required at external function or
+// interface boundaries are permitted. The analyzer still checks local
+// helpers, declarations, and the bodies of required callbacks and methods.
 var NoAnyOrEmptyInterfaceAnalyzer = &analysis.Analyzer{
 	Name: "no_any_or_empty_interface",
 	Doc:  "rejects any, interface{}, and aliases or named types that expand to them",
@@ -38,11 +28,12 @@ func runNoAnyOrEmptyInterface(pass *analysis.Pass) (any, error) {
 	if isStaticcheckPackage(pass) {
 		return nil, nil
 	}
+	required := externalSignatureRequirements(pass)
 	for _, file := range pass.Files {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
-		walkFileForBannedShapes(pass, file)
+		walkFileForBannedShapes(pass, file, required)
 	}
 	return nil, nil
 }
@@ -50,8 +41,12 @@ func runNoAnyOrEmptyInterface(pass *analysis.Pass) (any, error) {
 // walkFileForBannedShapes traverses every node in file and dispatches each
 // kind to its specific check helper. Splitting per-node-kind keeps each
 // branch readable and the cognitive complexity inside the inspector low.
-func walkFileForBannedShapes(pass *analysis.Pass, file *ast.File) {
+func walkFileForBannedShapes(pass *analysis.Pass, file *ast.File, required map[*ast.FuncType]*types.Signature) {
 	ast.Inspect(file, func(n ast.Node) bool {
+		if signature, ok := n.(*ast.FuncType); ok && required[signature] != nil {
+			checkRequiredFunction(pass, file, signature, required[signature])
+			return false
+		}
 		switch node := n.(type) {
 		case *ast.TypeSpec:
 			checkDeclaredType(pass, file, node)
@@ -244,7 +239,7 @@ func typeDefiningObject(t types.Type) *types.TypeName {
 // under GOROOT, or under a vendor directory. A builtin or universe type
 // (obj.Pkg() == nil, such as error) is treated as in-repo so existing
 // behavior is unchanged.
-func objectIsExternal(pass *analysis.Pass, obj *types.TypeName) bool {
+func objectIsExternal(pass *analysis.Pass, obj types.Object) bool {
 	if obj == nil || obj.Pkg() == nil {
 		return false
 	}
