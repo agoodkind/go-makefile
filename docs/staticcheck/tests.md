@@ -6,7 +6,7 @@ The gate accepts findings recorded in the committed baseline and rejects new fin
 
 ## One-time baseline of existing findings
 
-Notice 2 baselines the existing test-file findings of a consumer once. When the consumer adopted go-makefile before 2026-10-05, the first `make check`, `make lint`, or `make staticcheck-extra` after the update writes every current finding in a `_test.go` file to `.staticcheck-extra-baseline.txt` and records notice 2 in `.go-mk-applied-notices`. The write needs no baseline token and can refresh the line number and `last_seen` value of existing rows. Review the diff and commit both files.
+Notice 2 baselines the existing test-file findings of a consumer once. When the consumer adopted go-makefile before 2026-10-05, the first `make build` or `make staticcheck-extra` after the update writes every current finding in a `_test.go` file to `.staticcheck-extra-baseline.txt` and records notice 2 in `.go-mk-applied-notices`. The write needs no baseline token and can refresh the line number and `last_seen` value of existing rows. Review the diff and commit both files.
 
 The adoption date is the commit date of the first commit that added `bootstrap.mk`, `go.mk`, or `.go-mk-applied-notices`. When git cannot report the date, as in a shallow clone, the consumer counts as adopted before 2026-10-05 if any baseline file is non-empty.
 

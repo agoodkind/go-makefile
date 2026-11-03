@@ -202,6 +202,7 @@ func registerEngineCommands(root *cobra.Command) {
 // and the gate. Flag parsing is disabled so each handler keeps its own
 // argument parsing, which the make layer drives with fixed argument strings.
 func registerInputCommands(root *cobra.Command) {
+	root.AddCommand(passThroughCommand("validate-make", "Reject consumer replacements of shared Make recipes", runValidateMake))
 	root.AddCommand(passThroughCommand("resolve-bin", "Resolve the go-mk engine binary", func(_ []string) int {
 		return runResolveBin()
 	}))

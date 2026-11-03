@@ -67,34 +67,36 @@ func TestMakeEntryPoints(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				for _, scenario := range []struct {
-					name      string
-					variables []string
-				}{
-					{name: "lint"},
-					{name: "workspace", variables: []string{"GO_MK_WORKSPACE_USE=."}},
-					{name: "generate", variables: []string{"GO_MK_GENERATE=generate-required"}},
-					{name: "cgo", variables: []string{"GO_MK_CGO_DEPS=required"}},
-				} {
-					t.Run(scenario.name, func(t *testing.T) {
-						arguments := append([]string{"check"}, scenario.variables...)
-						command := exec.Command("make", arguments...)
-						command.Dir = consumer
-						command.Env = append(os.Environ(), "GO_MK_DEV_DIR="+repoRoot, "GOWORK=off", "MAKEFLAGS=")
-						output, err := command.CombinedOutput()
-						if err == nil {
-							t.Fatalf("make check succeeded: %s", output)
-						}
-						if !strings.Contains(string(output), "make check is not supported. Run make build directly.") {
-							t.Fatalf("make check did not print build guidance: %v\n%s", err, output)
-						}
-						if strings.Contains(string(output), "lint-golangci") {
-							t.Fatalf("make check ran lint: %s", output)
-						}
-						if _, err := os.Stat(filepath.Join(consumer, "go.work")); !os.IsNotExist(err) {
-							t.Fatalf("make check created go.work or failed to inspect it: %v", err)
-						}
-					})
+				for _, target := range []string{"check", "lint"} {
+					for _, scenario := range []struct {
+						name      string
+						variables []string
+					}{
+						{name: "lint"},
+						{name: "workspace", variables: []string{"GO_MK_WORKSPACE_USE=."}},
+						{name: "generate", variables: []string{"GO_MK_GENERATE=generate-required"}},
+						{name: "cgo", variables: []string{"GO_MK_CGO_DEPS=required"}},
+					} {
+						t.Run(target+"/"+scenario.name, func(t *testing.T) {
+							arguments := append([]string{target}, scenario.variables...)
+							command := exec.Command("make", arguments...)
+							command.Dir = consumer
+							command.Env = append(os.Environ(), "GO_MK_DEV_DIR="+repoRoot, "GOWORK=off", "MAKEFLAGS=")
+							output, err := command.CombinedOutput()
+							if err == nil {
+								t.Fatalf("make %s succeeded: %s", target, output)
+							}
+							if !strings.Contains(string(output), "make "+target+" is not supported. Run make build directly.") {
+								t.Fatalf("make %s did not print build guidance: %v\n%s", target, err, output)
+							}
+							if strings.Contains(string(output), "lint-golangci") {
+								t.Fatalf("make %s ran lint: %s", target, output)
+							}
+							if _, err := os.Stat(filepath.Join(consumer, "go.work")); !os.IsNotExist(err) {
+								t.Fatalf("make %s created go.work or failed to inspect it: %v", target, err)
+							}
+						})
+					}
 				}
 				command := exec.Command("make")
 				command.Dir = consumer

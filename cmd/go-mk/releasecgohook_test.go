@@ -82,6 +82,7 @@ func writeCgoHookCompilerFixture(t *testing.T, repoRoot string) string {
 	t.Helper()
 
 	workDir := t.TempDir()
+	seedTestEngine(t, workDir)
 	if err := os.MkdirAll(filepath.Join(workDir, ".make"), 0o755); err != nil {
 		t.Fatalf("mkdir .make: %v", err)
 	}
@@ -110,6 +111,7 @@ go-mk-cgo-dep-demolib:
 func cgoHookCompilerEnv(workDir string, compilerEnv []string) []string {
 	env := []string{
 		"HOME=" + workDir,
+		"GO_MK_BIN=" + filepath.Join(workDir, ".make", "go-mk"),
 		"_GO_MK_PROVISIONED=1",
 		"GO_MK_TARGET_GOOS=darwin",
 		"GO_MK_TARGET_GOARCH=arm64",
@@ -175,6 +177,7 @@ func writeCgoPrereqFixture(t *testing.T, repoRoot string, declareDeps bool) stri
 	t.Helper()
 
 	workDir := t.TempDir()
+	seedTestEngine(t, workDir)
 	if err := os.MkdirAll(filepath.Join(workDir, ".make"), 0o755); err != nil {
 		t.Fatalf("mkdir .make: %v", err)
 	}

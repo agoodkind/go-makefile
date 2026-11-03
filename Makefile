@@ -63,8 +63,7 @@ build-check:
 	$(STATIC_GO_MK) build-check
 
 lint:
-	$(ROOT_GO_MK) lint
-	$(STATIC_GO_MK) lint
+	$(error make lint is not supported. Run make build directly.)
 
 lint-tools:
 	$(ROOT_GO_MK) lint-tools
