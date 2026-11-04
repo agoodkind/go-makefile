@@ -22,7 +22,13 @@ A process killed during an apply can leave hidden `.<binary>-candidate-*` and `.
 
 ## Verification
 
-Release verification checks the archive checksum and GitHub attestations. The checksum path is in [selfupdate/download.go](../../selfupdate/download.go) and [selfupdate/release.go](../../selfupdate/release.go). The release and build-provenance attestation checks are in [selfupdate/attestation.go](../../selfupdate/attestation.go).
+Release discovery and downloads use `github.com` pages and files and need no GitHub token. A rolling channel reads the first entry of `releases.atom`. A stable channel reads the redirect target of `releases/latest`. `checksums.txt` lists the release archives, and each asset downloads from `releases/download/<tag>/<asset>`. `Config.WebBaseURL` and `Config.WebBaseURLEnv` replace the `https://github.com` base. `Config.APIBaseURL`, `Config.APIBaseURLEnv`, and `Config.AuthToken` remain for existing callers, and release discovery and downloads do not read them.
+
+Release verification checks the archive checksum and the Sigstore bundle published as `<archive>.sigstore.json`. The checksum path is in [selfupdate/download.go](../../selfupdate/download.go) and [selfupdate/release.go](../../selfupdate/release.go). The bundle checks are in [selfupdate/attestation.go](../../selfupdate/attestation.go). The bundle must verify against the public Sigstore trusted root and must match the archive digest, the go-makefile release workflow, the GitHub-hosted runner, and the source repository. The source commit in the certificate must start with the short commit suffix of a rolling tag. The source ref in the certificate must equal `refs/tags/<tag>` for a stable v-tag, because a v-tag has no commit suffix.
+
+Verification does not check GitHub's signed statement that an archive belongs to the immutable release for a tag. The checksum, the build provenance bundle, the signer workflow check, and the source commit or source ref check bind the archive to the release workflow and the tagged source.
+
+Releases published before bundles existed do not have `<archive>.sigstore.json`, and this package cannot install them. A binary built with an earlier version of this package uses the GitHub API to install the first release that has bundles.
 
 Candidate validation runs the downloaded binary with `Config.ValidateArgs` and requires output containing `Config.ValidateMatch`. `go-mk` provides a real `version` command in [cmd/go-mk/selfupdate_command.go](../../cmd/go-mk/selfupdate_command.go), so its own updater validates a staged `go-mk` before replacement.
 

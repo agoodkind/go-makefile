@@ -39,7 +39,7 @@ func TestDownloadWriteErrorHelperProcess(t *testing.T) {
 	}
 	serverURL := os.Getenv(writeErrorServerEnv)
 	err := VerifyReleaseAssets(context.Background(), Options{
-		Config:   Config{Repo: "agoodkind/agent-gate", Binary: "agent-gate", APIBaseURL: serverURL},
+		Config:   Config{Repo: "agoodkind/agent-gate", Binary: "agent-gate", WebBaseURL: serverURL},
 		Client:   http.DefaultClient,
 		CacheDir: t.TempDir(),
 	}, retryTestTag)

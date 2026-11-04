@@ -7,101 +7,7 @@ import (
 	in_toto "github.com/in-toto/attestation/go/v1"
 	fulciocert "github.com/sigstore/sigstore-go/pkg/fulcio/certificate"
 	sigverify "github.com/sigstore/sigstore-go/pkg/verify"
-	"google.golang.org/protobuf/types/known/structpb"
 )
-
-func TestValidateReleaseAttestation(t *testing.T) {
-	predicate, err := structpb.NewStruct(map[string]any{
-		"repository": "agoodkind/agent-gate",
-		"tag":        "v1.2.3",
-	})
-	if err != nil {
-		t.Fatalf("NewStruct() error: %v", err)
-	}
-	result := &sigverify.VerificationResult{
-		Statement: &in_toto.Statement{
-			PredicateType: githubReleaseAttestationPredicateType,
-			Predicate:     predicate,
-			Subject: []*in_toto.ResourceDescriptor{
-				{Name: "agent-gate_darwin_arm64.tar.gz", Digest: map[string]string{"sha256": "deadbeef"}},
-			},
-		},
-	}
-	if err := validateReleaseAttestation(result, "agoodkind/agent-gate", "v1.2.3", "agent-gate_darwin_arm64.tar.gz", "deadbeef"); err != nil {
-		t.Fatalf("validateReleaseAttestation() error: %v", err)
-	}
-}
-
-func TestValidateReleaseAttestationRejectsMismatches(t *testing.T) {
-	predicate, err := structpb.NewStruct(map[string]any{
-		"repository": "agoodkind/agent-gate",
-		"tag":        "v1.2.3",
-	})
-	if err != nil {
-		t.Fatalf("NewStruct() error: %v", err)
-	}
-	baseResult := &sigverify.VerificationResult{
-		Statement: &in_toto.Statement{
-			PredicateType: githubReleaseAttestationPredicateType,
-			Predicate:     predicate,
-			Subject: []*in_toto.ResourceDescriptor{
-				{Name: "agent-gate_darwin_arm64.tar.gz", Digest: map[string]string{"sha256": "deadbeef"}},
-			},
-		},
-	}
-	testCases := []struct {
-		name      string
-		repo      string
-		tag       string
-		assetName string
-		digestHex string
-		want      string
-	}{
-		{
-			name:      "wrong repo",
-			repo:      "agoodkind/not-agent-gate",
-			tag:       "v1.2.3",
-			assetName: "agent-gate_darwin_arm64.tar.gz",
-			digestHex: "deadbeef",
-			want:      "did not match",
-		},
-		{
-			name:      "wrong tag",
-			repo:      "agoodkind/agent-gate",
-			tag:       "v9.9.9",
-			assetName: "agent-gate_darwin_arm64.tar.gz",
-			digestHex: "deadbeef",
-			want:      "did not match",
-		},
-		{
-			name:      "missing subject digest",
-			repo:      "agoodkind/agent-gate",
-			tag:       "v1.2.3",
-			assetName: "agent-gate_linux_arm64.tar.gz",
-			digestHex: "deadbeef",
-			want:      "did not include",
-		},
-		{
-			name:      "wrong subject digest",
-			repo:      "agoodkind/agent-gate",
-			tag:       "v1.2.3",
-			assetName: "agent-gate_darwin_arm64.tar.gz",
-			digestHex: "cafebabe",
-			want:      "did not include",
-		},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			err := validateReleaseAttestation(baseResult, testCase.repo, testCase.tag, testCase.assetName, testCase.digestHex)
-			if err == nil {
-				t.Fatal("validateReleaseAttestation() error = nil, want mismatch")
-			}
-			if !strings.Contains(err.Error(), testCase.want) {
-				t.Fatalf("validateReleaseAttestation() error = %v, want substring %q", err, testCase.want)
-			}
-		})
-	}
-}
 
 const (
 	testPackageWorkflowURI      = "https://github.com/agoodkind/go-makefile/.github/workflows/_package.yml@refs/heads/main"
@@ -232,15 +138,5 @@ func TestValidateBuildProvenanceRejectsMissingCertificateSummary(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "certificate summary missing") {
 		t.Fatalf("validateBuildProvenance() error = %v", err)
-	}
-}
-
-func TestSplitRepositoryRejectsExtraSegments(t *testing.T) {
-	_, _, err := splitRepository("agoodkind/agent-gate/extra")
-	if err == nil {
-		t.Fatal("splitRepository() error = nil, want extra segment rejection")
-	}
-	if !strings.Contains(err.Error(), "owner/name") {
-		t.Fatalf("splitRepository() error = %v", err)
 	}
 }

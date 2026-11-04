@@ -2,7 +2,6 @@ package selfupdate
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -16,6 +15,8 @@ import (
 const (
 	retryTestTag       = "v1.2.3"
 	retryTestAssetName = "agent-gate_linux_arm64.tar.gz"
+
+	retryTestDownloadPrefix = "/agoodkind/agent-gate/releases/download/" + retryTestTag + "/"
 
 	// truncatedBody in a failure list makes the server announce a
 	// Content-Length longer than the body it writes. The client read then
@@ -39,19 +40,9 @@ func newFlakyAssetServer(t *testing.T, archive []byte, body []byte, failures []i
 	flaky := &flakyAssetServer{failures: failures, body: body}
 	flaky.server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
-		case "/repos/agoodkind/agent-gate/releases/tags/" + retryTestTag:
-			response := release{
-				TagName: retryTestTag,
-				Assets: []releaseAsset{{
-					Name:               retryTestAssetName,
-					BrowserDownloadURL: flaky.server.URL + "/downloads/" + retryTestAssetName,
-					Digest:             "sha256:" + testSHA256Hex(archive),
-				}},
-			}
-			if err := json.NewEncoder(writer).Encode(response); err != nil {
-				t.Errorf("encode release: %v", err)
-			}
-		case "/downloads/" + retryTestAssetName:
+		case retryTestDownloadPrefix + checksumsAssetName:
+			_, _ = writer.Write([]byte(testChecksums(map[string][]byte{retryTestAssetName: archive})))
+		case retryTestDownloadPrefix + retryTestAssetName:
 			flaky.mutex.Lock()
 			flaky.requests++
 			status := http.StatusOK
@@ -88,7 +79,7 @@ func (flaky *flakyAssetServer) verify(t *testing.T) (string, error) {
 	t.Helper()
 	cacheDir := t.TempDir()
 	err := VerifyReleaseAssets(context.Background(), Options{
-		Config:   Config{Repo: "agoodkind/agent-gate", Binary: "agent-gate", APIBaseURL: flaky.server.URL},
+		Config:   Config{Repo: "agoodkind/agent-gate", Binary: "agent-gate", WebBaseURL: flaky.server.URL},
 		Client:   flaky.server.Client(),
 		CacheDir: cacheDir,
 	}, retryTestTag)

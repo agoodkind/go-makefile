@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"errors"
 	"maps"
 	"net/http"
@@ -80,13 +79,36 @@ func main() {
 `
 )
 
-// releaseFixture serves a release list and its archives from a local server.
+// releaseFixture serves a release feed, checksums.txt, and archives from a local
+// server.
 type releaseFixture struct {
 	server   *httptest.Server
 	archives map[string][]byte
-	// The release list includes every archive in refusedDownloads, and the
-	// download path answers each of those archives with HTTP 404.
+	// checksums.txt includes every archive in refusedDownloads, and the download
+	// path answers each of those archives with HTTP 404.
 	refusedDownloads map[string]bool
+}
+
+// testReleaseFeed returns a release feed with one entry for tag, in the format
+// of the GitHub releases.atom page.
+func testReleaseFeed(tag string) string {
+	return `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <id>tag:github.com,2008:https://github.com/owner/name/releases</id>
+  <entry>
+    <id>tag:github.com,2008:Repository/1/` + tag + `</id>
+  </entry>
+</feed>
+`
+}
+
+// testChecksums returns a checksums.txt file for archives.
+func testChecksums(archives map[string][]byte) string {
+	lines := strings.Builder{}
+	for _, name := range slices.Sorted(maps.Keys(archives)) {
+		lines.WriteString(testSHA256Hex(archives[name]) + "  " + name + "\n")
+	}
+	return lines.String()
 }
 
 func newReleaseFixture(t *testing.T, binaries map[string][]byte) *releaseFixture {
@@ -96,32 +118,30 @@ func newReleaseFixture(t *testing.T, binaries map[string][]byte) *releaseFixture
 		assetName := binary + "_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
 		fixture.archives[assetName] = tarGzipSingleFile(t, binary, content)
 	}
+	downloadPrefix := "/" + installDirTestRepo + "/releases/download/" + installDirTestNewTag + "/"
 	fixture.server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if archiveName, found := strings.CutPrefix(request.URL.Path, "/downloads/"); found {
-			archive, ok := fixture.archives[archiveName]
-			if !ok || fixture.refusedDownloads[archiveName] {
-				http.NotFound(writer, request)
-				return
-			}
-			_, _ = writer.Write(archive)
+		if strings.HasPrefix(request.URL.Path, "/repos/") {
+			t.Errorf("update sent a GitHub API request: %s", request.URL.Path)
+		}
+		if request.URL.Path == "/"+installDirTestRepo+"/releases.atom" {
+			_, _ = writer.Write([]byte(testReleaseFeed(installDirTestNewTag)))
 			return
 		}
-		if request.URL.Path != "/repos/"+installDirTestRepo+"/releases" {
+		assetName, found := strings.CutPrefix(request.URL.Path, downloadPrefix)
+		if !found {
 			http.NotFound(writer, request)
 			return
 		}
-		assets := make([]releaseAsset, 0, len(fixture.archives))
-		for assetName, archive := range fixture.archives {
-			assets = append(assets, releaseAsset{
-				Name:               assetName,
-				BrowserDownloadURL: fixture.server.URL + "/downloads/" + assetName,
-				Digest:             "sha256:" + testSHA256Hex(archive),
-			})
+		if assetName == checksumsAssetName {
+			_, _ = writer.Write([]byte(testChecksums(fixture.archives)))
+			return
 		}
-		response := []release{{TagName: installDirTestNewTag, Prerelease: true, Assets: assets}}
-		if err := json.NewEncoder(writer).Encode(response); err != nil {
-			t.Errorf("encode release list: %v", err)
+		archive, ok := fixture.archives[assetName]
+		if !ok || fixture.refusedDownloads[assetName] {
+			http.NotFound(writer, request)
+			return
 		}
+		_, _ = writer.Write(archive)
 	}))
 	t.Cleanup(fixture.server.Close)
 	return fixture
@@ -136,7 +156,7 @@ func (fixture *releaseFixture) options(t *testing.T, binary string, installDir s
 			CurrentVersion:   installDirTestOldVersion,
 			CurrentCommit:    "0000000",
 			CurrentBuildHash: "buildhash",
-			APIBaseURL:       fixture.server.URL,
+			WebBaseURL:       fixture.server.URL,
 			ValidateArgs:     []string{"version"},
 			ValidateMatch:    validateMatch,
 		},

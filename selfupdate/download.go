@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,63 +23,32 @@ const downloadAttempts = 3
 // doubles it.
 var downloadRetryDelay = 2 * time.Second
 
+func downloadReleaseAsset(ctx context.Context, options Options, asset releaseAsset, path string) error {
+	return updateDownloadFile(
+		ctx,
+		options.Client,
+		asset.BrowserDownloadURL,
+		path,
+		options.Config.MaxDownloadBytes,
+	)
+}
+
+// releaseAssetURL returns the direct download URL of one release asset.
+func releaseAssetURL(cfg Config, tag string, name string) string {
+	return releaseWebBaseURL(cfg) + "/" + cfg.Repo + "/releases/download/" + neturl.PathEscape(tag) + "/" + neturl.PathEscape(name)
+}
+
 // downloadFile writes url to path, refusing anything larger than maxBytes so a
 // hostile or corrupt asset cannot exhaust the disk. The caller supplies the
 // limit because a plausible asset size is a property of the consumer's binary,
-// not of this package.
+// not of this package. It retries an HTTP 5xx response or a network error up to
+// downloadAttempts times in total, doubling the delay after each failure. It
+// returns any other failure, including every HTTP 4xx response, without a
+// retry. Callers verify the checksum of the file it writes.
 func downloadFile(ctx context.Context, client *http.Client, url string, path string, maxBytes int64) error {
-	return downloadFileWithHeaders(ctx, client, url, path, maxBytes, nil)
-}
-
-func downloadReleaseAsset(ctx context.Context, options Options, asset releaseAsset, path string) error {
-	token := strings.TrimSpace(options.Config.AuthToken)
-	if token == "" {
-		return updateDownloadFile(
-			ctx,
-			options.Client,
-			asset.BrowserDownloadURL,
-			path,
-			options.Config.MaxDownloadBytes,
-		)
-	}
-	if asset.ID <= 0 {
-		return fmt.Errorf("release asset %s has no ID", asset.Name)
-	}
-	url := fmt.Sprintf(
-		"%s/repos/%s/releases/assets/%d",
-		releaseAPIBaseURL(options.Config),
-		options.Config.Repo,
-		asset.ID,
-	)
-	headers := http.Header{}
-	headers.Set("Accept", "application/octet-stream")
-	headers.Set("Authorization", "Bearer "+token)
-	return downloadFileWithHeaders(
-		ctx,
-		options.Client,
-		url,
-		path,
-		options.Config.MaxDownloadBytes,
-		headers,
-	)
-}
-
-// downloadFileWithHeaders downloads url to path. It retries an HTTP 5xx
-// response or a network error up to downloadAttempts times in total, doubling
-// the delay after each failure. It returns any other failure, including every
-// HTTP 4xx response, without a retry. Callers verify the checksum of the file
-// it writes.
-func downloadFileWithHeaders(
-	ctx context.Context,
-	client *http.Client,
-	url string,
-	path string,
-	maxBytes int64,
-	headers http.Header,
-) error {
 	delay := downloadRetryDelay
 	for attempt := 1; ; attempt++ {
-		retryable, err := downloadFileOnce(ctx, client, url, path, maxBytes, headers)
+		retryable, err := downloadFileOnce(ctx, client, url, path, maxBytes)
 		if err == nil {
 			return nil
 		}
@@ -121,18 +91,12 @@ func downloadFileOnce(
 	url string,
 	path string,
 	maxBytes int64,
-	headers http.Header,
 ) (bool, error) {
 	slog.InfoContext(ctx, "update download file", "url", url, "path", path)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		slog.WarnContext(ctx, "update download request build failed", "url", url, "err", err)
 		return false, fmt.Errorf("build download request: %w", err)
-	}
-	for name, values := range headers {
-		for _, value := range values {
-			req.Header.Add(name, value)
-		}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -189,30 +153,23 @@ func downloadFileOnce(
 }
 
 func verifyChecksum(ctx context.Context, options Options, latest release, asset releaseAsset, archivePath string) error {
-	want := checksumFromAsset(asset)
-	if want == "" {
-		checksums, ok := findAsset(latest.Assets, "checksums.txt")
-		if !ok {
-			return fmt.Errorf("checksum unavailable for %s", asset.Name)
-		}
-		// Cache checksums.txt once per release: a multi-binary release verifies
-		// many archives, so re-downloading the shared checksums file per asset
-		// would scale network requests as O(archives). The cache file is keyed
-		// by a hash of repo plus release tag because CacheDir is stable per
-		// binary name, so a file left by an earlier release, or by another
-		// repo whose binary shares this name, can never be reused for a
-		// different (repo, tag) pair.
-		checksumsPath := filepath.Join(options.CacheDir, "checksums-"+checksumsCacheKey(options.Config.Repo, latest.TagName)+".txt")
-		if _, statErr := os.Stat(checksumsPath); statErr != nil {
-			if err := downloadReleaseAsset(ctx, options, checksums, checksumsPath); err != nil {
-				return err
-			}
-		}
-		resolved, err := checksumFromFile(checksumsPath, asset.Name)
-		if err != nil {
+	checksums, ok := findAsset(latest.Assets, checksumsAssetName)
+	if !ok {
+		return fmt.Errorf("checksum unavailable for %s", asset.Name)
+	}
+	// Download checksums.txt once per release because a multi-binary release
+	// verifies many archives against one file. The cache file name hashes the
+	// repo and release tag because CacheDir is stable per binary name. A file
+	// from another release or another repo has a different cache file name.
+	checksumsPath := filepath.Join(options.CacheDir, "checksums-"+checksumsCacheKey(options.Config.Repo, latest.TagName)+".txt")
+	if _, statErr := os.Stat(checksumsPath); statErr != nil {
+		if err := downloadReleaseAsset(ctx, options, checksums, checksumsPath); err != nil {
 			return err
 		}
-		want = resolved
+	}
+	want, err := checksumFromFile(checksumsPath, asset.Name)
+	if err != nil {
+		return err
 	}
 	got, err := sha256File(archivePath)
 	if err != nil {
@@ -233,11 +190,10 @@ func checksumsCacheKey(repo string, tag string) string {
 	return hex.EncodeToString(digest[:8])
 }
 
-func checksumFromAsset(asset releaseAsset) string {
-	if digest, ok := strings.CutPrefix(asset.Digest, "sha256:"); ok {
-		return digest
-	}
-	return ""
+// checksumEntryName removes the ./ prefix that checksums.txt in older releases
+// writes before each file name.
+func checksumEntryName(entry string) string {
+	return strings.TrimPrefix(entry, "./")
 }
 
 func checksumFromFile(path string, name string) (string, error) {
@@ -251,7 +207,7 @@ func checksumFromFile(path string, name string) (string, error) {
 		if len(fields) != 2 {
 			continue
 		}
-		if fields[1] == name {
+		if checksumEntryName(fields[1]) == name {
 			return fields[0], nil
 		}
 	}
