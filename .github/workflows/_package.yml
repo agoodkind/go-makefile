@@ -177,14 +177,27 @@ jobs:
           path: ~/go/bin/quill
           key: ${{ steps.quill-cache.outputs.cache-primary-key }}
       - name: Attest archives
+        id: attest-archives
         uses: actions/attest@v4.2.2
         with:
           subject-path: ${{ inputs.working_directory }}/dist/*.tar.gz
+      # One attestation covers every archive in this job. selfupdate downloads
+      # <archive>.sigstore.json from the release to verify each archive.
+      - name: Copy attestation bundles
+        env:
+          BUNDLE_PATH: ${{ steps.attest-archives.outputs.bundle-path }}
+        run: |
+          for archive in dist/*.tar.gz; do
+            cp "${BUNDLE_PATH}" "${archive}.sigstore.json"
+          done
+        working-directory: ${{ inputs.working_directory }}
       # module_suffix (see the plan job) scopes the name so a multi-module
       # consumer's calls do not collide, and so the publish job in
       # _release.yml can gather only this module's archives.
       - uses: actions/upload-artifact@v7
         with:
           name: release${{ needs.plan.outputs.module_suffix }}-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ inputs.working_directory }}/dist/*.tar.gz
+          path: |
+            ${{ inputs.working_directory }}/dist/*.tar.gz
+            ${{ inputs.working_directory }}/dist/*.tar.gz.sigstore.json
           if-no-files-found: error

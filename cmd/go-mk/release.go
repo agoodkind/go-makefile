@@ -237,17 +237,34 @@ func publishStage(cfg releaseConfig) error {
 	if err != nil {
 		return err
 	}
+	bundles, err := distProvenanceBundles(cfg.distDir)
+	if err != nil {
+		return err
+	}
 	checksums, err := writeChecksums(cfg, archives)
 	if err != nil {
 		return err
 	}
-	return publishRelease(cfg, append(archives, checksums))
+	assets := slices.Concat(archives, bundles, []string{checksums})
+	return publishRelease(cfg, assets)
 }
 
 // distArchives returns the sorted tar.gz archives present in the dist directory,
 // the per-platform artifacts the build jobs uploaded for this release.
 func distArchives(distDir string) ([]string, error) {
 	matches, err := filepath.Glob(filepath.Join(distDir, "*.tar.gz"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(matches)
+	return matches, nil
+}
+
+// distProvenanceBundles returns the sorted Sigstore bundles that the package
+// jobs wrote beside the archives. selfupdate downloads each bundle from the
+// release to verify its archive.
+func distProvenanceBundles(distDir string) ([]string, error) {
+	matches, err := filepath.Glob(filepath.Join(distDir, "*.tar.gz.sigstore.json"))
 	if err != nil {
 		return nil, err
 	}
