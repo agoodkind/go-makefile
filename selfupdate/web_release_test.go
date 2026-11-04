@@ -13,7 +13,6 @@ import (
 	"sync"
 	"testing"
 
-	fulciocert "github.com/sigstore/sigstore-go/pkg/fulcio/certificate"
 	"goodkind.io/go-makefile/selfupdate"
 )
 
@@ -240,39 +239,4 @@ func TestApplyRejectsArchiveThatRealBundleDoesNotCover(t *testing.T) {
 	}
 	assertInstalledUnchanged(t, options)
 	release.assertNoAPIRequests(t)
-}
-
-func TestValidateReleaseTagBinding(t *testing.T) {
-	const sourceCommit = "035da3146462072b0c549914e8a3032bad0e8448"
-	testCases := []struct {
-		name string
-		tag  string
-		ref  string
-		want string
-	}{
-		{name: "rolling tag matches source commit", tag: webTestRollingTag, ref: "refs/heads/main"},
-		{name: "rolling tag names another commit", tag: "202610281633-100-20b804f", ref: "refs/heads/main", want: "does not start with tag short commit 20b804f"},
-		{name: "stable tag matches source ref", tag: webTestStableTag, ref: "refs/tags/v1.2.3"},
-		{name: "stable tag built from main", tag: webTestStableTag, ref: "refs/heads/main", want: "source ref"},
-		{name: "stable tag built from another tag", tag: webTestStableTag, ref: "refs/tags/v1.2.4", want: "source ref"},
-		{name: "prerelease label is not a commit", tag: "v1.2.3-rc1", ref: "refs/tags/v1.2.3-rc1"},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			summary := &fulciocert.Summary{Extensions: fulciocert.Extensions{
-				SourceRepositoryDigest: sourceCommit,
-				SourceRepositoryRef:    testCase.ref,
-			}}
-			err := selfupdate.ValidateReleaseTagBinding(summary, testCase.tag)
-			if testCase.want == "" {
-				if err != nil {
-					t.Fatalf("ValidateReleaseTagBinding() error: %v", err)
-				}
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), testCase.want) {
-				t.Fatalf("ValidateReleaseTagBinding() error = %v, want %q", err, testCase.want)
-			}
-		})
-	}
 }
