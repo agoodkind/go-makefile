@@ -79,8 +79,6 @@ func main() {
 `
 )
 
-// releaseFixture serves a release feed, checksums.txt, and archives from a local
-// server.
 type releaseFixture struct {
 	server   *httptest.Server
 	archives map[string][]byte
@@ -100,7 +98,6 @@ func testReleaseFeed(tag string) string {
 `
 }
 
-// testChecksums returns a checksums.txt file for archives.
 func testChecksums(archives map[string][]byte) string {
 	lines := strings.Builder{}
 	for _, name := range slices.Sorted(maps.Keys(archives)) {
