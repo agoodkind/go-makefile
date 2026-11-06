@@ -22,7 +22,17 @@ A process killed during an apply can leave hidden `.<binary>-candidate-*` and `.
 
 ## Verification
 
-Release verification checks the archive checksum and GitHub attestations. The checksum path is in [selfupdate/download.go](../../selfupdate/download.go) and [selfupdate/release.go](../../selfupdate/release.go). The release and build-provenance attestation checks are in [selfupdate/attestation.go](../../selfupdate/attestation.go).
+The updater reads GitHub release pages without a token. It uses the first entry in the Atom feed for rolling releases and the latest release redirect for stable releases. It reads the archive list from the checksum file and downloads each asset directly.
+
+`Config.WebBaseURL` and `Config.WebBaseURLEnv` override the GitHub web address. Existing callers can still set `Config.APIBaseURL`, `Config.APIBaseURLEnv`, and `Config.AuthToken`, but release discovery and downloads do not use those settings.
+
+The updater verifies the archive checksum and its Sigstore bundle. The bundle contains signed build provenance, which records the source and build workflow. Verification uses the public Sigstore trusted root and checks the archive digest, release workflow, GitHub runner, and source repository.
+
+For a rolling tag, the verified source commit must start with the short commit in the tag. For a stable tag without a commit suffix, the verified source reference must equal `refs/tags/<tag>`.
+
+The updater does not verify GitHub's signed statement that an archive belongs to an immutable release. The build provenance and source checks verify the archive against the release workflow and source, but they do not provide that immutable release guarantee.
+
+Older releases do not include bundles, and the updater cannot install them. Earlier versions of the updater use the GitHub API to install the first release with bundles.
 
 Candidate validation runs the downloaded binary with `Config.ValidateArgs` and requires output containing `Config.ValidateMatch`. `go-mk` provides a real `version` command in [cmd/go-mk/selfupdate_command.go](../../cmd/go-mk/selfupdate_command.go), so its own updater validates a staged `go-mk` before replacement.
 

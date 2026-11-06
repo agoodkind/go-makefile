@@ -15,7 +15,7 @@ import (
 const (
 	defaultHTTPTimeout      = 2 * time.Minute
 	defaultUpdateInterval   = 24 * time.Hour
-	defaultGitHubAPIBaseURL = "https://api.github.com"
+	defaultGitHubWebBaseURL = "https://github.com"
 	// These two caps bound how much an update may download and unpack, so a
 	// hostile or corrupt archive cannot exhaust the disk. Config.MaxBinaryBytes
 	// and Config.MaxDownloadBytes override them, because how large a plausible
@@ -27,19 +27,17 @@ const (
 )
 
 var (
-	timeNow                                = time.Now
-	updateWithLock                         = WithLock
-	updateFetchLatestRelease               = fetchLatestRelease
-	updateDownloadFile                     = downloadFile
-	updateVerifyChecksum                   = verifyChecksum
-	updateVerifyGitHubAttestations         = verifyGitHubAttestations
-	updateVerifyReleaseAssetAttestation    = verifyReleaseAssetAttestation
-	updateVerifyBuildProvenanceAttestation = verifyBuildProvenanceAttestation
-	updateExtractCandidate                 = extractCandidate
-	updateValidateCandidate                = validateCandidate
-	updateVerifyCandidateSignature         = verifyCandidateSignature
-	updateRemoveBackup                     = os.Remove
-	updateInstallCandidate                 = installCandidate
+	timeNow                        = time.Now
+	updateWithLock                 = WithLock
+	updateFetchLatestRelease       = fetchLatestRelease
+	updateDownloadFile             = downloadFile
+	updateVerifyChecksum           = verifyChecksum
+	updateVerifyGitHubAttestations = verifyGitHubAttestations
+	updateExtractCandidate         = extractCandidate
+	updateValidateCandidate        = validateCandidate
+	updateVerifyCandidateSignature = verifyCandidateSignature
+	updateRemoveBackup             = os.Remove
+	updateInstallCandidate         = installCandidate
 )
 
 // Config describes the target repository and current binary identity.
@@ -52,10 +50,17 @@ type Config struct {
 	AllowPrerelease   *bool
 	Interval          time.Duration
 	SignerWorkflowURI string
-	APIBaseURL        string
-	APIBaseURLEnv     string
-	AuthToken         string
-	ValidateArgs      []string
+	// APIBaseURL, APIBaseURLEnv, and AuthToken remain for existing callers.
+	// Release discovery and downloads do not read them.
+	APIBaseURL    string
+	APIBaseURLEnv string
+	AuthToken     string
+	// WebBaseURL replaces https://github.com for release discovery and asset
+	// downloads. The environment variable named by WebBaseURLEnv takes
+	// precedence when it is set.
+	WebBaseURL    string
+	WebBaseURLEnv string
+	ValidateArgs  []string
 	ValidateMatch     string
 	// ValidateEnv lists KEY=VALUE entries added to the environment of the
 	// candidate validation command.

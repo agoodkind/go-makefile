@@ -766,6 +766,8 @@ func TestPublishStageCreatesTagThroughGhReleaseCreate(t *testing.T) {
 			distDir := "dist"
 			archive := filepath.Join(distDir, "agent-gate_linux_amd64.tar.gz")
 			writeFile(t, archive, "archive")
+			bundle := archive + ".sigstore.json"
+			writeFile(t, bundle, "bundle")
 
 			err := publishStage(releaseConfig{
 				binary:     "agent-gate",
@@ -784,6 +786,7 @@ func TestPublishStageCreatesTagThroughGhReleaseCreate(t *testing.T) {
 				"--generate-notes",
 				testCase.channelFlag,
 				archive,
+				bundle,
 				filepath.Join(distDir, "checksums.txt"),
 			}
 			if gotGhArgs := readFakeToolLog(t, ghLog); !slices.Equal(gotGhArgs, wantGhArgs) {

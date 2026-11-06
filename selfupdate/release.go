@@ -2,8 +2,10 @@ package selfupdate
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,96 +16,133 @@ import (
 	"golang.org/x/mod/semver"
 )
 
+const (
+	checksumsAssetName     = "checksums.txt"
+	maxReleaseMetadataSize = 16 << 20
+	releaseFeedIDMarker    = ":Repository/"
+	releaseTagPathMarker   = "/releases/tag/"
+)
+
 type release struct {
-	HTMLURL    string         `json:"html_url"`
-	TagName    string         `json:"tag_name"`
-	Draft      bool           `json:"draft"`
-	Prerelease bool           `json:"prerelease"`
-	Assets     []releaseAsset `json:"assets"`
+	HTMLURL string
+	TagName string
+	Assets  []releaseAsset
 }
 
 type releaseAsset struct {
-	ID                 int64  `json:"id"`
-	Name               string `json:"name"`
-	BrowserDownloadURL string `json:"browser_download_url"`
-	Digest             string `json:"digest"`
+	Name               string
+	BrowserDownloadURL string
+}
+
+type releaseFeed struct {
+	Entries []releaseFeedEntry `xml:"entry"`
+}
+
+type releaseFeedEntry struct {
+	ID string `xml:"id"`
 }
 
 func fetchLatestRelease(ctx context.Context, options Options) (release, error) {
-	log := options.Log
-	repo := options.Config.Repo
+	resolveTag := fetchLatestStableTag
 	if options.Config.allowPrerelease() {
-		releases, err := fetchReleaseList(ctx, options, repo)
-		if err != nil {
-			log.WarnContext(ctx, "update release list query failed", "repo", repo, "err", err)
-			return release{}, err
-		}
-		for _, candidate := range releases {
-			if !candidate.Draft {
-				return candidate, nil
-			}
-		}
-		noReleaseErr := fmt.Errorf("no non-draft releases found for %s", repo)
-		log.WarnContext(ctx, "update release list had no eligible release", "repo", repo, "err", noReleaseErr)
-		return release{}, noReleaseErr
+		resolveTag = fetchNewestFeedTag
 	}
-	url := releaseAPIBaseURL(options.Config) + "/repos/" + repo + "/releases/latest"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	tag, err := resolveTag(ctx, options)
 	if err != nil {
-		log.WarnContext(ctx, "update latest release request build failed", "repo", repo, "err", err)
-		return release{}, fmt.Errorf("build latest release request: %w", err)
-	}
-	applyGitHubAPIHeaders(req, options.Config)
-	resp, err := options.Client.Do(req)
-	if err != nil {
-		log.WarnContext(ctx, "update latest release request failed", "repo", repo, "err", err)
-		return release{}, fmt.Errorf("query latest release: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("query latest release: HTTP %d", resp.StatusCode)
-		log.WarnContext(ctx, "update latest release status failed", "repo", repo, "status_code", resp.StatusCode, "err", err)
 		return release{}, err
 	}
-	var latest release
-	if err := json.NewDecoder(resp.Body).Decode(&latest); err != nil {
-		log.WarnContext(ctx, "update latest release decode failed", "repo", repo, "err", err)
-		return release{}, fmt.Errorf("decode latest release: %w", err)
-	}
-	if latest.Draft || latest.Prerelease {
-		err := fmt.Errorf("latest release %q is not an allowed stable release", latest.TagName)
-		log.WarnContext(ctx, "update latest release rejected", "repo", repo, "tag", latest.TagName, "err", err)
-		return release{}, err
-	}
-	return latest, nil
+	return fetchReleaseByTag(ctx, options, tag)
 }
 
-func fetchReleaseList(ctx context.Context, options Options, repo string) ([]release, error) {
+func fetchNewestFeedTag(ctx context.Context, options Options) (string, error) {
 	log := options.Log
-	url := releaseAPIBaseURL(options.Config) + "/repos/" + repo + "/releases"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	repo := options.Config.Repo
+	feedURL := releaseWebBaseURL(options.Config) + "/" + repo + "/releases.atom"
+	body, err := fetchReleaseMetadata(ctx, options, feedURL)
 	if err != nil {
-		log.WarnContext(ctx, "update release list request build failed", "repo", repo, "err", err)
-		return nil, fmt.Errorf("build release list request: %w", err)
+		log.WarnContext(ctx, "update release feed query failed", "repo", repo, "err", err)
+		return "", fmt.Errorf("query release feed: %w", err)
 	}
-	applyGitHubAPIHeaders(req, options.Config)
+	var feed releaseFeed
+	if err := xml.Unmarshal(body, &feed); err != nil {
+		log.WarnContext(ctx, "update release feed decode failed", "repo", repo, "err", err)
+		return "", fmt.Errorf("decode release feed: %w", err)
+	}
+	if len(feed.Entries) == 0 {
+		noReleaseErr := fmt.Errorf("no non-draft releases found for %s", repo)
+		log.WarnContext(ctx, "update release feed had no entry", "repo", repo, "err", noReleaseErr)
+		return "", noReleaseErr
+	}
+	_, entryPath, found := strings.Cut(feed.Entries[0].ID, releaseFeedIDMarker)
+	if !found {
+		return "", fmt.Errorf("release feed entry id %q has no repository path", feed.Entries[0].ID)
+	}
+	_, tag, found := strings.Cut(entryPath, "/")
+	if !found || tag == "" {
+		return "", fmt.Errorf("release feed entry id %q has no tag", feed.Entries[0].ID)
+	}
+	return tag, nil
+}
+
+// GitHub redirects releases/latest to the release list when the repository
+// does not have a stable release.
+func fetchLatestStableTag(ctx context.Context, options Options) (string, error) {
+	log := options.Log
+	repo := options.Config.Repo
+	latestURL := releaseWebBaseURL(options.Config) + "/" + repo + "/releases/latest"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestURL, nil)
+	if err != nil {
+		log.WarnContext(ctx, "update latest release request build failed", "repo", repo, "err", err)
+		return "", fmt.Errorf("build latest release request: %w", err)
+	}
+	client := *options.Client
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.WarnContext(ctx, "update latest release request failed", "repo", repo, "err", err)
+		return "", fmt.Errorf("query latest release: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	location, err := resp.Location()
+	if err != nil {
+		statusErr := fmt.Errorf("query latest release: HTTP %d without a redirect", resp.StatusCode)
+		log.WarnContext(ctx, "update latest release status failed", "repo", repo, "status_code", resp.StatusCode, "err", errors.Join(statusErr, err))
+		return "", statusErr
+	}
+	_, tag, found := strings.Cut(location.Path, releaseTagPathMarker)
+	if !found || tag == "" {
+		noReleaseErr := fmt.Errorf("no stable release found for %s", repo)
+		log.WarnContext(ctx, "update latest release redirect had no tag", "repo", repo, "location", location.String(), "err", noReleaseErr)
+		return "", noReleaseErr
+	}
+	return tag, nil
+}
+
+func fetchReleaseMetadata(ctx context.Context, options Options, requestURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		options.Log.WarnContext(ctx, "update release metadata request build failed", "url", requestURL, "err", err)
+		return nil, fmt.Errorf("build request for %s: %w", requestURL, err)
+	}
 	resp, err := options.Client.Do(req)
 	if err != nil {
-		log.WarnContext(ctx, "update release list request failed", "repo", repo, "err", err)
-		return nil, fmt.Errorf("query releases: %w", err)
+		options.Log.WarnContext(ctx, "update release metadata request failed", "url", requestURL, "err", err)
+		return nil, fmt.Errorf("request %s: %w", requestURL, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("query releases: HTTP %d", resp.StatusCode)
-		log.WarnContext(ctx, "update release list status failed", "repo", repo, "status_code", resp.StatusCode, "err", err)
+		err := fmt.Errorf("request %s: HTTP %d", requestURL, resp.StatusCode)
+		options.Log.WarnContext(ctx, "update release metadata status failed", "url", requestURL, "status_code", resp.StatusCode, "err", err)
 		return nil, err
 	}
-	var releases []release
-	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-		log.WarnContext(ctx, "update release list decode failed", "repo", repo, "err", err)
-		return nil, fmt.Errorf("decode releases: %w", err)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxReleaseMetadataSize))
+	if err != nil {
+		options.Log.WarnContext(ctx, "update release metadata read failed", "url", requestURL, "err", err)
+		return nil, fmt.Errorf("read %s: %w", requestURL, err)
 	}
-	return releases, nil
+	return body, nil
 }
 
 // VerifyReleaseAssets downloads every archive asset of the release tagged tag
@@ -130,9 +169,6 @@ func VerifyReleaseAssets(ctx context.Context, options Options, tag string) error
 		return fmt.Errorf("create release verification cache dir: %w", err)
 	}
 	for _, asset := range assets {
-		if asset.BrowserDownloadURL == "" {
-			return fmt.Errorf("release asset %s has no download URL", asset.Name)
-		}
 		archivePath := filepath.Join(resolvedOptions.CacheDir, filepath.Base(asset.Name))
 		if err := downloadReleaseAsset(ctx, resolvedOptions, asset, archivePath); err != nil {
 			return err
@@ -166,32 +202,30 @@ func validateReleaseVerificationInput(cfg Config, tag string) error {
 }
 
 func fetchReleaseByTag(ctx context.Context, options Options, tag string) (release, error) {
-	log := options.Log
-	repo := options.Config.Repo
-	requestURL := releaseAPIBaseURL(options.Config) + "/repos/" + repo + "/releases/tags/" + url.PathEscape(tag)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	cfg := options.Config
+	checksumsURL := releaseAssetURL(cfg, tag, checksumsAssetName)
+	body, err := fetchReleaseMetadata(ctx, options, checksumsURL)
 	if err != nil {
-		log.WarnContext(ctx, "update tagged release request build failed", "repo", repo, "tag", tag, "err", err)
-		return release{}, fmt.Errorf("build tagged release request: %w", err)
-	}
-	applyGitHubAPIHeaders(req, options.Config)
-	resp, err := options.Client.Do(req)
-	if err != nil {
-		log.WarnContext(ctx, "update tagged release request failed", "repo", repo, "tag", tag, "err", err)
+		options.Log.WarnContext(ctx, "update tagged release query failed", "repo", cfg.Repo, "tag", tag, "err", err)
 		return release{}, fmt.Errorf("query tagged release: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("query tagged release: HTTP %d", resp.StatusCode)
-		log.WarnContext(ctx, "update tagged release status failed", "repo", repo, "tag", tag, "status_code", resp.StatusCode, "err", err)
-		return release{}, err
+	assets := []releaseAsset{{Name: checksumsAssetName, BrowserDownloadURL: checksumsURL}}
+	for line := range strings.SplitSeq(string(body), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		name := checksumEntryName(fields[1])
+		assets = append(assets, releaseAsset{
+			Name:               name,
+			BrowserDownloadURL: releaseAssetURL(cfg, tag, name),
+		})
 	}
-	var tagged release
-	if err := json.NewDecoder(resp.Body).Decode(&tagged); err != nil {
-		log.WarnContext(ctx, "update tagged release decode failed", "repo", repo, "tag", tag, "err", err)
-		return release{}, fmt.Errorf("decode tagged release: %w", err)
-	}
-	return tagged, nil
+	return release{
+		HTMLURL: releaseWebBaseURL(cfg) + "/" + cfg.Repo + releaseTagPathMarker + url.PathEscape(tag),
+		TagName: tag,
+		Assets:  assets,
+	}, nil
 }
 
 func releaseVerificationAssets(assets []releaseAsset) []releaseAsset {
@@ -248,28 +282,21 @@ func findAsset(assets []releaseAsset, name string) (releaseAsset, bool) {
 			return asset, true
 		}
 	}
-	return releaseAsset{ID: 0, Name: "", BrowserDownloadURL: "", Digest: ""}, false
+	return releaseAsset{Name: "", BrowserDownloadURL: ""}, false
 }
 
-func applyGitHubAPIHeaders(req *http.Request, cfg Config) {
-	req.Header.Set("Accept", "application/vnd.github+json")
-	if token := strings.TrimSpace(cfg.AuthToken); token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-}
-
-func releaseAPIBaseURL(cfg Config) string {
+func releaseWebBaseURL(cfg Config) string {
 	override := ""
-	if cfg.APIBaseURLEnv != "" {
-		override = strings.TrimSpace(os.Getenv(cfg.APIBaseURLEnv))
+	if cfg.WebBaseURLEnv != "" {
+		override = strings.TrimSpace(os.Getenv(cfg.WebBaseURLEnv))
 	}
 	if override != "" {
 		return strings.TrimRight(override, "/")
 	}
-	if cfg.APIBaseURL != "" {
-		return strings.TrimRight(cfg.APIBaseURL, "/")
+	if cfg.WebBaseURL != "" {
+		return strings.TrimRight(cfg.WebBaseURL, "/")
 	}
-	return defaultGitHubAPIBaseURL
+	return defaultGitHubWebBaseURL
 }
 
 func releaseIsNewer(currentVersion string, latestTag string) bool {

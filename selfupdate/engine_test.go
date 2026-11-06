@@ -4,8 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
-	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -17,7 +15,10 @@ import (
 	"testing"
 )
 
-const testCurrentVersion = "202606240000-aa-abcdef0"
+const (
+	testCurrentVersion       = "202606240000-aa-abcdef0"
+	engineTestDownloadPrefix = "/agoodkind/agent-gate/releases/download/v1.2.3/"
+)
 
 func testConfig() Config {
 	return Config{
@@ -61,75 +62,28 @@ func TestVerifyReleaseAssetsDownloadsAndVerifiesMatchingArchives(t *testing.T) {
 	darwinArchive := []byte("darwin archive")
 	linuxArchive := []byte("linux archive")
 	siblingArchive := []byte("sibling archive")
-	checksums := fmt.Sprintf(
-		"%s  %s\n%s  %s\n%s  %s\n",
-		testSHA256Hex(darwinArchive),
-		darwinAssetName,
-		testSHA256Hex(linuxArchive),
-		linuxAssetName,
-		testSHA256Hex(siblingArchive),
-		siblingAssetName,
-	)
-	assetResponses := map[string][]byte{
-		"/repos/agoodkind/agent-gate/releases/assets/101": darwinArchive,
-		"/repos/agoodkind/agent-gate/releases/assets/102": linuxArchive,
-		"/repos/agoodkind/agent-gate/releases/assets/103": siblingArchive,
-		"/repos/agoodkind/agent-gate/releases/assets/104": []byte(checksums),
+	archives := map[string][]byte{
+		darwinAssetName:  darwinArchive,
+		linuxAssetName:   linuxArchive,
+		siblingAssetName: siblingArchive,
 	}
 	verifiedAttestations := []string{}
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if response, ok := assetResponses[request.URL.Path]; ok {
-			if got := request.Header.Get("Authorization"); got != "Bearer test-token" {
-				t.Errorf("Authorization = %q, want bearer token on asset request", got)
-			}
-			if got := request.Header.Get("Accept"); got != "application/octet-stream" {
-				t.Errorf("Accept = %q, want application/octet-stream", got)
-			}
-			_, _ = writer.Write(response)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		assetName, found := strings.CutPrefix(request.URL.Path, engineTestDownloadPrefix)
+		if !found {
+			http.NotFound(writer, request)
 			return
 		}
-		switch request.URL.Path {
-		case "/repos/agoodkind/agent-gate/releases/tags/v1.2.3":
-			if got := request.Header.Get("Authorization"); got != "Bearer test-token" {
-				t.Errorf("Authorization = %q, want bearer token on API request", got)
-			}
-			response := release{
-				TagName: "v1.2.3",
-				Assets: []releaseAsset{
-					{
-						ID:                 101,
-						Name:               darwinAssetName,
-						BrowserDownloadURL: server.URL + "/downloads/" + darwinAssetName,
-					},
-					{
-						ID:                 102,
-						Name:               linuxAssetName,
-						BrowserDownloadURL: server.URL + "/downloads/" + linuxAssetName,
-					},
-					{
-						ID:                 103,
-						Name:               siblingAssetName,
-						BrowserDownloadURL: server.URL + "/downloads/" + siblingAssetName,
-					},
-					{
-						ID:                 104,
-						Name:               "checksums.txt",
-						BrowserDownloadURL: server.URL + "/downloads/checksums.txt",
-					},
-					{
-						ID:                 105,
-						Name:               "agent-gate-notes.txt",
-						BrowserDownloadURL: server.URL + "/downloads/notes.txt",
-					},
-				},
-			}
-			if err := json.NewEncoder(writer).Encode(response); err != nil {
-				t.Errorf("encode response: %v", err)
-			}
-		default:
-			http.NotFound(writer, request)
+		if assetName == checksumsAssetName {
+			_, _ = writer.Write([]byte(testChecksums(archives)))
+			return
 		}
+		archive, ok := archives[assetName]
+		if !ok {
+			http.NotFound(writer, request)
+			return
+		}
+		_, _ = writer.Write(archive)
 	}))
 	t.Cleanup(server.Close)
 
@@ -151,8 +105,7 @@ func TestVerifyReleaseAssetsDownloadsAndVerifiesMatchingArchives(t *testing.T) {
 		Config: Config{
 			Repo:       "agoodkind/agent-gate",
 			Binary:     "agent-gate",
-			APIBaseURL: server.URL,
-			AuthToken:  "test-token",
+			WebBaseURL: server.URL,
 		},
 		Client:   server.Client(),
 		CacheDir: cacheDir,
@@ -171,24 +124,12 @@ func TestVerifyReleaseAssetsDownloadsAndVerifiesMatchingArchives(t *testing.T) {
 }
 
 func TestVerifyReleaseAssetsRequiresMatchingArchives(t *testing.T) {
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/repos/agoodkind/agent-gate/releases/tags/v1.2.3" {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != engineTestDownloadPrefix+checksumsAssetName {
 			http.NotFound(writer, request)
 			return
 		}
-		response := release{
-			TagName: "v1.2.3",
-			Assets: []releaseAsset{
-				{
-					Name:               "checksums.txt",
-					BrowserDownloadURL: server.URL + "/downloads/checksums.txt",
-				},
-			},
-		}
-		if err := json.NewEncoder(writer).Encode(response); err != nil {
-			t.Errorf("encode response: %v", err)
-		}
+		_, _ = writer.Write([]byte(testChecksums(nil)))
 	}))
 	t.Cleanup(server.Close)
 
@@ -196,7 +137,7 @@ func TestVerifyReleaseAssetsRequiresMatchingArchives(t *testing.T) {
 		Config: Config{
 			Repo:       "agoodkind/agent-gate",
 			Binary:     "agent-gate",
-			APIBaseURL: server.URL,
+			WebBaseURL: server.URL,
 		},
 		Client:   server.Client(),
 		CacheDir: t.TempDir(),
@@ -214,26 +155,12 @@ func TestVerifyReleaseAssetsRequiresMatchingArchives(t *testing.T) {
 func TestVerifyReleaseAssetsRequiresNamedBinaryAmongAllArchives(t *testing.T) {
 	archive := []byte("sibling archive")
 	assetName := "agentctl_linux_arm64.tar.gz"
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
-		case "/repos/agoodkind/agent-gate/releases/tags/v1.2.3":
-			response := release{
-				TagName: "v1.2.3",
-				Assets: []releaseAsset{
-					{
-						Name:               assetName,
-						BrowserDownloadURL: server.URL + "/downloads/" + assetName,
-						Digest:             "sha256:" + testSHA256Hex(archive),
-					},
-				},
-			}
-			if err := json.NewEncoder(writer).Encode(response); err != nil {
-				t.Errorf("encode response: %v", err)
-			}
-		default:
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != engineTestDownloadPrefix+checksumsAssetName {
 			http.NotFound(writer, request)
+			return
 		}
+		_, _ = writer.Write([]byte(testChecksums(map[string][]byte{assetName: archive})))
 	}))
 	t.Cleanup(server.Close)
 
@@ -241,7 +168,7 @@ func TestVerifyReleaseAssetsRequiresNamedBinaryAmongAllArchives(t *testing.T) {
 		Config: Config{
 			Repo:       "agoodkind/agent-gate",
 			Binary:     "agent-gate",
-			APIBaseURL: server.URL,
+			WebBaseURL: server.URL,
 		},
 		Client:   server.Client(),
 		CacheDir: t.TempDir(),
@@ -264,24 +191,11 @@ func TestVerifyReleaseAssetsKeepsDownloadsInsideCacheDir(t *testing.T) {
 
 	archive := []byte("archive")
 	assetName := "agent-gate_/../../evil.tar.gz"
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
-		case "/repos/agoodkind/agent-gate/releases/tags/v1.2.3":
-			response := release{
-				TagName: "v1.2.3",
-				Assets: []releaseAsset{
-					{
-						Name:               assetName,
-						BrowserDownloadURL: server.URL + "/downloads/evil.tar.gz",
-						Digest:             "sha256:" + testSHA256Hex(archive),
-					},
-				},
-			}
-			if err := json.NewEncoder(writer).Encode(response); err != nil {
-				t.Errorf("encode response: %v", err)
-			}
-		case "/downloads/evil.tar.gz":
+		case engineTestDownloadPrefix + checksumsAssetName:
+			_, _ = writer.Write([]byte(testChecksums(map[string][]byte{assetName: archive})))
+		case engineTestDownloadPrefix + assetName:
 			_, _ = writer.Write(archive)
 		default:
 			http.NotFound(writer, request)
@@ -298,7 +212,7 @@ func TestVerifyReleaseAssetsKeepsDownloadsInsideCacheDir(t *testing.T) {
 		Config: Config{
 			Repo:       "agoodkind/agent-gate",
 			Binary:     "agent-gate",
-			APIBaseURL: server.URL,
+			WebBaseURL: server.URL,
 		},
 		Client:   server.Client(),
 		CacheDir: cacheDir,
@@ -314,28 +228,28 @@ func TestVerifyReleaseAssetsKeepsDownloadsInsideCacheDir(t *testing.T) {
 	}
 }
 
-func TestFetchReleaseListUsesOptionsLogger(t *testing.T) {
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+func TestCheckUsesOptionsLoggerForReleaseFeedFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		http.Error(writer, "failure", http.StatusInternalServerError)
 	}))
 	t.Cleanup(server.Close)
 
 	var logOutput strings.Builder
+	config := testConfig()
+	config.WebBaseURL = server.URL
 	options := Options{
-		Config: Config{
-			APIBaseURL: server.URL,
-		},
-		Client: server.Client(),
-		Log:    slog.New(slog.NewTextHandler(&logOutput, nil)),
+		Config:    config,
+		Client:    server.Client(),
+		StatePath: filepath.Join(t.TempDir(), "update.json"),
+		Log:       slog.New(slog.NewTextHandler(&logOutput, nil)),
 	}
 
-	_, err := fetchReleaseList(context.Background(), options, "agoodkind/agent-gate")
-	if err == nil {
-		t.Fatal("fetchReleaseList() error = nil, want status error")
+	_, err := Check(context.Background(), options)
+	if err == nil || !strings.Contains(err.Error(), "HTTP 500") {
+		t.Fatalf("Check() error = %v, want HTTP 500", err)
 	}
-	if !strings.Contains(logOutput.String(), "update release list status failed") {
-		t.Fatalf("options logger output = %q, want release list status log", logOutput.String())
+	if !strings.Contains(logOutput.String(), "update release feed query failed") {
+		t.Fatalf("options logger output = %q, want release feed query log", logOutput.String())
 	}
 }
 
@@ -455,31 +369,21 @@ func TestApplyCurrentIsIdempotent(t *testing.T) {
 	installedContent := []byte("current agent-gate")
 	writeInstalledBinary(t, installPath, installedContent)
 
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/repos/agoodkind/agent-gate/releases" {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/agoodkind/agent-gate/releases.atom":
+			_, _ = writer.Write([]byte(testReleaseFeed(testCurrentVersion)))
+		case "/agoodkind/agent-gate/releases/download/" + testCurrentVersion + "/" + checksumsAssetName:
+			_, _ = writer.Write([]byte(testChecksums(map[string][]byte{runtimeAssetName: []byte("archive")})))
+		default:
 			t.Errorf("unexpected request for current release: %s", request.URL.Path)
 			http.NotFound(writer, request)
-			return
-		}
-		response := []release{{
-			HTMLURL: server.URL + "/release",
-			TagName: testCurrentVersion,
-			Assets: []releaseAsset{
-				{
-					Name:               runtimeAssetName,
-					BrowserDownloadURL: server.URL + "/archive",
-				},
-			},
-		}}
-		if err := json.NewEncoder(writer).Encode(response); err != nil {
-			t.Errorf("encode release list: %v", err)
 		}
 	}))
 	t.Cleanup(server.Close)
 
 	config := testConfig()
-	config.APIBaseURL = server.URL
+	config.WebBaseURL = server.URL
 	options := Options{
 		Config:      config,
 		Client:      server.Client(),
@@ -546,7 +450,6 @@ func TestApplyCurrentPreservesAppliedTag(t *testing.T) {
 				{
 					Name:               runtimeAssetName,
 					BrowserDownloadURL: "https://example.invalid/archive",
-					Digest:             "sha256:deadbeef",
 				},
 			},
 		}, nil

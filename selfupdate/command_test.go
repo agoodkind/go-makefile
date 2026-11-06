@@ -129,7 +129,6 @@ func restoreCommandTestSeams(t *testing.T, latestTag string) {
 				{
 					Name:               runtimeAssetName,
 					BrowserDownloadURL: "https://example.invalid/archive",
-					Digest:             "sha256:deadbeef",
 				},
 			},
 		}, nil
