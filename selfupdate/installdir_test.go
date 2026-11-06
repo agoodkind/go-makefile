@@ -89,8 +89,6 @@ type releaseFixture struct {
 	refusedDownloads map[string]bool
 }
 
-// testReleaseFeed returns a release feed with one entry for tag, in the format
-// of the GitHub releases.atom page.
 func testReleaseFeed(tag string) string {
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">

@@ -22,4 +22,4 @@ The installer uses `selfupdate` to download the consumer archive. It verifies th
 
 ## Release Assets
 
-Each release includes archives for `go-mk` and `go-mk-install`. The package workflow creates a Sigstore bundle for each archive, and the release publisher uploads both files.
+Each release includes archives for `go-mk` and `go-mk-install`. The package workflow creates a Sigstore bundle for each archive. The release publisher uploads each archive with its bundle.
