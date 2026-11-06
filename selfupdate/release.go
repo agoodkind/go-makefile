@@ -42,8 +42,6 @@ type releaseFeedEntry struct {
 	ID string `xml:"id"`
 }
 
-// fetchLatestRelease resolves the latest allowed tag from GitHub release pages
-// and reads the release assets from the checksums.txt asset of that tag.
 func fetchLatestRelease(ctx context.Context, options Options) (release, error) {
 	resolveTag := fetchLatestStableTag
 	if options.Config.allowPrerelease() {
@@ -56,8 +54,6 @@ func fetchLatestRelease(ctx context.Context, options Options) (release, error) {
 	return fetchReleaseByTag(ctx, options, tag)
 }
 
-// fetchNewestFeedTag returns the tag of the first entry in the release feed. A
-// feed entry has an id such as tag:github.com,2008:Repository/1/TAG.
 func fetchNewestFeedTag(ctx context.Context, options Options) (string, error) {
 	log := options.Log
 	repo := options.Config.Repo
@@ -88,9 +84,8 @@ func fetchNewestFeedTag(ctx context.Context, options Options) (string, error) {
 	return tag, nil
 }
 
-// fetchLatestStableTag reads the tag from the redirect of the releases/latest
-// page. GitHub redirects that page to the latest stable release, or to the
-// release list when the repository has no stable release.
+// GitHub redirects releases/latest to the release list when the repository
+// does not have a stable release.
 func fetchLatestStableTag(ctx context.Context, options Options) (string, error) {
 	log := options.Log
 	repo := options.Config.Repo
@@ -206,8 +201,6 @@ func validateReleaseVerificationInput(cfg Config, tag string) error {
 	return nil
 }
 
-// fetchReleaseByTag lists the release assets from the checksums.txt asset of
-// the tag. That file has one line for every archive in the release.
 func fetchReleaseByTag(ctx context.Context, options Options, tag string) (release, error) {
 	cfg := options.Config
 	checksumsURL := releaseAssetURL(cfg, tag, checksumsAssetName)

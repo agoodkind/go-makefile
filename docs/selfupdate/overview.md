@@ -22,13 +22,17 @@ A process killed during an apply can leave hidden `.<binary>-candidate-*` and `.
 
 ## Verification
 
-Release discovery and downloads use `github.com` pages and files and need no GitHub token. A rolling channel reads the first entry of `releases.atom`. A stable channel reads the redirect target of `releases/latest`. `checksums.txt` lists the release archives, and each asset downloads from `releases/download/<tag>/<asset>`. `Config.WebBaseURL` and `Config.WebBaseURLEnv` replace the `https://github.com` base. `Config.APIBaseURL`, `Config.APIBaseURLEnv`, and `Config.AuthToken` remain for existing callers, and release discovery and downloads do not read them.
+The updater reads GitHub release pages without a token. It uses the first entry in the Atom feed for rolling releases and the latest release redirect for stable releases. It reads the archive list from the checksum file and downloads each asset directly.
 
-Release verification checks the archive checksum and the Sigstore bundle published as `<archive>.sigstore.json`. The checksum path is in [selfupdate/download.go](../../selfupdate/download.go) and [selfupdate/release.go](../../selfupdate/release.go). The bundle checks are in [selfupdate/attestation.go](../../selfupdate/attestation.go). The bundle must verify against the public Sigstore trusted root and must match the archive digest, the go-makefile release workflow, the GitHub-hosted runner, and the source repository. The source commit in the certificate must start with the short commit suffix of a rolling tag. The source ref in the certificate must equal `refs/tags/<tag>` for a stable v-tag, because a v-tag has no commit suffix.
+`Config.WebBaseURL` and `Config.WebBaseURLEnv` override the GitHub web address. Existing callers can still set `Config.APIBaseURL`, `Config.APIBaseURLEnv`, and `Config.AuthToken`, but release discovery and downloads do not use those settings.
 
-Verification does not check GitHub's signed statement that an archive belongs to the immutable release for a tag. The checksum, the build provenance bundle, the signer workflow check, and the source commit or source ref check bind the archive to the release workflow and the tagged source.
+The updater verifies the archive checksum and its Sigstore bundle. The bundle contains signed build provenance, which records the source and build workflow. Verification uses the public Sigstore trusted root and checks the archive digest, release workflow, GitHub runner, and source repository.
 
-Releases published before bundles existed do not have `<archive>.sigstore.json`, and this package cannot install them. A binary built with an earlier version of this package uses the GitHub API to install the first release that has bundles.
+For a rolling tag, the verified source commit must start with the short commit in the tag. For a stable tag without a commit suffix, the verified source reference must equal `refs/tags/<tag>`.
+
+The updater does not verify GitHub's signed statement that an archive belongs to an immutable release. The build provenance and source checks verify the archive against the release workflow and source, but they do not provide that immutable release guarantee.
+
+Older releases do not include bundles, and the updater cannot install them. Earlier versions of the updater use the GitHub API to install the first release with bundles.
 
 Candidate validation runs the downloaded binary with `Config.ValidateArgs` and requires output containing `Config.ValidateMatch`. `go-mk` provides a real `version` command in [cmd/go-mk/selfupdate_command.go](../../cmd/go-mk/selfupdate_command.go), so its own updater validates a staged `go-mk` before replacement.
 

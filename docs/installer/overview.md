@@ -18,8 +18,8 @@ The hosted [install.sh](../../install.sh) fetches `go-mk-install_<os>_<arch>.tar
 
 The first hop trusts the `go-mk-install` release asset from `agoodkind/go-makefile`. The hosted script verifies that asset with GitHub's stable release identity when possible and otherwise requires a checksum match from the same release. Passing `--require-attestation` makes the script fail instead of using the checksum fallback.
 
-The second hop trusts the consumer binary through the `selfupdate` package. `InstallReleaseBinary` in [selfupdate/install.go](../../selfupdate/install.go) resolves the target release, downloads the runtime archive, verifies the checksum and the Sigstore bundle published beside the archive through [selfupdate/attestation.go](../../selfupdate/attestation.go), extracts the named binary as a hidden file in the requested bin directory, and renames that file over the target.
+The installer uses `selfupdate` to download the consumer archive. It verifies the checksum and the signed build record in the Sigstore bundle. It extracts the binary into the requested directory and renames it over the target.
 
 ## Release Assets
 
-The root [Makefile](../../Makefile) sets the release binary set to `go-mk:./cmd/go-mk go-mk-install:./cmd/go-mk-install`. The release engine in [cmd/go-mk/release.go](../../cmd/go-mk/release.go) builds, signs, archives, checksums, and publishes every entry in `RELEASE_BINS`. Each release includes both `go-mk_<os>_<arch>.tar.gz` and `go-mk-install_<os>_<arch>.tar.gz`, and each archive has a `<archive>.sigstore.json` bundle asset that the reusable package workflow writes.
+Each release includes archives for `go-mk` and `go-mk-install`. The package workflow creates a Sigstore bundle for each archive, and the release publisher uploads both files.

@@ -260,9 +260,6 @@ func distArchives(distDir string) ([]string, error) {
 	return matches, nil
 }
 
-// distProvenanceBundles returns the sorted Sigstore bundles that the package
-// jobs wrote beside the archives. selfupdate downloads each bundle from the
-// release to verify its archive.
 func distProvenanceBundles(distDir string) ([]string, error) {
 	matches, err := filepath.Glob(filepath.Join(distDir, "*.tar.gz.sigstore.json"))
 	if err != nil {

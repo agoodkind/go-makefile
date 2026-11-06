@@ -25,8 +25,6 @@ const (
 	// main. A deployed binary keeps verifying releases after go-makefile
 	// renames its packaging workflow.
 	goMakefileWorkflowPattern = `^https://github\.com/agoodkind/go-makefile/\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml@refs/heads/main$`
-	// provenanceBundleSuffix follows the archive name in the name of the
-	// release asset that stores the Sigstore bundle for that archive.
 	provenanceBundleSuffix = ".sigstore.json"
 	maxProvenanceBundle    = 16 << 20
 	minShortCommitLength   = 7
@@ -35,9 +33,6 @@ const (
 
 var goMakefileWorkflow = regexp.MustCompile(goMakefileWorkflowPattern)
 
-// verifyGitHubAttestations downloads the Sigstore bundle published beside the
-// archive and verifies that the bundle binds the archive digest to the
-// go-makefile release workflow and to the commit that the release tag records.
 func verifyGitHubAttestations(ctx context.Context, options Options, latest release, asset releaseAsset, archivePath string) error {
 	digestHex, err := sha256File(archivePath)
 	if err != nil {
@@ -187,10 +182,8 @@ func validateBuildProvenanceCertificate(summary *fulciocert.Summary, repo string
 	return nil
 }
 
-// validateReleaseTagBinding requires the verified certificate to match the
-// release tag. A rolling tag ends in a short commit, and the certificate source
-// commit must start with it. A stable v-tag has no commit suffix. The release
-// workflow runs on that tag, and the certificate source ref must equal it.
+// Rolling tags include a short commit. Other tags require the certificate
+// source reference to match the tag because they do not include a commit.
 func validateReleaseTagBinding(summary *fulciocert.Summary, tag string) error {
 	if shortCommit, found := tagShortCommit(tag); found {
 		if !strings.HasPrefix(summary.SourceRepositoryDigest, shortCommit) {

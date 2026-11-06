@@ -29,17 +29,14 @@ const (
 	webTestRealBundle = "testdata/agent-gate_darwin_arm64.tar.gz.sigstore.json"
 )
 
-// webRelease serves one release through the GitHub web paths that selfupdate
-// reads, and it records every request path and every Authorization value.
 type webRelease struct {
-	server         *httptest.Server
-	mutex          sync.Mutex
-	paths          []string
-	authorizations []string
-	feedTag        string
-	stableTag      string
-	bundle         []byte
-	// checksumNamePrefix precedes each file name in checksums.txt.
+	server             *httptest.Server
+	mutex              sync.Mutex
+	paths              []string
+	authorizations     []string
+	feedTag            string
+	stableTag          string
+	bundle             []byte
 	checksumNamePrefix string
 }
 
@@ -103,7 +100,7 @@ func (release *webRelease) assertNoAPIRequests(t *testing.T) {
 	release.mutex.Lock()
 	defer release.mutex.Unlock()
 	if len(release.paths) == 0 {
-		t.Fatal("server received no requests")
+		t.Fatal("server did not receive any requests")
 	}
 	for _, path := range release.paths {
 		if strings.HasPrefix(path, "/repos/") {
@@ -183,8 +180,7 @@ func TestCheckFindsStableReleaseInRedirectThroughWebBaseEnv(t *testing.T) {
 	release.assertNoAPIRequests(t)
 }
 
-// TestCheckReadsChecksumNamesWithDotSlashPrefix serves the checksums.txt format
-// of agent-gate release 202606060459-4b-9822954.
+// Agent Gate release 202606060459-4b-9822954 prefixes checksum names with ./.
 func TestCheckReadsChecksumNamesWithDotSlashPrefix(t *testing.T) {
 	release := newWebRelease(t, webTestRollingTag, webTestStableTag, nil)
 	release.checksumNamePrefix = "./"
@@ -208,8 +204,6 @@ func TestCheckReportsRepositoryWithoutStableRelease(t *testing.T) {
 	release.assertNoAPIRequests(t)
 }
 
-// TestApplyRejectsReleaseWithoutBundle serves a release published before
-// releases carried bundles. Apply must fail without an API fallback.
 func TestApplyRejectsReleaseWithoutBundle(t *testing.T) {
 	release := newWebRelease(t, webTestRollingTag, webTestStableTag, nil)
 	options := webOptions(t, release, true)
@@ -222,9 +216,7 @@ func TestApplyRejectsReleaseWithoutBundle(t *testing.T) {
 	release.assertNoAPIRequests(t)
 }
 
-// TestApplyRejectsArchiveThatRealBundleDoesNotCover runs the production
-// verifier with a real release bundle and the public Sigstore trusted root. The
-// served archive passes its checksum but has a different digest than the bundle.
+// The archive passes its checksum but does not match the signed bundle.
 func TestApplyRejectsArchiveThatRealBundleDoesNotCover(t *testing.T) {
 	bundle, err := os.ReadFile(webTestRealBundle)
 	if err != nil {

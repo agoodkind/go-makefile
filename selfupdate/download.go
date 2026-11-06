@@ -157,10 +157,8 @@ func verifyChecksum(ctx context.Context, options Options, latest release, asset 
 	if !ok {
 		return fmt.Errorf("checksum unavailable for %s", asset.Name)
 	}
-	// Download checksums.txt once per release because a multi-binary release
-	// verifies many archives against one file. The cache file name hashes the
-	// repo and release tag because CacheDir is stable per binary name. A file
-	// from another release or another repo has a different cache file name.
+	// Cache the checksum file by repository and release tag. Multiple binaries
+	// can then use the same file without repeating the download.
 	checksumsPath := filepath.Join(options.CacheDir, "checksums-"+checksumsCacheKey(options.Config.Repo, latest.TagName)+".txt")
 	if _, statErr := os.Stat(checksumsPath); statErr != nil {
 		if err := downloadReleaseAsset(ctx, options, checksums, checksumsPath); err != nil {
@@ -190,8 +188,7 @@ func checksumsCacheKey(repo string, tag string) string {
 	return hex.EncodeToString(digest[:8])
 }
 
-// checksumEntryName removes the ./ prefix that checksums.txt in older releases
-// writes before each file name.
+// Older releases prefix checksum file names with ./.
 func checksumEntryName(entry string) string {
 	return strings.TrimPrefix(entry, "./")
 }

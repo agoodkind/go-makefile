@@ -181,8 +181,7 @@ jobs:
         uses: actions/attest@v4.2.2
         with:
           subject-path: ${{ inputs.working_directory }}/dist/*.tar.gz
-      # One attestation covers every archive in this job. selfupdate downloads
-      # <archive>.sigstore.json from the release to verify each archive.
+      # Each archive uses the same attestation bundle from this job.
       - name: Copy attestation bundles
         env:
           BUNDLE_PATH: ${{ steps.attest-archives.outputs.bundle-path }}
