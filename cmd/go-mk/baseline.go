@@ -31,13 +31,13 @@ const (
 type baselineComponent string
 
 const (
-	componentAll           baselineComponent = "all"
-	componentGolangci      baselineComponent = "golangci"
-	componentGolangciScope baselineComponent = "golangci-scope"
-	componentAutoScope     baselineComponent = "auto-baseline-scope"
-	componentGocyclo       baselineComponent = "gocyclo"
-	componentDeadcode      baselineComponent = "deadcode"
-	componentStaticcheck   baselineComponent = "staticcheck-extra"
+	componentAll                  baselineComponent = "all"
+	componentGolangci             baselineComponent = "golangci"
+	componentGolangciScope        baselineComponent = "golangci-scope"
+	componentAutoScope            baselineComponent = "auto-baseline-scope"
+	componentGocyclo              baselineComponent = "gocyclo"
+	componentDeadcode             baselineComponent = "deadcode"
+	componentStaticcheck          baselineComponent = "staticcheck-extra"
 	componentStaticcheckAutoScope baselineComponent = "auto-baseline-staticcheck-scope"
 )
 
@@ -208,7 +208,7 @@ func updateGolangciBaselineScope(collector *baselineCollector, mode string) int 
 	if !baselineGatePasses() {
 		return 0
 	}
-	return writeGolangciScopeBaseline(collector, mode, scopePattern)
+	return writeGolangciScopeBaseline(collector, mode, scopePattern, captureGolangciScopeFindings)
 }
 
 // autoBaselineGolangciScope captures the scoped golangci baseline without the
@@ -224,14 +224,23 @@ func autoBaselineGolangciScope(collector *baselineCollector) int {
 		writeStdout("auto-baseline: missing scope; set LINTER, RULE, or GOLANGCI_LINT_BASELINE_SCOPE_PATTERN\n")
 		return 1
 	}
-	return writeGolangciScopeBaseline(collector, string(modeSync), scopePattern)
+	captured := &baselineCollector{}
+	if code := writeGolangciScopeBaseline(captured, string(modeSync), scopePattern, captureNoticeGolangciFindings); code != 0 {
+		return code
+	}
+	component := captured.components[0]
+	if err := restrictNoticeFindings(component.FindingsFile, captureNoticeGolangciFindings); err != nil {
+		return statusFromError(err)
+	}
+	collector.add(component)
+	return 0
 }
 
 // writeGolangciScopeBaseline captures the scoped golangci findings and queues a
 // record carrying the scope pattern, mirroring write_golangci_scope_baseline.
 // The scope pattern reaches baseline.PlanComponent so the scoped rewrite
 // preserves every out-of-scope baseline row byte-for-byte.
-func writeGolangciScopeBaseline(collector *baselineCollector, mode, scopePattern string) int {
+func writeGolangciScopeBaseline(collector *baselineCollector, mode, scopePattern string, capture func(string, string) error) int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
@@ -241,7 +250,7 @@ func writeGolangciScopeBaseline(collector *baselineCollector, mode, scopePattern
 	if err := runLintTools(); err != nil {
 		return statusFromError(err)
 	}
-	if err := runCaptureGolangciScope([]string{rawPath, findingsPath}); err != nil {
+	if err := capture(rawPath, findingsPath); err != nil {
 		return statusFromError(err)
 	}
 	collector.add(baseline.Component{
@@ -375,10 +384,10 @@ func autoBaselineStaticcheckScope(collector *baselineCollector) int {
 	if code := runStaticcheckBin(); code != 0 {
 		return code
 	}
-	if err := staticcheckCaptureFindings(rawPath, findingsPath); err != nil {
+	if err := captureNoticeStaticcheckFindings(rawPath, findingsPath); err != nil {
 		return statusFromError(err)
 	}
-	if err := addOtherPlatformFindings(findingsPath); err != nil {
+	if err := restrictNoticeFindings(findingsPath, captureNoticeStaticcheckFindings); err != nil {
 		return statusFromError(err)
 	}
 	collector.add(baseline.Component{

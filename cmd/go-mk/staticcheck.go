@@ -9,6 +9,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -290,9 +291,16 @@ func staticcheckSelectedBin() (string, error) {
 // non-executable binary writes an empty findings file and prints the neutral
 // skip line.
 func staticcheckCaptureFindings(rawPath, findingsPath string) error {
+	return captureStaticcheckFindings(rawPath, findingsPath, false)
+}
+
+func captureStaticcheckFindings(rawPath, findingsPath string, requireComplete bool) error {
 	selected, err := staticcheckSelectedBin()
 	if err != nil {
 		return err
+	}
+	if requireComplete && (selected == "" || !isExecutable(selected)) {
+		return fmt.Errorf("notice requires an executable staticcheck-extra analyzer")
 	}
 	if selected == "" {
 		writeStdout("staticcheck-extra: not configured (skipped)\n")
@@ -326,6 +334,9 @@ func staticcheckCaptureFindings(rawPath, findingsPath string) error {
 	}
 	if status == staticcheckBuildFailureStatus {
 		return staticcheckBuildFailure(normalized)
+	}
+	if requireComplete && status != 0 && status != staticcheckDiagnosticsStatus {
+		return fmt.Errorf("notice staticcheck-extra capture failed (exit status %d):\n%s", status, strings.Join(normalized, "\n"))
 	}
 	filtered := filterExcluded(normalized, excludePattern)
 	return writeFindingsFile(findingsPath, sortedUnique(filtered))

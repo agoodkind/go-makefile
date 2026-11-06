@@ -305,6 +305,9 @@ func recordFreshNoticeApplied(record noticeFields, appliedFile string, applied m
 // baseline auto-baseline-scope updater with the scope env set, records the id on
 // success, and reports failure without aborting the build.
 func runNoticeAutoBaseline(record noticeFields, directive noticeDirective, appliedFile string, applied map[string]bool) {
+	previousDirective := activeNoticeDirective
+	activeNoticeDirective = directive
+	defer func() { activeNoticeDirective = previousDirective }()
 	if directive.gate == noticeGateStaticcheck {
 		runNoticeStaticcheckAutoBaseline(record, directive, appliedFile, applied)
 		return

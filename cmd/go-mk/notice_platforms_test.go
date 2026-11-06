@@ -17,6 +17,8 @@ func TestNoticeRecordsTestFindingsInFilesForAnotherPlatform(t *testing.T) {
 	consumerDir := newConsumerRepository(t, beforeNoticeDate)
 	writeConsumerFile(t, consumerDir, "widget/widget_linux_test.go",
 		"//go:build linux\n\npackage widget\n\nimport \"testing\"\n\nfunc TestDoubleOnLinux(t *testing.T) {\n\tif Double(5) != 10 {\n\t\tt.Fatal(\"Double(5) != 10\")\n\t}\n}\n")
+	runConsumerGit(t, consumerDir, beforeNoticeDate, "add", "widget/widget_linux_test.go")
+	runConsumerGit(t, consumerDir, beforeNoticeDate, "commit", "--quiet", "--message", "Add a platform test before the notice")
 
 	output, err := runConsumerMake(consumerDir, "staticcheck-extra", "GO_MK_PLATFORMS=freebsd/amd64 linux/amd64")
 	if err != nil {
