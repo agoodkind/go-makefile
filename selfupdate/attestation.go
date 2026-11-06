@@ -59,12 +59,12 @@ func downloadProvenanceBundle(ctx context.Context, options Options, latest relea
 	bundlePath := archivePath + provenanceBundleSuffix
 	bundleURL := releaseAssetURL(options.Config, latest.TagName, bundleName)
 	if err := updateDownloadFile(ctx, options.Client, bundleURL, bundlePath, maxProvenanceBundle); err != nil {
-		slog.WarnContext(ctx, "update build provenance bundle request failed", "asset", bundleName, "err", err)
+		options.Log.WarnContext(ctx, "update build provenance bundle request failed", "asset", bundleName, "err", err)
 		return nil, fmt.Errorf("download build provenance bundle %s: %w", bundleName, err)
 	}
 	bundleJSON, err := os.ReadFile(bundlePath)
 	if err != nil {
-		slog.WarnContext(ctx, "update build provenance bundle read failed", "asset", bundleName, "err", err)
+		options.Log.WarnContext(ctx, "update build provenance bundle read failed", "asset", bundleName, "err", err)
 		return nil, fmt.Errorf("read build provenance bundle %s: %w", bundleName, err)
 	}
 	return bundleJSON, nil
@@ -108,7 +108,7 @@ func verifyBuildProvenanceBundle(bundleJSON json.RawMessage, options Options, ta
 		err = validateReleaseTagBinding(result.Signature.Certificate, tag)
 	}
 	if err != nil {
-		slog.Warn("update build provenance bundle rejected", "asset", assetName, "tag", tag, "err", err)
+		options.Log.Warn("update build provenance bundle rejected", "asset", assetName, "tag", tag, "err", err)
 		return fmt.Errorf("build provenance verification failed: %w", err)
 	}
 	return nil

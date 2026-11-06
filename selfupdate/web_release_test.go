@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -207,8 +208,13 @@ func TestCheckReportsRepositoryWithoutStableRelease(t *testing.T) {
 func TestApplyRejectsReleaseWithoutBundle(t *testing.T) {
 	release := newWebRelease(t, webTestRollingTag, webTestStableTag, nil)
 	options := webOptions(t, release, true)
+	var logOutput strings.Builder
+	options.Log = slog.New(slog.NewTextHandler(&logOutput, nil))
 
 	_, err := selfupdate.Apply(context.Background(), options)
+	if !strings.Contains(logOutput.String(), "update build provenance bundle request failed") {
+		t.Fatalf("caller logger did not record the bundle request failure: %s", logOutput.String())
+	}
 	if err == nil || !strings.Contains(err.Error(), "download build provenance bundle") || !strings.Contains(err.Error(), "HTTP 404") {
 		t.Fatalf("Apply() error = %v, want a missing bundle error", err)
 	}
