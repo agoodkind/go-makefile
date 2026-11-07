@@ -2,6 +2,8 @@ module goodkind.io/go-makefile/staticcheck
 
 go 1.26.4
 
+toolchain go1.27.3
+
 require golang.org/x/tools v0.52.0
 
 require (
