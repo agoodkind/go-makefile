@@ -43,7 +43,7 @@ func runDocStructure(pass *analysis.Pass) (any, error) {
 				}
 			}
 			if !introduction || !explanation || !illustration {
-				pass.Reportf(function.Pos(), "doc_structure: add an introduction, explanation, and example or layout")
+				pass.Reportf(function.Doc.Pos(), "doc_structure: add an introduction, explanation, and example or layout")
 			}
 		}
 	}

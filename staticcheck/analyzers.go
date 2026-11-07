@@ -12,6 +12,13 @@ package staticcheck
 import "golang.org/x/tools/go/analysis"
 
 // Analyzers returns all custom AST analyzers in this set.
+//
+// The command registers this set with multichecker. Analyzer flags select
+// which checks run for a package.
+//
+// Register the set with:
+//
+//	multichecker.Main(staticcheck.Analyzers()...)
 func Analyzers() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
 		DocStructureAnalyzer,

@@ -57,7 +57,11 @@ func prepareNoticeHistory() error {
 	if err != nil {
 		return err
 	}
-	args := []string{"--no-print-directory", "GO_MK_BIN=" + engine, "go-mk-workspace", "go-mk-cgo-deps"}
+	args := []string{"--no-print-directory"}
+	if makefile := os.Getenv("GO_MK_NOTICE_MAKEFILE"); makefile != "" {
+		args = append(args, "-f", makefile)
+	}
+	args = append(args, "GO_MK_BIN="+engine, "go-mk-workspace", "go-mk-cgo-deps")
 	command := exec.Command("make", args...)
 	environment := os.Environ()
 	for _, name := range []string{"MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES"} {

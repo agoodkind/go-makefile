@@ -1,14 +1,14 @@
 package docstructure
 
-// Short returns one.
-func Short() int { return 1 } // want `doc_structure: add an introduction`
+// Short returns one. // want `doc_structure: add an introduction`
+func Short() int { return 1 }
 
-// Heading returns one.
+// Heading returns one. // want `doc_structure: add an introduction`
 //
 // The result is one.
 //
 // # Examples
-func Heading() int { return 1 } // want `doc_structure: add an introduction`
+func Heading() int { return 1 }
 
 // Complete returns one.
 //
