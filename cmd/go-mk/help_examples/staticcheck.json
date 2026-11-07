@@ -150,8 +150,8 @@
     "tool": "golangci-lint/staticcheck",
     "id": "SA1023",
     "summary": "Copy an io.Writer input before modifying its bytes.",
-    "bad": "func (writer *Writer) Write(data []byte) (int, error) {\n    data[0] = 'x'\n    return len(data), nil\n}",
-    "good": "func (writer *Writer) Write(data []byte) (int, error) {\n    copied := bytes.Clone(data)\n    copied[0] = 'x'\n    return writer.destination.Write(copied)\n}"
+    "bad": "func (writer *Writer) Write(data []byte) (int, error) {\n    if len(data) == 0 { return 0, nil }\n    data[0] = 'x'\n    return writer.destination.Write(data)\n}",
+    "good": "func (writer *Writer) Write(data []byte) (int, error) {\n    if len(data) == 0 { return 0, nil }\n    copied := bytes.Clone(data)\n    copied[0] = 'x'\n    return writer.destination.Write(copied)\n}"
   },
   {
     "tool": "golangci-lint/staticcheck",
@@ -359,7 +359,7 @@
   {
     "tool": "golangci-lint/staticcheck",
     "id": "SA4016",
-    "summary": "Use bitwise operands that change the result.",
+    "summary": "Remove bitwise operations that leave the value unchanged.",
     "bad": "result := value ^ 0",
     "good": "result := value"
   },
@@ -368,7 +368,7 @@
     "id": "SA4017",
     "summary": "Use the result returned by a function without side effects.",
     "bad": "strings.TrimSpace(input)",
-    "good": "input = strings.TrimSpace(input)"
+    "good": "return strings.TrimSpace(input)"
   },
   {
     "tool": "golangci-lint/staticcheck",
