@@ -39,7 +39,7 @@
     "id": "G107",
     "summary": "Restrict HTTP fetches to approved destinations instead of accepting an arbitrary URL.",
     "bad": "package main\nimport \"net/http\"\nfunc fetch(destination string) (*http.Response, error) {\n\treturn http.Get(destination)\n}",
-    "good": "package main\nimport (\n\t\"errors\"\n\t\"net/http\"\n)\nfunc fetch(destination string) (*http.Response, error) {\n\tswitch destination {\n\tcase \"https://api.example.com/status\":\n\t\treturn http.Get(\"https://api.example.com/status\")\n\tcase \"https://api.example.com/health\":\n\t\treturn http.Get(\"https://api.example.com/health\")\n\tdefault:\n\t\treturn nil, errors.New(\"destination is not approved\")\n\t}\n}"
+    "good": "package main\nimport (\n\t\"errors\"\n\t\"net/http\"\n)\nfunc fetch(destination string) (*http.Response, error) {\n\tclient := &http.Client{\n\t\tCheckRedirect: func(request *http.Request, previous []*http.Request) error {\n\t\t\treturn http.ErrUseLastResponse\n\t\t},\n\t}\n\tswitch destination {\n\tcase \"https://api.example.com/status\":\n\t\treturn client.Get(\"https://api.example.com/status\")\n\tcase \"https://api.example.com/health\":\n\t\treturn client.Get(\"https://api.example.com/health\")\n\tdefault:\n\t\treturn nil, errors.New(\"destination is not approved\")\n\t}\n}"
   },
   {
     "tool": "golangci-lint/gosec",
@@ -219,7 +219,7 @@
   {
     "tool": "golangci-lint/gosec",
     "id": "G305",
-    "summary": "Extract archive entries relative to an os.Root to prevent paths from escaping the destination.",
+    "summary": "Create archive output files relative to an os.Root to prevent paths from escaping the destination; this example isolates destination-path creation.",
     "bad": "package main\n\nimport (\n\"archive/zip\"\n\"os\"\n\"path/filepath\"\n)\n\nfunc main() {\narchive, err := zip.OpenReader(\"input.zip\")\nif err != nil { panic(err) }\ndefer archive.Close()\nfor _, entry := range archive.File {\n    path := filepath.Join(\"output\", entry.Name)\n    file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)\n    if err != nil { panic(err) }\n    file.Close()\n}\n}",
     "good": "package main\n\nimport (\n\"archive/zip\"\n\"os\"\n)\n\nfunc main() {\narchive, err := zip.OpenReader(\"input.zip\")\nif err != nil { panic(err) }\ndefer archive.Close()\nroot, err := os.OpenRoot(\"output\")\nif err != nil { panic(err) }\ndefer root.Close()\nfor _, entry := range archive.File {\n    file, err := root.OpenFile(entry.Name, os.O_CREATE|os.O_WRONLY, 0o600)\n    if err != nil { panic(err) }\n    file.Close()\n}\n}"
   },
@@ -375,7 +375,7 @@
     "id": "G704",
     "summary": "Fetch only an approved HTTP destination when the request supplies the URL.",
     "bad": "package main\nimport \"net/http\"\nfunc fetch(request *http.Request) (*http.Response, error) {\n\tdestination := request.FormValue(\"url\")\n\treturn http.Get(destination)\n}",
-    "good": "package main\nimport (\n\t\"errors\"\n\t\"net/http\"\n)\nfunc fetch(request *http.Request) (*http.Response, error) {\n\tdestination := request.FormValue(\"url\")\n\tswitch destination {\n\tcase \"https://api.example.com/status\":\n\t\treturn http.Get(\"https://api.example.com/status\")\n\tcase \"https://api.example.com/health\":\n\t\treturn http.Get(\"https://api.example.com/health\")\n\tdefault:\n\t\treturn nil, errors.New(\"destination is not approved\")\n\t}\n}"
+    "good": "package main\nimport (\n\t\"errors\"\n\t\"net/http\"\n)\nfunc fetch(request *http.Request) (*http.Response, error) {\n\tdestination := request.FormValue(\"url\")\n\tclient := &http.Client{\n\t\tCheckRedirect: func(request *http.Request, previous []*http.Request) error {\n\t\t\treturn http.ErrUseLastResponse\n\t\t},\n\t}\n\tswitch destination {\n\tcase \"https://api.example.com/status\":\n\t\treturn client.Get(\"https://api.example.com/status\")\n\tcase \"https://api.example.com/health\":\n\t\treturn client.Get(\"https://api.example.com/health\")\n\tdefault:\n\t\treturn nil, errors.New(\"destination is not approved\")\n\t}\n}"
   },
   {
     "tool": "golangci-lint/gosec",

@@ -34,6 +34,6 @@ Run the Make target to verify the initial list, tool filtering, partial rule fil
 
 Review examples against the configured rule implementations. The bad example must demonstrate its stated rule, and the good example must correct that finding. Compare catalog coverage with the shared configuration and custom analyzer registration.
 
-The user excluded new tests and validation harnesses. Use direct command checks and source inspection for this feature.
+Do not add feature tests or validation harnesses. Use direct command checks and source inspection for this feature.
 
 Run the repository's required build checks before committing implementation changes. Do not change lint enforcement, exclusions, or baselines to accommodate examples.

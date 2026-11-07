@@ -17,7 +17,7 @@ Use the configured tool versions and shared defaults when determining coverage.
 Print examples without running linters, installing tools, or fetching documentation.
 Use one catalog for direct engine and Make invocations.
 Preserve exact diagnostic identifiers and fail for unknown identifiers.
-Add neither feature tests nor validation harnesses, as the user requested.
+Do not add feature tests or validation harnesses.
 
 ## Review focus
 
