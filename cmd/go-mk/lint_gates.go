@@ -19,6 +19,13 @@ import (
 	"goodkind.io/go-makefile/internal/report"
 )
 
+type captureMode int
+
+const (
+	captureStandard captureMode = iota
+	captureNotice
+)
+
 // golangciCommand builds the golangci-lint argv for the run or fmt mode,
 // mirroring golangci_command: the run mode uses GOLANGCI_LINT_RUN_FLAGS (or
 // GOLANGCI_LINT_FLAGS) and the fmt mode uses GOLANGCI_LINT_FLAGS, both followed
@@ -205,14 +212,14 @@ func runLintGolangciScope() int {
 // scopes them to the resolved scope pattern, mirroring
 // capture_golangci_scope_findings.
 func captureGolangciScopeFindings(rawPath, findingsPath string) error {
-	return captureGolangciScope(rawPath, findingsPath, false)
+	return captureGolangciScope(rawPath, findingsPath, captureStandard)
 }
 
 func captureNoticeGolangciFindings(rawPath, findingsPath string) error {
-	return captureGolangciScope(rawPath, findingsPath, true)
+	return captureGolangciScope(rawPath, findingsPath, captureNotice)
 }
 
-func captureGolangciScope(rawPath, findingsPath string, requireComplete bool) error {
+func captureGolangciScope(rawPath, findingsPath string, mode captureMode) error {
 	binary, args, err := golangciCommand("run")
 	if err != nil {
 		return err
@@ -222,14 +229,14 @@ func captureGolangciScope(rawPath, findingsPath string, requireComplete bool) er
 		scoped = append(scoped, args[1:]...)
 		args = scoped
 	}
-	if requireComplete {
+	if mode == captureNotice {
 		args = append(args, "--issues-exit-code=0")
 	}
 	status, err := captureCommand(binary, args, rawPath)
 	if err != nil {
 		return err
 	}
-	if requireComplete && status != 0 {
+	if mode == captureNotice && status != 0 {
 		output, err := os.ReadFile(rawPath)
 		if err != nil {
 			return err
@@ -237,14 +244,14 @@ func captureGolangciScope(rawPath, findingsPath string, requireComplete bool) er
 		return fmt.Errorf("notice golangci-lint capture failed (exit status %d):\n%s", status, output)
 	}
 	excludePattern := golangciExcludePattern()
-	if requireComplete {
+	if mode == captureNotice {
 		excludePattern = ""
 	}
 	extracted, _, err := extractFindings(rawPath, goFindingPattern.String(), excludePattern)
 	if err != nil {
 		return err
 	}
-	if requireComplete {
+	if mode == captureNotice {
 		for _, finding := range extracted {
 			if strings.HasSuffix(finding, "(typecheck)") {
 				return fmt.Errorf("notice golangci-lint could not type-check the source: %s", finding)

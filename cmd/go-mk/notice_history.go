@@ -16,8 +16,15 @@ import (
 
 var activeNoticeDirective noticeDirective
 
+func noticeFindingIdentity(finding, root string, sources noticeSources) (string, error) {
+	if activeNoticeDirective.gate == "golangci" && activeNoticeDirective.rule == "file-length-limit" {
+		return baseline.Key(finding), nil
+	}
+	return sources.identity(finding, root)
+}
+
 func captureNoticeStaticcheckFindings(rawPath, findingsPath string) error {
-	if err := captureStaticcheckFindings(rawPath, findingsPath, true); err != nil {
+	if err := captureStaticcheckFindings(rawPath, findingsPath, captureNotice); err != nil {
 		return err
 	}
 	return addOtherPlatformFindings(findingsPath)
@@ -60,7 +67,7 @@ func restrictNoticeFindings(findingsPath string, capture func(string, string) er
 	sources := make(noticeSources)
 	rejected := make(map[string]bool)
 	for _, finding := range current {
-		identity, err := sources.identity(finding, ".")
+		identity, err := noticeFindingIdentity(finding, ".", sources)
 		if err != nil {
 			return err
 		}
@@ -148,7 +155,7 @@ func captureNoticeHistory(revision string, capture func(string, string) error) (
 				return nil, err
 			}
 		}
-		identity, err := sources.identity(finding, moduleDir)
+		identity, err := noticeFindingIdentity(finding, moduleDir, sources)
 		if err != nil {
 			return nil, err
 		}

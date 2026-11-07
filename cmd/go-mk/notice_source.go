@@ -27,9 +27,6 @@ type noticeSources map[string]noticeSource
 // unchanged source before accepting that group without a baseline token.
 func (sources noticeSources) identity(finding, root string) (string, error) {
 	key := baseline.Key(finding)
-	if activeNoticeDirective.gate == "golangci" && activeNoticeDirective.rule == "file-length-limit" {
-		return key, nil
-	}
 	file, ok := findings.FindingPath(finding)
 	if !ok {
 		return "", fmt.Errorf("notice cannot locate finding: %s", finding)
