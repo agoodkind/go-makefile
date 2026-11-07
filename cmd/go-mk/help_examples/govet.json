@@ -1,0 +1,247 @@
+[
+  {
+    "tool": "golangci-lint/govet",
+    "id": "unsafeptr",
+    "summary": "Keep pointer arithmetic in a single supported unsafe operation.",
+    "bad": "address := uintptr(pointer) + uintptr(offset)\npointer = unsafe.Pointer(address)",
+    "good": "pointer = unsafe.Add(pointer, offset)"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "cgocall",
+    "summary": "When C.use accepts a data pointer, pass the backing buffer instead of the Go slice header.",
+    "bad": "data := []byte(\"example\")\nC.use(unsafe.Pointer(\u0026data))",
+    "good": "data := []byte(\"example\")\nC.use(unsafe.Pointer(\u0026data[0]))"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "hostport",
+    "summary": "Construct IPv4 and IPv6 host-port pairs with net.JoinHostPort.",
+    "bad": "net.Dial(\"tcp\", fmt.Sprintf(\"%s:%d\", host, port))",
+    "good": "net.Dial(\"tcp\", net.JoinHostPort(host, strconv.Itoa(port)))"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "testinggoroutine",
+    "summary": "When test-file analysis is enabled, fail a test from the goroutine that runs the test.",
+    "bad": "go func() { t.Fatal(\"failed\") }()",
+    "good": "failure := make(chan error, 1)\ngo func() { failure \u003c- work() }()\nif err := \u003c-failure; err != nil { t.Fatal(err) }"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "appends",
+    "summary": "Use the original slice when appending without additional elements.",
+    "bad": "result := append(values)",
+    "good": "result := values"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "printf",
+    "summary": "Match formatting verbs to their argument types.",
+    "bad": "fmt.Printf(\"%d\", \"ready\")",
+    "good": "fmt.Printf(\"%s\", \"ready\")"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "unreachable",
+    "summary": "Place operations before a terminating return.",
+    "bad": "return\nwork()",
+    "good": "work()\nreturn"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "waitgroup",
+    "summary": "Increment the wait group before starting its goroutine.",
+    "bad": "go func() { group.Add(1); defer group.Done(); work() }()",
+    "good": "group.Add(1)\ngo func() { defer group.Done(); work() }()"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "shift",
+    "summary": "Keep shifts within the operand's integer width.",
+    "bad": "var value uint32\nresult := value \u003e\u003e 32",
+    "good": "var value uint64\nresult := value \u003e\u003e 32"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "unusedresult",
+    "summary": "Use the result returned by a pure function.",
+    "bad": "strings.TrimSpace(input)",
+    "good": "input = strings.TrimSpace(input)"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "copylocks",
+    "summary": "Pass a mutex by pointer.",
+    "bad": "func update(mutex sync.Mutex) { mutex.Lock(); defer mutex.Unlock() }",
+    "good": "func update(mutex *sync.Mutex) { mutex.Lock(); defer mutex.Unlock() }"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "defers",
+    "summary": "Evaluate deferred measurements when the deferred function runs.",
+    "bad": "defer record(time.Since(start))",
+    "good": "defer func() { record(time.Since(start)) }()"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "directive",
+    "summary": "Place go:debug directives before the package declaration in package main or a test file.",
+    "bad": "package main\n\n//go:debug panicnil=1\nfunc main() {}",
+    "good": "//go:debug panicnil=1\n\npackage main\n\nfunc main() {}"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "ifaceassert",
+    "summary": "Assert only interfaces with compatible method signatures.",
+    "bad": "type First interface { Read() string }\ntype Second interface { Read() int }\nfunc convert(value First) { _ = value.(Second) }",
+    "good": "type First interface { Read() string }\ntype Second interface { Read() string }\nfunc convert(value First) { _ = value.(Second) }"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "tests",
+    "summary": "When test-file analysis is enabled, use valid Go test function names.",
+    "bad": "func Testsample(t *testing.T) {}",
+    "good": "func TestSample(t *testing.T) {}"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "assign",
+    "summary": "Assign a different value instead of assigning a variable to itself.",
+    "bad": "value = value",
+    "good": "value = replacement"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "atomic",
+    "summary": "Avoid assigning an atomic operation's result back with a non-atomic store.",
+    "bad": "count = atomic.AddInt64(\u0026count, 1)",
+    "good": "atomic.AddInt64(\u0026count, 1)"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "lostcancel",
+    "summary": "Call the cancel function returned by context.WithCancel.",
+    "bad": "ctx, _ := context.WithCancel(parent)\nuse(ctx)",
+    "good": "ctx, cancel := context.WithCancel(parent)\ndefer cancel()\nuse(ctx)"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "stdmethods",
+    "summary": "Use standard method signatures for standard interfaces.",
+    "bad": "func (value Item) MarshalJSON() string { return \"{}\" }",
+    "good": "func (value Item) MarshalJSON() ([]byte, error) { return []byte(\"{}\"), nil }"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "stdversion",
+    "summary": "Use APIs available in the module's declared Go version; slices.Concat requires Go 1.22.",
+    "bad": "// go.mod: go 1.21\nfunc combine(first, second []int) []int {\n    return slices.Concat(first, second)\n}",
+    "good": "// go.mod: go 1.21\nfunc combine(first, second []int) []int {\n    result := append([]int(nil), first...)\n    return append(result, second...)\n}"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "stringintconv",
+    "summary": "Use strconv to format integers as decimal strings.",
+    "bad": "text := string(65)",
+    "good": "text := strconv.Itoa(65)"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "unmarshal",
+    "summary": "Pass a pointer to a decoding destination.",
+    "bad": "json.Unmarshal(data, value)",
+    "good": "json.Unmarshal(data, \u0026value)"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "bools",
+    "summary": "Use Boolean conditions that can become true.",
+    "bad": "if count == 1 \u0026\u0026 count == 2 { return }",
+    "good": "if count == 1 { return }; if count == 2 { return }"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "buildtag",
+    "summary": "Use valid build constraint syntax.",
+    "bad": "//go:build linux \u0026\u0026\n\npackage example",
+    "good": "//go:build linux\n\npackage example"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "httpresponse",
+    "summary": "Check request errors before using the HTTP response.",
+    "bad": "response, err := http.Get(address)\ndefer response.Body.Close()\nif err != nil { return err }",
+    "good": "response, err := http.Get(address)\nif err != nil { return err }\ndefer response.Body.Close()"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "slog",
+    "summary": "Provide a value for each structured log key.",
+    "bad": "slog.Info(\"ready\", \"count\")",
+    "good": "slog.Info(\"ready\", \"count\", count)"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "structtag",
+    "summary": "Use valid struct tag syntax.",
+    "bad": "type Item struct { Name string `json:name` }",
+    "good": "type Item struct { Name string `json:\"name\"` }"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "framepointer",
+    "summary": "Preserve the frame pointer in amd64 assembly.",
+    "bad": "// work_amd64.s:\nTEXT ·Work(SB),NOSPLIT,$0-0\n    MOVQ AX, BP\n    RET",
+    "good": "// work_amd64.s:\nTEXT ·Work(SB),NOSPLIT,$0-0\n    MOVQ AX, BX\n    RET"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "inline",
+    "summary": "Apply replacements marked with the go:fix inline directive.",
+    "bad": "//go:fix inline\nfunc Old(value int) int { return value + 1 }\nfunc run() { use(Old(1)) }",
+    "good": "//go:fix inline\nfunc Old(value int) int { return value + 1 }\nfunc run() { use(1 + 1) }"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "nilfunc",
+    "summary": "Call declared functions without comparing them to nil.",
+    "bad": "func callback() {}\nfunc run() { if callback == nil { return }; callback() }",
+    "good": "func callback() {}\nfunc run() { callback() }"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "sigchanyzer",
+    "summary": "Buffer channels passed to signal.Notify.",
+    "bad": "signals := make(chan os.Signal)\nsignal.Notify(signals, os.Interrupt)",
+    "good": "signals := make(chan os.Signal, 1)\nsignal.Notify(signals, os.Interrupt)"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "timeformat",
+    "summary": "Use 01 for the month and 02 for the day in time layouts.",
+    "bad": "time.Parse(\"2006-02-01\", input)",
+    "good": "time.Parse(\"2006-01-02\", input)"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "errorsas",
+    "summary": "Pass a pointer to a concrete error type to errors.As.",
+    "bad": "var target error; errors.As(err, \u0026target)",
+    "good": "var target *os.PathError; errors.As(err, \u0026target)"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "asmdecl",
+    "summary": "Match assembly argument sizes to the Go declaration on amd64.",
+    "bad": "// Go declaration:\nfunc Sum(first, second int) int\n// sum_amd64.s:\n#include \"textflag.h\"\nTEXT ·Sum(SB),NOSPLIT,$0-16\n    MOVQ first+0(FP), AX\n    ADDQ second+8(FP), AX\n    MOVQ AX, ret+16(FP)\n    RET",
+    "good": "// Go declaration:\nfunc Sum(first, second int) int\n// sum_amd64.s:\n#include \"textflag.h\"\nTEXT ·Sum(SB),NOSPLIT,$0-24\n    MOVQ first+0(FP), AX\n    ADDQ second+8(FP), AX\n    MOVQ AX, ret+16(FP)\n    RET"
+  },
+  {
+    "tool": "golangci-lint/govet",
+    "id": "composites",
+    "summary": "Use keyed literals for structs from another package.",
+    "bad": "import \"net\"\n\nfunc wrap(err error) error {\n    return \u0026net.DNSConfigError{err}\n}",
+    "good": "import \"net\"\n\nfunc wrap(err error) error {\n    return \u0026net.DNSConfigError{Err: err}\n}"
+  }
+]

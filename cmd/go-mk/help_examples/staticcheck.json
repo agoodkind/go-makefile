@@ -1,0 +1,1080 @@
+[
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1000",
+    "summary": "Use a valid regular expression.",
+    "bad": "regexp.MustCompile(\"[\")",
+    "good": "regexp.MustCompile(\"[a-z]+\")"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1001",
+    "summary": "Use valid template syntax.",
+    "bad": "template.New(\"page\").Parse(\"{{if}}\")",
+    "good": "template.New(\"page\").Parse(\"{{if .Ready}}Ready{{end}}\")"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1002",
+    "summary": "Use a valid time parsing layout.",
+    "bad": "time.Parse(\"2006-13-02\", input)",
+    "good": "time.Parse(\"2006-01-02\", input)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1003",
+    "summary": "Encode fixed-width values with encoding/binary.",
+    "bad": "binary.Write(writer, binary.LittleEndian, \"value\")",
+    "good": "binary.Write(writer, binary.LittleEndian, uint32(42))"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1004",
+    "summary": "Specify the unit when writing a sleep duration.",
+    "bad": "time.Sleep(5)",
+    "good": "time.Sleep(5 * time.Second)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1005",
+    "summary": "Pass the executable and its arguments separately.",
+    "bad": "exec.Command(\"git status\")",
+    "good": "exec.Command(\"git\", \"status\")"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1006",
+    "summary": "Print variable text without treating it as a format string.",
+    "bad": "fmt.Printf(message)",
+    "good": "fmt.Print(message)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1007",
+    "summary": "Use a valid URL.",
+    "bad": "url.Parse(\"http://example.com/%zz\")",
+    "good": "url.Parse(\"http://example.com/%20\")"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1008",
+    "summary": "Use canonical HTTP header capitalization for direct map access.",
+    "bad": "values := header[\"content-type\"]",
+    "good": "values := header[\"Content-Type\"]"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1010",
+    "summary": "Pass a positive match limit or -1 for every match.",
+    "bad": "expression.FindAllString(input, 0)",
+    "good": "expression.FindAllString(input, -1)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1011",
+    "summary": "Pass valid UTF-8 to string operations that inspect characters.",
+    "bad": "strings.IndexAny(input, \"\\xff\")",
+    "good": "strings.IndexAny(input, \"é\")"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1012",
+    "summary": "Pass a non-nil context to context-aware operations.",
+    "bad": "http.NewRequestWithContext(nil, http.MethodGet, address, nil)",
+    "good": "http.NewRequestWithContext(context.Background(), http.MethodGet, address, nil)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1013",
+    "summary": "Pass the seek offset before the origin constant.",
+    "bad": "file.Seek(io.SeekStart, 10)",
+    "good": "file.Seek(10, io.SeekStart)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1014",
+    "summary": "Pass a pointer to the decoding destination.",
+    "bad": "json.Unmarshal(data, value)",
+    "good": "json.Unmarshal(data, \u0026value)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1015",
+    "summary": "Stop tickers explicitly in modules targeting Go 1.22 or earlier.",
+    "bad": "// In a package targeting Go 1.22 or earlier.\nfunc wait() { \u003c-time.Tick(time.Second) }",
+    "good": "func wait() {\n    ticker := time.NewTicker(time.Second)\n    defer ticker.Stop()\n    \u003c-ticker.C\n}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1016",
+    "summary": "Subscribe to a signal that the process can receive.",
+    "bad": "signal.Notify(signals, syscall.SIGKILL)",
+    "good": "signal.Notify(signals, syscall.SIGTERM)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1017",
+    "summary": "Buffer channels passed to signal.Notify.",
+    "bad": "signals := make(chan os.Signal)\nsignal.Notify(signals, os.Interrupt)",
+    "good": "signals := make(chan os.Signal, 1)\nsignal.Notify(signals, os.Interrupt)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1018",
+    "summary": "Request replacements instead of passing a zero replacement limit.",
+    "bad": "strings.Replace(input, \"old\", \"new\", 0)",
+    "good": "strings.ReplaceAll(input, \"old\", \"new\")"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1019",
+    "summary": "Use the supported replacement for a deprecated API.",
+    "bad": "ioutil.ReadFile(path)",
+    "good": "os.ReadFile(path)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1020",
+    "summary": "Use a valid host and port in network addresses.",
+    "bad": "net.Listen(\"tcp\", \"localhost:not-a-port\")",
+    "good": "net.Listen(\"tcp\", \"localhost:8080\")"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1021",
+    "summary": "Compare IP addresses with net.IP.Equal.",
+    "bad": "bytes.Equal(firstIP, secondIP)",
+    "good": "firstIP.Equal(secondIP)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1023",
+    "summary": "Copy an io.Writer input before modifying its bytes.",
+    "bad": "func (writer *Writer) Write(data []byte) (int, error) {\n    data[0] = 'x'\n    return len(data), nil\n}",
+    "good": "func (writer *Writer) Write(data []byte) (int, error) {\n    copied := bytes.Clone(data)\n    copied[0] = 'x'\n    return writer.destination.Write(copied)\n}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1024",
+    "summary": "List each character once in a trimming cutset.",
+    "bad": "strings.Trim(input, \"aab\")",
+    "good": "strings.Trim(input, \"ab\")"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1025",
+    "summary": "Avoid relying on Timer.Reset's return value in code targeting older Go versions.",
+    "bad": "if timer.Reset(time.Second) { \u003c-timer.C }",
+    "good": "// For Go versions before 1.23, stop and drain before resetting.\nif !timer.Stop() { \u003c-timer.C }\ntimer.Reset(time.Second)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1026",
+    "summary": "Marshal supported data types instead of channels or functions.",
+    "bad": "json.Marshal(make(chan int))",
+    "good": "json.Marshal([]int{1, 2})"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1027",
+    "summary": "Align 64-bit atomic values on 32-bit architectures.",
+    "bad": "// On a 32-bit architecture, count may lack 64-bit alignment.\ntype State struct { flag bool; count int64 }\natomic.AddInt64(\u0026state.count, 1)",
+    "good": "type State struct { count atomic.Int64; flag bool }\nstate.count.Add(1)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1028",
+    "summary": "Pass a slice to sort.Slice.",
+    "bad": "sort.Slice(42, func(i, j int) bool { return i \u003c j })",
+    "good": "sort.Slice(values, func(i, j int) bool { return values[i] \u003c values[j] })"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1029",
+    "summary": "Use a distinct key type for context values.",
+    "bad": "context.WithValue(ctx, \"account\", account)",
+    "good": "type accountKey struct{}\ncontext.WithValue(ctx, accountKey{}, account)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1030",
+    "summary": "Pass a supported base and bit size to strconv functions.",
+    "bad": "strconv.ParseInt(input, 1, 64)",
+    "good": "strconv.ParseInt(input, 10, 64)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1031",
+    "summary": "Encode into a destination that does not overlap the input.",
+    "bad": "base64.StdEncoding.Encode(data, data)",
+    "good": "encoded := make([]byte, base64.StdEncoding.EncodedLen(len(data)))\nbase64.StdEncoding.Encode(encoded, data)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA1032",
+    "summary": "Pass the actual error before the target error to errors.Is.",
+    "bad": "errors.Is(io.EOF, err)",
+    "good": "errors.Is(err, io.EOF)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA2000",
+    "summary": "Increment a wait group before starting the goroutine.",
+    "bad": "go func() {\n    group.Add(1)\n    defer group.Done()\n    work()\n}()",
+    "good": "group.Add(1)\ngo func() {\n    defer group.Done()\n    work()\n}()"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA2001",
+    "summary": "Perform the protected operation between locking and unlocking.",
+    "bad": "mutex.Lock()\nmutex.Unlock()",
+    "good": "mutex.Lock()\nupdate()\nmutex.Unlock()"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA2002",
+    "summary": "Fail a test from the goroutine that runs the test.",
+    "bad": "go func() { t.Fatal(\"request failed\") }()",
+    "good": "failures := make(chan error, 1)\ngo func() { failures \u003c- request() }()\nif err := \u003c-failures; err != nil { t.Fatal(err) }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA2003",
+    "summary": "Defer Unlock after calling Lock.",
+    "bad": "mutex.Lock()\ndefer mutex.Lock()",
+    "good": "mutex.Lock()\ndefer mutex.Unlock()"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA3000",
+    "summary": "Propagate TestMain's exit status in test packages targeting Go versions before 1.15.",
+    "bad": "// In a test package targeting Go versions before 1.15.\nfunc TestMain(m *testing.M) { m.Run() }",
+    "good": "func TestMain(m *testing.M) { os.Exit(m.Run()) }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA3001",
+    "summary": "Let the test framework control the benchmark iteration count.",
+    "bad": "func BenchmarkEncode(b *testing.B) {\n    b.N = 100\n    for i := 0; i \u003c b.N; i++ { encode() }\n}",
+    "good": "func BenchmarkEncode(b *testing.B) {\n    for b.Loop() { encode() }\n}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4000",
+    "summary": "Compare the intended operands instead of repeating one expression.",
+    "bad": "if first == first { use(first) }",
+    "good": "if first == second { use(first) }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4001",
+    "summary": "Copy the pointed-to value instead of taking its original address.",
+    "bad": "copy := \u0026*original",
+    "good": "copy := new(*original)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4003",
+    "summary": "Compare unsigned values against values in their supported range.",
+    "bad": "var count uint\nif count \u003c 0 { return }",
+    "good": "var count uint\nif count == 0 { return }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4004",
+    "summary": "Allow a loop to process more than its first element.",
+    "bad": "for _, value := range values {\n    use(value)\n    return\n}",
+    "good": "for _, value := range values {\n    use(value)\n}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4005",
+    "summary": "Use a pointer receiver when a method updates its receiver.",
+    "bad": "func (state State) SetCount(count int) { state.count = count }",
+    "good": "func (state *State) SetCount(count int) { state.count = count }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4006",
+    "summary": "Use or check a returned value before overwriting it.",
+    "bad": "value, err := read()\nvalue, err = readAgain()\nreturn value, err",
+    "good": "value, err := read()\nif err != nil { return value, err }\nreturn readAgain()"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4008",
+    "summary": "Update the variable that controls the loop.",
+    "bad": "for i := 0; i \u003c len(values); index++ { use(values[i]) }",
+    "good": "for i := 0; i \u003c len(values); i++ { use(values[i]) }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4009",
+    "summary": "Use the supplied argument before replacing it.",
+    "bad": "func double(value int) int { value = 2; return value * 2 }",
+    "good": "func double(value int) int { return value * 2 }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4010",
+    "summary": "Return or use the slice created by append.",
+    "bad": "func collect(values []int) {\n    result := []int{}\n    for _, value := range values { result = append(result, value) }\n}",
+    "good": "func collect(values []int) []int {\n    result := []int{}\n    for _, value := range values { result = append(result, value) }\n    return result\n}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4011",
+    "summary": "Use a labeled break when exiting an outer loop from a switch.",
+    "bad": "for _, value := range values {\n    switch value { case 0: break }\n    use(value)\n}",
+    "good": "outer:\nfor _, value := range values {\n    switch value { case 0: break outer }\n    use(value)\n}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4012",
+    "summary": "Test for NaN with math.IsNaN.",
+    "bad": "if value == math.NaN() { return }",
+    "good": "if math.IsNaN(value) { return }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4013",
+    "summary": "Use the Boolean value directly instead of negating it twice.",
+    "bad": "enabled := !!ready",
+    "good": "enabled := ready"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4014",
+    "summary": "Use distinct conditions in an if and else-if chain.",
+    "bad": "if value == 1 { first() } else if value == 1 { second() }",
+    "good": "if value == 1 { first() } else if value == 2 { second() }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4015",
+    "summary": "Avoid rounding an integer after converting it to a float.",
+    "bad": "math.Ceil(float64(count))",
+    "good": "float64(count)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4016",
+    "summary": "Use bitwise operands that change the result.",
+    "bad": "result := value ^ 0",
+    "good": "result := value"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4017",
+    "summary": "Use the result returned by a function without side effects.",
+    "bad": "strings.TrimSpace(input)",
+    "good": "input = strings.TrimSpace(input)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4018",
+    "summary": "Assign a different value instead of assigning a variable to itself.",
+    "bad": "value = value",
+    "good": "value = replacement"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4019",
+    "summary": "Include each build constraint once.",
+    "bad": "//go:build linux \u0026\u0026 linux\n\npackage example",
+    "good": "//go:build linux\n\npackage example"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4020",
+    "summary": "Test specific types before interfaces that already include them.",
+    "bad": "switch value.(type) {\ncase io.Reader: read()\ncase *bytes.Buffer: buffer()\n}",
+    "good": "switch value.(type) {\ncase *bytes.Buffer: buffer()\ncase io.Reader: read()\n}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4021",
+    "summary": "Assign the original slice when append adds zero elements.",
+    "bad": "copied := append(values)",
+    "good": "copied := values"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4022",
+    "summary": "Check a pointer value instead of comparing a variable's address to nil.",
+    "bad": "func missing(value *State) bool { return \u0026value == nil }",
+    "good": "func missing(value *State) bool { return value == nil }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4023",
+    "summary": "Check the concrete pointer before converting it to an interface.",
+    "bad": "var pointer *State\nvar value interface{} = pointer\nif value == nil { return }",
+    "good": "var pointer *State\nif pointer == nil { return }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4024",
+    "summary": "Compare builtin results against values they can return.",
+    "bad": "if len(values) \u003c 0 { return }",
+    "good": "if len(values) == 0 { return }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4025",
+    "summary": "Use floating-point division when the result requires a fraction.",
+    "bad": "ratio := float64(2 / 3)",
+    "good": "ratio := 2.0 / 3.0"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4026",
+    "summary": "Construct negative zero with math.Copysign.",
+    "bad": "negativeZero := -0.0",
+    "good": "negativeZero := math.Copysign(0, -1)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4027",
+    "summary": "Encode the updated query and assign it to URL.RawQuery.",
+    "bad": "address.Query().Add(\"page\", \"1\")",
+    "good": "query := address.Query()\nquery.Add(\"page\", \"1\")\naddress.RawQuery = query.Encode()"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4028",
+    "summary": "Use a meaningful divisor when computing a remainder.",
+    "bad": "remainder := count % 1",
+    "good": "remainder := count % 2"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4029",
+    "summary": "Call a sorting operation instead of converting the slice type.",
+    "bad": "values = sort.IntSlice(values)",
+    "good": "sort.Ints(values)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4030",
+    "summary": "Pass an upper bound greater than one when requesting random alternatives.",
+    "bad": "rand.Intn(1)",
+    "good": "rand.Intn(2)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4031",
+    "summary": "Use newly allocated values without checking them against nil.",
+    "bad": "pointer := \u0026State{}\nif pointer == nil { return }\nuse(pointer)",
+    "good": "pointer := \u0026State{}\nuse(pointer)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA4032",
+    "summary": "Use a supported runtime operating system or architecture identifier.",
+    "bad": "if runtime.GOOS == \"windwos\" { windows() }",
+    "good": "if runtime.GOOS == \"windows\" { windows() }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA5000",
+    "summary": "Allocate a map before assigning its entries.",
+    "bad": "var counts map[string]int\ncounts[\"item\"] = 1",
+    "good": "counts := make(map[string]int)\ncounts[\"item\"] = 1"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA5001",
+    "summary": "Check the open error before deferring Close.",
+    "bad": "file, err := os.Open(path)\ndefer file.Close()\nif err != nil { return err }",
+    "good": "file, err := os.Open(path)\nif err != nil { return err }\ndefer file.Close()"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA5002",
+    "summary": "Block while waiting instead of running an empty loop.",
+    "bad": "for {}",
+    "good": "select {}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA5003",
+    "summary": "Run cleanup within an endless loop instead of deferring it until the function returns.",
+    "bad": "for {\n    defer cleanup()\n    work()\n}",
+    "good": "for {\n    work()\n    cleanup()\n}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA5004",
+    "summary": "Wait on a channel instead of repeatedly selecting an empty default branch.",
+    "bad": "for {\n    select { case value := \u003c-values: use(value); default: }\n}",
+    "good": "for {\n    select { case value := \u003c-values: use(value) }\n}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA5005",
+    "summary": "Use the finalizer argument without capturing the object under finalization.",
+    "bad": "runtime.SetFinalizer(resource, func(*Resource) { resource.Close() })",
+    "good": "runtime.SetFinalizer(resource, func(value *Resource) { value.Close() })"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA5007",
+    "summary": "Provide a terminating condition for recursive calls.",
+    "bad": "func size() int { return size() }",
+    "good": "func size() int { return len(values) }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA5008",
+    "summary": "Use valid Go struct tag syntax.",
+    "bad": "type Item struct { Name string `json:name` }",
+    "good": "type Item struct { Name string `json:\"name\"` }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA5009",
+    "summary": "Match formatting verbs to their argument types.",
+    "bad": "fmt.Printf(\"%d\", \"name\")",
+    "good": "fmt.Printf(\"%s\", \"name\")"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA5010",
+    "summary": "Assert only interfaces with compatible method signatures.",
+    "bad": "type First interface { Read() string }\ntype Second interface { Read() int }\nfunc convert(value First) { _ = value.(Second) }",
+    "good": "type First interface { Read() string }\ntype Second interface { Read() string }\nfunc convert(value First) { _ = value.(Second) }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA5012",
+    "summary": "Pass an even number of strings when an API expects pairs.",
+    "bad": "strings.NewReplacer(\"old\")",
+    "good": "strings.NewReplacer(\"old\", \"new\")"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA6000",
+    "summary": "Compile the regular expression before checking values in a loop.",
+    "bad": "for _, value := range values {\n    matched, _ := regexp.MatchString(\"^[a-z]+$\", value)\n    use(matched)\n}",
+    "good": "pattern := regexp.MustCompile(\"^[a-z]+$\")\nfor _, value := range values { use(pattern.MatchString(value)) }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA6001",
+    "summary": "Convert bytes to a string directly in the map lookup.",
+    "bad": "key := string(data)\nvalue := entries[key]",
+    "good": "value := entries[string(data)]"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA6002",
+    "summary": "Store a pointer in sync.Pool to avoid an additional allocation.",
+    "bad": "pool.Put(make([]byte, 1024))",
+    "good": "buffer := make([]byte, 1024)\npool.Put(\u0026buffer)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA6003",
+    "summary": "Range over the string directly when reading its runes.",
+    "bad": "for _, character := range []rune(input) { use(character) }",
+    "good": "for _, character := range input { use(character) }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA6005",
+    "summary": "Compare strings without case distinctions with strings.EqualFold.",
+    "bad": "strings.ToLower(first) == strings.ToLower(second)",
+    "good": "strings.EqualFold(first, second)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA6006",
+    "summary": "Write bytes with io.Writer.Write.",
+    "bad": "io.WriteString(writer, string(data))",
+    "good": "writer.Write(data)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA9001",
+    "summary": "Complete deferred cleanup during each iteration of a channel range.",
+    "bad": "for value := range values { defer release(value) }",
+    "good": "for value := range values {\n    func() { defer release(value); use(value) }()\n}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA9002",
+    "summary": "Write file permissions as octal values.",
+    "bad": "os.Mkdir(path, 755)",
+    "good": "os.Mkdir(path, 0o755)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA9003",
+    "summary": "Handle the condition instead of leaving an empty branch.",
+    "bad": "if err != nil {}",
+    "good": "if err != nil { return err }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA9004",
+    "summary": "Apply the intended type to every constant in the group.",
+    "bad": "const ( First Mode = 1; Second = 2 )",
+    "good": "const ( First Mode = 1; Second Mode = 2 )"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA9005",
+    "summary": "Export struct fields that must appear in marshaled output.",
+    "bad": "json.Marshal(struct { name string }{name: \"Ada\"})",
+    "good": "json.Marshal(struct { Name string }{Name: \"Ada\"})"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA9006",
+    "summary": "Convert to a wider integer before calculating high bits.",
+    "bad": "var value uint32 = 1\nresult := uint64(value \u003c\u003c 32)",
+    "good": "var value uint32 = 1\nresult := uint64(value) * 4294967296"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA9007",
+    "summary": "Delete a task-specific temporary directory instead of the system temporary directory.",
+    "bad": "os.RemoveAll(os.TempDir())",
+    "good": "directory, err := os.MkdirTemp(\"\", \"task-\")\nif err != nil { return err }\ndefer os.RemoveAll(directory)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA9008",
+    "summary": "Use the original interface value in the failed type assertion branch.",
+    "bad": "if value, ok := input.(int); ok { use(value) } else { use(value) }",
+    "good": "if value, ok := input.(int); ok { use(value) } else { use(input) }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA9009",
+    "summary": "Write compiler directives without a space after the comment marker.",
+    "bad": "// go:noinline\nfunc calculate() int { return 1 }",
+    "good": "//go:noinline\nfunc calculate() int { return 1 }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "SA9010",
+    "summary": "Defer the returned cleanup function's call.",
+    "bad": "defer beginOperation()",
+    "good": "defer beginOperation()()"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "ST1001",
+    "summary": "Import packages without dot aliases.",
+    "bad": "import . \"math\"\nvalue := Abs(input)",
+    "good": "import \"math\"\nvalue := math.Abs(input)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "ST1005",
+    "summary": "Write error messages without initial capitalization or trailing punctuation.",
+    "bad": "errors.New(\"Request failed.\")",
+    "good": "errors.New(\"request failed\")"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "ST1006",
+    "summary": "Use a receiver identifier that identifies the receiver type.",
+    "bad": "func (this *Server) Start() {}",
+    "good": "func (server *Server) Start() {}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "ST1008",
+    "summary": "Return the error as the final result.",
+    "bad": "func read() (error, string) { return nil, \"value\" }",
+    "good": "func read() (string, error) { return \"value\", nil }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "ST1011",
+    "summary": "Use a duration variable identifier without a misleading unit suffix.",
+    "bad": "var timeoutSeconds time.Duration",
+    "good": "var timeout time.Duration"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "ST1012",
+    "summary": "Begin error variable identifiers with err or Err.",
+    "bad": "var invalidInput = errors.New(\"invalid input\")",
+    "good": "var errInvalidInput = errors.New(\"invalid input\")"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "ST1013",
+    "summary": "Use HTTP status constants.",
+    "bad": "http.Error(writer, \"missing\", 404)",
+    "good": "http.Error(writer, \"missing\", http.StatusNotFound)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "ST1015",
+    "summary": "Place the default switch case first or last.",
+    "bad": "switch value { case 1: first(); default: other(); case 2: second() }",
+    "good": "switch value { case 1: first(); case 2: second(); default: other() }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "ST1017",
+    "summary": "Write the variable before the constant in comparisons.",
+    "bad": "if 10 == count { return }",
+    "good": "if count == 10 { return }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "ST1018",
+    "summary": "Escape invisible characters in string literals.",
+    "bad": "message := \"ready​\"",
+    "good": "message := \"ready\\u200b\""
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "ST1019",
+    "summary": "Import each package once.",
+    "bad": "import ( \"fmt\"; output \"fmt\" )",
+    "good": "import \"fmt\""
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "ST1023",
+    "summary": "Omit a variable type that the initializer already determines.",
+    "bad": "var count int = 1",
+    "good": "var count = 1"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1000",
+    "summary": "Use plain channel send or receive instead of single-case select.",
+    "bad": "select {\ncase x := \u003c-ch:\n    fmt.Println(x)\n}",
+    "good": "x := \u003c-ch\nfmt.Println(x)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1001",
+    "summary": "Replace for loop with call to copy.",
+    "bad": "for i, x := range src {\n    dst[i] = x\n}",
+    "good": "copy(dst, src)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1002",
+    "summary": "Omit comparison with boolean constant.",
+    "bad": "if x == true {}",
+    "good": "if x {}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1003",
+    "summary": "Replace call to strings.Index with strings.Contains.",
+    "bad": "if strings.Index(x, y) != -1 {}",
+    "good": "if strings.Contains(x, y) {}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1004",
+    "summary": "Replace call to bytes.Compare with bytes.Equal.",
+    "bad": "if bytes.Compare(x, y) == 0 {}",
+    "good": "if bytes.Equal(x, y) {}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1005",
+    "summary": "Drop unnecessary use of the blank identifier.",
+    "bad": "for _ = range s {}\n_ = \u003c-ch",
+    "good": "for range s{}\n\u003c-ch"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1006",
+    "summary": "Use 'for { ... }' for infinite loops.",
+    "bad": "for true { work() }",
+    "good": "for { work() }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1007",
+    "summary": "Simplify regular expression by using raw string literal.",
+    "bad": "regexp.Compile(\"\\\\A(\\\\w+) profile: total \\\\d+\\\\n\\\\z\")",
+    "good": "regexp.Compile(`\\A(\\w+) profile: total \\d+\\n\\z`)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1008",
+    "summary": "Return the Boolean expression directly.",
+    "bad": "func ready(value int) bool {\n    if value \u003e 0 { return true }\n    return false\n}",
+    "good": "func ready(value int) bool { return value \u003e 0 }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1009",
+    "summary": "Omit redundant nil check on slices, maps, and channels.",
+    "bad": "if x != nil \u0026\u0026 len(x) != 0 {}",
+    "good": "if len(x) != 0 {}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1010",
+    "summary": "Omit default slice index.",
+    "bad": "values[0:len(values)]",
+    "good": "values[:]"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1011",
+    "summary": "Use a single append to concatenate two slices.",
+    "bad": "for _, e := range y {\n    x = append(x, e)\n}\n\nfor i := range y {\n    x = append(x, y[i])\n}\n\nfor i := range y {\n    v := y[i]\n    x = append(x, v)\n}",
+    "good": "x = append(x, y...)\nx = append(x, y...)\nx = append(x, y...)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1012",
+    "summary": "Replace time.Now().Sub(x) with time.Since(x).",
+    "bad": "time.Now().Sub(x)",
+    "good": "time.Since(x)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1016",
+    "summary": "Use a type conversion instead of manually copying struct fields.",
+    "bad": "var x T1\ny := T2{\n    Field1: x.Field1,\n    Field2: x.Field2,\n}",
+    "good": "var x T1\ny := T2(x)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1017",
+    "summary": "Replace manual trimming with strings.TrimPrefix.",
+    "bad": "if strings.HasPrefix(str, prefix) {\n    str = str[len(prefix):]\n}",
+    "good": "str = strings.TrimPrefix(str, prefix)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1018",
+    "summary": "Use 'copy' for sliding elements.",
+    "bad": "for i := 0; i \u003c n; i++ {\n    bs[i] = bs[offset+i]\n}",
+    "good": "copy(bs[:n], bs[offset:])"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1019",
+    "summary": "Simplify 'make' call by omitting redundant arguments.",
+    "bad": "make([]int, 0, 0)",
+    "good": "make([]int, 0)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1020",
+    "summary": "Omit redundant nil check in type assertion.",
+    "bad": "if _, ok := i.(T); ok \u0026\u0026 i != nil {}",
+    "good": "if _, ok := i.(T); ok {}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1021",
+    "summary": "Merge variable declaration and assignment.",
+    "bad": "var x uint\nx = 1",
+    "good": "var x uint = 1"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1023",
+    "summary": "Omit redundant control flow.",
+    "bad": "func update() { work(); return }",
+    "good": "func update() { work() }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1024",
+    "summary": "Replace x.Sub(time.Now()) with time.Until(x).",
+    "bad": "x.Sub(time.Now())",
+    "good": "time.Until(x)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1025",
+    "summary": "Don't use fmt.Sprintf(\"%s\", x) unnecessarily.",
+    "bad": "fmt.Sprintf(\"%s\", name)",
+    "good": "name"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1028",
+    "summary": "Simplify error construction with fmt.Errorf.",
+    "bad": "errors.New(fmt.Sprintf(\"item %d is missing\", item))",
+    "good": "fmt.Errorf(\"item %d is missing\", item)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1029",
+    "summary": "Range over the string directly.",
+    "bad": "for _, r := range []rune(s) {}",
+    "good": "for _, r := range s {}"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1030",
+    "summary": "Use bytes.Buffer.String or bytes.Buffer.Bytes.",
+    "bad": "string(buffer.Bytes())",
+    "good": "buffer.String()"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1031",
+    "summary": "Omit redundant nil check around loop.",
+    "bad": "if values != nil { for _, value := range values { use(value) } }",
+    "good": "for _, value := range values { use(value) }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1032",
+    "summary": "Use sort.Ints(x), sort.Float64s(x), and sort.Strings(x).",
+    "bad": "sort.Sort(sort.StringSlice(x))",
+    "good": "sort.Strings(x)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1033",
+    "summary": "Delete a map entry without checking whether it exists.",
+    "bad": "if _, exists := entries[key]; exists { delete(entries, key) }",
+    "good": "delete(entries, key)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1034",
+    "summary": "Use result of type assertion to simplify cases.",
+    "bad": "if _, ok := value.(string); ok { use(value.(string)) }",
+    "good": "if text, ok := value.(string); ok { use(text) }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1035",
+    "summary": "Let HTTP header methods canonicalize their key argument.",
+    "bad": "header.Get(http.CanonicalHeaderKey(\"content-type\"))",
+    "good": "header.Get(\"content-type\")"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1036",
+    "summary": "Use a map's zero value instead of guarding its lookup.",
+    "bad": "if _, exists := counts[key]; exists { counts[key]++ } else { counts[key] = 1 }",
+    "good": "counts[key]++"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1037",
+    "summary": "Sleep with time.Sleep instead of a single-case timer select.",
+    "bad": "select { case \u003c-time.After(time.Second): }",
+    "good": "time.Sleep(time.Second)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1038",
+    "summary": "Print the formatted text directly.",
+    "bad": "fmt.Print(fmt.Sprintf(\"count: %d\", count))",
+    "good": "fmt.Printf(\"count: %d\", count)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1039",
+    "summary": "Use an existing string without calling fmt.Sprint.",
+    "bad": "fmt.Sprint(\"ready\")",
+    "good": "\"ready\""
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "S1040",
+    "summary": "Use an interface value without asserting it to its existing type.",
+    "bad": "func convert(reader io.Reader) io.Reader { return reader.(io.Reader) }",
+    "good": "func convert(reader io.Reader) io.Reader { return reader }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "QF1001",
+    "summary": "Apply De Morgan's law to negate the individual Boolean operands.",
+    "bad": "if !(ready \u0026\u0026 enabled) { return }",
+    "good": "if !ready || !enabled { return }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "QF1002",
+    "summary": "Convert untagged switch to tagged switch.",
+    "bad": "switch { case value == 1: first(); case value == 2: second() }",
+    "good": "switch value { case 1: first(); case 2: second() }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "QF1003",
+    "summary": "Convert if/else-if chain to tagged switch.",
+    "bad": "if value == 1 { first() } else if value == 2 { second() }",
+    "good": "switch value { case 1: first(); case 2: second() }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "QF1004",
+    "summary": "Use strings.ReplaceAll instead of strings.Replace with n == -1.",
+    "bad": "strings.Replace(input, \"old\", \"new\", -1)",
+    "good": "strings.ReplaceAll(input, \"old\", \"new\")"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "QF1005",
+    "summary": "Expand call to math.Pow.",
+    "bad": "math.Pow(x, 2)",
+    "good": "x * x"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "QF1006",
+    "summary": "Lift if+break into loop condition.",
+    "bad": "for { if done { break }; work() }",
+    "good": "for !done { work() }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "QF1007",
+    "summary": "Merge conditional assignment into variable declaration.",
+    "bad": "x := false\nif someCondition {\n    x = true\n}",
+    "good": "x := someCondition"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "QF1008",
+    "summary": "Select the promoted field without specifying its embedded parent.",
+    "bad": "type Inner struct { Name string }\ntype Outer struct { Inner }\nfunc read(value Outer) string { return value.Inner.Name }",
+    "good": "type Inner struct { Name string }\ntype Outer struct { Inner }\nfunc read(value Outer) string { return value.Name }"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "QF1009",
+    "summary": "Use time.Time.Equal instead of == operator.",
+    "bad": "firstTime == secondTime",
+    "good": "firstTime.Equal(secondTime)"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "QF1010",
+    "summary": "Convert a byte slice to text before printing its characters.",
+    "bad": "fmt.Println(data)",
+    "good": "fmt.Println(string(data))"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "QF1011",
+    "summary": "Omit redundant type from variable declaration.",
+    "bad": "var count int = 1",
+    "good": "var count = 1"
+  },
+  {
+    "tool": "golangci-lint/staticcheck",
+    "id": "QF1012",
+    "summary": "Format text directly into the writer with fmt.Fprintf.",
+    "bad": "writer.Write([]byte(fmt.Sprintf(\"count: %d\", count)))",
+    "good": "fmt.Fprintf(writer, \"count: %d\", count)"
+  }
+]

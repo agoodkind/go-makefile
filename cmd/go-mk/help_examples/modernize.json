@@ -1,0 +1,142 @@
+[
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "any",
+    "summary": "Replace interface{} with any.",
+    "bad": "var value interface{}",
+    "good": "var value any"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "atomictypes",
+    "summary": "Replace basic types in sync/atomic calls with atomic types.",
+    "bad": "var count int32\natomic.AddInt32(\u0026count, 1)",
+    "good": "var count atomic.Int32\ncount.Add(1)"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "forvar",
+    "summary": "Remove redundant re-declaration of loop variables.",
+    "bad": "for _, value := range values {\n    value := value\n    go use(value)\n}",
+    "good": "for _, value := range values {\n    go use(value)\n}"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "mapsloop",
+    "summary": "Replace explicit loops over maps with calls to maps package.",
+    "bad": "for key, value := range source { destination[key] = value }",
+    "good": "maps.Copy(destination, source)"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "minmax",
+    "summary": "Replace if/else statements with calls to min or max.",
+    "bad": "if first \u003c second { result = first } else { result = second }",
+    "good": "result = min(first, second)"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "newexpr",
+    "summary": "Use new(value) in Go 1.26 or later to allocate an initialized value.",
+    "bad": "func pointer(value int) *int { return \u0026value }\nfunc process() { use(pointer(42)) }",
+    "good": "func process() { use(new(42)) }"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "omitzero",
+    "summary": "Use omitzero when a zero-valued struct field should not appear in JSON.",
+    "bad": "type Event struct { Time time.Time `json:\"time,omitempty\"` }",
+    "good": "type Event struct { Time time.Time `json:\"time,omitzero\"` }"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "plusbuild",
+    "summary": "Remove obsolete //+build comments.",
+    "bad": "//go:build linux\n// +build linux\n\npackage example",
+    "good": "//go:build linux\n\npackage example"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "rangeint",
+    "summary": "Replace 3-clause for loops with for-range over integers.",
+    "bad": "for index := 0; index \u003c count; index++ { use(index) }",
+    "good": "for index := range count { use(index) }"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "reflecttypefor",
+    "summary": "Replace reflect.TypeOf(x) with TypeFor[T]().",
+    "bad": "reflect.TypeOf((*io.Reader)(nil)).Elem()",
+    "good": "reflect.TypeFor[io.Reader]()"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "slicesbackward",
+    "summary": "Replace backward loops over slices with slices.Backward.",
+    "bad": "for index := len(values) - 1; index \u003e= 0; index-- { use(values[index]) }",
+    "good": "for _, value := range slices.Backward(values) { use(value) }"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "slicescontains",
+    "summary": "Replace loops with slices.Contains or slices.ContainsFunc.",
+    "bad": "func contains(values []int, wanted int) bool {\n    for _, value := range values { if value == wanted { return true } }\n    return false\n}",
+    "good": "func contains(values []int, wanted int) bool {\n    return slices.Contains(values, wanted)\n}"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "slicessort",
+    "summary": "Replace sort.Slice with slices.Sort for basic types.",
+    "bad": "sort.Slice(values, func(i, j int) bool { return values[i] \u003c values[j] })",
+    "good": "slices.Sort(values)"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "stditerators",
+    "summary": "Use iterators instead of Len/At-style APIs.",
+    "bad": "for index := 0; index \u003c tuple.Len(); index++ { use(tuple.At(index)) }",
+    "good": "for variable := range tuple.Variables() { use(variable) }"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "stringscutprefix",
+    "summary": "Replace HasPrefix/TrimPrefix with CutPrefix.",
+    "bad": "if strings.HasPrefix(input, prefix) {\n    use(strings.TrimPrefix(input, prefix))\n}",
+    "good": "if remainder, found := strings.CutPrefix(input, prefix); found {\n    use(remainder)\n}"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "stringsseq",
+    "summary": "Replace ranging over Split/Fields with SplitSeq/FieldsSeq.",
+    "bad": "for _, part := range strings.Split(input, \",\") { use(part) }",
+    "good": "for part := range strings.SplitSeq(input, \",\") { use(part) }"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "stringsbuilder",
+    "summary": "Replace += with strings.Builder.",
+    "bad": "var text string\nfor _, part := range parts { text += part }\nuse(text)",
+    "good": "var text strings.Builder\nfor _, part := range parts { text.WriteString(part) }\nuse(text.String())"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "testingcontext",
+    "summary": "Replace context.WithCancel with t.Context in tests.",
+    "bad": "ctx, cancel := context.WithCancel(context.Background())\ndefer cancel()\nuse(ctx)",
+    "good": "ctx := t.Context()\nuse(ctx)"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "unsafefuncs",
+    "summary": "Replace unsafe pointer arithmetic with function calls.",
+    "bad": "unsafe.Pointer(uintptr(pointer) + uintptr(offset))",
+    "good": "unsafe.Add(pointer, offset)"
+  },
+  {
+    "tool": "golangci-lint/modernize",
+    "id": "waitgroupgo",
+    "summary": "Replace wg.Add(1)/go/wg.Done() with wg.Go.",
+    "bad": "group.Add(1)\ngo func() {\n    defer group.Done()\n    work()\n}()",
+    "good": "group.Go(func() { work() })"
+  }
+]

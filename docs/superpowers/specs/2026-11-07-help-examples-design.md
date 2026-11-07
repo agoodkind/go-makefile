@@ -4,19 +4,19 @@ Add a built-in `make help-examples` command that explains each lint rule with re
 
 ## Behavior
 
-The user selected printing every rule by default and allowing `RULE=...` to select one rule.
+Print available rule identifiers and short explanations by default. Do not print code examples until a filter selects one rule.
 
-Each entry prints the rule identifier, a short explanation, a `Bad` example, and a `Good` example. Examples must show the same operation before and after the correction. Include enough context to explain conditions such as production code versus test code.
+Use `LINTER=...` to select a tool and `RULE=...` to narrow rule identifiers. Prefer exact identifiers, including qualified `tool/id` identifiers. Otherwise, match partial rule identifiers without regard to case. List the remaining choices when several rules match.
+
+After selection identifies one rule, print its identifier, a short explanation, a `Bad` example, and a `Good` example. Examples must show the same operation before and after the correction. Include enough context to explain conditions such as production code versus test code.
 
 Cover the rules enabled by go-makefile's shared lint configuration, including staticcheck-extra analyzers, golangci-lint checks, formatters, gocyclo, and deadcode. Use diagnostic identifiers for tools that expose individual rules. A single example for a linter with several distinct rules does not satisfy coverage.
 
-An unknown `RULE` fails with a clear error and explains how to print the available rules. Print entries in a stable order, grouped by tool and sorted by identifier.
+A filter that matches nothing fails with a clear error and explains how to print the available rules. Print choices in a stable order, grouped by tool and sorted by identifier.
 
 ## Approaches
 
-The user chose a built-in catalog that prints every rule and supports selecting one rule. This provides complete output while allowing a reader to inspect one finding.
-
-Printing every rule without a selector requires searching the complete output. Requiring a selector prevents browsing all examples. The user did not choose either approach.
+The user chose a built-in catalog that lists possible examples before narrowing the choices. Printing all code examples by default prevents the requested selection workflow.
 
 The agent recommends embedding the catalog in the existing Go engine and exposing it through the shared Make target. Fetching examples from external documentation during command execution would require network access and would not provide built-in examples.
 
@@ -30,8 +30,10 @@ Use one catalog for the Make target and the engine command. Add the target to `m
 
 ## Verification
 
-Run the built command and Make target to verify complete output, selection of one rule, and failure for an unknown identifier. Verify consumer access through the shared Make include.
+Run the Make target to verify the initial list, tool filtering, partial rule filtering, selection of one rule, and failure for an unknown identifier. Verify that listings omit code examples.
 
-Validate each example against the relevant production analyzer or tool. The bad example must trigger its stated rule. The good example must avoid that finding. Compare catalog coverage with the enabled rules from the configured tool versions and custom analyzer registration.
+Review examples against the configured rule implementations. The bad example must demonstrate its stated rule, and the good example must correct that finding. Compare catalog coverage with the shared configuration and custom analyzer registration.
+
+The user excluded new tests and validation harnesses. Use direct command checks and source inspection for this feature.
 
 Run the repository's required build checks before committing implementation changes. Do not change lint enforcement, exclusions, or baselines to accommodate examples.
