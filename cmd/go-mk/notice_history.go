@@ -14,10 +14,8 @@ import (
 	"goodkind.io/go-makefile/internal/findings"
 )
 
-var activeNoticeDirective noticeDirective
-
-func noticeFindingIdentity(finding, root string, sources noticeSources) (string, error) {
-	if activeNoticeDirective.gate == "golangci" && activeNoticeDirective.rule == "file-length-limit" {
+func noticeFindingIdentity(finding, root string, sources noticeSources, directive noticeDirective) (string, error) {
+	if directive.gate == "golangci" && directive.rule == "file-length-limit" {
 		return baseline.Key(finding), nil
 	}
 	return sources.identity(finding, root)
@@ -32,8 +30,8 @@ func captureNoticeStaticcheckFindings(rawPath, findingsPath string) error {
 
 // A notice can accept only findings that also existed before its effective date.
 // Analyze that commit with the current tools, then compare baseline keys.
-func restrictNoticeFindings(findingsPath string, capture func(string, string) error) error {
-	if activeNoticeDirective.introduced.IsZero() {
+func restrictNoticeFindings(findingsPath string, directive noticeDirective, capture func(string, string) error) error {
+	if directive.introduced.IsZero() {
 		return fmt.Errorf("auto-baseline requires a notice with a valid INTRODUCED date")
 	}
 	shallow, err := loggedGitOutput("notice history depth", "rev-parse", "--is-shallow-repository")
@@ -43,20 +41,20 @@ func restrictNoticeFindings(findingsPath string, capture func(string, string) er
 	if strings.TrimSpace(shallow) == "true" {
 		return fmt.Errorf("auto-baseline requires full Git history; fetch the missing history and retry")
 	}
-	cutoff := activeNoticeDirective.introduced.Add(-time.Second).Format(time.RFC3339)
+	cutoff := directive.introduced.Add(-time.Second).Format(time.RFC3339)
 	revision, err := loggedGitOutput("notice history cutoff", "log", "--first-parent", "-1", "--format=%H", "--before="+cutoff, "HEAD")
 	if err != nil {
 		return err
 	}
 	revision = strings.TrimSpace(revision)
 	if revision == "" {
-		return fmt.Errorf("auto-baseline cannot find a commit before %s", activeNoticeDirective.introduced.Format(time.RFC3339))
+		return fmt.Errorf("auto-baseline cannot find a commit before %s", directive.introduced.Format(time.RFC3339))
 	}
 	current, err := readFileLines(findingsPath)
 	if err != nil {
 		return err
 	}
-	historical, err := captureNoticeHistory(revision, capture)
+	historical, err := captureNoticeHistory(revision, directive, capture)
 	if err != nil {
 		return err
 	}
@@ -67,7 +65,7 @@ func restrictNoticeFindings(findingsPath string, capture func(string, string) er
 	sources := make(noticeSources)
 	rejected := make(map[string]bool)
 	for _, finding := range current {
-		identity, err := noticeFindingIdentity(finding, ".", sources)
+		identity, err := noticeFindingIdentity(finding, ".", sources, directive)
 		if err != nil {
 			return err
 		}
@@ -86,7 +84,7 @@ func restrictNoticeFindings(findingsPath string, capture func(string, string) er
 	return writeFindingsFile(findingsPath, kept)
 }
 
-func captureNoticeHistory(revision string, capture func(string, string) error) ([]string, error) {
+func captureNoticeHistory(revision string, directive noticeDirective, capture func(string, string) error) ([]string, error) {
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return nil, err
@@ -155,7 +153,7 @@ func captureNoticeHistory(revision string, capture func(string, string) error) (
 				return nil, err
 			}
 		}
-		identity, err := noticeFindingIdentity(finding, moduleDir, sources)
+		identity, err := noticeFindingIdentity(finding, moduleDir, sources, directive)
 		if err != nil {
 			return nil, err
 		}

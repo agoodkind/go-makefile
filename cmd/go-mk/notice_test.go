@@ -284,7 +284,7 @@ func recordNoticeBaselineCalls(t *testing.T) *[]string {
 	t.Helper()
 	calls := []string{}
 	previous := runNoticeBaselineFunc
-	runNoticeBaselineFunc = func(args []string) int {
+	runNoticeBaselineFunc = func(args []string, _ noticeDirective) int {
 		if os.Getenv("LINTER") != "revive" {
 			t.Fatalf("LINTER = %q, want revive", os.Getenv("LINTER"))
 		}
