@@ -1,0 +1,23 @@
+package staticcheck
+
+import (
+	"os"
+
+	"golang.org/x/tools/go/analysis/multichecker"
+)
+
+// Run executes the analyzers or formats argument lists.
+func Run() int {
+	if len(os.Args) > 1 && os.Args[1] == "-format-arguments" {
+		if err := FormatArguments(os.Args[2:]); err != nil {
+			_, _ = os.Stderr.WriteString(err.Error() + "\n")
+			return 1
+		}
+
+		return 0
+	}
+
+	multichecker.Main(Analyzers()...)
+
+	return 0
+}

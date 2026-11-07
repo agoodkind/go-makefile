@@ -1,0 +1,300 @@
+package main_test
+
+import (
+	"errors"
+	"go/build"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestCommandEntryDelegatesExecution(t *testing.T) {
+	t.Parallel()
+	binary := buildAnalyzer(t)
+
+	for _, scenario := range []struct {
+		name   string
+		source string
+		fails  bool
+	}{
+		{"delegation", "package main\nimport (process \"os\"; app \"example.com/fixture/app\")\nfunc main() { process.Exit(app.Run(process.Args[1:])) }\n", false},
+		{"helper", "package main\nfunc main() { run() }\nfunc run() {}\n", true},
+		{"parsing", "package main\nimport \"flag\"\nfunc main() { flag.Parse() }\n", true},
+		{"server setup", "package main\nimport \"net/http\"\nfunc main() { http.ListenAndServe(\":8080\", nil) }\n", true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			fixture := analyzerFixture(t)
+			writeFixtureFile(t, fixture, "app/app.go", "package app\nfunc Run(arguments []string) int { return len(arguments) }\n")
+			writeFixtureFile(t, fixture, "cmd/tool/main.go", scenario.source)
+			output := analyzeFixture(t, binary, fixture, scenario.fails, "-commandentry", "-missing_boundary_log", "./cmd/tool")
+			if scenario.fails && !strings.Contains(output, "commandentry:") {
+				t.Fatalf("command implementation did not produce its diagnostic:\n%s", output)
+			}
+		})
+	}
+
+	t.Run("implementation package", func(t *testing.T) {
+		fixture := analyzerFixture(t)
+		writeFixtureFile(t, fixture, "cmd/tool/internal/app/app.go", "package app\nfunc Run() int { return 0 }\n")
+		analyzeFixture(t, binary, fixture, true, "-commandentry", "./cmd/tool/internal/app")
+	})
+	t.Run("checkout parent", func(t *testing.T) {
+		fixture := filepath.Join(t.TempDir(), "cmd", "fixture")
+		writeFixtureFile(t, fixture, "go.mod", "module example.com/cmd/fixture\n\ngo 1.26\n")
+		writeFixtureFile(t, fixture, "main.go", "package main\nfunc main() { println(\"root command\") }\n")
+		analyzeFixture(t, binary, fixture, false, "-commandentry", ".")
+	})
+}
+
+func TestFilenamePrefixRequiresDirectories(t *testing.T) {
+	t.Parallel()
+	binary := buildAnalyzer(t)
+
+	for _, scenario := range []struct {
+		name  string
+		files []string
+		fails bool
+	}{
+		{"separated", []string{"bar_abc.go", "bar_xyz.go"}, true},
+		{"concatenated", []string{"barabc.go", "barxyz.go"}, true},
+		{"existing stem", []string{"bar.go", "barabc.go", "baraxyz.go"}, true},
+		{"exact stem pair", []string{"bar.go", "bar_xyz.go"}, true},
+		{"two characters", []string{"abfirst.go", "absecond.go"}, false},
+		{"directories", []string{"bar/abc.go", "bar/xyz.go"}, false},
+		{"variants", []string{"parse.go", "parse_test.go", "parse_linux.go", "parse_darwin_arm64.go", "parse_windows_amd64_test.go"}, false},
+		{"different platform stems", []string{"bar_abc_linux.go", "bar_xyz_windows.go"}, true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			fixture := analyzerFixture(t)
+
+			for _, name := range scenario.files {
+				writeFixtureFile(t, fixture, name, "package fixture\n")
+			}
+
+			writeFixtureFile(t, fixture, "fixture.go", "package fixture\n")
+			output := analyzeFixture(t, binary, fixture, scenario.fails, "-filenameprefix", "./...")
+			if scenario.fails && (!strings.Contains(output, "filenameprefix:") || !strings.Contains(output, `directory "bar"`)) {
+				t.Fatalf("filename group did not require the shared directory:\n%s", output)
+			}
+		})
+	}
+}
+
+func TestArgumentLinesHandlesCgo(t *testing.T) {
+	if !build.Default.CgoEnabled {
+		t.Skip("cgo is disabled")
+	}
+
+	t.Parallel()
+	binary := buildAnalyzer(t)
+	fixture := analyzerFixture(t)
+	writeFixtureFile(t, fixture, "fixture.go", "package fixture\nimport \"C\"\nfunc add(first, second C.int) C.int { return first + second }\nfunc Value() C.int { return add(\nC.int(1), C.int(2),\n) }\n")
+	output := analyzeFixture(t, binary, fixture, true, "-argumentlines", ".")
+	if !strings.Contains(output, "fixture.go:") || !strings.Contains(output, "argumentlines:") {
+		t.Fatalf("cgo source did not produce an actionable diagnostic:\n%s", output)
+	}
+
+	analyzeFixture(t, binary, fixture, false, "-argumentlines", "-fix", ".")
+	analyzeFixture(t, binary, fixture, false, "-argumentlines", ".")
+}
+
+func TestArgumentLinesFormatsWrappedCalls(t *testing.T) {
+	t.Parallel()
+	binary := buildAnalyzer(t)
+
+	for _, mode := range []string{"suggested fixes", "source formatter"} {
+		t.Run(mode, func(t *testing.T) {
+			fixture := analyzerFixture(t)
+			writeFixtureFile(t, fixture, "fixture.go", `package fixture
+
+func sum(values ...int) int {
+	total := 0
+	for _, value := range values { total += value }
+	return total
+}
+
+func add(first int, values ...int) int { return first + sum(values...) }
+
+func Value() int {
+	values := []int{3, 4}
+	short := sum(1, 2)
+	nested := sum(
+		sum(
+			1, 2), 3,
+	)
+	spread := add(
+		1, values...)
+	comment := sum(
+		1, /* Preserve this comment. */ 2)
+	return short + nested + spread + comment
+}
+
+func each(label string, callback func()) { callback() }
+
+func Closure() {
+	each("label", func() {
+		sum(1, 2)
+	})
+}
+`)
+			writeFixtureFile(t, fixture, "fixture_test.go", "package fixture_test\nimport (\"testing\"; fixture \"example.com/fixture\")\nfunc TestValue(t *testing.T) { if fixture.Value() != 20 { t.Fatalf(\"value = %d\", fixture.Value()) } }\n")
+			output := analyzeFixture(t, binary, fixture, true, "-argumentlines", "./...")
+			if !strings.Contains(output, "argumentlines:") {
+				t.Fatalf("wrapped arguments did not produce a diagnostic:\n%s", output)
+			}
+
+			arguments := []string{"-argumentlines", "-fix", "./..."}
+			if mode == "source formatter" {
+				arguments = []string{"-format-arguments", filepath.Join(fixture, "fixture.go")}
+			}
+
+			analyzeFixture(t, binary, fixture, false, arguments...)
+			analyzeFixture(t, binary, fixture, false, "-argumentlines", "./...")
+			first, err := os.ReadFile(filepath.Join(fixture, "fixture.go"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			for _, expected := range []string{"short := sum(1, 2)", "each(\"label\", func() {", "/* Preserve this comment. */", "values...,\n"} {
+				if !strings.Contains(string(first), expected) {
+					t.Fatalf("formatted source lacks %q:\n%s", expected, first)
+				}
+			}
+
+			analyzeFixture(t, binary, fixture, false, arguments...)
+			second, err := os.ReadFile(filepath.Join(fixture, "fixture.go"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if string(first) != string(second) {
+				t.Fatalf("the second format changed the source:\n%s", second)
+			}
+
+			command := exec.Command("go", "test", "./...")
+			command.Dir = fixture
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("formatted program changed behavior: %v\n%s", err, output)
+			}
+		})
+	}
+}
+
+func TestArgumentLinesFormatsCallbackDeclarations(t *testing.T) {
+	t.Parallel()
+	binary := buildAnalyzer(t)
+
+	for _, mode := range []string{"suggested fixes", "source formatter"} {
+		t.Run(mode, func(t *testing.T) {
+			fixture := analyzerFixture(t)
+			writeFixtureFile(t, fixture, "fixture.go", `package fixture
+
+type command struct{}
+
+func whitespace(binary string, files []string, run func(string, []string) error) error {
+	return run(binary, files)
+}
+
+func plan(listFiles func([]string) ([]string, error), noFiles error) (command, error) {
+	return command{}, noFiles
+}
+
+func Command(listFiles func([]string) ([]string, error), noFiles error) (string, []string, error) {
+	return "", nil, noFiles
+}
+
+func add(first int, second int) int { return first + second }
+
+func grouped(first, second int, callback func()) { callback() }
+
+func single(callback func()) { callback() }
+
+func parenthesized(callback (func())) { callback() }
+
+func variadic(callbacks ...func()) {}
+
+func service(value interface{ Run() }) {}
+`)
+			analyzeFixture(t, binary, fixture, true, "-argumentlines", ".")
+			arguments := []string{"-argumentlines", "-fix", "."}
+			if mode == "source formatter" {
+				arguments = []string{"-format-arguments", filepath.Join(fixture, "fixture.go")}
+			}
+
+			analyzeFixture(t, binary, fixture, false, arguments...)
+			analyzeFixture(t, binary, fixture, false, "-argumentlines", ".")
+			formatted, err := os.ReadFile(filepath.Join(fixture, "fixture.go"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			for _, expected := range []string{
+				"func whitespace(\n\tbinary string,\n\tfiles []string,\n\trun func(string, []string) error,\n)",
+				"func plan(\n\tlistFiles func([]string) ([]string, error),\n\tnoFiles error,\n)",
+				"func Command(\n\tlistFiles func([]string) ([]string, error),\n\tnoFiles error,\n)",
+				"func add(first int, second int) int",
+				"func grouped(\n\tfirst int,\n\tsecond int,\n\tcallback func(),\n)",
+				"func single(\n\tcallback func(),\n)",
+				"func parenthesized(\n\tcallback",
+				"func variadic(\n\tcallbacks ...func(),\n)",
+				"func service(value interface",
+			} {
+				if !strings.Contains(string(formatted), expected) {
+					t.Fatalf("declaration formatting lacks %q:\n%s", expected, formatted)
+				}
+			}
+		})
+	}
+}
+
+func TestArgumentLinesAcceptsPhysicalSourceWithLineDirective(t *testing.T) {
+	t.Parallel()
+	binary := buildAnalyzer(t)
+	fixture := analyzerFixture(t)
+	writeFixtureFile(t, fixture, "fixture.go", "//line original.go:1\npackage fixture\nfunc sum(first, second int) int { return first + second }\nfunc Value() int { return sum(\n1, 2,\n) }\n")
+	analyzeFixture(t, binary, fixture, true, "-argumentlines", ".")
+	analyzeFixture(t, binary, fixture, false, "-argumentlines", "-fix", ".")
+	analyzeFixture(t, binary, fixture, false, "-argumentlines", "-filenameprefix", ".")
+}
+
+func buildAnalyzer(t *testing.T) string {
+	t.Helper()
+	binary := filepath.Join(t.TempDir(), "staticcheck-extra")
+	command := exec.Command("go", "build", "-o", binary, ".")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build analyzer: %v\n%s", err, output)
+	}
+
+	return binary
+}
+
+func analyzerFixture(t *testing.T) string {
+	t.Helper()
+	fixture := t.TempDir()
+	writeFixtureFile(t, fixture, "go.mod", "module example.com/fixture\n\ngo 1.26\n")
+
+	return fixture
+}
+
+func analyzeFixture(t *testing.T, binary, fixture string, fails bool, arguments ...string) string {
+	t.Helper()
+	command := exec.Command(binary, arguments...)
+	command.Dir = fixture
+	output, err := command.CombinedOutput()
+	if !fails {
+		if err != nil {
+			t.Fatalf("analyzer failed: %v\n%s", err, output)
+		}
+
+		return string(output)
+	}
+
+	var exitError *exec.ExitError
+	if !errors.As(err, &exitError) || exitError.ExitCode() != 3 {
+		t.Fatalf("analyzer error = %v, expected diagnostic exit 3:\n%s", err, output)
+	}
+
+	return string(output)
+}

@@ -5,11 +5,11 @@
 package main
 
 import (
-	"golang.org/x/tools/go/analysis/multichecker"
+	"os"
 
 	"goodkind.io/go-makefile/staticcheck"
 )
 
 func main() {
-	multichecker.Main(staticcheck.Analyzers()...)
+	os.Exit(staticcheck.Run())
 }

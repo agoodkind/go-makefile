@@ -237,6 +237,9 @@ STATICCHECK_EXTRA_CORE_FLAGS    ?= \
 	-missing_boundary_log \
 	-no_any_or_empty_interface
 STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
+	-commandentry \
+	-filenameprefix \
+	-argumentlines \
 	-wrapped_error_without_slog \
 	-os_exit_outside_main \
 	-context_todo_in_production \
@@ -831,7 +834,7 @@ endif
 # ordering (go-mk-cgo-dep-x: | $(GO_MK_GENERATE)).
 GO_MK_PREREQS := go-mk-workspace $(GO_MK_GENERATE) $(if $(strip $(GO_MK_CGO_DEPS)),go-mk-cgo-deps)
 ifneq ($(strip $(GO_MK_PREREQS)),)
-build build-check lint-golangci lint-deadcode staticcheck-extra vet test mutation govulncheck: | $(GO_MK_PREREQS)
+build build-check lint-golangci lint-deadcode staticcheck-extra fmt vet test mutation govulncheck: | $(GO_MK_PREREQS)
 endif
 ifneq ($(strip $(GO_MK_WORKSPACE_USE)),)
 lint-format: | go-mk-workspace

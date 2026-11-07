@@ -86,8 +86,9 @@ func newConsumerRepository(t *testing.T, commitDate string) string {
 		"widget/widget_test.go": "package widget\n\nimport \"testing\"\n\nfunc TestDouble(t *testing.T) {\n\tif Double(2) != 4 {\n\t\tt.Fatal(\"Double(2) != 4\")\n\t}\n}\n",
 		".make/golangci.yml":    "version: \"2\"\n",
 		".gitignore":            ".make/\n",
+		"notices.txt":           "1\tINTRODUCED=2026-05-25T19:38:46-07:00 GATE=golangci LINTER=revive RULE=file-length-limit\tEnable the file length rule\n2\tINTRODUCED=2026-10-05T00:00:00-07:00 GATE=staticcheck-extra PATTERN=_test\\.go:\tEnable test checks\n",
 		appliedNoticeFile:       "1\n",
-		"Makefile":              "GO_MK_DEV_DIR := " + repoRoot + "\n_GO_MK_PROVISIONED := 1\ninclude " + filepath.Join(repoRoot, "go.mk") + "\n",
+		"Makefile":              "GO_MK_DEV_DIR := " + repoRoot + "\n_GO_MK_PROVISIONED := 1\ninclude " + filepath.Join(repoRoot, "go.mk") + "\n_GO_MK_NOTICES_FILE := " + filepath.Join(consumerDir, "notices.txt") + "\n",
 	}
 	for name, content := range files {
 		writeConsumerFile(t, consumerDir, name, content)
@@ -151,6 +152,7 @@ func runConsumerMake(consumerDir string, arguments ...string) (string, error) {
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + os.Getenv("HOME"),
 		"TMPDIR=" + os.Getenv("TMPDIR"),
+		"GOCACHE=" + os.Getenv("GOCACHE"),
 	}
 	output, err := command.CombinedOutput()
 	return string(output), err

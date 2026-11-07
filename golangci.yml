@@ -2,6 +2,7 @@ version: "2"
 
 run:
   timeout: 10m
+  relative-path-mode: wd
 
 linters:
   default: all
@@ -35,8 +36,21 @@ linters:
     - tagliatelle         # JSON casing not enforced
     - varnamelen          # short names in tight scopes are fine
     - wsl                 # cosmetic whitespace
-    - wsl_v5              # ditto
   settings:
+    wsl_v5:
+      default: none
+      enable:
+        - after-block
+        - return
+        - err
+        - for
+        - range
+      allow-first-in-block: false
+      allow-whole-block: false
+      branch-max-lines: 2
+      case-max-lines: 0
+      cuddle-max-statements: 1
+
     cyclop:
       max-complexity: 30
 

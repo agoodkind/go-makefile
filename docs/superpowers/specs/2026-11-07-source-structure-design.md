@@ -2,7 +2,8 @@
 
 - Keep `cmd/*` limited to delegation and exit status. Put parsing, setup, and
   implementation in importable packages.
-- Keep short calls on one line. Format already wrapped lists with one argument
+- Keep short calls and simple declarations on one line. Wrap declarations with
+  inline callback parameters. Format wrapped lists with one argument or parameter
   per line. Apply the supplied `wsl_v5` settings through `make fmt`.
 - Detect repeated prefixes with or without separators. Require two distinct
   filename stems and at least three shared characters.

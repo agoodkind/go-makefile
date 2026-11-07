@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,6 +11,7 @@ import (
 
 	"goodkind.io/go-makefile/internal/baseline"
 	"goodkind.io/go-makefile/internal/findings"
+	"goodkind.io/go-makefile/internal/notice"
 )
 
 func noticeFindingIdentity(finding, root string, sources noticeSources, directive noticeDirective) (string, error) {
@@ -178,46 +178,13 @@ func noticeHistoricalModule(revision, currentPath string) (string, error) {
 	return currentPath, nil
 }
 
-func captureNoticeInDirectory(directory, rawPath, findingsPath string, capture func(string, string) error) (captureErr error) {
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	for _, name := range []string{"STATICCHECK_EXTRA_BIN", "GOLANGCI_LINT"} {
-		previous, had := os.LookupEnv(name)
-		if previous == "" {
-			continue
-		}
-		resolved, err := exec.LookPath(previous)
-		if err != nil {
-			return err
-		}
-		absolute, err := filepath.Abs(resolved)
-		if err != nil {
-			return err
-		}
-		if err := os.Setenv(name, absolute); err != nil {
-			return err
-		}
-		defer restoreEnv(name, previous, had)
-	}
-	previousRoot, hadRoot := os.LookupEnv("_GO_MK_ROOT")
-	if err := os.Setenv("_GO_MK_ROOT", directory); err != nil {
-		return err
-	}
-	defer restoreEnv("_GO_MK_ROOT", previousRoot, hadRoot)
-	if err := os.Chdir(directory); err != nil {
-		return err
-	}
-	defer func() {
-		if err := os.Chdir(workingDir); err != nil {
-			captureErr = errors.Join(captureErr, fmt.Errorf("restore notice working directory: %w", err))
-		}
-	}()
-	if err := prepareNoticeHistory(); err != nil {
-		return err
-	}
-	return capture(rawPath, findingsPath)
+func captureNoticeInDirectory(
+	directory string,
+	rawPath string,
+	findingsPath string,
+	capture func(string, string) error,
+) error {
+	return notice.CaptureInDirectory(directory, rawPath, findingsPath, capture)
 }
 
 func noticeHistoryRenames(revision string) (map[string]string, error) {

@@ -14,11 +14,10 @@ import (
 	"strings"
 
 	"goodkind.io/go-makefile/internal/findings"
+	formatting "goodkind.io/go-makefile/internal/format"
 	"goodkind.io/go-makefile/internal/lint"
 )
 
-// errNoGoFiles signals that the current module owns no Go source files, so the
-// formatter has nothing to format and the format gate passes vacuously.
 var errNoGoFiles = errors.New("no go files in module")
 
 // golangciFmtCommand builds the golangci-lint fmt argv scoped to the files the
@@ -30,25 +29,7 @@ var errNoGoFiles = errors.New("no go files in module")
 // GOLANGCI_FMT_FILES overrides the computed list. It returns errNoGoFiles when
 // the module owns no Go files so callers pass the gate without invoking fmt.
 func golangciFmtCommand() (string, []string, error) {
-	binary := lintEnvDefault("GOLANGCI_LINT", "golangci-lint")
-	flagsText := os.Getenv("GOLANGCI_LINT_FLAGS")
-	var files []string
-	if override := os.Getenv("GOLANGCI_FMT_FILES"); override != "" {
-		files = splitWords(override)
-	} else {
-		resolved, err := moduleGoFiles(splitWords(lintEnvDefault("GOLANGCI_LINT_TARGETS", "./...")))
-		if err != nil {
-			return "", nil, err
-		}
-		files = resolved
-	}
-	if len(files) == 0 {
-		return "", nil, errNoGoFiles
-	}
-	args := []string{"fmt"}
-	args = append(args, splitWords(flagsText)...)
-	args = append(args, files...)
-	return binary, args, nil
+	return formatting.Command(moduleGoFiles, errNoGoFiles)
 }
 
 // moduleGoFiles enumerates the .go files the current module owns for the given
@@ -114,17 +95,13 @@ func moduleGoFiles(targets []string) ([]string, error) {
 // runFmt applies the configured Go formatters scoped to the current module,
 // mirroring run_fmt. It no-ops when the module owns no Go files.
 func runFmt() error {
-	if err := ensureLintTools(); err != nil {
-		return err
-	}
-	binary, args, err := golangciFmtCommand()
-	if errors.Is(err, errNoGoFiles) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return runLintCPU(binary, args)
+	return formatting.Run(
+		ensureLintTools,
+		staticcheckResolveBin,
+		staticcheckSelectedBin,
+		moduleGoFiles,
+		runLintCPU,
+	)
 }
 
 // runVet runs go vet, mirroring run_vet.

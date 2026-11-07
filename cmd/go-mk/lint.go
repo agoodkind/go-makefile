@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"goodkind.io/go-makefile/internal/capture"
+	"goodkind.io/go-makefile/internal/diagnostics"
 	"goodkind.io/go-makefile/internal/findings"
 	"goodkind.io/go-makefile/internal/lintgate"
 	"goodkind.io/go-makefile/internal/report"
@@ -346,79 +347,9 @@ func installGoTool(spec string) error {
 	return cmd.Run()
 }
 
-// extractFindings reads a raw capture file, keeps lines matching matchPattern,
-// normalizes each path against the repository root, drops lines matching the
-// exclude pattern, and returns the sorted unique findings, mirroring
-// go_mk_extract_findings. It also drops findings whose file does not resolve to
-// an existing file inside the worktree root and returns how many it dropped:
-// golangci-lint's results cache is content-addressed, so an identical file
-// linted earlier in a now-deleted sibling worktree is replayed with that
-// worktree's path, which NormalizePath would otherwise launder into a
-// repo-local-looking path and surface as a false new finding. It reads files, so
-// it emits a boundary log.
+// extractFindings normalizes captured findings and identifies source occurrences.
 func extractFindings(rawPath, matchPattern, excludePattern string) ([]string, int, error) {
-	slog.Info("lint extract findings", slog.String("raw", rawPath))
-	lines, err := readFileLines(rawPath)
-	if err != nil {
-		return nil, 0, err
-	}
-	pattern, err := regexp.Compile(matchPattern)
-	if err != nil {
-		return nil, 0, err
-	}
-	root := lintRoot()
-	kept := make([]string, 0, len(lines))
-	droppedOutOfTree := 0
-	for _, line := range lines {
-		if !pattern.MatchString(line) {
-			continue
-		}
-		normalized := findings.NormalizePath(line, root, root)
-		if excludePattern != "" {
-			excludeRegexp, compileErr := regexp.Compile(excludePattern)
-			if compileErr != nil {
-				return nil, 0, compileErr
-			}
-			if excludeRegexp.MatchString(normalized) {
-				continue
-			}
-		}
-		if path, ok := findings.FindingPath(normalized); ok && !findingResolvesInTree(path, root) {
-			droppedOutOfTree++
-			continue
-		}
-		kept = append(kept, normalized)
-	}
-	return sortedUnique(kept), droppedOutOfTree, nil
-}
-
-// findingResolvesInTree reports whether the file named by a normalized finding
-// path is an existing file at or under the worktree root. A relative path is
-// joined to root; an absolute path is accepted only when it lies under root. The
-// containment check catches an absolute foreign path, and the existence check
-// catches a relative path that NormalizePath left pointing at a deleted sibling
-// worktree (its top segment is the sibling's name, which is absent under root). A
-// stat error other than not-exist is treated as resolved, so a transient
-// filesystem error never silently drops a real finding. An empty path resolves,
-// so a finding with no parseable path is kept unchanged.
-func findingResolvesInTree(path, root string) bool {
-	if path == "" {
-		return true
-	}
-	rootClean := filepath.Clean(root)
-	var target string
-	if filepath.IsAbs(path) {
-		target = filepath.Clean(path)
-	} else {
-		target = filepath.Clean(filepath.Join(rootClean, path))
-	}
-	if target != rootClean && !strings.HasPrefix(target, rootClean+string(filepath.Separator)) {
-		return false
-	}
-	if _, statErr := os.Stat(target); statErr != nil {
-		return !os.IsNotExist(statErr)
-	}
-	return true
+	return diagnostics.Extract(rawPath, matchPattern, excludePattern, lintRoot)
 }
 
 // toolFailedWithoutFindings reports whether a non-zero tool exit with no

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"goodkind.io/go-makefile/internal/diagnostics"
 	"goodkind.io/go-makefile/internal/findings"
 	"goodkind.io/go-makefile/internal/lint"
 	"goodkind.io/go-makefile/internal/report"
@@ -216,7 +217,14 @@ func captureGolangciScopeFindings(rawPath, findingsPath string) error {
 }
 
 func captureNoticeGolangciFindings(rawPath, findingsPath string) error {
-	return captureGolangciScope(rawPath, findingsPath, captureNotice)
+	return diagnostics.CaptureNotice(
+		rawPath,
+		findingsPath,
+		goFindingPattern,
+		captureGolangciScope,
+		captureNotice,
+		lintRoot,
+	)
 }
 
 func captureGolangciScope(rawPath, findingsPath string, mode captureMode) error {
