@@ -15,6 +15,13 @@
   },
   {
     "tool": "staticcheck-extra",
+    "id": "doc_structure",
+    "summary": "Give an exported function comment an introduction, a separate explanation, and an example or layout. This rule checks structure; review must establish that the content is accurate and useful.",
+    "bad": "package example\n\n// Double returns value multiplied by two.\nfunc Double(value int) int { return value * 2 }",
+    "good": "package example\n\n// Double returns value multiplied by two.\n//\n// The multiplication uses Go's int arithmetic, including its overflow\n// behavior, and returns zero when value is zero.\n//\n// For example:\n//\n//\tDouble(3) == 6\n//\tDouble(-2) == -4\nfunc Double(value int) int { return value * 2 }"
+  },
+  {
+    "tool": "staticcheck-extra",
     "id": "goroutine_without_recover",
     "summary": "Handle a panic inside each launched goroutine with a deferred recovery function.",
     "bad": "package example\n\nfunc start(work func()) {\n\tgo func() {\n\t\twork()\n\t}()\n}",

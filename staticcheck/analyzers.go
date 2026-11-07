@@ -13,8 +13,8 @@ import "golang.org/x/tools/go/analysis"
 
 // Analyzers returns all custom AST analyzers in this set.
 //
-// The command registers this set with multichecker. Analyzer flags select
-// which checks run for a package.
+// The command registers this set with multichecker, which uses analyzer flags
+// to select the checks that run for a package.
 //
 // Register the set with:
 //

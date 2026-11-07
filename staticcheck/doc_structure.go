@@ -8,6 +8,23 @@ import (
 )
 
 // DocStructureAnalyzer checks the structure of exported function comments.
+//
+// Each existing comment must begin with an introduction and a separate
+// explanation, followed by a list or preformatted block for an example or
+// layout. This check verifies the block structure that Go's comment parser
+// recognizes; it cannot establish the accuracy or usefulness of the content.
+//
+// A complete function comment can use this form:
+//
+//	// Double returns value multiplied by two.
+//	//
+//	// The multiplication uses Go's int arithmetic, including its overflow
+//	// behavior, and returns zero when value is zero.
+//	//
+//	// For example:
+//	//
+//	//     Double(3) == 6
+//	func Double(value int) int { return value * 2 }
 var DocStructureAnalyzer = &analysis.Analyzer{
 	Name: "doc_structure",
 	Doc:  "require an introduction, explanation, and example or layout in exported function comments",

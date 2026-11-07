@@ -148,7 +148,7 @@ func TestNoticePreservesExplicitMakefile(t *testing.T) {
 	}
 }
 
-func TestDocStructureNoticeRejectsChangedComment(t *testing.T) {
+func TestDocStructureNoticeRejectsChangedAndNewComments(t *testing.T) {
 	consumerDir := newConsumerRepository(t, beforeNoticeDate)
 	writeConsumerFile(t, consumerDir, "widget/widget.go", "package widget\n\n// Double multiplies by two.\nfunc Double(value int) int { return value * 2 }\n")
 	writeConsumerFile(t, consumerDir, "widget/old.go", "package widget\n\n// Old returns one.\nfunc Old() int { return 1 }\n")
@@ -157,13 +157,26 @@ func TestDocStructureNoticeRejectsChangedComment(t *testing.T) {
 	writeConsumerFile(t, consumerDir, "widget/widget.go", "package widget\n\n// Double returns twice the input.\nfunc Double(value int) int { return value * 2 }\n")
 	runConsumerGit(t, consumerDir, afterNoticeDate, "add", ".")
 	runConsumerGit(t, consumerDir, afterNoticeDate, "commit", "--quiet", "--message", "Change a comment after the notice")
+	writeConsumerFile(t, consumerDir, "widget/new.go", "package widget\n\n// New returns two.\nfunc New() int { return 2 }\n")
 	writeConsumerFile(t, consumerDir, "doc-notice.txt", "3\tINTRODUCED=2026-11-07T13:41:31-08:00 GATE=staticcheck-extra PATTERN=doc_structure:\tRequire comment structure\n")
 	output, err := runConsumerMake(consumerDir, "staticcheck-extra", "STATICCHECK_EXTRA_FLAGS=-doc_structure", "STATICCHECK_EXTRA_TEST_FLAGS=", "_GO_MK_NOTICES_FILE=doc-notice.txt")
 	if err == nil || !strings.Contains(output, "doc_structure") {
 		t.Fatalf("gate did not reject the changed comment: %v\n%s", err, output)
 	}
 	baseline := readConsumerFile(t, consumerDir, baselineFileName)
-	if !strings.Contains(baseline, "old.go") || strings.Contains(baseline, "widget.go") {
+	if !strings.Contains(baseline, "old.go") || strings.Contains(baseline, "widget.go") || strings.Contains(baseline, "new.go") {
 		t.Fatalf("notice must baseline only the unchanged comment:\n%s\n%s", baseline, output)
+	}
+	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); !strings.Contains(applied, "3\n") {
+		t.Fatalf("notice did not record its application: %q\n%s", applied, output)
+	}
+	runConsumerGit(t, consumerDir, afterNoticeDate, "add", ".")
+	runConsumerGit(t, consumerDir, afterNoticeDate, "commit", "--quiet", "--message", "Apply the notice and add a file")
+	output, err = runConsumerMake(consumerDir, "staticcheck-extra", "STATICCHECK_EXTRA_FLAGS=-doc_structure", "STATICCHECK_EXTRA_TEST_FLAGS=", "_GO_MK_NOTICES_FILE=doc-notice.txt")
+	if err == nil || !strings.Contains(output, "new.go") {
+		t.Fatalf("gate accepted a file committed with the applied notice: %v\n%s", err, output)
+	}
+	if current := readConsumerFile(t, consumerDir, baselineFileName); current != baseline {
+		t.Fatalf("the applied notice changed its baseline:\n%s", current)
 	}
 }
