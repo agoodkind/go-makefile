@@ -31,13 +31,13 @@ const (
 type baselineComponent string
 
 const (
-	componentAll           baselineComponent = "all"
-	componentGolangci      baselineComponent = "golangci"
-	componentGolangciScope baselineComponent = "golangci-scope"
-	componentAutoScope     baselineComponent = "auto-baseline-scope"
-	componentGocyclo       baselineComponent = "gocyclo"
-	componentDeadcode      baselineComponent = "deadcode"
-	componentStaticcheck   baselineComponent = "staticcheck-extra"
+	componentAll                  baselineComponent = "all"
+	componentGolangci             baselineComponent = "golangci"
+	componentGolangciScope        baselineComponent = "golangci-scope"
+	componentAutoScope            baselineComponent = "auto-baseline-scope"
+	componentGocyclo              baselineComponent = "gocyclo"
+	componentDeadcode             baselineComponent = "deadcode"
+	componentStaticcheck          baselineComponent = "staticcheck-extra"
 	componentStaticcheckAutoScope baselineComponent = "auto-baseline-staticcheck-scope"
 )
 
@@ -61,6 +61,10 @@ func (collector *baselineCollector) add(component baseline.Component) {
 // `|| update_status=$?` flow where the last failure wins. It returns the
 // process exit code.
 func runBaseline(args []string) int {
+	return runBaselineForNotice(args, noticeDirective{})
+}
+
+func runBaselineForNotice(args []string, directive noticeDirective) int {
 	mode, ok := normalizeBaselineMode(os.Getenv("BASELINE_UPDATE_MODE"))
 	if !ok {
 		return 2
@@ -84,7 +88,7 @@ func runBaseline(args []string) int {
 	case componentGolangciScope:
 		updateStatus = carryStatus(updateStatus, updateGolangciBaselineScope(collector, mode))
 	case componentAutoScope:
-		updateStatus = carryStatus(updateStatus, autoBaselineGolangciScope(collector))
+		updateStatus = carryStatus(updateStatus, autoBaselineGolangciScope(collector, directive))
 	case componentGocyclo:
 		updateStatus = carryStatus(updateStatus, updateGocycloBaseline(collector, mode))
 	case componentDeadcode:
@@ -92,7 +96,7 @@ func runBaseline(args []string) int {
 	case componentStaticcheck:
 		updateStatus = carryStatus(updateStatus, updateStaticcheckBaseline(collector, mode))
 	case componentStaticcheckAutoScope:
-		updateStatus = carryStatus(updateStatus, autoBaselineStaticcheckScope(collector))
+		updateStatus = carryStatus(updateStatus, autoBaselineStaticcheckScope(collector, directive))
 	default:
 		writeStdout("go-mk: unknown component " + string(component) + "\n")
 		return 2
@@ -208,14 +212,14 @@ func updateGolangciBaselineScope(collector *baselineCollector, mode string) int 
 	if !baselineGatePasses() {
 		return 0
 	}
-	return writeGolangciScopeBaseline(collector, mode, scopePattern)
+	return writeGolangciScopeBaseline(collector, mode, scopePattern, captureGolangciScopeFindings)
 }
 
 // autoBaselineGolangciScope captures the scoped golangci baseline without the
 // token gate, mirroring auto_baseline_golangci_scope. It is safe token-free
 // because the scoped write only adds the declared slice and leaves every other
 // linter's rows untouched.
-func autoBaselineGolangciScope(collector *baselineCollector) int {
+func autoBaselineGolangciScope(collector *baselineCollector, directive noticeDirective) int {
 	scopePattern := lint.GolangciScopePattern(
 		os.Getenv("GOLANGCI_LINT_BASELINE_SCOPE_PATTERN"),
 		os.Getenv("RULE"), os.Getenv("LINTER"),
@@ -224,14 +228,23 @@ func autoBaselineGolangciScope(collector *baselineCollector) int {
 		writeStdout("auto-baseline: missing scope; set LINTER, RULE, or GOLANGCI_LINT_BASELINE_SCOPE_PATTERN\n")
 		return 1
 	}
-	return writeGolangciScopeBaseline(collector, string(modeSync), scopePattern)
+	captured := &baselineCollector{}
+	if code := writeGolangciScopeBaseline(captured, string(modeSync), scopePattern, captureNoticeGolangciFindings); code != 0 {
+		return code
+	}
+	component := captured.components[0]
+	if err := restrictNoticeFindings(component.FindingsFile, directive, captureNoticeGolangciFindings); err != nil {
+		return statusFromError(err)
+	}
+	collector.add(component)
+	return 0
 }
 
 // writeGolangciScopeBaseline captures the scoped golangci findings and queues a
 // record carrying the scope pattern, mirroring write_golangci_scope_baseline.
 // The scope pattern reaches baseline.PlanComponent so the scoped rewrite
 // preserves every out-of-scope baseline row byte-for-byte.
-func writeGolangciScopeBaseline(collector *baselineCollector, mode, scopePattern string) int {
+func writeGolangciScopeBaseline(collector *baselineCollector, mode, scopePattern string, capture func(string, string) error) int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
@@ -241,7 +254,7 @@ func writeGolangciScopeBaseline(collector *baselineCollector, mode, scopePattern
 	if err := runLintTools(); err != nil {
 		return statusFromError(err)
 	}
-	if err := runCaptureGolangciScope([]string{rawPath, findingsPath}); err != nil {
+	if err := capture(rawPath, findingsPath); err != nil {
 		return statusFromError(err)
 	}
 	collector.add(baseline.Component{
@@ -361,7 +374,7 @@ func updateStaticcheckBaseline(collector *baselineCollector, mode string) int {
 
 // The notice pass runs this update without the baseline token. The scope limits
 // the write to the rows that match STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN.
-func autoBaselineStaticcheckScope(collector *baselineCollector) int {
+func autoBaselineStaticcheckScope(collector *baselineCollector, directive noticeDirective) int {
 	scopePattern := os.Getenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN")
 	if scopePattern == "" {
 		writeStdout("auto-baseline: missing scope; set STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN\n")
@@ -375,10 +388,10 @@ func autoBaselineStaticcheckScope(collector *baselineCollector) int {
 	if code := runStaticcheckBin(); code != 0 {
 		return code
 	}
-	if err := staticcheckCaptureFindings(rawPath, findingsPath); err != nil {
+	if err := captureNoticeStaticcheckFindings(rawPath, findingsPath); err != nil {
 		return statusFromError(err)
 	}
-	if err := addOtherPlatformFindings(findingsPath); err != nil {
+	if err := restrictNoticeFindings(findingsPath, directive, captureNoticeStaticcheckFindings); err != nil {
 		return statusFromError(err)
 	}
 	collector.add(baseline.Component{

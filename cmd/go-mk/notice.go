@@ -39,7 +39,7 @@ type noticeDirective struct {
 
 var (
 	noticeAdoptionTimeFunc = detectNoticeAdoptionTime
-	runNoticeBaselineFunc  = runBaseline
+	runNoticeBaselineFunc  = runBaselineForNotice
 )
 
 var noticeAdoptionSentinelPaths = []string{
@@ -324,7 +324,7 @@ func runNoticeAutoBaseline(record noticeFields, directive noticeDirective, appli
 	_ = os.Setenv("RULE", directive.rule)
 	_ = os.Setenv("GOLANGCI_LINT_BASELINE_SCOPE_PATTERN", directive.pattern)
 
-	code := runNoticeBaselineFunc([]string{string(componentAutoScope)})
+	code := runNoticeBaselineFunc([]string{string(componentAutoScope)}, directive)
 
 	restoreEnv("LINTER", previousLinter, hadLinter)
 	restoreEnv("RULE", previousRule, hadRule)
@@ -351,7 +351,7 @@ func runNoticeStaticcheckAutoBaseline(record noticeFields, directive noticeDirec
 
 	previousPattern, hadPattern := os.LookupEnv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN")
 	_ = os.Setenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN", directive.pattern)
-	code := runNoticeBaselineFunc([]string{string(componentStaticcheckAutoScope)})
+	code := runNoticeBaselineFunc([]string{string(componentStaticcheckAutoScope)}, directive)
 	restoreEnv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN", previousPattern, hadPattern)
 
 	if code != 0 {

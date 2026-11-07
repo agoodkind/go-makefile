@@ -7,6 +7,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -16,6 +17,13 @@ import (
 	"goodkind.io/go-makefile/internal/findings"
 	"goodkind.io/go-makefile/internal/lint"
 	"goodkind.io/go-makefile/internal/report"
+)
+
+type captureMode int
+
+const (
+	captureStandard captureMode = iota
+	captureNotice
 )
 
 // golangciCommand builds the golangci-lint argv for the run or fmt mode,
@@ -204,6 +212,14 @@ func runLintGolangciScope() int {
 // scopes them to the resolved scope pattern, mirroring
 // capture_golangci_scope_findings.
 func captureGolangciScopeFindings(rawPath, findingsPath string) error {
+	return captureGolangciScope(rawPath, findingsPath, captureStandard)
+}
+
+func captureNoticeGolangciFindings(rawPath, findingsPath string) error {
+	return captureGolangciScope(rawPath, findingsPath, captureNotice)
+}
+
+func captureGolangciScope(rawPath, findingsPath string, mode captureMode) error {
 	binary, args, err := golangciCommand("run")
 	if err != nil {
 		return err
@@ -213,12 +229,35 @@ func captureGolangciScopeFindings(rawPath, findingsPath string) error {
 		scoped = append(scoped, args[1:]...)
 		args = scoped
 	}
-	if _, err := captureCommand(binary, args, rawPath); err != nil {
-		return err
+	if mode == captureNotice {
+		args = append(args, "--issues-exit-code=0")
 	}
-	extracted, _, err := extractFindings(rawPath, goFindingPattern.String(), golangciExcludePattern())
+	status, err := captureCommand(binary, args, rawPath)
 	if err != nil {
 		return err
+	}
+	if mode == captureNotice && status != 0 {
+		output, err := os.ReadFile(rawPath)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("notice golangci-lint capture failed (exit status %d):\n%s", status, output)
+	}
+	excludePattern := golangciExcludePattern()
+	if mode == captureNotice {
+		excludePattern = ""
+	}
+	extracted, _, err := extractFindings(rawPath, goFindingPattern.String(), excludePattern)
+	if err != nil {
+		return err
+	}
+	if mode == captureNotice {
+		for _, finding := range extracted {
+			if strings.HasSuffix(finding, "(typecheck)") {
+				return fmt.Errorf("notice golangci-lint could not type-check the source: %s", finding)
+			}
+		}
+		extracted = filterExcluded(extracted, golangciExcludePattern())
 	}
 	scopePattern := lint.GolangciScopePattern(
 		os.Getenv("GOLANGCI_LINT_BASELINE_SCOPE_PATTERN"),
