@@ -154,6 +154,7 @@ func registerLintCommands(root *cobra.Command) {
 // reporting commands that return a code directly.
 func registerEngineCommands(root *cobra.Command) {
 	commands := []codeCommand{
+		{"help-examples", "List available examples; narrow with LINTER or RULE to select one", runHelpExamples},
 		{"notice", "Print pending one-time pipeline notices", runNotice},
 		{"build-check", "Run the full non-test quality gate: vet, lint, and govulncheck", runBuildCheck},
 		{"release", "Cross-compile, sign, archive, and publish a GitHub release", runRelease},

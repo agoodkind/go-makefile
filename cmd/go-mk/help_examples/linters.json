@@ -1,0 +1,1066 @@
+[
+  {
+    "tool": "golangci-lint/asasalint",
+    "id": "asasalint",
+    "summary": "Expand a slice when passing its elements to a variadic function.",
+    "bad": "package sample\n\nfunc Values(values ...interface{}) {}\nfunc Run(items []interface{})      { Values(items) }\n",
+    "good": "package sample\n\nfunc Values(values ...interface{}) {}\nfunc Run(items []interface{})      { Values(items...) }\n"
+  },
+  {
+    "tool": "golangci-lint/asciicheck",
+    "id": "asciicheck",
+    "summary": "Use ASCII characters in code identifiers.",
+    "bad": "package sample\n\nfunc Сount() int { return 1 }\n",
+    "good": "package sample\n\nfunc Count() int { return 1 }\n"
+  },
+  {
+    "tool": "golangci-lint/bidichk",
+    "id": "bidichk",
+    "summary": "Remove Unicode directional controls from source comments.",
+    "bad": "package sample\n\nfunc Count() int {\n\t// Count ‮the items.\n\treturn 1\n}\n",
+    "good": "package sample\n\nfunc Count() int {\n\t// Count the items.\n\treturn 1\n}\n"
+  },
+  {
+    "tool": "golangci-lint/bodyclose",
+    "id": "bodyclose",
+    "summary": "Close an HTTP response body after checking the request error.",
+    "bad": "package sample\n\nimport (\n\t\"io\"\n\t\"net/http\"\n)\n\nfunc Fetch(client *http.Client, request *http.Request) error {\n\tresponse, err := client.Do(request)\n\tif err != nil {\n\t\treturn err\n\t}\n\t_, err = io.Copy(io.Discard, response.Body)\n\treturn err\n}\n",
+    "good": "package sample\n\nimport (\n\t\"io\"\n\t\"net/http\"\n)\n\nfunc Fetch(client *http.Client, request *http.Request) error {\n\tresponse, err := client.Do(request)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer response.Body.Close()\n\t_, err = io.Copy(io.Discard, response.Body)\n\treturn err\n}\n"
+  },
+  {
+    "tool": "golangci-lint/canonicalheader",
+    "id": "canonicalheader",
+    "summary": "Use the canonical spelling of an HTTP header key.",
+    "bad": "package sample\n\nimport (\n\t\"net/http\"\n)\n\nfunc Set(header http.Header) { header.Set(\"content-type\", \"application/json\") }\n",
+    "good": "package sample\n\nimport (\n\t\"net/http\"\n)\n\nfunc Set(header http.Header) { header.Set(\"Content-Type\", \"application/json\") }\n"
+  },
+  {
+    "tool": "golangci-lint/containedctx",
+    "id": "containedctx",
+    "summary": "Pass context.Context to methods instead of storing it in a struct.",
+    "bad": "package sample\n\nimport (\n\t\"context\"\n)\n\ntype Worker struct{ Context context.Context }\n\nfunc (worker Worker) Run() error { return worker.Context.Err() }\n",
+    "good": "package sample\n\nimport (\n\t\"context\"\n)\n\ntype Worker struct{}\n\nfunc (worker Worker) Run(ctx context.Context) error { return ctx.Err() }\n"
+  },
+  {
+    "tool": "golangci-lint/contextcheck",
+    "id": "contextcheck",
+    "summary": "Pass the caller's context to operations that accept a context.",
+    "bad": "package sample\n\nimport (\n\t\"context\"\n\t\"net/http\"\n)\n\nfunc Request(ctx context.Context, address string) (*http.Request, error) {\n\treturn http.NewRequestWithContext(context.Background(), http.MethodGet, address, nil)\n}\n",
+    "good": "package sample\n\nimport (\n\t\"context\"\n\t\"net/http\"\n)\n\nfunc Request(ctx context.Context, address string) (*http.Request, error) {\n\treturn http.NewRequestWithContext(ctx, http.MethodGet, address, nil)\n}\n"
+  },
+  {
+    "tool": "golangci-lint/copyloopvar",
+    "id": "copyloopvar",
+    "summary": "Use the per-iteration variable provided by Go 1.22 and later.",
+    "bad": "package sample\n\nfunc Copy(values []int) []int {\n\tvar result []int\n\tfor _, value := range values {\n\t\tvalue := value\n\t\tresult = append(result, value)\n\t}\n\treturn result\n}\n",
+    "good": "package sample\n\nfunc Copy(values []int) []int {\n\tvar result []int\n\tfor _, value := range values {\n\t\tresult = append(result, value)\n\t}\n\treturn result\n}\n"
+  },
+  {
+    "tool": "golangci-lint/cyclop",
+    "id": "cyclop",
+    "summary": "Keep cyclomatic complexity at or below the shared limit of 30.",
+    "bad": "package sample\n\nfunc Classify(value int) int {\n\tif value == 0 {\n\t\treturn 0\n\t}\n\tif value == 1 {\n\t\treturn 1\n\t}\n\tif value == 2 {\n\t\treturn 2\n\t}\n\tif value == 3 {\n\t\treturn 3\n\t}\n\tif value == 4 {\n\t\treturn 4\n\t}\n\tif value == 5 {\n\t\treturn 5\n\t}\n\tif value == 6 {\n\t\treturn 6\n\t}\n\tif value == 7 {\n\t\treturn 7\n\t}\n\tif value == 8 {\n\t\treturn 8\n\t}\n\tif value == 9 {\n\t\treturn 9\n\t}\n\tif value == 10 {\n\t\treturn 10\n\t}\n\tif value == 11 {\n\t\treturn 11\n\t}\n\tif value == 12 {\n\t\treturn 12\n\t}\n\tif value == 13 {\n\t\treturn 13\n\t}\n\tif value == 14 {\n\t\treturn 14\n\t}\n\tif value == 15 {\n\t\treturn 15\n\t}\n\tif value == 16 {\n\t\treturn 16\n\t}\n\tif value == 17 {\n\t\treturn 17\n\t}\n\tif value == 18 {\n\t\treturn 18\n\t}\n\tif value == 19 {\n\t\treturn 19\n\t}\n\tif value == 20 {\n\t\treturn 20\n\t}\n\tif value == 21 {\n\t\treturn 21\n\t}\n\tif value == 22 {\n\t\treturn 22\n\t}\n\tif value == 23 {\n\t\treturn 23\n\t}\n\tif value == 24 {\n\t\treturn 24\n\t}\n\tif value == 25 {\n\t\treturn 25\n\t}\n\tif value == 26 {\n\t\treturn 26\n\t}\n\tif value == 27 {\n\t\treturn 27\n\t}\n\tif value == 28 {\n\t\treturn 28\n\t}\n\tif value == 29 {\n\t\treturn 29\n\t}\n\tif value == 30 {\n\t\treturn 30\n\t}\n\treturn -1\n}\n",
+    "good": "package sample\n\nfunc Classify(value int) int {\n\tif value >= 0 && value <= 30 {\n\t\treturn value\n\t}\n\treturn -1\n}\n"
+  },
+  {
+    "tool": "golangci-lint/gocyclo",
+    "id": "gocyclo",
+    "summary": "Reduce independent branches when function complexity exceeds 30.",
+    "bad": "package sample\n\nfunc Classify(value int) int {\n\tif value == 0 {\n\t\treturn 0\n\t}\n\tif value == 1 {\n\t\treturn 1\n\t}\n\tif value == 2 {\n\t\treturn 2\n\t}\n\tif value == 3 {\n\t\treturn 3\n\t}\n\tif value == 4 {\n\t\treturn 4\n\t}\n\tif value == 5 {\n\t\treturn 5\n\t}\n\tif value == 6 {\n\t\treturn 6\n\t}\n\tif value == 7 {\n\t\treturn 7\n\t}\n\tif value == 8 {\n\t\treturn 8\n\t}\n\tif value == 9 {\n\t\treturn 9\n\t}\n\tif value == 10 {\n\t\treturn 10\n\t}\n\tif value == 11 {\n\t\treturn 11\n\t}\n\tif value == 12 {\n\t\treturn 12\n\t}\n\tif value == 13 {\n\t\treturn 13\n\t}\n\tif value == 14 {\n\t\treturn 14\n\t}\n\tif value == 15 {\n\t\treturn 15\n\t}\n\tif value == 16 {\n\t\treturn 16\n\t}\n\tif value == 17 {\n\t\treturn 17\n\t}\n\tif value == 18 {\n\t\treturn 18\n\t}\n\tif value == 19 {\n\t\treturn 19\n\t}\n\tif value == 20 {\n\t\treturn 20\n\t}\n\tif value == 21 {\n\t\treturn 21\n\t}\n\tif value == 22 {\n\t\treturn 22\n\t}\n\tif value == 23 {\n\t\treturn 23\n\t}\n\tif value == 24 {\n\t\treturn 24\n\t}\n\tif value == 25 {\n\t\treturn 25\n\t}\n\tif value == 26 {\n\t\treturn 26\n\t}\n\tif value == 27 {\n\t\treturn 27\n\t}\n\tif value == 28 {\n\t\treturn 28\n\t}\n\tif value == 29 {\n\t\treturn 29\n\t}\n\tif value == 30 {\n\t\treturn 30\n\t}\n\treturn -1\n}\n",
+    "good": "package sample\n\nfunc Classify(value int) int {\n\tif value >= 0 && value <= 30 {\n\t\treturn value\n\t}\n\treturn -1\n}\n"
+  },
+  {
+    "tool": "golangci-lint/dogsled",
+    "id": "dogsled",
+    "summary": "Use an API that returns the values the caller needs instead of discarding three results.",
+    "bad": "package sample\n\nfunc Coordinates() (int, int, int, int) { return 1, 2, 3, 4 }\nfunc First() int                        { first, _, _, _ := Coordinates(); return first }\n",
+    "good": "package sample\n\nfunc FirstCoordinate() int { return 1 }\nfunc First() int           { return FirstCoordinate() }\n"
+  },
+  {
+    "tool": "golangci-lint/dupword",
+    "id": "dupword",
+    "summary": "Remove an accidental repeated word from a comment.",
+    "bad": "package sample\n\n// Count returns the the number of items.\nfunc Count() int { return 1 }\n",
+    "good": "package sample\n\n// Count returns the number of items.\nfunc Count() int { return 1 }\n"
+  },
+  {
+    "tool": "golangci-lint/durationcheck",
+    "id": "durationcheck",
+    "summary": "Multiply a duration by a numeric count instead of another duration.",
+    "bad": "package sample\n\nimport \"time\"\n\nfunc Timeout() time.Duration { seconds := time.Duration(2); return seconds * time.Second }\n",
+    "good": "package sample\n\nimport \"time\"\n\nfunc Timeout() time.Duration { seconds := 2; return time.Duration(seconds) * time.Second }\n"
+  },
+  {
+    "tool": "golangci-lint/errchkjson",
+    "id": "errchkjson",
+    "summary": "Check JSON encoding errors when the input type can fail to encode.",
+    "bad": "package sample\n\nimport \"encoding/json\"\n\nfunc Encode(value float64) []byte { data, _ := json.Marshal(value); return data }\n",
+    "good": "package sample\n\nimport \"encoding/json\"\n\nfunc Encode(value float64) ([]byte, error) {\n\tdata, err := json.Marshal(value)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn data, nil\n}\n"
+  },
+  {
+    "tool": "golangci-lint/errname",
+    "id": "errname",
+    "summary": "Start sentinel error names with Err.",
+    "bad": "package sample\n\nimport (\n\t\"errors\"\n)\n\nvar NotFound = errors.New(\"not found\")\n",
+    "good": "package sample\n\nimport (\n\t\"errors\"\n)\n\nvar ErrNotFound = errors.New(\"not found\")\n"
+  },
+  {
+    "tool": "golangci-lint/errorlint",
+    "id": "errorf",
+    "summary": "Wrap an error with %w when adding context.",
+    "bad": "package sample\n\nimport (\n\t\"fmt\"\n)\n\nfunc Explain(err error) error { return fmt.Errorf(\"read configuration: %v\", err) }\n",
+    "good": "package sample\n\nimport (\n\t\"fmt\"\n)\n\nfunc Explain(err error) error { return fmt.Errorf(\"read configuration: %w\", err) }\n"
+  },
+  {
+    "tool": "golangci-lint/errorlint",
+    "id": "asserts",
+    "summary": "Use errors.As to find an error type inside wrapped errors.",
+    "bad": "package sample\n\nimport (\n\t\"os\"\n)\n\nfunc IsPath(err error) bool { _, ok := err.(*os.PathError); return ok }\n",
+    "good": "package sample\n\nimport (\n\t\"errors\"\n\t\"os\"\n)\n\nfunc IsPath(err error) bool { var pathError *os.PathError; return errors.As(err, &pathError) }\n"
+  },
+  {
+    "tool": "golangci-lint/errorlint",
+    "id": "comparison",
+    "summary": "Use errors.Is to compare errors that may contain a wrapped cause.",
+    "bad": "package sample\n\nimport (\n\t\"os\"\n)\n\nfunc Missing(err error) bool { return err == os.ErrNotExist }\n",
+    "good": "package sample\n\nimport (\n\t\"errors\"\n\t\"os\"\n)\n\nfunc Missing(err error) bool { return errors.Is(err, os.ErrNotExist) }\n"
+  },
+  {
+    "tool": "golangci-lint/exhaustive",
+    "id": "switch",
+    "summary": "Handle every declared enum value explicitly in a switch.",
+    "bad": "package sample\n\ntype State int\n\nconst (\n\tPending State = iota\n\tReady\n)\n\nfunc Label(state State) string {\n\tswitch state {\n\tcase Pending:\n\t\treturn \"pending\"\n\t}\n\treturn \"unknown\"\n}\n",
+    "good": "package sample\n\ntype State int\n\nconst (\n\tPending State = iota\n\tReady\n)\n\nfunc Label(state State) string {\n\tswitch state {\n\tcase Pending:\n\t\treturn \"pending\"\n\tcase Ready:\n\t\treturn \"ready\"\n\t}\n\treturn \"unknown\"\n}\n"
+  },
+  {
+    "tool": "golangci-lint/exhaustruct",
+    "id": "exhaustruct",
+    "summary": "Initialize every field of an internal struct. This example uses package goodkind.io/examples/internal/sample.",
+    "bad": "package sample\n\ntype Options struct {\n\tHost string\n\tPort int\n}\n\nfunc Default() Options { return Options{Host: \"localhost\"} }\n",
+    "good": "package sample\n\ntype Options struct {\n\tHost string\n\tPort int\n}\n\nfunc Default() Options { return Options{Host: \"localhost\", Port: 0} }\n"
+  },
+  {
+    "tool": "golangci-lint/exptostd",
+    "id": "exptostd",
+    "summary": "Use the standard slices package in place of golang.org/x/exp/slices.",
+    "bad": "package sample\n\nimport (\n\t\"golang.org/x/exp/slices\"\n)\n\nfunc Contains(values []int, value int) bool { return slices.Contains(values, value) }\n",
+    "good": "package sample\n\nimport (\n\t\"slices\"\n)\n\nfunc Contains(values []int, value int) bool { return slices.Contains(values, value) }\n"
+  },
+  {
+    "tool": "golangci-lint/forcetypeassert",
+    "id": "forcetypeassert",
+    "summary": "Check the success result of a type assertion.",
+    "bad": "package sample\n\nfunc Text(value any) string { return value.(string) }\n",
+    "good": "package sample\n\nfunc Text(value any) string {\n\ttext, ok := value.(string)\n\tif !ok {\n\t\treturn \"\"\n\t}\n\treturn text\n}\n"
+  },
+  {
+    "tool": "golangci-lint/fatcontext",
+    "id": "fatcontext",
+    "summary": "Create each loop context from the parent rather than replacing the parent.",
+    "bad": "package sample\n\nimport (\n\t\"context\"\n)\n\nfunc Run(ctx context.Context, count int) {\n\tfor range count {\n\t\tctx = context.WithValue(ctx, 1, \"item\")\n\t}\n}\n",
+    "good": "package sample\n\nimport (\n\t\"context\"\n)\n\nfunc Run(ctx context.Context, count int) {\n\tfor range count {\n\t\tchild := context.WithValue(ctx, 1, \"item\")\n\t\t_ = child\n\t}\n}\n"
+  },
+  {
+    "tool": "golangci-lint/funlen",
+    "id": "funlen",
+    "summary": "Keep functions within 100 lines and 60 statements under the shared configuration.",
+    "bad": "package sample\n\nfunc Increment(value int) int {\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\tvalue++\n\treturn value\n}\n",
+    "good": "package sample\n\nfunc Increment(value int) int { return value + 61 }\n"
+  },
+  {
+    "tool": "golangci-lint/gocheckcompilerdirectives",
+    "id": "gocheckcompilerdirectives",
+    "summary": "Spell compiler directives correctly.",
+    "bad": "package sample\n\n//go:noinlne ignored\nfunc Count() int { return 1 }\n",
+    "good": "package sample\n\n//go:noinline\nfunc Count() int { return 1 }\n"
+  },
+  {
+    "tool": "golangci-lint/gochecksumtype",
+    "id": "gochecksumtype",
+    "summary": "Handle every member of a sum type in its type switch.",
+    "bad": "package sample\n\n//sumtype:decl\ntype Shape interface{ shape() }\ntype Circle struct{}\n\nfunc (Circle) shape() {}\n\ntype Square struct{}\n\nfunc (Square) shape() {}\nfunc Name(shape Shape) string {\n\tswitch shape.(type) {\n\tcase Circle:\n\t\treturn \"circle\"\n\t}\n\treturn \"unknown\"\n}\n",
+    "good": "package sample\n\n//sumtype:decl\ntype Shape interface{ shape() }\ntype Circle struct{}\n\nfunc (Circle) shape() {}\n\ntype Square struct{}\n\nfunc (Square) shape() {}\nfunc Name(shape Shape) string {\n\tswitch shape.(type) {\n\tcase Circle:\n\t\treturn \"circle\"\n\tcase Square:\n\t\treturn \"square\"\n\t}\n\treturn \"unknown\"\n}\n"
+  },
+  {
+    "tool": "golangci-lint/gocognit",
+    "id": "gocognit",
+    "summary": "Flatten nested decisions when cognitive complexity is at least 30.",
+    "bad": "package sample\n\nfunc Level(value int) int {\n\tif value > 0 {\n\t\tif value > 1 {\n\t\t\tif value > 2 {\n\t\t\t\tif value > 3 {\n\t\t\t\t\tif value > 4 {\n\t\t\t\t\t\tif value > 5 {\n\t\t\t\t\t\t\tif value > 6 {\n\t\t\t\t\t\t\t\tif value > 7 {\n\t\t\t\t\t\t\t\t\tif value > 8 {\n\t\t\t\t\t\t\t\t\t\treturn 9\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treturn 0\n}\n",
+    "good": "package sample\n\nfunc Level(value int) int {\n\tif value > 8 {\n\t\treturn 9\n\t}\n\treturn 0\n}\n"
+  },
+  {
+    "tool": "golangci-lint/goprintffuncname",
+    "id": "goprintffuncname",
+    "summary": "End the name of a formatting function with f.",
+    "bad": "package sample\n\nimport (\n\t\"fmt\"\n\t\"io\"\n)\n\nfunc Message(writer io.Writer, format string, arguments ...any) {\n\t_, _ = fmt.Fprintf(writer, format, arguments...)\n}\n",
+    "good": "package sample\n\nimport (\n\t\"fmt\"\n\t\"io\"\n)\n\nfunc Messagef(writer io.Writer, format string, arguments ...any) {\n\t_, _ = fmt.Fprintf(writer, format, arguments...)\n}\n"
+  },
+  {
+    "tool": "golangci-lint/gosmopolitan",
+    "id": "time-local",
+    "summary": "Choose a time zone explicitly instead of using time.Local.",
+    "bad": "package sample\n\nimport (\n\t\"time\"\n)\n\nfunc Zone() *time.Location { return time.Local }\n",
+    "good": "package sample\n\nimport (\n\t\"time\"\n)\n\nfunc Zone() *time.Location { return time.UTC }\n"
+  },
+  {
+    "tool": "golangci-lint/gosmopolitan",
+    "id": "han",
+    "summary": "Keep localizable Han text outside ordinary source string literals.",
+    "bad": "package sample\n\nfunc Message() string { return \"你好\" }\n",
+    "good": "package sample\n\nfunc Message(messages map[string]string) string { return messages[\"greeting\"] }\n"
+  },
+  {
+    "tool": "golangci-lint/iface",
+    "id": "identical",
+    "summary": "Use one interface declaration for an identical method set.",
+    "bad": "package sample\n\ntype Reader interface{ Read([]byte) (int, error) }\ntype Input interface{ Read([]byte) (int, error) }\n",
+    "good": "package sample\n\ntype Reader interface{ Read([]byte) (int, error) }\ntype Input = Reader\n"
+  },
+  {
+    "tool": "golangci-lint/ineffassign",
+    "id": "ineffassign",
+    "summary": "Remove an assignment that another assignment overwrites before any read.",
+    "bad": "package sample\n\nfunc Count() int { value := 1; value = 2; return value }\n",
+    "good": "package sample\n\nfunc Count() int { value := 2; return value }\n"
+  },
+  {
+    "tool": "golangci-lint/interfacebloat",
+    "id": "interfacebloat",
+    "summary": "Keep an interface within the default maximum of ten methods.",
+    "bad": "package sample\n\ntype Worker interface {\n\tAction0()\n\tAction1()\n\tAction2()\n\tAction3()\n\tAction4()\n\tAction5()\n\tAction6()\n\tAction7()\n\tAction8()\n\tAction9()\n\tAction10()\n}\n",
+    "good": "package sample\n\ntype Reader interface{ Read() }\ntype Writer interface{ Write() }\n"
+  },
+  {
+    "tool": "golangci-lint/intrange",
+    "id": "intrange",
+    "summary": "Use an integer range for a loop that only counts iterations.",
+    "bad": "package sample\n\nfunc Total(count int) int {\n\ttotal := 0\n\tfor index := 0; index < count; index++ {\n\t\ttotal += index\n\t}\n\treturn total\n}\n",
+    "good": "package sample\n\nfunc Total(count int) int {\n\ttotal := 0\n\tfor index := range count {\n\t\ttotal += index\n\t}\n\treturn total\n}\n"
+  },
+  {
+    "tool": "golangci-lint/iotamixing",
+    "id": "iotamixing",
+    "summary": "Separate iota-based constants from unrelated constant declarations.",
+    "bad": "package sample\n\nconst (\n\tFirst = iota\n\tSecond\n\tLabel = \"label\"\n)\n",
+    "good": "package sample\n\nconst (\n\tFirst = iota\n\tSecond\n)\nconst Label = \"label\"\n"
+  },
+  {
+    "tool": "golangci-lint/loggercheck",
+    "id": "loggercheck",
+    "summary": "Provide a value for each structured log key.",
+    "bad": "package sample\n\nimport (\n\t\"log/slog\"\n)\n\nfunc Report(logger *slog.Logger) { logger.Info(\"request\", \"method\") }\n",
+    "good": "package sample\n\nimport (\n\t\"log/slog\"\n)\n\nfunc Report(logger *slog.Logger) { logger.Info(\"request\", \"method\", \"GET\") }\n"
+  },
+  {
+    "tool": "golangci-lint/makezero",
+    "id": "makezero",
+    "summary": "Start an appended slice with zero length and the desired capacity.",
+    "bad": "package sample\n\nfunc Copy(values []int) []int {\n\tresult := make([]int, len(values))\n\tfor _, value := range values {\n\t\tresult = append(result, value)\n\t}\n\treturn result\n}\n",
+    "good": "package sample\n\nfunc Copy(values []int) []int {\n\tresult := make([]int, 0, len(values))\n\tfor _, value := range values {\n\t\tresult = append(result, value)\n\t}\n\treturn result\n}\n"
+  },
+  {
+    "tool": "golangci-lint/mirror",
+    "id": "mirror",
+    "summary": "Use the regexp string method when the input is a string.",
+    "bad": "package sample\n\nimport (\n\t\"regexp\"\n)\n\nfunc Matches(pattern *regexp.Regexp, value string) bool {\n\treturn pattern.Match([]byte(value))\n}\n",
+    "good": "package sample\n\nimport (\n\t\"regexp\"\n)\n\nfunc Matches(pattern *regexp.Regexp, value string) bool {\n\treturn pattern.MatchString(value)\n}\n"
+  },
+  {
+    "tool": "golangci-lint/misspell",
+    "id": "misspell",
+    "summary": "Correct misspelled words in source comments.",
+    "bad": "package sample\n\n// Receive accepts a recieve request.\nfunc Receive() {}\n",
+    "good": "package sample\n\n// Receive accepts a receive request.\nfunc Receive() {}\n"
+  },
+  {
+    "tool": "golangci-lint/musttag",
+    "id": "musttag",
+    "summary": "Declare JSON field tags on structs passed to JSON encoding.",
+    "bad": "package sample\n\nimport (\n\t\"encoding/json\"\n)\n\ntype Record struct{ Name string }\n\nfunc Encode(value Record) ([]byte, error) { return json.Marshal(value) }\n",
+    "good": "package sample\n\nimport (\n\t\"encoding/json\"\n)\n\ntype Record struct {\n\tName string `json:\"name\"`\n}\n\nfunc Encode(value Record) ([]byte, error) { return json.Marshal(value) }\n"
+  },
+  {
+    "tool": "golangci-lint/nakedret",
+    "id": "nakedret",
+    "summary": "Return explicit values from functions longer than 30 lines.",
+    "bad": "package sample\n\nfunc Count() (result int) {\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\treturn\n}\n",
+    "good": "package sample\n\nfunc Count() (result int) {\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\tresult++\n\treturn result\n}\n"
+  },
+  {
+    "tool": "golangci-lint/nestif",
+    "id": "nestif",
+    "summary": "Replace deeply nested if statements with an early guard.",
+    "bad": "package sample\n\nfunc Level(value int) int {\n\tif value > 0 {\n\t\tif value > 1 {\n\t\t\tif value > 2 {\n\t\t\t\tif value > 3 {\n\t\t\t\t\tif value > 4 {\n\t\t\t\t\t\tif value > 5 {\n\t\t\t\t\t\t\tif value > 6 {\n\t\t\t\t\t\t\t\tif value > 7 {\n\t\t\t\t\t\t\t\t\tif value > 8 {\n\t\t\t\t\t\t\t\t\t\treturn 9\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treturn 0\n}\n",
+    "good": "package sample\n\nfunc Level(value int) int {\n\tif value <= 8 {\n\t\treturn 0\n\t}\n\treturn 9\n}\n"
+  },
+  {
+    "tool": "golangci-lint/nilerr",
+    "id": "nilerr",
+    "summary": "Return the error that caused the failure instead of returning nil.",
+    "bad": "package sample\n\nimport (\n\t\"strconv\"\n)\n\nfunc Parse(text string) error {\n\t_, err := strconv.Atoi(text)\n\tif err != nil {\n\t\treturn nil\n\t}\n\treturn nil\n}\n",
+    "good": "package sample\n\nimport (\n\t\"strconv\"\n)\n\nfunc Parse(text string) error {\n\t_, err := strconv.Atoi(text)\n\tif err != nil {\n\t\treturn err\n\t}\n\treturn nil\n}\n"
+  },
+  {
+    "tool": "golangci-lint/nilnesserr",
+    "id": "nilnesserr",
+    "summary": "Return the failing operation's error instead of an earlier error known to be nil.",
+    "bad": "package sample\n\nimport (\n\t\"strconv\"\n)\n\nfunc Parse(first string, second string) error {\n\t_, firstError := strconv.Atoi(first)\n\tif firstError != nil {\n\t\treturn firstError\n\t}\n\t_, secondError := strconv.Atoi(second)\n\tif secondError != nil {\n\t\treturn firstError\n\t}\n\treturn nil\n}\n",
+    "good": "package sample\n\nimport (\n\t\"strconv\"\n)\n\nfunc Parse(first string, second string) error {\n\t_, firstError := strconv.Atoi(first)\n\tif firstError != nil {\n\t\treturn firstError\n\t}\n\t_, secondError := strconv.Atoi(second)\n\tif secondError != nil {\n\t\treturn secondError\n\t}\n\treturn nil\n}\n"
+  },
+  {
+    "tool": "golangci-lint/noctx",
+    "id": "noctx",
+    "summary": "Attach the caller context to an outgoing HTTP request.",
+    "bad": "package sample\n\nimport (\n\t\"context\"\n\t\"net/http\"\n)\n\nfunc Fetch(ctx context.Context, client *http.Client, address string) (*http.Response, error) {\n\treturn client.Get(address)\n}\n",
+    "good": "package sample\n\nimport (\n\t\"context\"\n\t\"net/http\"\n)\n\nfunc Fetch(ctx context.Context, client *http.Client, address string) (*http.Response, error) {\n\trequest, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn client.Do(request)\n}\n"
+  },
+  {
+    "tool": "golangci-lint/nosprintfhostport",
+    "id": "nosprintfhostport",
+    "summary": "Build a URL host and port with net.JoinHostPort to support IPv6 addresses.",
+    "bad": "package sample\n\nimport (\n\t\"fmt\"\n)\n\nfunc Address(host string, port int) string {\n\treturn fmt.Sprintf(\"https://%s:%d/items\", host, port)\n}\n",
+    "good": "package sample\n\nimport (\n\t\"net\"\n\t\"strconv\"\n)\n\nfunc Address(host string, port int) string {\n\treturn \"https://\" + net.JoinHostPort(host, strconv.Itoa(port)) + \"/items\"\n}\n"
+  },
+  {
+    "tool": "golangci-lint/predeclared",
+    "id": "predeclared",
+    "summary": "Choose a variable name that does not shadow a built-in identifier.",
+    "bad": "package sample\n\nfunc Count() int { len := 3; return len }\n",
+    "good": "package sample\n\nfunc Count() int { count := 3; return count }\n"
+  },
+  {
+    "tool": "golangci-lint/reassign",
+    "id": "reassign",
+    "summary": "Assign a standard library sentinel error to a local variable instead of replacing the sentinel.",
+    "bad": "package sample\n\nimport (\n\t\"io\"\n\t\"errors\"\n)\n\nfunc End() error {\n\tio.EOF = errors.New(\"end of file\")\n\treturn io.EOF\n}\n",
+    "good": "package sample\n\nimport (\n\t\"io\"\n)\n\nfunc End() error {\n\tendError := io.EOF\n\treturn endError\n}\n"
+  },
+  {
+    "tool": "golangci-lint/recvcheck",
+    "id": "recvcheck",
+    "summary": "Use consistent pointer or value receivers for methods of one type.",
+    "bad": "package sample\n\ntype Counter struct{ Value int }\n\nfunc (counter *Counter) Add()     { counter.Value++ }\nfunc (counter Counter) Read() int { return counter.Value }\n",
+    "good": "package sample\n\ntype Counter struct{ Value int }\n\nfunc (counter *Counter) Add()      { counter.Value++ }\nfunc (counter *Counter) Read() int { return counter.Value }\n"
+  },
+  {
+    "tool": "golangci-lint/rowserrcheck",
+    "id": "rowserrcheck",
+    "summary": "Check Rows.Err after SQL row iteration.",
+    "bad": "package sample\n\nimport (\n\t\"database/sql\"\n)\n\nfunc Read(database *sql.DB) error {\n\trows, err := database.Query(\"SELECT id FROM items\")\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer rows.Close()\n\tfor rows.Next() {\n\t}\n\treturn nil\n}\n",
+    "good": "package sample\n\nimport (\n\t\"database/sql\"\n)\n\nfunc Read(database *sql.DB) error {\n\trows, err := database.Query(\"SELECT id FROM items\")\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer rows.Close()\n\tfor rows.Next() {\n\t}\n\treturn rows.Err()\n}\n"
+  },
+  {
+    "tool": "golangci-lint/sloglint",
+    "id": "no-mixed-args",
+    "summary": "Use structured attributes consistently within one slog call.",
+    "bad": "package sample\n\nimport (\n\t\"log/slog\"\n)\n\nfunc Report() { slog.Info(\"request\", \"method\", \"GET\", slog.Int(\"status\", 200)) }\n",
+    "good": "package sample\n\nimport (\n\t\"log/slog\"\n)\n\nfunc Report() { slog.Info(\"request\", slog.String(\"method\", \"GET\"), slog.Int(\"status\", 200)) }\n"
+  },
+  {
+    "tool": "golangci-lint/sqlclosecheck",
+    "id": "sqlclosecheck",
+    "summary": "Defer closing SQL rows immediately after checking the query error.",
+    "bad": "package sample\n\nimport (\n\t\"database/sql\"\n)\n\nfunc Read(database *sql.DB) error {\n\trows, err := database.Query(\"SELECT id FROM items\")\n\tif err != nil {\n\t\treturn err\n\t}\n\tfor rows.Next() {\n\t}\n\treturn rows.Err()\n}\n",
+    "good": "package sample\n\nimport (\n\t\"database/sql\"\n)\n\nfunc Read(database *sql.DB) error {\n\trows, err := database.Query(\"SELECT id FROM items\")\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer rows.Close()\n\tfor rows.Next() {\n\t}\n\treturn rows.Err()\n}\n"
+  },
+  {
+    "tool": "golangci-lint/spancheck",
+    "id": "end",
+    "summary": "End every OpenTelemetry span created by the function.",
+    "bad": "package sample\n\nimport (\n\t\"context\"\n\t\"go.opentelemetry.io/otel/trace\"\n)\n\nfunc Run(ctx context.Context, tracer trace.Tracer) { _, span := tracer.Start(ctx, \"run\"); _ = span }\n",
+    "good": "package sample\n\nimport (\n\t\"context\"\n\t\"go.opentelemetry.io/otel/trace\"\n)\n\nfunc Run(ctx context.Context, tracer trace.Tracer) {\n\t_, span := tracer.Start(ctx, \"run\")\n\tdefer span.End()\n}\n"
+  },
+  {
+    "tool": "golangci-lint/unconvert",
+    "id": "unconvert",
+    "summary": "Remove a conversion when the value already has the target type.",
+    "bad": "package sample\n\nfunc Copy(value int) int { return int(value) }\n",
+    "good": "package sample\n\nfunc Copy(value int) int { return value }\n"
+  },
+  {
+    "tool": "golangci-lint/unparam",
+    "id": "unparam",
+    "summary": "Remove an unused parameter from an internal function.",
+    "bad": "package sample\n\nimport (\n\t\"strconv\"\n)\n\nfunc label(value int, prefix string) string { return strconv.Itoa(value) }\nfunc Label(value int) string                { return label(value, \"item\") }\n",
+    "good": "package sample\n\nimport (\n\t\"strconv\"\n)\n\nfunc label(value int) string { return strconv.Itoa(value) }\nfunc Label(value int) string { return label(value) }\n"
+  },
+  {
+    "tool": "golangci-lint/unqueryvet",
+    "id": "unqueryvet",
+    "summary": "Select explicit SQL columns instead of SELECT *.",
+    "bad": "package sample\n\nimport (\n\t\"database/sql\"\n)\n\nfunc Read(database *sql.DB) (*sql.Rows, error) { return database.Query(\"SELECT * FROM items\") }\n",
+    "good": "package sample\n\nimport (\n\t\"database/sql\"\n)\n\nfunc Read(database *sql.DB) (*sql.Rows, error) { return database.Query(\"SELECT id, name FROM items\") }\n"
+  },
+  {
+    "tool": "golangci-lint/unused",
+    "id": "unused",
+    "summary": "Delete unreferenced private declarations.",
+    "bad": "package sample\n\nconst abandoned = 3\n\nfunc Count() int { return 1 }\n",
+    "good": "package sample\n\nfunc Count() int { return 1 }\n"
+  },
+  {
+    "tool": "golangci-lint/usestdlibvars",
+    "id": "http-method",
+    "summary": "Use the standard HTTP method constant.",
+    "bad": "package sample\n\nimport (\n\t\"net/http\"\n)\n\nfunc New(address string) (*http.Request, error) { return http.NewRequest(\"GET\", address, nil) }\n",
+    "good": "package sample\n\nimport (\n\t\"net/http\"\n)\n\nfunc New(address string) (*http.Request, error) { return http.NewRequest(http.MethodGet, address, nil) }\n"
+  },
+  {
+    "tool": "golangci-lint/usestdlibvars",
+    "id": "http-status-code",
+    "summary": "Use the standard HTTP status constant.",
+    "bad": "package sample\n\nimport (\n\t\"net/http\"\n)\n\nfunc Respond(writer http.ResponseWriter) { writer.WriteHeader(404) }\n",
+    "good": "package sample\n\nimport (\n\t\"net/http\"\n)\n\nfunc Respond(writer http.ResponseWriter) { writer.WriteHeader(http.StatusNotFound) }\n"
+  },
+  {
+    "tool": "golangci-lint/wastedassign",
+    "id": "wastedassign",
+    "summary": "Remove a value assignment that the function never reads.",
+    "bad": "package sample\n\nfunc Count() int { value := 1; value = 2; return value }\n",
+    "good": "package sample\n\nfunc Count() int { value := 2; return value }\n"
+  },
+  {
+    "tool": "golangci-lint/whitespace",
+    "id": "whitespace",
+    "summary": "Remove empty lines at the start and end of a block.",
+    "bad": "package sample\n\nfunc Count() int {\n\n\treturn 1\n\n}\n",
+    "good": "package sample\n\nfunc Count() int {\n\treturn 1\n}\n"
+  },
+  {
+    "tool": "golangci-lint/wrapcheck",
+    "id": "wrapcheck",
+    "summary": "Add operation context when returning an error from an external package.",
+    "bad": "package sample\n\nimport (\n\t\"os\"\n)\n\nfunc Read(path string) ([]byte, error) { return os.ReadFile(path) }\n",
+    "good": "package sample\n\nimport (\n\t\"fmt\"\n\t\"os\"\n)\n\nfunc Read(path string) ([]byte, error) {\n\tdata, err := os.ReadFile(path)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"read input: %w\", err)\n\t}\n\treturn data, nil\n}\n"
+  },
+  {
+    "tool": "golangci-lint/nolintlint",
+    "id": "require-specific",
+    "summary": "Specify the linter in a nolint directive.",
+    "bad": "package sample\n\nimport (\n\t\"os\"\n)\n\n// nolint // This sentinel comparison follows an external contract.\nfunc Missing(err error) bool { return err == os.ErrNotExist }\n",
+    "good": "package sample\n\nimport (\n\t\"errors\"\n\t\"os\"\n)\n\nfunc Missing(err error) bool { return errors.Is(err, os.ErrNotExist) }\n"
+  },
+  {
+    "tool": "golangci-lint/nolintlint",
+    "id": "require-explanation",
+    "summary": "Explain why a nolint directive applies.",
+    "bad": "package sample\n\nimport (\n\t\"os\"\n)\n\n//nolint:errorlint\nfunc Missing(err error) bool { return err == os.ErrNotExist }\n",
+    "good": "package sample\n\nimport (\n\t\"errors\"\n\t\"os\"\n)\n\nfunc Missing(err error) bool { return errors.Is(err, os.ErrNotExist) }\n"
+  },
+  {
+    "tool": "golangci-lint/nolintlint",
+    "id": "unused-directive",
+    "summary": "Remove an unused nolint directive when its target linter is enabled.",
+    "bad": "package sample\n\n//nolint:errorlint // This function does not compare errors.\nfunc Count() int { return 1 }\n",
+    "good": "package sample\n\nfunc Count() int { return 1 }\n"
+  },
+  {
+    "tool": "golangci-lint/perfsprint",
+    "id": "integer-format",
+    "summary": "Use strconv.Itoa for decimal integers.",
+    "bad": "package sample\n\nimport (\n\t\"fmt\"\n)\n\nfunc Text(value int) string { return fmt.Sprintf(\"%d\", value) }\n",
+    "good": "package sample\n\nimport (\n\t\"strconv\"\n)\n\nfunc Text(value int) string { return strconv.Itoa(value) }\n"
+  },
+  {
+    "tool": "golangci-lint/perfsprint",
+    "id": "bool-format",
+    "summary": "Use strconv.FormatBool for booleans.",
+    "bad": "package sample\n\nimport (\n\t\"fmt\"\n)\n\nfunc Text(value bool) string { return fmt.Sprintf(\"%t\", value) }\n",
+    "good": "package sample\n\nimport (\n\t\"strconv\"\n)\n\nfunc Text(value bool) string { return strconv.FormatBool(value) }\n"
+  },
+  {
+    "tool": "golangci-lint/perfsprint",
+    "id": "hex-format",
+    "summary": "Use encoding/hex for hexadecimal byte encoding.",
+    "bad": "package sample\n\nimport (\n\t\"fmt\"\n)\n\nfunc Text(value []byte) string { return fmt.Sprintf(\"%x\", value) }\n",
+    "good": "package sample\n\nimport (\n\t\"encoding/hex\"\n)\n\nfunc Text(value []byte) string { return hex.EncodeToString(value) }\n"
+  },
+  {
+    "tool": "golangci-lint/perfsprint",
+    "id": "string-format",
+    "summary": "Use the existing string without formatting it again.",
+    "bad": "package sample\n\nimport (\n\t\"fmt\"\n)\n\nfunc Text(value string) string { return fmt.Sprintf(\"%s\", value) }\n",
+    "good": "package sample\n\nfunc Text(value string) string { return value }\n"
+  },
+  {
+    "tool": "golangci-lint/perfsprint",
+    "id": "sprintf1",
+    "summary": "Use a literal directly when fmt.Sprintf does not receive formatting arguments.",
+    "bad": "package sample\n\nimport (\n\t\"fmt\"\n)\n\nfunc Text() string { return fmt.Sprintf(\"ready\") }\n",
+    "good": "package sample\n\nfunc Text() string { return \"ready\" }\n"
+  },
+  {
+    "tool": "golangci-lint/perfsprint",
+    "id": "strconcat",
+    "summary": "Use concatenation for a simple string prefix.",
+    "bad": "package sample\n\nimport (\n\t\"fmt\"\n)\n\nfunc Text(value string) string { return fmt.Sprintf(\"item: %s\", value) }\n",
+    "good": "package sample\n\nfunc Text(value string) string { return \"item: \" + value }\n"
+  },
+  {
+    "tool": "golangci-lint/perfsprint",
+    "id": "concat-loop",
+    "summary": "Use strings.Builder when repeatedly appending strings in a loop.",
+    "bad": "package sample\n\nfunc Join(values []string) string {\n\tvar result string\n\tfor _, value := range values {\n\t\tresult += value\n\t}\n\treturn result\n}\n",
+    "good": "package sample\n\nimport (\n\t\"strings\"\n)\n\nfunc Join(values []string) string {\n\tvar result strings.Builder\n\tfor _, value := range values {\n\t\tresult.WriteString(value)\n\t}\n\treturn result.String()\n}\n"
+  },
+  {
+    "tool": "formatter",
+    "id": "gofumpt",
+    "summary": "Apply gofumpt formatting to Go source.",
+    "bad": "package sample\n\nfunc Count( ) int{return 1}\n",
+    "good": "package sample\n\nfunc Count() int { return 1 }\n"
+  },
+  {
+    "tool": "formatter",
+    "id": "goimports",
+    "summary": "Add the imports used by the Go file.",
+    "bad": "package sample\n\nfunc Text(value int) string { return strconv.Itoa(value) }\n",
+    "good": "package sample\n\nimport \"strconv\"\n\nfunc Text(value int) string { return strconv.Itoa(value) }\n"
+  },
+  {
+    "tool": "gocyclo",
+    "id": "gocyclo",
+    "summary": "Keep function cyclomatic complexity at or below 30 under the shared gate.",
+    "bad": "package sample\n\nfunc Classify(value int) int {\n\tif value == 0 {\n\t\treturn 0\n\t}\n\tif value == 1 {\n\t\treturn 1\n\t}\n\tif value == 2 {\n\t\treturn 2\n\t}\n\tif value == 3 {\n\t\treturn 3\n\t}\n\tif value == 4 {\n\t\treturn 4\n\t}\n\tif value == 5 {\n\t\treturn 5\n\t}\n\tif value == 6 {\n\t\treturn 6\n\t}\n\tif value == 7 {\n\t\treturn 7\n\t}\n\tif value == 8 {\n\t\treturn 8\n\t}\n\tif value == 9 {\n\t\treturn 9\n\t}\n\tif value == 10 {\n\t\treturn 10\n\t}\n\tif value == 11 {\n\t\treturn 11\n\t}\n\tif value == 12 {\n\t\treturn 12\n\t}\n\tif value == 13 {\n\t\treturn 13\n\t}\n\tif value == 14 {\n\t\treturn 14\n\t}\n\tif value == 15 {\n\t\treturn 15\n\t}\n\tif value == 16 {\n\t\treturn 16\n\t}\n\tif value == 17 {\n\t\treturn 17\n\t}\n\tif value == 18 {\n\t\treturn 18\n\t}\n\tif value == 19 {\n\t\treturn 19\n\t}\n\tif value == 20 {\n\t\treturn 20\n\t}\n\tif value == 21 {\n\t\treturn 21\n\t}\n\tif value == 22 {\n\t\treturn 22\n\t}\n\tif value == 23 {\n\t\treturn 23\n\t}\n\tif value == 24 {\n\t\treturn 24\n\t}\n\tif value == 25 {\n\t\treturn 25\n\t}\n\tif value == 26 {\n\t\treturn 26\n\t}\n\tif value == 27 {\n\t\treturn 27\n\t}\n\tif value == 28 {\n\t\treturn 28\n\t}\n\tif value == 29 {\n\t\treturn 29\n\t}\n\tif value == 30 {\n\t\treturn 30\n\t}\n\treturn -1\n}\n",
+    "good": "package sample\n\nfunc Classify(value int) int {\n\tif value >= 0 && value <= 30 {\n\t\treturn value\n\t}\n\treturn -1\n}\n"
+  },
+  {
+    "tool": "deadcode",
+    "id": "deadcode",
+    "summary": "Remove a function that the application never calls.",
+    "bad": "package main\n\nfunc abandoned() int { return 1 }\nfunc main()          {}\n",
+    "good": "package main\n\nfunc main() {}\n"
+  },
+  {
+    "tool": "golangci-lint/arangolint",
+    "id": "allow-implicit",
+    "summary": "Set AllowImplicit explicitly when starting an ArangoDB transaction.",
+    "bad": "package sample\n\nimport (\n\t\"context\"\n\tarango \"github.com/arangodb/go-driver/v2/arangodb\"\n)\n\nfunc Begin(ctx context.Context, database arango.Database) {\n\t_, _ = database.BeginTransaction(ctx, arango.TransactionCollections{}, nil)\n}\n",
+    "good": "package sample\n\nimport (\n\t\"context\"\n\tarango \"github.com/arangodb/go-driver/v2/arangodb\"\n)\n\nfunc Begin(ctx context.Context, database arango.Database) {\n\t_, _ = database.BeginTransaction(ctx, arango.TransactionCollections{}, &arango.BeginTransactionOptions{AllowImplicit: false})\n}\n"
+  },
+  {
+    "tool": "golangci-lint/arangolint",
+    "id": "query-injection",
+    "summary": "Use ArangoDB bind variables instead of concatenating query values.",
+    "bad": "package sample\n\nimport (\n\t\"context\"\n\tarango \"github.com/arangodb/go-driver/v2/arangodb\"\n)\n\nfunc Query(ctx context.Context, database arango.Database, name string) {\n\t_, _ = database.Query(ctx, \"FOR user IN users FILTER user.name == '\"+name+\"' RETURN user\", nil)\n}\n",
+    "good": "package sample\n\nimport (\n\t\"context\"\n\tarango \"github.com/arangodb/go-driver/v2/arangodb\"\n)\n\nfunc Query(ctx context.Context, database arango.Database, name string) {\n\t_, _ = database.Query(ctx, \"FOR user IN users FILTER user.name == @name RETURN user\", &arango.QueryOptions{BindVars: map[string]any{\"name\": name}})\n}\n"
+  },
+  {
+    "tool": "golangci-lint/clickhouselint",
+    "id": "chbatchclosecheck",
+    "summary": "Close a ClickHouse batch after creating it successfully.",
+    "bad": "package sample\n\nimport (\n\t\"context\"\n\t\"github.com/ClickHouse/clickhouse-go/v2/lib/driver\"\n)\n\nfunc Write(ctx context.Context, connection driver.Conn) error {\n\tbatch, err := connection.PrepareBatch(ctx, \"INSERT INTO items\")\n\tif err != nil {\n\t\treturn err\n\t}\n\treturn batch.Send()\n}\n",
+    "good": "package sample\n\nimport (\n\t\"context\"\n\t\"github.com/ClickHouse/clickhouse-go/v2/lib/driver\"\n)\n\nfunc Write(ctx context.Context, connection driver.Conn) error {\n\tbatch, err := connection.PrepareBatch(ctx, \"INSERT INTO items\")\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer batch.Close()\n\treturn batch.Send()\n}\n"
+  },
+  {
+    "tool": "golangci-lint/clickhouselint",
+    "id": "chrowserrcheck",
+    "summary": "Check ClickHouse Rows.Err after iterating the rows.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/ClickHouse/clickhouse-go/v2/lib/driver\"\n)\n\nfunc Read(rows driver.Rows) error {\n\tfor rows.Next() {\n\t}\n\treturn nil\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/ClickHouse/clickhouse-go/v2/lib/driver\"\n)\n\nfunc Read(rows driver.Rows) error {\n\tfor rows.Next() {\n\t}\n\treturn rows.Err()\n}\n"
+  },
+  {
+    "tool": "golangci-lint/promlinter",
+    "id": "Counter",
+    "summary": "End a Prometheus counter name with _total.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Counter() prometheus.Counter {\n\treturn prometheus.NewCounter(prometheus.CounterOpts{Name: \"requests\", Help: \"Request count.\"})\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Counter() prometheus.Counter {\n\treturn prometheus.NewCounter(prometheus.CounterOpts{Name: \"requests_total\", Help: \"Request count.\"})\n}\n"
+  },
+  {
+    "tool": "golangci-lint/promlinter",
+    "id": "Help",
+    "summary": "Provide help text for a Prometheus metric.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Counter() prometheus.Counter {\n\treturn prometheus.NewCounter(prometheus.CounterOpts{Name: \"requests_total\"})\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Counter() prometheus.Counter {\n\treturn prometheus.NewCounter(prometheus.CounterOpts{Name: \"requests_total\", Help: \"Request count.\"})\n}\n"
+  },
+  {
+    "tool": "golangci-lint/promlinter",
+    "id": "MetricTypeInName",
+    "summary": "Omit the metric type from the Prometheus metric name.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Counter() prometheus.Counter {\n\treturn prometheus.NewCounter(prometheus.CounterOpts{Name: \"requests_counter_total\", Help: \"Request count.\"})\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Counter() prometheus.Counter {\n\treturn prometheus.NewCounter(prometheus.CounterOpts{Name: \"requests_total\", Help: \"Request count.\"})\n}\n"
+  },
+  {
+    "tool": "golangci-lint/promlinter",
+    "id": "MetricUnits",
+    "summary": "Use seconds as the unit for a Prometheus duration metric.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Histogram() prometheus.Observer {\n\treturn prometheus.NewHistogram(prometheus.HistogramOpts{Name: \"request_milliseconds\", Help: \"Request duration.\"})\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Histogram() prometheus.Observer {\n\treturn prometheus.NewHistogram(prometheus.HistogramOpts{Name: \"request_seconds\", Help: \"Request duration.\"})\n}\n"
+  },
+  {
+    "tool": "golangci-lint/protogetter",
+    "id": "protogetter",
+    "summary": "Read a protobuf field through its generated getter.",
+    "bad": "package sample\n\nimport (\n\t\"google.golang.org/protobuf/types/descriptorpb\"\n)\n\nfunc Name(field *descriptorpb.FieldDescriptorProto) string { return *field.Name }\n",
+    "good": "package sample\n\nimport (\n\t\"google.golang.org/protobuf/types/descriptorpb\"\n)\n\nfunc Name(field *descriptorpb.FieldDescriptorProto) string { return field.GetName() }\n"
+  },
+  {
+    "tool": "golangci-lint/zerologlint",
+    "id": "zerologlint",
+    "summary": "Dispatch a zerolog event with Msg or Send.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/rs/zerolog\"\n)\n\nfunc Report(logger zerolog.Logger) { logger.Info().Str(\"state\", \"ready\") }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/rs/zerolog\"\n)\n\nfunc Report(logger zerolog.Logger) { logger.Info().Str(\"state\", \"ready\").Msg(\"service ready\") }\n"
+  },
+  {
+    "tool": "golangci-lint/ginkgolinter",
+    "id": "length",
+    "summary": "Use the Gomega HaveLen matcher for a length assertion.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(values []int) { gomega.Expect(len(values)).To(gomega.Equal(2)) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(values []int) { gomega.Expect(values).To(gomega.HaveLen(2)) }\n"
+  },
+  {
+    "tool": "golangci-lint/ginkgolinter",
+    "id": "nil",
+    "summary": "Use the Gomega BeNil matcher for a nil assertion.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(value *int) { gomega.Expect(value == nil).To(gomega.BeTrue()) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(value *int) { gomega.Expect(value).To(gomega.BeNil()) }\n"
+  },
+  {
+    "tool": "golangci-lint/ginkgolinter",
+    "id": "error",
+    "summary": "Use the Gomega Succeed matcher for an error result.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(err error) { gomega.Expect(err).To(gomega.BeNil()) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(err error) { gomega.Expect(err).To(gomega.Succeed()) }\n"
+  },
+  {
+    "tool": "golangci-lint/ginkgolinter",
+    "id": "comparison",
+    "summary": "Use the Gomega BeNumerically matcher for a numeric comparison.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(value int) { gomega.Expect(value > 2).To(gomega.BeTrue()) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(value int) { gomega.Expect(value).To(gomega.BeNumerically(\">\", 2)) }\n"
+  },
+  {
+    "tool": "golangci-lint/ginkgolinter",
+    "id": "async",
+    "summary": "Pass a function to Eventually so Gomega can reevaluate the value.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n\t\"sync/atomic\"\n)\n\nfunc Check(counter *atomic.Int64) { gomega.Eventually(counter.Load()).Should(gomega.Equal(int64(2))) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n\t\"sync/atomic\"\n)\n\nfunc Check(counter *atomic.Int64) { gomega.Eventually(counter.Load).Should(gomega.Equal(int64(2))) }\n"
+  },
+  {
+    "tool": "golangci-lint/ginkgolinter",
+    "id": "type-comparison",
+    "summary": "Compare Gomega Equal values with the same type.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(value int) {\n\tgomega.Expect(value).To(gomega.Equal(uint(2)))\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(value int) {\n\tgomega.Expect(value).To(gomega.Equal(2))\n}\n"
+  },
+  {
+    "tool": "golangci-lint/testableexamples",
+    "id": "testableexamples",
+    "summary": "When test files are included, give an Example function an expected output comment. Save this code in an example_test.go file.",
+    "bad": "package sample\n\nimport (\n\t\"fmt\"\n)\n\nfunc Example() { fmt.Println(\"ready\") }\n",
+    "good": "package sample\n\nimport (\n\t\"fmt\"\n)\n\nfunc Example() {\n\tfmt.Println(\"ready\")\n\t// Output: ready\n}\n"
+  },
+  {
+    "tool": "golangci-lint/testpackage",
+    "id": "testpackage",
+    "summary": "When test files are included, declare an external test package when testing a library. Save this code in sample_test.go.",
+    "bad": "package sample\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\nfunc TestCount(t *testing.T) {\n\tif strings.Count(\"item\", \"i\") != 1 {\n\t\tt.Fatal(\"unexpected count\")\n\t}\n}\n",
+    "good": "package sample_test\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\nfunc TestCount(t *testing.T) {\n\tif strings.Count(\"item\", \"i\") != 1 {\n\t\tt.Fatal(\"unexpected count\")\n\t}\n}\n"
+  },
+  {
+    "tool": "golangci-lint/thelper",
+    "id": "t_first",
+    "summary": "Place *testing.T first in a test helper parameter list.",
+    "bad": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(value int, t *testing.T) {\n\tt.Helper()\n\tif value != 1 {\n\t\tt.Fatal(\"unexpected count\")\n\t}\n}\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(t *testing.T, value int) {\n\tt.Helper()\n\tif value != 1 {\n\t\tt.Fatal(\"unexpected count\")\n\t}\n}\n"
+  },
+  {
+    "tool": "golangci-lint/thelper",
+    "id": "t_name",
+    "summary": "Use t as the test helper parameter name.",
+    "bad": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(testingContext *testing.T, value int) {\n\ttestingContext.Helper()\n\tif value != 1 {\n\t\ttestingContext.Fatal(\"unexpected count\")\n\t}\n}\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(t *testing.T, value int) {\n\tt.Helper()\n\tif value != 1 {\n\t\tt.Fatal(\"unexpected count\")\n\t}\n}\n"
+  },
+  {
+    "tool": "golangci-lint/thelper",
+    "id": "t_begin",
+    "summary": "Call t.Helper at the start of a test helper.",
+    "bad": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(t *testing.T, value int) {\n\tif value != 1 {\n\t\tt.Fatal(\"unexpected count\")\n\t}\n}\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(t *testing.T, value int) {\n\tt.Helper()\n\tif value != 1 {\n\t\tt.Fatal(\"unexpected count\")\n\t}\n}\n"
+  },
+  {
+    "tool": "golangci-lint/tparallel",
+    "id": "tparallel",
+    "summary": "When test files are included, run the parent test in parallel when every subtest runs in parallel. Save this code in sample_test.go.",
+    "bad": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc TestCounts(t *testing.T) {\n\tt.Run(\"one\", func(t *testing.T) {\n\t\tt.Parallel()\n\t\tif 1 != 1 {\n\t\t\tt.Fatal(\"unexpected count\")\n\t\t}\n\t})\n}\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc TestCounts(t *testing.T) {\n\tt.Parallel()\n\tt.Run(\"one\", func(t *testing.T) {\n\t\tt.Parallel()\n\t\tif 1 != 1 {\n\t\t\tt.Fatal(\"unexpected count\")\n\t\t}\n\t})\n}\n"
+  },
+  {
+    "tool": "golangci-lint/usetesting",
+    "id": "os-chdir",
+    "summary": "Use t.Chdir to restore the working directory after a test.",
+    "bad": "package sample\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, directory string) { _ = os.Chdir(directory) }\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, directory string) { t.Chdir(directory) }\n"
+  },
+  {
+    "tool": "golangci-lint/usetesting",
+    "id": "os-mkdir-temp",
+    "summary": "Use t.TempDir for a temporary test directory.",
+    "bad": "package sample\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T) { _, _ = os.MkdirTemp(\"\", \"sample\") }\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc Check(t *testing.T) { _ = t.TempDir() }\n"
+  },
+  {
+    "tool": "golangci-lint/usetesting",
+    "id": "os-setenv",
+    "summary": "Use t.Setenv to restore an environment variable after a test.",
+    "bad": "package sample\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T) { _ = os.Setenv(\"SAMPLE_MODE\", \"test\") }\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc Check(t *testing.T) { t.Setenv(\"SAMPLE_MODE\", \"test\") }\n"
+  },
+  {
+    "tool": "golangci-lint/usetesting",
+    "id": "os-create-temp",
+    "summary": "Create a temporary test file under t.TempDir.",
+    "bad": "package sample\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T) {\n\tfile, err := os.CreateTemp(\"\", \"sample\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdefer file.Close()\n}\n",
+    "good": "package sample\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T) {\n\tfile, err := os.CreateTemp(t.TempDir(), \"sample\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdefer file.Close()\n}\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "bool-compare",
+    "summary": "Use a boolean assertion for a boolean value.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value bool) { assert.Equal(t, true, value) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value bool) { assert.True(t, value) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "compares",
+    "summary": "Use a comparison assertion instead of asserting a comparison expression.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value int) { assert.True(t, value > 2) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value int) { assert.Greater(t, value, 2) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "contains",
+    "summary": "Use the Contains assertion to report the missing substring.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"strings\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value string) { assert.True(t, strings.Contains(value, \"ready\")) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value string) { assert.Contains(t, value, \"ready\") }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "empty",
+    "summary": "Use Empty for an empty collection.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, values []int) { assert.Len(t, values, 0) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, values []int) { assert.Empty(t, values) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "encoded-compare",
+    "summary": "Compare JSON values with JSONEq instead of comparing their text.",
+    "bad": "package sample\n\nimport (\n\t\"testing\"\n\t\"github.com/stretchr/testify/assert\"\n)\n\nfunc Check(t *testing.T, resultJSON string) {\n\tassert.Equal(t, \"{\\\"ready\\\":true}\", resultJSON)\n}\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n\t\"github.com/stretchr/testify/assert\"\n)\n\nfunc Check(t *testing.T, resultJSON string) {\n\tassert.JSONEq(t, \"{\\\"ready\\\":true}\", resultJSON)\n}\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "equal-values",
+    "summary": "Use Equal when both values have the same type.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value int) { assert.EqualValues(t, 2, value) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value int) { assert.Equal(t, 2, value) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "error-is-as",
+    "summary": "Use ErrorIs to assert a wrapped error cause.",
+    "bad": "package sample\n\nimport (\n\t\"errors\"\n\t\"github.com/stretchr/testify/assert\"\n\t\"io\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, err error) { assert.True(t, errors.Is(err, io.EOF)) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"io\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, err error) { assert.ErrorIs(t, err, io.EOF) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "error-nil",
+    "summary": "Use NoError to assert a nil error.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, err error) { assert.Nil(t, err) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, err error) { assert.NoError(t, err) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "expected-actual",
+    "summary": "Pass the expected value before the actual value.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value int) { assert.Equal(t, value, 2) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value int) { assert.Equal(t, 2, value) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "float-compare",
+    "summary": "Compare floating point results with an explicit tolerance.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value float64) { assert.Equal(t, 0.1, value) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value float64) { assert.InDelta(t, 0.1, value, 0.0001) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "formatter",
+    "summary": "Pass formatting arguments directly to the formatted assertion.",
+    "bad": "package sample\n\nimport (\n\t\"fmt\"\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value int) { assert.Equal(t, 2, value, fmt.Sprintf(\"value %d\", value)) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value int) { assert.Equalf(t, 2, value, \"value %d\", value) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "len",
+    "summary": "Use Len for an exact collection length.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, values []int) { assert.Equal(t, 2, len(values)) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, values []int) { assert.Len(t, values, 2) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "negative-positive",
+    "summary": "Use Positive to assert a value greater than zero.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value int) { assert.Greater(t, value, 0) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value int) { assert.Positive(t, value) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "nil-compare",
+    "summary": "Use Nil to assert that a pointer is nil.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value *int) { assert.Equal(t, nil, value) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value *int) { assert.Nil(t, value) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "regexp",
+    "summary": "Pass a pattern directly to the Regexp assertion.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"regexp\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value string) { assert.Regexp(t, regexp.MustCompile(\"^ready$\"), value) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value string) { assert.Regexp(t, \"^ready$\", value) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "useless-assert",
+    "summary": "Compare the actual result with an independent expected value.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value int) { assert.Equal(t, value, value) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, value int) { assert.Equal(t, 2, value) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "blank-import",
+    "summary": "Remove a blank import of a testify package.",
+    "bad": "package sample\n\nimport (\n\t_ \"github.com/stretchr/testify/assert\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T) {\n\tif false {\n\t\tt.Fatal(\"failed\")\n\t}\n}\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc Check(t *testing.T) {\n\tif false {\n\t\tt.Fatal(\"failed\")\n\t}\n}\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "go-require",
+    "summary": "Perform fatal assertions in the test goroutine after receiving worker results.",
+    "bad": "package sample\n\nimport (\n\t\"errors\"\n\t\"github.com/stretchr/testify/require\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T) {\n\tdone := make(chan error, 1)\n\tgo func() { require.NoError(t, errors.New(\"failed\")); done <- nil }()\n\t<-done\n}\n",
+    "good": "package sample\n\nimport (\n\t\"errors\"\n\t\"github.com/stretchr/testify/require\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T) {\n\tdone := make(chan error, 1)\n\tgo func() { done <- errors.New(\"failed\") }()\n\trequire.NoError(t, <-done)\n}\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "require-error",
+    "summary": "Stop the test after an error assertion fails when later code depends on success.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"strconv\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, text string) {\n\tvalue, err := strconv.Atoi(text)\n\tassert.NoError(t, err)\n\tassert.Equal(t, 2, value)\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"github.com/stretchr/testify/require\"\n\t\"strconv\"\n\t\"testing\"\n)\n\nfunc Check(t *testing.T, text string) {\n\tvalue, err := strconv.Atoi(text)\n\trequire.NoError(t, err)\n\tassert.Equal(t, 2, value)\n}\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "suite-broken-parallel",
+    "summary": "Keep testify v1 suite tests sequential.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"github.com/stretchr/testify/suite\"\n)\n\ntype CountSuite struct { suite.Suite }\nfunc (test *CountSuite) TestCount() {\n\ttest.T().Parallel()\n\tassert.Equal(test.T(), 2, 1+1)\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/suite\"\n)\n\ntype CountSuite struct { suite.Suite }\nfunc (test *CountSuite) TestCount() {\n\ttest.Equal(2, 1+1)\n}\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "suite-dont-use-pkg",
+    "summary": "Use the suite assertion method instead of the package function.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"github.com/stretchr/testify/suite\"\n)\n\ntype CountSuite struct{ suite.Suite }\n\nfunc (test *CountSuite) TestCount() { assert.Equal(test.T(), 2, 1+1) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/suite\"\n)\n\ntype CountSuite struct{ suite.Suite }\n\nfunc (test *CountSuite) TestCount() { test.Equal(2, 1+1) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "suite-extra-assert-call",
+    "summary": "Call the suite assertion method directly.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/suite\"\n)\n\ntype CountSuite struct{ suite.Suite }\n\nfunc (test *CountSuite) TestCount() { test.Assert().Equal(2, 1+1) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/suite\"\n)\n\ntype CountSuite struct{ suite.Suite }\n\nfunc (test *CountSuite) TestCount() { test.Equal(2, 1+1) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "suite-method-signature",
+    "summary": "Declare testify suite test methods without parameters.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/suite\"\n)\n\ntype CountSuite struct{ suite.Suite }\n\nfunc (test *CountSuite) TestCount(value int) { test.Equal(2, value) }\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/suite\"\n)\n\ntype CountSuite struct{ suite.Suite }\n\nfunc (test *CountSuite) TestCount() { test.Equal(2, 1+1) }\n"
+  },
+  {
+    "tool": "golangci-lint/testifylint",
+    "id": "suite-subtest-run",
+    "summary": "Run suite subtests through the suite Run method.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/assert\"\n\t\"github.com/stretchr/testify/suite\"\n\t\"testing\"\n)\n\ntype CountSuite struct{ suite.Suite }\n\nfunc (test *CountSuite) TestCount() {\n\ttest.T().Run(\"count\", func(t *testing.T) { assert.Equal(t, 2, 1+1) })\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/stretchr/testify/suite\"\n)\n\ntype CountSuite struct{ suite.Suite }\n\nfunc (test *CountSuite) TestCount() { test.Run(\"count\", func() { test.Equal(2, 1+1) }) }\n"
+  },
+  {
+    "tool": "golangci-lint/maintidx",
+    "id": "maintidx",
+    "summary": "Simplify functions with a maintainability index below 20.",
+    "bad": "package sample\n\nfunc Classify(value int) int {\n\tif value == 0 {\n\t\treturn 0\n\t}\n\tif value == 1 {\n\t\treturn 1\n\t}\n\tif value == 2 {\n\t\treturn 2\n\t}\n\tif value == 3 {\n\t\treturn 3\n\t}\n\tif value == 4 {\n\t\treturn 4\n\t}\n\tif value == 5 {\n\t\treturn 5\n\t}\n\tif value == 6 {\n\t\treturn 6\n\t}\n\tif value == 7 {\n\t\treturn 7\n\t}\n\tif value == 8 {\n\t\treturn 8\n\t}\n\tif value == 9 {\n\t\treturn 9\n\t}\n\tif value == 10 {\n\t\treturn 10\n\t}\n\tif value == 11 {\n\t\treturn 11\n\t}\n\tif value == 12 {\n\t\treturn 12\n\t}\n\tif value == 13 {\n\t\treturn 13\n\t}\n\tif value == 14 {\n\t\treturn 14\n\t}\n\tif value == 15 {\n\t\treturn 15\n\t}\n\tif value == 16 {\n\t\treturn 16\n\t}\n\tif value == 17 {\n\t\treturn 17\n\t}\n\tif value == 18 {\n\t\treturn 18\n\t}\n\tif value == 19 {\n\t\treturn 19\n\t}\n\tif value == 20 {\n\t\treturn 20\n\t}\n\tif value == 21 {\n\t\treturn 21\n\t}\n\tif value == 22 {\n\t\treturn 22\n\t}\n\tif value == 23 {\n\t\treturn 23\n\t}\n\tif value == 24 {\n\t\treturn 24\n\t}\n\tif value == 25 {\n\t\treturn 25\n\t}\n\tif value == 26 {\n\t\treturn 26\n\t}\n\tif value == 27 {\n\t\treturn 27\n\t}\n\tif value == 28 {\n\t\treturn 28\n\t}\n\tif value == 29 {\n\t\treturn 29\n\t}\n\tif value == 30 {\n\t\treturn 30\n\t}\n\tif value == 31 {\n\t\treturn 31\n\t}\n\tif value == 32 {\n\t\treturn 32\n\t}\n\tif value == 33 {\n\t\treturn 33\n\t}\n\tif value == 34 {\n\t\treturn 34\n\t}\n\tif value == 35 {\n\t\treturn 35\n\t}\n\tif value == 36 {\n\t\treturn 36\n\t}\n\tif value == 37 {\n\t\treturn 37\n\t}\n\tif value == 38 {\n\t\treturn 38\n\t}\n\tif value == 39 {\n\t\treturn 39\n\t}\n\tif value == 40 {\n\t\treturn 40\n\t}\n\tif value == 41 {\n\t\treturn 41\n\t}\n\tif value == 42 {\n\t\treturn 42\n\t}\n\tif value == 43 {\n\t\treturn 43\n\t}\n\tif value == 44 {\n\t\treturn 44\n\t}\n\tif value == 45 {\n\t\treturn 45\n\t}\n\tif value == 46 {\n\t\treturn 46\n\t}\n\tif value == 47 {\n\t\treturn 47\n\t}\n\tif value == 48 {\n\t\treturn 48\n\t}\n\tif value == 49 {\n\t\treturn 49\n\t}\n\tif value == 50 {\n\t\treturn 50\n\t}\n\tif value == 51 {\n\t\treturn 51\n\t}\n\tif value == 52 {\n\t\treturn 52\n\t}\n\tif value == 53 {\n\t\treturn 53\n\t}\n\tif value == 54 {\n\t\treturn 54\n\t}\n\tif value == 55 {\n\t\treturn 55\n\t}\n\tif value == 56 {\n\t\treturn 56\n\t}\n\tif value == 57 {\n\t\treturn 57\n\t}\n\tif value == 58 {\n\t\treturn 58\n\t}\n\tif value == 59 {\n\t\treturn 59\n\t}\n\tif value == 60 {\n\t\treturn 60\n\t}\n\tif value == 61 {\n\t\treturn 61\n\t}\n\tif value == 62 {\n\t\treturn 62\n\t}\n\tif value == 63 {\n\t\treturn 63\n\t}\n\tif value == 64 {\n\t\treturn 64\n\t}\n\tif value == 65 {\n\t\treturn 65\n\t}\n\tif value == 66 {\n\t\treturn 66\n\t}\n\tif value == 67 {\n\t\treturn 67\n\t}\n\tif value == 68 {\n\t\treturn 68\n\t}\n\tif value == 69 {\n\t\treturn 69\n\t}\n\tif value == 70 {\n\t\treturn 70\n\t}\n\tif value == 71 {\n\t\treturn 71\n\t}\n\tif value == 72 {\n\t\treturn 72\n\t}\n\tif value == 73 {\n\t\treturn 73\n\t}\n\tif value == 74 {\n\t\treturn 74\n\t}\n\tif value == 75 {\n\t\treturn 75\n\t}\n\tif value == 76 {\n\t\treturn 76\n\t}\n\tif value == 77 {\n\t\treturn 77\n\t}\n\tif value == 78 {\n\t\treturn 78\n\t}\n\tif value == 79 {\n\t\treturn 79\n\t}\n\tif value == 80 {\n\t\treturn 80\n\t}\n\tif value == 81 {\n\t\treturn 81\n\t}\n\tif value == 82 {\n\t\treturn 82\n\t}\n\tif value == 83 {\n\t\treturn 83\n\t}\n\tif value == 84 {\n\t\treturn 84\n\t}\n\tif value == 85 {\n\t\treturn 85\n\t}\n\tif value == 86 {\n\t\treturn 86\n\t}\n\tif value == 87 {\n\t\treturn 87\n\t}\n\tif value == 88 {\n\t\treturn 88\n\t}\n\tif value == 89 {\n\t\treturn 89\n\t}\n\tif value == 90 {\n\t\treturn 90\n\t}\n\tif value == 91 {\n\t\treturn 91\n\t}\n\tif value == 92 {\n\t\treturn 92\n\t}\n\tif value == 93 {\n\t\treturn 93\n\t}\n\tif value == 94 {\n\t\treturn 94\n\t}\n\tif value == 95 {\n\t\treturn 95\n\t}\n\tif value == 96 {\n\t\treturn 96\n\t}\n\tif value == 97 {\n\t\treturn 97\n\t}\n\tif value == 98 {\n\t\treturn 98\n\t}\n\tif value == 99 {\n\t\treturn 99\n\t}\n\treturn -1\n}\n",
+    "good": "package sample\n\nfunc Classify(value int) int {\n\tif value >= 0 && value < 100 {\n\t\treturn value\n\t}\n\treturn -1\n}\n"
+  },
+  {
+    "tool": "golangci-lint/gomoddirectives",
+    "id": "replace-local",
+    "summary": "Remove local replacement directives from a published module. These examples are go.mod files.",
+    "bad": "module goodkind.io/examples\n\ngo 1.27\n\nreplace example.com/library => ../library\n",
+    "good": "module goodkind.io/examples\n\ngo 1.27\n\n"
+  },
+  {
+    "tool": "golangci-lint/gomoddirectives",
+    "id": "replace",
+    "summary": "Declare the intended module dependency instead of replacing a different module. These examples are go.mod files.",
+    "bad": "module goodkind.io/examples\n\ngo 1.27\n\nreplace example.com/library => example.com/fork v1.0.0\n",
+    "good": "module goodkind.io/examples\n\ngo 1.27\n\n"
+  },
+  {
+    "tool": "golangci-lint/gomoddirectives",
+    "id": "retract",
+    "summary": "Explain why a module version has a retract directive. These examples are go.mod files.",
+    "bad": "module goodkind.io/examples\n\ngo 1.27\n\nretract v1.0.0\n",
+    "good": "module goodkind.io/examples\n\ngo 1.27\n\n// Version v1.0.0 corrupts saved records.\nretract v1.0.0\n"
+  },
+  {
+    "tool": "golangci-lint/gomoddirectives",
+    "id": "ignore",
+    "summary": "Remove ignore directives for directories Go already ignores. These examples are go.mod files.",
+    "bad": "module goodkind.io/examples\n\ngo 1.27\n\nignore ./vendor\n",
+    "good": "module goodkind.io/examples\n\ngo 1.27\n\n"
+  },
+  {
+    "tool": "golangci-lint/thelper",
+    "id": "b_first",
+    "summary": "Place *testing.B first in a helper parameter list.",
+    "bad": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(value int, b *testing.B) {\n\tb.Helper()\n\tif value != 1 {\n\t\tb.Fatal(\"unexpected count\")\n\t}\n}\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(b *testing.B, value int) {\n\tb.Helper()\n\tif value != 1 {\n\t\tb.Fatal(\"unexpected count\")\n\t}\n}\n"
+  },
+  {
+    "tool": "golangci-lint/thelper",
+    "id": "b_name",
+    "summary": "Use b as the *testing.B helper parameter name.",
+    "bad": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(helper *testing.B, value int) {\n\thelper.Helper()\n\tif value != 1 {\n\t\thelper.Fatal(\"unexpected count\")\n\t}\n}\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(b *testing.B, value int) {\n\tb.Helper()\n\tif value != 1 {\n\t\tb.Fatal(\"unexpected count\")\n\t}\n}\n"
+  },
+  {
+    "tool": "golangci-lint/thelper",
+    "id": "b_begin",
+    "summary": "Call b.Helper at the start of a helper.",
+    "bad": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(b *testing.B, value int) {\n\tif value != 1 {\n\t\tb.Fatal(\"unexpected count\")\n\t}\n}\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(b *testing.B, value int) {\n\tb.Helper()\n\tif value != 1 {\n\t\tb.Fatal(\"unexpected count\")\n\t}\n}\n"
+  },
+  {
+    "tool": "golangci-lint/thelper",
+    "id": "f_first",
+    "summary": "Place *testing.F first in a helper parameter list.",
+    "bad": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(value int, f *testing.F) {\n\tf.Helper()\n\tif value != 1 {\n\t\tf.Fatal(\"unexpected count\")\n\t}\n}\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(f *testing.F, value int) {\n\tf.Helper()\n\tif value != 1 {\n\t\tf.Fatal(\"unexpected count\")\n\t}\n}\n"
+  },
+  {
+    "tool": "golangci-lint/thelper",
+    "id": "f_name",
+    "summary": "Use f as the *testing.F helper parameter name.",
+    "bad": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(helper *testing.F, value int) {\n\thelper.Helper()\n\tif value != 1 {\n\t\thelper.Fatal(\"unexpected count\")\n\t}\n}\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(f *testing.F, value int) {\n\tf.Helper()\n\tif value != 1 {\n\t\tf.Fatal(\"unexpected count\")\n\t}\n}\n"
+  },
+  {
+    "tool": "golangci-lint/thelper",
+    "id": "f_begin",
+    "summary": "Call f.Helper at the start of a helper.",
+    "bad": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(f *testing.F, value int) {\n\tif value != 1 {\n\t\tf.Fatal(\"unexpected count\")\n\t}\n}\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(f *testing.F, value int) {\n\tf.Helper()\n\tif value != 1 {\n\t\tf.Fatal(\"unexpected count\")\n\t}\n}\n"
+  },
+  {
+    "tool": "golangci-lint/thelper",
+    "id": "tb_first",
+    "summary": "Place testing.TB first in a helper parameter list.",
+    "bad": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(value int, tb testing.TB) {\n\ttb.Helper()\n\tif value != 1 {\n\t\ttb.Fatal(\"unexpected count\")\n\t}\n}\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(tb testing.TB, value int) {\n\ttb.Helper()\n\tif value != 1 {\n\t\ttb.Fatal(\"unexpected count\")\n\t}\n}\n"
+  },
+  {
+    "tool": "golangci-lint/thelper",
+    "id": "tb_name",
+    "summary": "Use tb as the testing.TB helper parameter name.",
+    "bad": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(helper testing.TB, value int) {\n\thelper.Helper()\n\tif value != 1 {\n\t\thelper.Fatal(\"unexpected count\")\n\t}\n}\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(tb testing.TB, value int) {\n\ttb.Helper()\n\tif value != 1 {\n\t\ttb.Fatal(\"unexpected count\")\n\t}\n}\n"
+  },
+  {
+    "tool": "golangci-lint/thelper",
+    "id": "tb_begin",
+    "summary": "Call tb.Helper at the start of a helper.",
+    "bad": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(tb testing.TB, value int) {\n\tif value != 1 {\n\t\ttb.Fatal(\"unexpected count\")\n\t}\n}\n",
+    "good": "package sample\n\nimport (\n\t\"testing\"\n)\n\nfunc AssertCount(tb testing.TB, value int) {\n\ttb.Helper()\n\tif value != 1 {\n\t\ttb.Fatal(\"unexpected count\")\n\t}\n}\n"
+  },
+  {
+    "tool": "golangci-lint/promlinter",
+    "id": "ReservedChars",
+    "summary": "Omit colons from application metric names.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Metric() prometheus.Counter {\n\treturn prometheus.NewCounter(prometheus.CounterOpts{Name: \"service:requests_total\", Help: \"Request count.\"})\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Metric() prometheus.Counter {\n\treturn prometheus.NewCounter(prometheus.CounterOpts{Name: \"service_requests_total\", Help: \"Request count.\"})\n}\n"
+  },
+  {
+    "tool": "golangci-lint/promlinter",
+    "id": "CamelCase",
+    "summary": "Use snake_case for metric names.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Metric() prometheus.Counter {\n\treturn prometheus.NewCounter(prometheus.CounterOpts{Name: \"serviceRequests_total\", Help: \"Request count.\"})\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Metric() prometheus.Counter {\n\treturn prometheus.NewCounter(prometheus.CounterOpts{Name: \"service_requests_total\", Help: \"Request count.\"})\n}\n"
+  },
+  {
+    "tool": "golangci-lint/promlinter",
+    "id": "UnitAbbreviations",
+    "summary": "Spell out the unit in a Prometheus metric name.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Metric() prometheus.Gauge {\n\treturn prometheus.NewGauge(prometheus.GaugeOpts{Name: \"request_ms\", Help: \"Request duration.\"})\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Metric() prometheus.Gauge {\n\treturn prometheus.NewGauge(prometheus.GaugeOpts{Name: \"request_seconds\", Help: \"Request duration.\"})\n}\n"
+  },
+  {
+    "tool": "golangci-lint/promlinter",
+    "id": "HistogramSummaryReserved",
+    "summary": "Use histogram and summary reserved suffixes only for their corresponding metric types.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Metric() prometheus.Gauge {\n\treturn prometheus.NewGauge(prometheus.GaugeOpts{Name: \"request_bucket\", Help: \"Request count.\"})\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/prometheus/client_golang/prometheus\"\n)\n\nfunc Metric() prometheus.Gauge {\n\treturn prometheus.NewGauge(prometheus.GaugeOpts{Name: \"requests_in_progress\", Help: \"Request count.\"})\n}\n"
+  },
+  {
+    "tool": "golangci-lint/perfsprint",
+    "id": "int-conversion",
+    "summary": "Convert a small integer to int before using strconv.Itoa.",
+    "bad": "package sample\n\nimport (\n\t\"fmt\"\n)\n\nfunc Text(value int32) string {\n\treturn fmt.Sprintf(\"%d\", value)\n}\n",
+    "good": "package sample\n\nimport (\n\t\"strconv\"\n)\n\nfunc Text(value int32) string {\n\treturn strconv.Itoa(int(value))\n}\n"
+  },
+  {
+    "tool": "golangci-lint/ginkgolinter",
+    "id": "pointer-comparison",
+    "summary": "Use HaveValue when comparing a pointed-to value with a Gomega matcher.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(value *int) {\n\tgomega.Expect(value).To(gomega.Equal(2))\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(value *int) {\n\tgomega.Expect(value).To(gomega.HaveValue(gomega.Equal(2)))\n}\n"
+  },
+  {
+    "tool": "golangci-lint/ginkgolinter",
+    "id": "missing-assertion",
+    "summary": "Complete a Gomega expectation with an assertion method.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(value int) {\n\tgomega.Expect(value)\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(value int) {\n\tgomega.Expect(value).To(gomega.Equal(2))\n}\n"
+  },
+  {
+    "tool": "golangci-lint/ginkgolinter",
+    "id": "match-error",
+    "summary": "Pass an error value, message, string matcher, or supported predicate to MatchError.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(err error) {\n\tgomega.Expect(err).To(gomega.MatchError(2))\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(err error) {\n\tgomega.Expect(err).To(gomega.MatchError(\"request failed\"))\n}\n"
+  },
+  {
+    "tool": "golangci-lint/ginkgolinter",
+    "id": "succeed",
+    "summary": "Use the Succeed matcher with an error result.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check() {\n\tgomega.Expect(2).To(gomega.Succeed())\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(err error) {\n\tgomega.Expect(err).To(gomega.Succeed())\n}\n"
+  },
+  {
+    "tool": "golangci-lint/ginkgolinter",
+    "id": "capacity",
+    "summary": "Use HaveCap to assert a slice capacity.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(values []int) {\n\tgomega.Expect(cap(values)).To(gomega.Equal(2))\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(values []int) {\n\tgomega.Expect(values).To(gomega.HaveCap(2))\n}\n"
+  },
+  {
+    "tool": "golangci-lint/ginkgolinter",
+    "id": "boolean",
+    "summary": "Use BeTrue to assert a boolean value.",
+    "bad": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(value bool) {\n\tgomega.Expect(value).To(gomega.Equal(true))\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(value bool) {\n\tgomega.Expect(value).To(gomega.BeTrue())\n}\n"
+  },
+  {
+    "tool": "golangci-lint/ginkgolinter",
+    "id": "empty",
+    "summary": "Use BeEmpty instead of HaveLen(0).",
+    "bad": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(values []int) {\n\tgomega.Expect(values).To(gomega.HaveLen(0))\n}\n",
+    "good": "package sample\n\nimport (\n\t\"github.com/onsi/gomega\"\n)\n\nfunc Check(values []int) {\n\tgomega.Expect(values).To(gomega.BeEmpty())\n}\n"
+  }
+]

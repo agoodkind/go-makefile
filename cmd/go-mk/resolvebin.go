@@ -175,6 +175,7 @@ func sourceNewerThanEngine(repoPath string, outputPath string) bool {
 		return true
 	}
 	binaryTime := info.ModTime()
+	catalogRoot := filepath.Join(repoPath, "cmd", "go-mk", "help_examples")
 	roots := []string{
 		filepath.Join(repoPath, "cmd", "go-mk"),
 		filepath.Join(repoPath, "internal"),
@@ -188,7 +189,8 @@ func sourceNewerThanEngine(repoPath string, outputPath string) bool {
 				return walkErr
 			}
 			name := fileInfo.Name()
-			if !strings.HasSuffix(name, ".go") && name != "go.mod" && name != "go.sum" {
+			isCatalog := filepath.Dir(path) == catalogRoot && strings.HasSuffix(name, ".json")
+			if !isCatalog && !strings.HasSuffix(name, ".go") && name != "go.mod" && name != "go.sum" {
 				return nil
 			}
 			if fileInfo.ModTime().After(binaryTime) {
