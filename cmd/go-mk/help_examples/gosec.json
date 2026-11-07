@@ -1,0 +1,422 @@
+[
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G101",
+    "summary": "Read credentials from the environment instead of storing them in source code.",
+    "bad": "package main\n\nimport (\n\"fmt\"\n)\n\nfunc main() {\npassword := \"example_password_never_use_this_in_production_12345\"\nfmt.Println(len(password))\n}",
+    "good": "package main\n\nimport (\n\"fmt\"\n\"os\"\n)\n\nfunc main() {\npassword := os.Getenv(\"EXAMPLE_PASSWORD\")\nif password == \"\" { panic(\"set EXAMPLE_PASSWORD\") }\nfmt.Println(len(password))\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G102",
+    "summary": "Bind a private service to the loopback interface instead of every network interface.",
+    "bad": "package main\n\nimport (\n\"net\"\n)\n\nfunc main() {\nlistener, err := net.Listen(\"tcp\", \":8080\")\nif err != nil { panic(err) }\ndefer listener.Close()\n}",
+    "good": "package main\n\nimport (\n\"net\"\n)\n\nfunc main() {\nlistener, err := net.Listen(\"tcp\", \"127.0.0.1:8080\")\nif err != nil { panic(err) }\ndefer listener.Close()\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G103",
+    "summary": "Use explicit byte decoding instead of converting a pointer with unsafe.",
+    "bad": "package main\n\nimport (\n\"fmt\"\n\"unsafe\"\n)\n\nfunc main() {\nvalue := int64(42)\nfmt.Println(*(*int32)(unsafe.Pointer(&value)))\n}",
+    "good": "package main\n\nimport (\n\"encoding/binary\"\n\"fmt\"\n)\n\nfunc main() {\ndata := make([]byte, 8)\nbinary.LittleEndian.PutUint64(data, 42)\nfmt.Println(binary.LittleEndian.Uint32(data))\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G104",
+    "summary": "Handle the error from a filesystem operation instead of reporting success after a failed operation.",
+    "bad": "package main\nimport \"os\"\nfunc changeDirectory() error {\n\tos.Chdir(\"workspace\")\n\treturn nil\n}",
+    "good": "package main\nimport \"os\"\nfunc changeDirectory() error {\n\treturn os.Chdir(\"workspace\")\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G106",
+    "summary": "Audit the use of ssh.InsecureIgnoreHostKey function",
+    "bad": "package main\n\nimport (\n\"golang.org/x/crypto/ssh\"\n)\n\nfunc main() {\nconfiguration := &ssh.ClientConfig{HostKeyCallback: ssh.InsecureIgnoreHostKey()}\n_ = configuration\n}",
+    "good": "package main\n\nimport (\n\"golang.org/x/crypto/ssh\"\n\"golang.org/x/crypto/ssh/knownhosts\"\n)\n\nfunc main() {\ncallback, err := knownhosts.New(\"known_hosts\")\nif err != nil { panic(err) }\nconfiguration := &ssh.ClientConfig{HostKeyCallback: callback}\n_ = configuration\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G107",
+    "summary": "Restrict HTTP fetches to approved destinations instead of accepting an arbitrary URL.",
+    "bad": "package main\nimport \"net/http\"\nfunc fetch(destination string) (*http.Response, error) {\n\treturn http.Get(destination)\n}",
+    "good": "package main\nimport (\n\t\"errors\"\n\t\"net/http\"\n)\nfunc fetch(destination string) (*http.Response, error) {\n\tclient := &http.Client{\n\t\tCheckRedirect: func(request *http.Request, previous []*http.Request) error {\n\t\t\treturn http.ErrUseLastResponse\n\t\t},\n\t}\n\tswitch destination {\n\tcase \"https://api.example.com/status\":\n\t\treturn client.Get(\"https://api.example.com/status\")\n\tcase \"https://api.example.com/health\":\n\t\treturn client.Get(\"https://api.example.com/health\")\n\tdefault:\n\t\treturn nil, errors.New(\"destination is not approved\")\n\t}\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G108",
+    "summary": "Register profiling handlers on a separate loopback server instead of exposing the default profiling routes on the public server.",
+    "bad": "package main\nimport (\n\t\"net/http\"\n\t_ \"net/http/pprof\"\n)\nfunc servers() (*http.Server, *http.Server) {\n\treturn &http.Server{Addr: \":8080\"}, nil\n}",
+    "good": "package main\nimport (\n\t\"net/http\"\n\t\"net/http/pprof\"\n)\nfunc servers() (*http.Server, *http.Server) {\n\tpublicMux := http.NewServeMux()\n\tpublicMux.HandleFunc(\"/\", func(writer http.ResponseWriter, request *http.Request) {\n\t\twriter.WriteHeader(http.StatusOK)\n\t})\n\tprofileMux := http.NewServeMux()\n\tprofileMux.HandleFunc(\"/debug/pprof/\", pprof.Index)\n\treturn &http.Server{Addr: \":8080\", Handler: publicMux},\n\t\t&http.Server{Addr: \"127.0.0.1:6060\", Handler: profileMux}\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G109",
+    "summary": "Parse the requested signed integer width before converting the result to int32.",
+    "bad": "package main\nimport \"strconv\"\nfunc parse(value string) (int32, error) {\n\tnumber, err := strconv.Atoi(value)\n\tif err != nil { return 0, err }\n\treturn int32(number), nil\n}",
+    "good": "package main\nimport \"strconv\"\nfunc parse(value string) (int32, error) {\n\tnumber, err := strconv.ParseInt(value, 10, 32)\n\tif err != nil { return 0, err }\n\treturn int32(number), nil\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G110",
+    "summary": "Bound the decompressed byte count when copying an archive entry to its output.",
+    "bad": "package main\nimport (\n\t\"archive/zip\"\n\t\"io\"\n)\nfunc extract(entry *zip.File, output io.Writer) error {\n\treader, err := entry.Open()\n\tif err != nil { return err }\n\tdefer reader.Close()\n\t_, err = io.Copy(output, reader)\n\treturn err\n}",
+    "good": "package main\nimport (\n\t\"archive/zip\"\n\t\"errors\"\n\t\"io\"\n)\nfunc extract(entry *zip.File, output io.Writer) error {\n\treader, err := entry.Open()\n\tif err != nil { return err }\n\tdefer reader.Close()\n\tconst limit = 10 << 20\n\twritten, err := io.CopyN(output, reader, limit+1)\n\tif err != nil && !errors.Is(err, io.EOF) { return err }\n\tif written > limit { return errors.New(\"archive entry exceeds the size limit\") }\n\treturn nil\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G111",
+    "summary": "Serve a designated public directory instead of the filesystem root.",
+    "bad": "package main\n\nimport (\n\"net/http\"\n)\n\nfunc main() {\nhandler := http.FileServer(http.Dir(\"/\"))\n_ = handler\n}",
+    "good": "package main\n\nimport (\n\"net/http\"\n)\n\nfunc main() {\nhandler := http.FileServer(http.Dir(\"./public\"))\n_ = handler\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G112",
+    "summary": "Set ReadHeaderTimeout on the HTTP server to bound the time allowed to read request headers.",
+    "bad": "package main\n\nimport (\n\t\"fmt\"\n\t\"net/http\"\n)\n\nfunc main() {\n\thttp.HandleFunc(\"/\", func(w http.ResponseWriter, r *http.Request) {\n\t\tfmt.Fprintf(w, \"Hello, %s!\", r.URL.Path[1:])\n\t})\n\terr := (&http.Server{\n\t\tAddr: \":1234\",\n\t}).ListenAndServe()\n\tif err != nil {\n\t\tpanic(err)\n\t}\n}",
+    "good": "package main\n\nimport (\n\t\"fmt\"\n\t\"time\"\n\t\"net/http\"\n)\n\nfunc main() {\n\thttp.HandleFunc(\"/\", func(w http.ResponseWriter, r *http.Request) {\n\t\tfmt.Fprintf(w, \"Hello, %s!\", r.URL.Path[1:])\n\t})\n\tserver := &http.Server{\n\t\tAddr:              \":1234\",\n\t\tReadHeaderTimeout: 5 * time.Second,\n\t}\n\terr := server.ListenAndServe()\n\tif err != nil {\n\t\tpanic(err)\n\t}\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G113",
+    "summary": "Let the HTTP server frame the response instead of setting conflicting transfer-length headers.",
+    "bad": "package main\n\nimport (\n\t\"net/http\"\n)\n\nfunc handler(w http.ResponseWriter, r *http.Request) {\n\tw.Header().Set(\"Transfer-Encoding\", \"chunked\")\n\tw.Header().Set(\"Content-Length\", \"100\")\n\tw.Write([]byte(\"response body\"))\n}",
+    "good": "package main\n\nimport (\n\t\"net/http\"\n)\n\nfunc safeHandler(w http.ResponseWriter, r *http.Request) {\n\tw.Header().Set(\"Transfer-Encoding\", \"chunked\")\n\tw.Write([]byte(\"response body\"))\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G114",
+    "summary": "Configure an http.Server with timeouts instead of calling a package-level serving function.",
+    "bad": "package main\n\nimport (\n\"net/http\"\n)\n\nfunc main() {\nif err := http.ListenAndServe(\"127.0.0.1:8080\", http.NewServeMux()); err != nil { panic(err) }\n}",
+    "good": "package main\n\nimport (\n\"net/http\"\n\"time\"\n)\n\nfunc main() {\nserver := &http.Server{Addr: \"127.0.0.1:8080\", Handler: http.NewServeMux(), ReadHeaderTimeout: 5 * time.Second}\nif err := server.ListenAndServe(); err != nil { panic(err) }\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G115",
+    "summary": "Reject values outside the target integer range before converting them.",
+    "bad": "package main\n\nimport (\n        \"fmt\"\n        \"math\"\n        \"math/rand\"\n)\n\nfunc main() {\n        a := rand.Int63()\n        if a < math.MinInt32 && a > math.MaxInt32 {\n            panic(\"out of range\")\n        }\n        b := int32(a)\n        fmt.Printf(\"%d\\n\", b)\n}",
+    "good": "package main\n\nimport (\n        \"fmt\"\n        \"math\"\n        \"math/rand\"\n)\n\nfunc main() {\n        a := rand.Int63()\n        if a < math.MinInt32 || a > math.MaxInt32 {\n            panic(\"out of range\")\n        }\n        b := int32(a)\n        fmt.Printf(\"%d\\n\", b)\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G116",
+    "summary": "Write bidirectional Unicode controls as explicit escapes instead of invisible source characters.",
+    "bad": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\t// Contains RLI (Right-to-Left Isolate) U+2067\n\tmessage := \"Normal text ⁧hidden⁩\"\n\tfmt.Println(message)\n}",
+    "good": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\t// Use explicit Unicode escapes.\n\tmessage := \"Normal text \\u2067hidden\\u2069\"\n\tfmt.Println(message)\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G117",
+    "summary": "Exclude a password field from JSON serialization with a field tag.",
+    "bad": "package main\nimport \"encoding/json\"\ntype Config struct {\n\tPassword string\n}\nfunc encode(config Config) ([]byte, error) {\n\treturn json.Marshal(config)\n}",
+    "good": "package main\nimport \"encoding/json\"\ntype Config struct {\n\tPassword string `json:\"-\"`\n}\nfunc encode(config Config) ([]byte, error) {\n\treturn json.Marshal(config)\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G118",
+    "summary": "Call the cancellation function returned by context.WithCancel.",
+    "bad": "package main\n\nimport \"context\"\n\nfunc storeCancel(ctx context.Context) {\n\t_, cancel := context.WithCancel(ctx)\n\t_ = cancel\n}",
+    "good": "package main\n\nimport \"context\"\n\nfunc withContext(ctx context.Context) {\n\t_, cancel := context.WithCancel(ctx)\n\tdefer cancel()\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G119",
+    "summary": "Use Go's default redirect policy instead of copying authentication cookies to every redirect target.",
+    "bad": "package main\nimport \"net/http\"\nfunc client() *http.Client {\n\treturn &http.Client{\n\t\tCheckRedirect: func(request *http.Request, previous []*http.Request) error {\n\t\t\trequest.Header.Set(\"Cookie\", previous[0].Header.Get(\"Cookie\"))\n\t\t\treturn nil\n\t\t},\n\t}\n}",
+    "good": "package main\nimport \"net/http\"\nfunc client() *http.Client {\n\treturn &http.Client{}\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G120",
+    "summary": "Limit the total request body before reading a multipart form; the form's memory limit does not bound the upload size.",
+    "bad": "package main\nimport \"net/http\"\nfunc handler(writer http.ResponseWriter, request *http.Request) {\n\tif err := request.ParseMultipartForm(1 << 20); err != nil {\n\t\thttp.Error(writer, \"invalid multipart form\", http.StatusBadRequest)\n\t\treturn\n\t}\n\tdefer request.MultipartForm.RemoveAll()\n\twriter.WriteHeader(http.StatusNoContent)\n}",
+    "good": "package main\nimport \"net/http\"\nfunc handler(writer http.ResponseWriter, request *http.Request) {\n\trequest.Body = http.MaxBytesReader(writer, request.Body, 8 * 1024 * 1024)\n\treader, err := request.MultipartReader()\n\tif err != nil {\n\t\thttp.Error(writer, \"invalid multipart form\", http.StatusBadRequest)\n\t\treturn\n\t}\n\tform, err := reader.ReadForm(1024 * 1024)\n\tif err != nil {\n\t\thttp.Error(writer, \"invalid multipart form\", http.StatusBadRequest)\n\t\treturn\n\t}\n\tdefer form.RemoveAll()\n\twriter.WriteHeader(http.StatusNoContent)\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G121",
+    "summary": "Limit cross-origin protection bypasses to the specific endpoint that requires one.",
+    "bad": "package main\n\nimport \"net/http\"\n\nfunc setup() {\n\tvar cop http.CrossOriginProtection\n\tcop.AddInsecureBypassPattern(\"/\")\n}",
+    "good": "package main\n\nimport \"net/http\"\n\nfunc setup() {\n\tvar cop http.CrossOriginProtection\n\tcop.AddInsecureBypassPattern(\"/healthz\")\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G122",
+    "summary": "Delete files relative to an os.Root instead of reopening pathname strings that another process can replace during a directory walk.",
+    "bad": "package main\nimport (\n\t\"io/fs\"\n\t\"os\"\n\t\"path/filepath\"\n)\nfunc removeFiles() error {\n\treturn filepath.WalkDir(\"cache\", func(path string, entry fs.DirEntry, err error) error {\n\t\tif err != nil { return err }\n\t\tif entry.IsDir() { return nil }\n\t\treturn os.Remove(path)\n\t})\n}",
+    "good": "package main\nimport (\n\t\"io/fs\"\n\t\"os\"\n)\nfunc removeFiles() error {\n\troot, err := os.OpenRoot(\"cache\")\n\tif err != nil { return err }\n\tdefer root.Close()\n\treturn fs.WalkDir(root.FS(), \".\", func(path string, entry fs.DirEntry, err error) error {\n\t\tif err != nil { return err }\n\t\tif entry.IsDir() { return nil }\n\t\treturn root.Remove(path)\n\t})\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G123",
+    "summary": "Disable session tickets when custom certificate verification uses VerifyPeerCertificate and must run for every connection.",
+    "bad": "package main\nimport (\n\t\"crypto/tls\"\n\t\"crypto/x509\"\n)\nfunc client(verify func([][]byte, [][]*x509.Certificate) error) *tls.Config {\n\treturn &tls.Config{VerifyPeerCertificate: verify}\n}",
+    "good": "package main\nimport (\n\t\"crypto/tls\"\n\t\"crypto/x509\"\n)\nfunc client(verify func([][]byte, [][]*x509.Certificate) error) *tls.Config {\n\treturn &tls.Config{\n\t\tVerifyPeerCertificate: verify,\n\t\tSessionTicketsDisabled: true,\n\t}\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G124",
+    "summary": "Set Secure, HttpOnly, and SameSite attributes on an authentication cookie.",
+    "bad": "package main\n\nimport \"net/http\"\n\nfunc handler(w http.ResponseWriter, r *http.Request) {\n\tcookie := &http.Cookie{\n\t\tName:     \"session\",\n\t\tValue:    \"abc123\",\n\t\tSecure:   false,\n\t\tHttpOnly: true,\n\t\tSameSite: http.SameSiteStrictMode,\n\t}\n\thttp.SetCookie(w, cookie)\n}",
+    "good": "package main\n\nimport \"net/http\"\n\nfunc handler(w http.ResponseWriter, r *http.Request) {\n\tcookie := &http.Cookie{\n\t\tName:     \"session\",\n\t\tValue:    \"abc123\",\n\t\tSecure:   true,\n\t\tHttpOnly: true,\n\t\tSameSite: http.SameSiteStrictMode,\n\t}\n\thttp.SetCookie(w, cookie)\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G201",
+    "summary": "Use SQL placeholders for a request value instead of formatting it into a query.",
+    "bad": "package main\nimport (\n\t\"database/sql\"\n\t\"fmt\"\n\t\"net/http\"\n)\nfunc lookup(database *sql.DB, request *http.Request) (*sql.Rows, error) {\n\tname := request.FormValue(\"name\")\n\tquery := fmt.Sprintf(\"SELECT * FROM users WHERE name = '%s'\", name)\n\trows, err := database.Query(query)\n\treturn rows, err\n}",
+    "good": "package main\nimport (\n\t\"database/sql\"\n\t\"net/http\"\n)\nfunc lookup(database *sql.DB, request *http.Request) (*sql.Rows, error) {\n\tname := request.FormValue(\"name\")\n\trows, err := database.Query(\"SELECT * FROM users WHERE name = ?\", name)\n\treturn rows, err\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G202",
+    "summary": "Pass a request value as a SQL argument instead of concatenating it into the query.",
+    "bad": "package main\nimport (\n\t\"database/sql\"\n\t\"net/http\"\n)\nfunc lookup(database *sql.DB, request *http.Request) (*sql.Rows, error) {\n\tname := request.FormValue(\"name\")\n\tquery := \"SELECT * FROM users WHERE name = '\" + name + \"'\"\n\trows, err := database.Query(query)\n\treturn rows, err\n}",
+    "good": "package main\nimport (\n\t\"database/sql\"\n\t\"net/http\"\n)\nfunc lookup(database *sql.DB, request *http.Request) (*sql.Rows, error) {\n\tname := request.FormValue(\"name\")\n\trows, err := database.Query(\"SELECT * FROM users WHERE name = ?\", name)\n\treturn rows, err\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G203",
+    "summary": "Let html/template escape page content instead of marking an untrusted string as trusted HTML.",
+    "bad": "package main\nimport (\n\t\"html/template\"\n\t\"io\"\n)\nfunc render(writer io.Writer, body string) error {\n\tpage := template.Must(template.New(\"page\").Parse(\"<main>{{.Body}}</main>\"))\n\treturn page.Execute(writer, struct{ Body template.HTML }{Body: template.HTML(body)})\n}",
+    "good": "package main\nimport (\n\t\"html/template\"\n\t\"io\"\n)\nfunc render(writer io.Writer, body string) error {\n\tpage := template.Must(template.New(\"page\").Parse(\"<main>{{.Body}}</main>\"))\n\treturn page.Execute(writer, struct{ Body string }{Body: body})\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G204",
+    "summary": "Use a fixed executable instead of constructing its name from an environment variable.",
+    "bad": "// Initializing a local variable using a environmental\n// variable is consider as a dangerous user input\npackage main\n\nimport (\n\t\"log\"\n\t\"os\"\n\t\"os/exec\"\n)\n\nfunc main() {\n\trun := \"sleep\" + os.Getenv(\"SOMETHING\")\n\tcmd := exec.Command(run, \"5\")\n\terr := cmd.Start()\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tlog.Printf(\"Waiting for command to finish...\")\n\terr = cmd.Wait()\n\tlog.Printf(\"Command finished with error: %v\", err)\n}",
+    "good": "// starting a process with a variable as an argument\n// even if not constant is not considered as dangerous\n// because it has hardcoded value\npackage main\n\nimport (\n\t\"log\"\n\t\"os/exec\"\n)\n\nfunc main() {\n\trun := \"sleep\"\n\tcmd := exec.Command(run, \"5\")\n\terr := cmd.Start()\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tlog.Printf(\"Waiting for command to finish...\")\n\terr = cmd.Wait()\n\tlog.Printf(\"Command finished with error: %v\", err)\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G301",
+    "summary": "Create a private directory with mode 0700 instead of granting access to every user.",
+    "bad": "package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n)\n\nfunc main() {\n\terr := os.Mkdir(\"/tmp/mydir\", 0777)\n\tif err != nil {\n\t\tfmt.Println(\"Error when creating a directory!\")\n\t\treturn\n\t}\n}",
+    "good": "package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n)\n\nfunc main() {\n\terr := os.Mkdir(\"/tmp/mydir\", 0700)\n\tif err != nil {\n\t\tfmt.Println(\"Error when creating a directory!\")\n\t\treturn\n\t}\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G302",
+    "summary": "Create a private file with mode 0600 instead of granting access to every user.",
+    "bad": "package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n)\n\nfunc main() {\n\t_, err := os.OpenFile(\"/tmp/thing\", os.O_CREATE|os.O_WRONLY, 0666)\n\tif err != nil {\n\t\tfmt.Println(\"Error opening a file!\")\n\t\treturn\n\t}\n}",
+    "good": "package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n)\n\nfunc main() {\n\t_, err := os.OpenFile(\"/tmp/thing\", os.O_CREATE|os.O_WRONLY, 0600)\n\tif err != nil {\n\t\tfmt.Println(\"Error opening a file!\")\n\t\treturn\n\t}\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G303",
+    "summary": "Use os.CreateTemp to create a temporary file with an unpredictable name.",
+    "bad": "package main\n\nimport (\n\"os\"\n)\n\nfunc main() {\nfile, err := os.Create(\"/tmp/example-output\")\nif err != nil { panic(err) }\ndefer file.Close()\n}",
+    "good": "package main\n\nimport (\n\"os\"\n)\n\nfunc main() {\nfile, err := os.CreateTemp(\"\", \"example-output-\")\nif err != nil { panic(err) }\ndefer file.Close()\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G304",
+    "summary": "Open a user-selected file relative to a confined os.Root instead of accepting an unrestricted path.",
+    "bad": "package main\nimport \"os\"\nfunc load(name string) ([]byte, error) {\n\treturn os.ReadFile(name)\n}",
+    "good": "package main\nimport (\n\t\"io\"\n\t\"os\"\n)\nfunc load(name string) ([]byte, error) {\n\troot, err := os.OpenRoot(\"documents\")\n\tif err != nil { return nil, err }\n\tdefer root.Close()\n\tfile, err := root.Open(name)\n\tif err != nil { return nil, err }\n\tdefer file.Close()\n\treturn io.ReadAll(file)\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G305",
+    "summary": "Create archive output files relative to an os.Root to prevent paths from escaping the destination; this example isolates destination-path creation.",
+    "bad": "package main\n\nimport (\n\"archive/zip\"\n\"os\"\n\"path/filepath\"\n)\n\nfunc main() {\narchive, err := zip.OpenReader(\"input.zip\")\nif err != nil { panic(err) }\ndefer archive.Close()\nfor _, entry := range archive.File {\n    path := filepath.Join(\"output\", entry.Name)\n    file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)\n    if err != nil { panic(err) }\n    file.Close()\n}\n}",
+    "good": "package main\n\nimport (\n\"archive/zip\"\n\"os\"\n)\n\nfunc main() {\narchive, err := zip.OpenReader(\"input.zip\")\nif err != nil { panic(err) }\ndefer archive.Close()\nroot, err := os.OpenRoot(\"output\")\nif err != nil { panic(err) }\ndefer root.Close()\nfor _, entry := range archive.File {\n    file, err := root.OpenFile(entry.Name, os.O_CREATE|os.O_WRONLY, 0o600)\n    if err != nil { panic(err) }\n    file.Close()\n}\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G306",
+    "summary": "Write a private file with mode 0600 instead of granting access to every user.",
+    "bad": "package main\n\nimport (\n\"os\"\n)\n\nfunc main() {\nif err := os.WriteFile(\"output.txt\", []byte(\"example\"), 0o666); err != nil { panic(err) }\n}",
+    "good": "package main\n\nimport (\n\"os\"\n)\n\nfunc main() {\nif err := os.WriteFile(\"output.txt\", []byte(\"example\"), 0o600); err != nil { panic(err) }\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G307",
+    "summary": "When G307 configures a private permission mode, use os.OpenFile with mode 0600 instead of os.Create's default mode; the shared default does not restrict G307.",
+    "bad": "package main\nimport \"os\"\nfunc createOutput() (*os.File, error) {\n\treturn os.Create(\"output.txt\")\n}",
+    "good": "package main\nimport \"os\"\nfunc createOutput() (*os.File, error) {\n\treturn os.OpenFile(\"output.txt\", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G401",
+    "summary": "Use SHA-256 instead of MD5 for a cryptographic digest.",
+    "bad": "package main\n\nimport (\n\"crypto/md5\"\n\"fmt\"\n)\n\nfunc main() {\ndigest := md5.Sum([]byte(\"example\"))\nfmt.Printf(\"%x\", digest)\n}",
+    "good": "package main\n\nimport (\n\"crypto/sha256\"\n\"fmt\"\n)\n\nfunc main() {\ndigest := sha256.Sum256([]byte(\"example\"))\nfmt.Printf(\"%x\", digest)\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G402",
+    "summary": "Require a supported TLS version when configuring a client connection.",
+    "bad": "package main\nimport \"crypto/tls\"\nfunc clientConfig() *tls.Config {\n\treturn &tls.Config{MinVersion: tls.VersionTLS10}\n}",
+    "good": "package main\nimport \"crypto/tls\"\nfunc clientConfig() *tls.Config {\n\treturn &tls.Config{MinVersion: tls.VersionTLS13}\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G403",
+    "summary": "Generate an RSA key with at least 2048 bits.",
+    "bad": "package main\n\nimport (\n\"crypto/rand\"\n\"crypto/rsa\"\n)\n\nfunc main() {\nkey, err := rsa.GenerateKey(rand.Reader, 1024)\nif err != nil { panic(err) }\n_ = key\n}",
+    "good": "package main\n\nimport (\n\"crypto/rand\"\n\"crypto/rsa\"\n)\n\nfunc main() {\nkey, err := rsa.GenerateKey(rand.Reader, 3072)\nif err != nil { panic(err) }\n_ = key\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G404",
+    "summary": "Use crypto/rand instead of math/rand for a security-sensitive random value.",
+    "bad": "package main\nimport (\n\t\"fmt\"\n\t\"math/rand\"\n)\nfunc main() {\n\tnumber := rand.Intn(1000)\n\tfmt.Println(number)\n}",
+    "good": "package main\nimport (\n\t\"crypto/rand\"\n\t\"fmt\"\n\t\"math/big\"\n)\nfunc main() {\n\tnumber, err := rand.Int(rand.Reader, big.NewInt(1000))\n\tif err != nil { panic(err) }\n\tfmt.Println(number)\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G405",
+    "summary": "Use AES instead of DES or RC4 for encryption.",
+    "bad": "package main\n\nimport (\n\"crypto/des\"\n)\n\nfunc main() {\ncipher, err := des.NewCipher(make([]byte, 8))\nif err != nil { panic(err) }\n_ = cipher\n}",
+    "good": "package main\n\nimport (\n\"crypto/aes\"\n\"crypto/rand\"\n)\n\nfunc main() {\nkey := make([]byte, 32)\nif _, err := rand.Read(key); err != nil { panic(err) }\ncipher, err := aes.NewCipher(key)\nif err != nil { panic(err) }\n_ = cipher\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G406",
+    "summary": "Use SHA-256 instead of MD4 or RIPEMD-160 for a cryptographic digest.",
+    "bad": "package main\n\nimport (\n\"golang.org/x/crypto/md4\"\n)\n\nfunc main() {\ndigest := md4.New()\n_, _ = digest.Write([]byte(\"example\"))\n}",
+    "good": "package main\n\nimport (\n\"crypto/sha256\"\n)\n\nfunc main() {\ndigest := sha256.New()\n_, _ = digest.Write([]byte(\"example\"))\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G407",
+    "summary": "Fill the entire encryption nonce with fresh cryptographic random bytes instead of leaving part of it unchanged.",
+    "bad": "package main\nimport (\n\t\"crypto/aes\"\n\t\"crypto/cipher\"\n\t\"crypto/rand\"\n)\nfunc encrypt(key, plaintext []byte) ([]byte, error) {\n\tblock, err := aes.NewCipher(key)\n\tif err != nil { return nil, err }\n\taead, err := cipher.NewGCM(block)\n\tif err != nil { return nil, err }\n\tnonce := make([]byte, 12)\n\tif _, err := rand.Read(nonce[:6]); err != nil { return nil, err }\n\treturn aead.Seal(nonce, nonce, plaintext, nil), nil\n}",
+    "good": "package main\nimport (\n\t\"crypto/aes\"\n\t\"crypto/cipher\"\n\t\"crypto/rand\"\n)\nfunc encrypt(key, plaintext []byte) ([]byte, error) {\n\tblock, err := aes.NewCipher(key)\n\tif err != nil { return nil, err }\n\taead, err := cipher.NewGCM(block)\n\tif err != nil { return nil, err }\n\tnonce := make([]byte, 12)\n\tif _, err := rand.Read(nonce); err != nil { return nil, err }\n\treturn aead.Seal(nonce, nonce, plaintext, nil), nil\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G408",
+    "summary": "Keep SSH public-key authentication state in the returned connection permissions and reject unauthorized keys with an error.",
+    "bad": "package main\nimport (\n\t\"errors\"\n\t\"golang.org/x/crypto/ssh\"\n)\nvar presentedKey ssh.PublicKey\nfunc server(authorized map[string]bool) *ssh.ServerConfig {\n\tconfig := &ssh.ServerConfig{}\n\tconfig.PublicKeyCallback = func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {\n\t\tpresentedKey = key\n\t\tif !authorized[string(key.Marshal())] {\n\t\t\treturn nil, errors.New(\"unauthorized public key\")\n\t\t}\n\t\treturn &ssh.Permissions{}, nil\n\t}\n\treturn config\n}",
+    "good": "package main\nimport (\n\t\"errors\"\n\t\"golang.org/x/crypto/ssh\"\n)\nfunc server(authorized map[string]bool) *ssh.ServerConfig {\n\tconfig := &ssh.ServerConfig{}\n\tconfig.PublicKeyCallback = func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {\n\t\tif !authorized[string(key.Marshal())] {\n\t\t\treturn nil, errors.New(\"unauthorized public key\")\n\t\t}\n\t\treturn &ssh.Permissions{\n\t\t\tExtensions: map[string]string{\"public-key\": ssh.FingerprintSHA256(key)},\n\t\t}, nil\n\t}\n\treturn config\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G501",
+    "summary": "Import crypto/sha256 instead of the blocked crypto/md5 package.",
+    "bad": "package main\n\nimport (\n\"crypto/md5\"\n)\n\nfunc main() {\n_ = md5.New()\n}",
+    "good": "package main\n\nimport (\n\"crypto/sha256\"\n)\n\nfunc main() {\n_ = sha256.New()\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G502",
+    "summary": "Import crypto/aes instead of the blocked crypto/des package.",
+    "bad": "package main\nimport (\n\t\"crypto/cipher\"\n\t\"crypto/des\"\n)\nfunc newCipher(key []byte) (cipher.Block, error) {\n\treturn des.NewCipher(key)\n}",
+    "good": "package main\nimport (\n\t\"crypto/aes\"\n\t\"crypto/cipher\"\n)\nfunc newCipher(key []byte) (cipher.Block, error) {\n\treturn aes.NewCipher(key)\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G503",
+    "summary": "Import crypto/aes instead of the blocked crypto/rc4 package.",
+    "bad": "package main\nimport \"crypto/rc4\"\nfunc newCipher(key []byte) (*rc4.Cipher, error) {\n\treturn rc4.NewCipher(key)\n}",
+    "good": "package main\nimport (\n\t\"crypto/aes\"\n\t\"crypto/cipher\"\n)\nfunc newCipher(key []byte) (cipher.Block, error) {\n\treturn aes.NewCipher(key)\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G504",
+    "summary": "Serve dynamic content with a native HTTP handler instead of launching a CGI program.",
+    "bad": "package main\nimport (\n\t\"net/http\"\n\t\"net/http/cgi\"\n)\nfunc pageHandler() http.Handler {\n\treturn &cgi.Handler{Path: \"./render-page\"}\n}",
+    "good": "package main\nimport (\n\t\"html/template\"\n\t\"net/http\"\n)\nfunc pageHandler() http.Handler {\n\tpage := template.Must(template.New(\"page\").Parse(\"<h1>Hello {{.}}</h1>\"))\n\treturn http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {\n\t\tif err := page.Execute(writer, request.URL.Query().Get(\"name\")); err != nil {\n\t\t\thttp.Error(writer, \"page rendering failed\", http.StatusInternalServerError)\n\t\t}\n\t})\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G505",
+    "summary": "Import crypto/sha256 instead of the blocked crypto/sha1 package.",
+    "bad": "package main\n\nimport (\n\"crypto/sha1\"\n)\n\nfunc main() {\n_ = sha1.New()\n}",
+    "good": "package main\n\nimport (\n\"crypto/sha256\"\n)\n\nfunc main() {\n_ = sha256.New()\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G506",
+    "summary": "Import crypto/sha256 instead of the blocked golang.org/x/crypto/md4 package.",
+    "bad": "package main\n\nimport (\n\"golang.org/x/crypto/md4\"\n)\n\nfunc main() {\n_ = md4.New()\n}",
+    "good": "package main\n\nimport (\n\"crypto/sha256\"\n)\n\nfunc main() {\n_ = sha256.New()\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G507",
+    "summary": "Import crypto/sha256 instead of the blocked golang.org/x/crypto/ripemd160 package.",
+    "bad": "package main\n\nimport (\n\"golang.org/x/crypto/ripemd160\"\n)\n\nfunc main() {\n_ = ripemd160.New()\n}",
+    "good": "package main\n\nimport (\n\"crypto/sha256\"\n)\n\nfunc main() {\n_ = sha256.New()\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G601",
+    "summary": "For Go versions before 1.22, avoid taking the address of the reused range value; Go 1.22 and later give each iteration its own value.",
+    "bad": "package main\n\nimport (\n\t\"fmt\"\n)\n\ntype subStruct struct {\n\tname string\n}\n\ntype sampleStruct struct {\n\tsub subStruct\n}\n\nfunc main() {\n\tsamples := []sampleStruct{\n\t\t{sub: subStruct{name: \"a\"}},\n\t\t{sub: subStruct{name: \"b\"}},\n\t}\n\tfor _, sample := range samples {\n\t\tfmt.Println(&sample.sub.name)\n\t}\n}",
+    "good": "package main\n\nimport (\n\t\"fmt\"\n)\n\ntype subStruct struct {\n\tname string\n}\n\ntype sampleStruct struct {\n\tsub subStruct\n}\n\nfunc main() {\n\tsamples := []*sampleStruct{\n\t\t{sub: subStruct{name: \"a\"}},\n\t\t{sub: subStruct{name: \"b\"}},\n\t}\n\tfor _, sample := range samples {\n\t\tfmt.Println(&sample.sub.name)\n\t}\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G602",
+    "summary": "Check that the slice has enough elements before accessing a computed index.",
+    "bad": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\ts := make([]byte, 4)\n\tfor i := range 3 {\n\t\tx := s[i+2]\n\t\tfmt.Println(x)\n\t}\n}",
+    "good": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\ts := make([]byte, 4)\n\tfor i := range 3 {\n\t\tif i+2 >= len(s) { break }\n\t\tx := s[i+2]\n\t\tfmt.Println(x)\n\t}\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G701",
+    "summary": "Pass the untrusted user ID as a SQL argument instead of including it in the query text.",
+    "bad": "package main\nimport (\n\t\"database/sql\"\n\t\"net/http\"\n)\nfunc lookup(database *sql.DB, request *http.Request) (*sql.Rows, error) {\n\tvar inputs [1]string\n\tinputs[0] = request.FormValue(\"id\")\n\tquery := \"SELECT * FROM users WHERE id = '\" + inputs[0] + \"'\"\n\treturn database.Query(query)\n}",
+    "good": "package main\nimport (\n\t\"database/sql\"\n\t\"net/http\"\n)\nfunc lookup(database *sql.DB, request *http.Request) (*sql.Rows, error) {\n\tvar inputs [1]string\n\tinputs[0] = request.FormValue(\"id\")\n\treturn database.Query(\"SELECT * FROM users WHERE id = ?\", inputs[0])\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G702",
+    "summary": "Select an approved executable instead of executing a command supplied by an HTTP request.",
+    "bad": "package main\nimport (\n\t\"net/http\"\n\t\"os/exec\"\n)\nfunc run(request *http.Request) error {\n\taction := request.FormValue(\"action\")\n\treturn exec.Command(action).Run()\n}",
+    "good": "package main\nimport (\n\t\"errors\"\n\t\"net/http\"\n\t\"os/exec\"\n)\nfunc run(request *http.Request) error {\n\taction := request.FormValue(\"action\")\n\tswitch action {\n\tcase \"date\":\n\t\treturn exec.Command(\"date\").Run()\n\tcase \"uptime\":\n\t\treturn exec.Command(\"uptime\").Run()\n\tdefault:\n\t\treturn errors.New(\"action is not supported\")\n\t}\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G704",
+    "summary": "Fetch only an approved HTTP destination when the request supplies the URL.",
+    "bad": "package main\nimport \"net/http\"\nfunc fetch(request *http.Request) (*http.Response, error) {\n\tdestination := request.FormValue(\"url\")\n\treturn http.Get(destination)\n}",
+    "good": "package main\nimport (\n\t\"errors\"\n\t\"net/http\"\n)\nfunc fetch(request *http.Request) (*http.Response, error) {\n\tdestination := request.FormValue(\"url\")\n\tclient := &http.Client{\n\t\tCheckRedirect: func(request *http.Request, previous []*http.Request) error {\n\t\t\treturn http.ErrUseLastResponse\n\t\t},\n\t}\n\tswitch destination {\n\tcase \"https://api.example.com/status\":\n\t\treturn client.Get(\"https://api.example.com/status\")\n\tcase \"https://api.example.com/health\":\n\t\treturn client.Get(\"https://api.example.com/health\")\n\tdefault:\n\t\treturn nil, errors.New(\"destination is not approved\")\n\t}\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G705",
+    "summary": "Escape a request value before inserting it into an HTML response.",
+    "bad": "package main\n\nimport (\n\t\"fmt\"\n\t\"net/http\"\n)\n\nfunc handler(w http.ResponseWriter, r *http.Request) {\n\tname := r.URL.Query().Get(\"name\")\n\tfmt.Fprintf(w, \"<h1>Hello %s</h1>\", name)\n}",
+    "good": "package main\n\nimport (\n\t\"fmt\"\n\t\"net/http\"\n\t\"html\"\n)\n\nfunc safeHandler(w http.ResponseWriter, r *http.Request) {\n\t// Safe - escaped output\n\tname := r.URL.Query().Get(\"name\")\n\tfmt.Fprintf(w, \"<h1>Hello %s</h1>\", html.EscapeString(name))\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G706",
+    "summary": "Quote a username before writing it to a text log to escape injected line breaks.",
+    "bad": "package main\nimport (\n\t\"log\"\n\t\"net/http\"\n)\nfunc handler(request *http.Request) {\n\tusername := request.URL.Query().Get(\"user\")\n\tlog.Printf(\"User logged in: %s\", username)\n}",
+    "good": "package main\nimport (\n\t\"log\"\n\t\"net/http\"\n\t\"strconv\"\n)\nfunc handler(request *http.Request) {\n\tusername := request.URL.Query().Get(\"user\")\n\tlog.Printf(\"User logged in: %s\", strconv.Quote(username))\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G707",
+    "summary": "Validate both email envelope addresses before submitting the message to SMTP.",
+    "bad": "package main\nimport (\n\t\"net/http\"\n\t\"net/smtp\"\n)\nfunc send(request *http.Request) error {\n\tfrom := request.FormValue(\"from\")\n\tto := request.FormValue(\"to\")\n\treturn smtp.SendMail(\"127.0.0.1:25\", nil, from, []string{to}, []byte(\"Subject: Hi\\r\\n\\r\\nbody\"))\n}",
+    "good": "package main\nimport (\n\t\"net/http\"\n\t\"net/mail\"\n\t\"net/smtp\"\n)\nfunc send(request *http.Request) error {\n\tfrom, err := mail.ParseAddress(request.FormValue(\"from\"))\n\tif err != nil { return err }\n\tto, err := mail.ParseAddress(request.FormValue(\"to\"))\n\tif err != nil { return err }\n\treturn smtp.SendMail(\"127.0.0.1:25\", nil, from.Address, []string{to.Address}, []byte(\"Subject: Hi\\r\\n\\r\\nbody\"))\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G708",
+    "summary": "Use html/template to escape request values in an HTML page.",
+    "bad": "package main\n\nimport (\n\t\"net/http\"\n\t\"text/template\"\n)\n\nvar tmpl = template.Must(template.New(\"page\").Parse(`<h1>Hello {{.}}</h1>`))\n\nfunc handler(w http.ResponseWriter, r *http.Request) {\n\tname := r.FormValue(\"name\")\n\ttmpl.Execute(w, name)\n}",
+    "good": "package main\n\nimport (\n\t\"html/template\"\n\t\"net/http\"\n)\n\nvar tmpl = template.Must(template.New(\"page\").Parse(`<h1>Hello {{.}}</h1>`))\n\nfunc handler(w http.ResponseWriter, r *http.Request) {\n\tname := r.FormValue(\"name\")\n\ttmpl.Execute(w, name)\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G709",
+    "summary": "Bound the input before decoding an untrusted XML configuration.",
+    "bad": "package main\nimport (\n\t\"encoding/xml\"\n\t\"net/http\"\n)\ntype Config struct {\n\tKey string\n\tValue string\n}\nfunc decode(request *http.Request) (Config, error) {\n\tpayload := request.FormValue(\"payload\")\n\tvar config Config\n\terr := xml.Unmarshal([]byte(payload), &config)\n\treturn config, err\n}",
+    "good": "package main\nimport (\n\t\"encoding/xml\"\n\t\"io\"\n\t\"net/http\"\n\t\"strings\"\n)\ntype Config struct {\n\tKey string\n\tValue string\n}\nfunc decode(request *http.Request) (Config, error) {\n\tpayload := request.FormValue(\"payload\")\n\tdecoder := xml.NewDecoder(io.LimitReader(strings.NewReader(payload), 1<<20))\n\tvar config Config\n\terr := decoder.Decode(&config)\n\treturn config, err\n}"
+  },
+  {
+    "tool": "golangci-lint/gosec",
+    "id": "G710",
+    "summary": "Redirect to an approved local destination instead of an arbitrary URL supplied by the request.",
+    "bad": "package main\nimport \"net/http\"\nfunc handler(writer http.ResponseWriter, request *http.Request) {\n\tdestination := request.URL.Query().Get(\"next\")\n\thttp.Redirect(writer, request, destination, http.StatusFound)\n}",
+    "good": "package main\nimport \"net/http\"\nfunc handler(writer http.ResponseWriter, request *http.Request) {\n\tdestination := request.URL.Query().Get(\"next\")\n\tswitch destination {\n\tcase \"/dashboard\":\n\t\thttp.Redirect(writer, request, \"/dashboard\", http.StatusFound)\n\tcase \"/settings\":\n\t\thttp.Redirect(writer, request, \"/settings\", http.StatusFound)\n\tdefault:\n\t\thttp.Error(writer, \"destination is not approved\", http.StatusBadRequest)\n\t}\n}"
+  }
+]

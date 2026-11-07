@@ -1,4 +1,4 @@
-.PHONY: build deploy clean help \
+.PHONY: build deploy clean help help-examples \
 	lint lint-tools lint-golangci lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
 	lint-golangci-scope lint-golangci-baseline-scope lint-golangci-baseline-scope-accept-new \
 	lint-files lint-diff lint-format lint-gocyclo lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new fmt vet test mutation govulncheck build-gate build-check check \
@@ -422,6 +422,7 @@ endif
 
 help:
 	@printf '%s\n' 'Canonical entry points:'
+	@printf '  %-40s %s\n' 'help-examples [LINTER=... RULE=...]' 'list choices; narrow to one rule to print its examples'
 	@printf '  %-40s %s\n' 'build' 'local build-check, then compile; CI skips inline gate only with OIDC proof'
 	@printf '  %-40s %s\n' 'check' 'unsupported; run make build directly'
 	@printf '  %-40s %s\n' 'lint' 'unsupported; run make build directly'
@@ -447,6 +448,9 @@ help:
 	@printf '\n%s\n' 'Pipeline maintenance:'
 	@printf '  %-40s %s\n' 'go-mk-sync / update-go-mk' 'refresh go.mk, helper scripts, modules, and golangci.yml'
 	@printf '  %-40s %s\n' 'smoke-fetch' 'force a fetch-path smoke run'
+
+help-examples: go-mk-bin
+	@"$(__GO_MK_ENGINE)" help-examples
 
 lint:
 	$(error make lint is not supported. Run make build directly.)

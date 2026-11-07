@@ -1,0 +1,212 @@
+[
+  {
+    "tool": "staticcheck-extra",
+    "id": "banned_direct_output",
+    "summary": "Use structured slog events for production library diagnostics; package main may print command output.",
+    "bad": "package example\n\nimport \"fmt\"\n\nfunc started() {\n\tfmt.Println(\"worker started\")\n}",
+    "good": "package example\n\nimport \"log/slog\"\n\nfunc started() {\n\tslog.Info(\"worker started\")\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "context_todo_in_production",
+    "summary": "Use the caller's context for production operations; use context.Background at a process entry point.",
+    "bad": "package example\n\nimport (\n\t\"context\"\n\t\"net/http\"\n)\n\nfunc request(ctx context.Context, url string) (*http.Request, error) {\n\treturn http.NewRequestWithContext(context.TODO(), http.MethodGet, url, nil)\n}",
+    "good": "package example\n\nimport (\n\t\"context\"\n\t\"net/http\"\n)\n\nfunc request(ctx context.Context, url string) (*http.Request, error) {\n\treturn http.NewRequestWithContext(ctx, http.MethodGet, url, nil)\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "goroutine_without_recover",
+    "summary": "Handle a panic inside each launched goroutine with a deferred recovery function.",
+    "bad": "package example\n\nfunc start(work func()) {\n\tgo func() {\n\t\twork()\n\t}()\n}",
+    "good": "package example\n\nimport \"log/slog\"\n\nfunc start(work func()) {\n\tgo func() {\n\t\tdefer func() {\n\t\t\tif recovered := recover(); recovered != nil {\n\t\t\t\tslog.Error(\"worker panicked\", slog.Any(\"err\", recovered))\n\t\t\t}\n\t\t}()\n\t\twork()\n\t}()\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "grpc_handler_missing_peer_enrichment",
+    "summary": "Read peer information from the incoming context when a gRPC server method logs a request.",
+    "bad": "package example\n\nimport (\n\t\"context\"\n\t_ \"google.golang.org/grpc\"\n\t\"log/slog\"\n)\n\ntype Server struct{}\ntype Request struct{}\ntype Response struct{}\n\nfunc (*Server) Fetch(ctx context.Context, request *Request) (*Response, error) {\n\tslog.InfoContext(ctx, \"fetch request\")\n\treturn \u0026Response{}, nil\n}",
+    "good": "package example\n\nimport (\n\t\"context\"\n\t\"google.golang.org/grpc/peer\"\n\t\"log/slog\"\n)\n\ntype Server struct{}\ntype Request struct{}\ntype Response struct{}\n\nfunc (*Server) Fetch(ctx context.Context, request *Request) (*Response, error) {\n\tif remote, ok := peer.FromContext(ctx); ok {\n\t\tslog.InfoContext(ctx, \"fetch request\", \"peer\", remote.Addr.String())\n\t}\n\treturn \u0026Response{}, nil\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "grpc_method_name_literal",
+    "summary": "At a configured gRPC method-name target, use the generated _FullMethodName constant; this example requires -grpc_method_name_literal.targets=example.com/help-example.Route:0.",
+    "bad": "package example\n\nconst Service_Fetch_FullMethodName = \"/example.Service/Fetch\"\n\nfunc Route(method string) string { return method }\nfunc method() string {\n\treturn Route(\"/example.Service/Fetch\")\n}",
+    "good": "package example\n\nconst Service_Fetch_FullMethodName = \"/example.Service/Fetch\"\n\nfunc Route(method string) string { return method }\nfunc method() string {\n\treturn Route(Service_Fetch_FullMethodName)\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "hot_loop_info_log",
+    "summary": "Log a summary after a loop instead of an info event for every iteration.",
+    "bad": "package example\n\nimport \"log/slog\"\n\nfunc count(items []string) int {\n\tfor _, item := range items {\n\t\tslog.Info(\"item processed\", \"item\", item)\n\t}\n\treturn len(items)\n}",
+    "good": "package example\n\nimport \"log/slog\"\n\nfunc count(items []string) int {\n\tslog.Info(\"items processed\", \"count\", len(items))\n\treturn len(items)\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "lifecycle_noop_closer",
+    "summary": "Release the underlying resource in a Close(reason string) error lifecycle method.",
+    "bad": "package example\n\nimport \"context\"\n\ntype Worker struct{ cancel context.CancelFunc }\n\nfunc (worker *Worker) Close(reason string) error {\n\treturn nil\n}",
+    "good": "package example\n\nimport \"context\"\n\ntype Worker struct{ cancel context.CancelFunc }\n\nfunc (worker *Worker) Close(reason string) error {\n\tworker.cancel()\n\treturn nil\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "lifecycle_silent_close_err",
+    "summary": "Return a downstream close error instead of discarding it and reporting successful lifecycle shutdown.",
+    "bad": "package example\n\nimport \"io\"\n\ntype Resource struct{ closer io.Closer }\n\nfunc (resource *Resource) Close(reason string) error {\n\t_ = resource.closer.Close()\n\treturn nil\n}",
+    "good": "package example\n\nimport \"io\"\n\ntype Resource struct{ closer io.Closer }\n\nfunc (resource *Resource) Close(reason string) error {\n\treturn resource.closer.Close()\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "missing_boundary_log",
+    "summary": "Emit a structured log event in functions that handle requests or change external state.",
+    "bad": "package example\n\nimport \"os\"\n\nfunc remove(path string) error {\n\treturn os.Remove(path)\n}",
+    "good": "package example\n\nimport (\n\t\"log/slog\"\n\t\"os\"\n)\n\nfunc remove(path string) error {\n\tslog.Info(\"remove file\", \"path\", path)\n\treturn os.Remove(path)\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "no_any_or_empty_interface",
+    "summary": "Use a concrete data type instead of any or an empty interface in production code.",
+    "bad": "package example\n\ntype Result struct {\n\tValue any\n}",
+    "good": "package example\n\ntype Result struct {\n\tValue string\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "no_tilde_path_literal",
+    "summary": "Resolve the home directory explicitly because Go filesystem functions do not expand a tilde.",
+    "bad": "package example\n\nimport \"os\"\n\nfunc load() ([]byte, error) {\n\treturn os.ReadFile(\"~/settings.json\")\n}",
+    "good": "package example\n\nimport (\n\t\"os\"\n\t\"path/filepath\"\n)\n\nfunc load() ([]byte, error) {\n\thome, err := os.UserHomeDir()\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn os.ReadFile(filepath.Join(home, \"settings.json\"))\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "nolint_ban",
+    "summary": "Fix a production finding instead of suppressing it with a nolint comment.",
+    "bad": "package example\n\nimport \"fmt\"\n\nfunc started() {\n\t//nolint:forbidigo\n\tfmt.Println(\"worker started\")\n}",
+    "good": "package example\n\nimport \"log/slog\"\n\nfunc started() {\n\tslog.Info(\"worker started\")\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "os_exit_outside_main",
+    "summary": "Return an error from library code; let main or init decide whether to exit.",
+    "bad": "package example\n\nimport \"os\"\n\nfunc validate(name string) error {\n\tif name == \"\" {\n\t\tos.Exit(1)\n\t}\n\treturn nil\n}",
+    "good": "package example\n\nimport \"errors\"\n\nfunc validate(name string) error {\n\tif name == \"\" {\n\t\treturn errors.New(\"name is required\")\n\t}\n\treturn nil\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "panic_in_production",
+    "summary": "Return an error for an invalid production input instead of panicking.",
+    "bad": "package example\n\nfunc validate(name string) error {\n\tif name == \"\" {\n\t\tpanic(\"name is required\")\n\t}\n\treturn nil\n}",
+    "good": "package example\n\nimport \"errors\"\n\nfunc validate(name string) error {\n\tif name == \"\" {\n\t\treturn errors.New(\"name is required\")\n\t}\n\treturn nil\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "rta_slog_field_bypass",
+    "summary": "Log useful fields directly instead of constructing a marker-only value solely for a log event.",
+    "bad": "package example\n\nimport \"log/slog\"\n\ntype Meta struct{ Kind string }\n\nfunc (Meta) IsLivetrackMeta() {}\nfunc started() {\n\tmeta := Meta{Kind: \"worker\"}\n\tslog.Info(\"worker started\", \"meta\", meta)\n}",
+    "good": "package example\n\nimport \"log/slog\"\n\nfunc started() {\n\tslog.Info(\"worker started\", \"kind\", \"worker\")\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "rta_synthetic_marker_call",
+    "summary": "Remove synthetic method calls added only to defeat deadcode analysis; use method results for real behavior.",
+    "bad": "package example\n\ntype State struct{ Ready bool }\n\nfunc (state State) IsReady() bool { return state.Ready }\nfunc ready(state State) bool {\n\t// The deadcode check must retain IsReady.\n\t_ = state.IsReady()\n\treturn state.Ready\n}",
+    "good": "package example\n\ntype State struct{ Ready bool }\n\nfunc (state State) IsReady() bool { return state.Ready }\nfunc ready(state State) bool {\n\treturn state.IsReady()\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "rta_throwaway_registration",
+    "summary": "Return, store, or serve a server after registering its services instead of discarding it.",
+    "bad": "package example\n\nimport (\n\t\"google.golang.org/grpc\"\n\t\"google.golang.org/grpc/health\"\n\t\"google.golang.org/grpc/health/grpc_health_v1\"\n)\n\nfunc registerHealth() {\n\tserver := grpc.NewServer()\n\tgrpc_health_v1.RegisterHealthServer(server, health.NewServer())\n}",
+    "good": "package example\n\nimport (\n\t\"google.golang.org/grpc\"\n\t\"google.golang.org/grpc/health\"\n\t\"google.golang.org/grpc/health/grpc_health_v1\"\n)\n\nfunc registerHealth() *grpc.Server {\n\tserver := grpc.NewServer()\n\tgrpc_health_v1.RegisterHealthServer(server, health.NewServer())\n\treturn server\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "sensitive_field_in_log",
+    "summary": "Log an operation result or a safe identifier instead of a password, token, or other secret.",
+    "bad": "package example\n\nimport \"log/slog\"\n\nfunc report(userID, password string) {\n\tslog.Info(\"login accepted\", \"password\", password)\n}",
+    "good": "package example\n\nimport \"log/slog\"\n\nfunc report(userID, password string) {\n\tslog.Info(\"login accepted\", \"user_id\", userID)\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "silent_defer_close",
+    "summary": "Check a deferred Close error or explicitly discard it inside a deferred function.",
+    "bad": "package example\n\nimport \"io\"\n\nfunc consume(reader io.ReadCloser) ([]byte, error) {\n\tdefer reader.Close()\n\treturn io.ReadAll(reader)\n}",
+    "good": "package example\n\nimport (\n\t\"io\"\n\t\"log/slog\"\n)\n\nfunc consume(reader io.ReadCloser) ([]byte, error) {\n\tdefer func() {\n\t\tif err := reader.Close(); err != nil {\n\t\t\tslog.Warn(\"close reader failed\", slog.Any(\"err\", err))\n\t\t}\n\t}()\n\treturn io.ReadAll(reader)\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "slog_error_without_err",
+    "summary": "Include the error value in error-level structured logs.",
+    "bad": "package example\n\nimport \"log/slog\"\n\nfunc report(err error) {\n\tslog.Error(\"save failed\")\n}",
+    "good": "package example\n\nimport \"log/slog\"\n\nfunc report(err error) {\n\tslog.Error(\"save failed\", slog.Any(\"err\", err))\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "string_switch_should_be_enum",
+    "summary": "Declare a named string type and constants for a switch with a fixed set of string values.",
+    "bad": "package example\n\nfunc allowed(role string) bool {\n\tswitch role {\n\tcase \"admin\":\n\t\treturn true\n\tcase \"viewer\":\n\t\treturn false\n\t}\n\treturn false\n}",
+    "good": "package example\n\ntype Role string\n\nconst (\n\tRoleAdmin  Role = \"admin\"\n\tRoleViewer Role = \"viewer\"\n)\n\nfunc allowed(role Role) bool {\n\tswitch role {\n\tcase RoleAdmin:\n\t\treturn true\n\tcase RoleViewer:\n\t\treturn false\n\t}\n\treturn false\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "testassert",
+    "summary": "Assert on the result of a production call; calling the function without checking an outcome cannot fail the test.",
+    "bad": "// file: example.go\npackage example\n\nfunc Double(value int) int { return double(value) }\nfunc double(value int) int { return value * 2 }\n\n// file: example_test.go\npackage example_test\n\nimport (\n\texample \"example.com/help-example\"\n\t\"testing\"\n)\n\nfunc TestDouble(t *testing.T) {\n\texample.Double(3)\n}",
+    "good": "// file: example.go\npackage example\n\nfunc Double(value int) int { return double(value) }\nfunc double(value int) int { return value * 2 }\n\n// file: example_test.go\npackage example_test\n\nimport (\n\texample \"example.com/help-example\"\n\t\"testing\"\n)\n\nfunc TestDouble(t *testing.T) {\n\tif example.Double(3) != 6 {\n\t\tt.Fatal(\"Double(3) did not return 6\")\n\t}\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "testdouble",
+    "summary": "Run the real implementation of a same-module interface instead of a type declared only for tests.",
+    "bad": "// file: example.go\npackage example\n\nimport \"os\"\n\ntype Reader interface {\n\tRead(path string) ([]byte, error)\n}\ntype FileReader struct{}\n\nfunc (FileReader) Read(path string) ([]byte, error)   { return os.ReadFile(path) }\nfunc Load(reader Reader, path string) ([]byte, error) { return reader.Read(path) }\n\n// file: example_test.go\npackage example_test\n\nimport (\n\texample \"example.com/help-example\"\n\t\"testing\"\n)\n\ntype fakeReader struct{}\n\nfunc (fakeReader) Read(path string) ([]byte, error) { return []byte(\"settings\"), nil }\nfunc TestLoad(t *testing.T) {\n\tdata, err := example.Load(fakeReader{}, \"settings.txt\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif string(data) != \"settings\" {\n\t\tt.Fatal(\"Load returned unexpected data\")\n\t}\n}",
+    "good": "// file: example.go\npackage example\n\nimport \"os\"\n\ntype Reader interface {\n\tRead(path string) ([]byte, error)\n}\ntype FileReader struct{}\n\nfunc (FileReader) Read(path string) ([]byte, error)   { return os.ReadFile(path) }\nfunc Load(reader Reader, path string) ([]byte, error) { return reader.Read(path) }\n\n// file: example_test.go\npackage example_test\n\nimport (\n\texample \"example.com/help-example\"\n\t\"os\"\n\t\"path/filepath\"\n\t\"testing\"\n)\n\nfunc TestLoad(t *testing.T) {\n\tpath := filepath.Join(t.TempDir(), \"settings.txt\")\n\tif err := os.WriteFile(path, []byte(\"settings\"), 0600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdata, err := example.Load(example.FileReader{}, path)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif string(data) != \"settings\" {\n\t\tt.Fatal(\"Load returned unexpected data\")\n\t}\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "testpackage",
+    "summary": "Declare an external test package and test the exported API instead of calling unexported production functions.",
+    "bad": "// file: example.go\npackage example\n\nfunc Double(value int) int { return double(value) }\nfunc double(value int) int { return value * 2 }\n\n// file: example_test.go\npackage example\n\nimport \"testing\"\n\nfunc TestDouble(t *testing.T) {\n\tif double(3) != 6 {\n\t\tt.Fatal(\"double(3) did not return 6\")\n\t}\n}",
+    "good": "// file: example.go\npackage example\n\nfunc Double(value int) int { return double(value) }\nfunc double(value int) int { return value * 2 }\n\n// file: example_test.go\npackage example_test\n\nimport (\n\texample \"example.com/help-example\"\n\t\"testing\"\n)\n\nfunc TestDouble(t *testing.T) {\n\tif example.Double(3) != 6 {\n\t\tt.Fatal(\"Double(3) did not return 6\")\n\t}\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "testseam",
+    "summary": "Test the production function instead of replacing a package-level function variable or single-valued function field.",
+    "bad": "// file: example.go\npackage example\n\nfunc double(value int) int { return value * 2 }\n\nvar Compute = double\n\nfunc Double(value int) int { return Compute(value) }\n\n// file: example_test.go\npackage example_test\n\nimport (\n\texample \"example.com/help-example\"\n\t\"testing\"\n)\n\nfunc TestDouble(t *testing.T) {\n\toriginal := example.Compute\n\tdefer func() { example.Compute = original }()\n\texample.Compute = func(value int) int { return 6 }\n\tif example.Double(3) != 6 {\n\t\tt.Fatal(\"Double(3) did not return 6\")\n\t}\n}",
+    "good": "// file: example.go\npackage example\n\nfunc double(value int) int { return value * 2 }\n\nvar Compute = double\n\nfunc Double(value int) int { return Compute(value) }\n\n// file: example_test.go\npackage example_test\n\nimport (\n\texample \"example.com/help-example\"\n\t\"testing\"\n)\n\nfunc TestDouble(t *testing.T) {\n\tif example.Double(3) != 6 {\n\t\tt.Fatal(\"Double(3) did not return 6\")\n\t}\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "testsourcefile",
+    "summary": "Assert on production behavior instead of reading source text to check how the function is written.",
+    "bad": "// file: example.go\npackage example\n\nfunc Double(value int) int { return double(value) }\nfunc double(value int) int { return value * 2 }\n\n// file: example_test.go\npackage example_test\n\nimport (\n\t\"os\"\n\t\"strings\"\n\t\"testing\"\n)\n\nfunc TestDouble(t *testing.T) {\n\tsource, err := os.ReadFile(\"example.go\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif !strings.Contains(string(source), \"value * 2\") {\n\t\tt.Fatal(\"the source does not multiply by 2\")\n\t}\n}",
+    "good": "// file: example.go\npackage example\n\nfunc Double(value int) int { return double(value) }\nfunc double(value int) int { return value * 2 }\n\n// file: example_test.go\npackage example_test\n\nimport (\n\texample \"example.com/help-example\"\n\t\"testing\"\n)\n\nfunc TestDouble(t *testing.T) {\n\tif example.Double(3) != 6 {\n\t\tt.Fatal(\"Double(3) did not return 6\")\n\t}\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "thin_wrapper_to_launderable_call",
+    "summary": "Call an error constructor directly instead of adding a function that only forwards its parameters.",
+    "bad": "package example\n\nimport \"errors\"\n\nfunc failure(message string) error {\n\treturn errors.New(message)\n}\nfunc validate(name string) error {\n\tif name == \"\" {\n\t\treturn failure(\"name is required\")\n\t}\n\treturn nil\n}",
+    "good": "package example\n\nimport \"errors\"\n\nfunc validate(name string) error {\n\tif name == \"\" {\n\t\treturn errors.New(\"name is required\")\n\t}\n\treturn nil\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "time_now_outside_clock",
+    "summary": "Read wall-clock time in internal/clock, main, or tests; pass the time into other packages.",
+    "bad": "package example\n\nimport \"time\"\n\nfunc expired(deadline time.Time) bool {\n\treturn time.Now().After(deadline)\n}",
+    "good": "package example\n\nimport \"time\"\n\nfunc expired(deadline, now time.Time) bool {\n\treturn now.After(deadline)\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "time_sleep_in_production",
+    "summary": "Use a timer and the caller's context for a cancellable delay in library code.",
+    "bad": "package example\n\nimport (\n\t\"context\"\n\t\"time\"\n)\n\nfunc wait(ctx context.Context) error {\n\ttime.Sleep(time.Second)\n\treturn nil\n}",
+    "good": "package example\n\nimport (\n\t\"context\"\n\t\"time\"\n)\n\nfunc wait(ctx context.Context) error {\n\ttimer := time.NewTimer(time.Second)\n\tdefer func() { _ = timer.Stop() }()\n\tselect {\n\tcase \u003c-ctx.Done():\n\t\treturn ctx.Err()\n\tcase \u003c-timer.C:\n\t\treturn nil\n\t}\n}"
+  },
+  {
+    "tool": "staticcheck-extra",
+    "id": "wrapped_error_without_slog",
+    "summary": "Log an external operation error in the function that returns its wrapped error.",
+    "bad": "package example\n\nimport (\n\t\"fmt\"\n\t\"os\"\n)\n\nfunc load(path string) ([]byte, error) {\n\tdata, err := os.ReadFile(path)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"read settings: %w\", err)\n\t}\n\treturn data, nil\n}",
+    "good": "package example\n\nimport (\n\t\"fmt\"\n\t\"log/slog\"\n\t\"os\"\n)\n\nfunc load(path string) ([]byte, error) {\n\tdata, err := os.ReadFile(path)\n\tif err != nil {\n\t\tslog.Error(\"read settings failed\", slog.Any(\"err\", err))\n\t\treturn nil, fmt.Errorf(\"read settings: %w\", err)\n\t}\n\treturn data, nil\n}"
+  }
+]

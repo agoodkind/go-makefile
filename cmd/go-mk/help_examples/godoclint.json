@@ -1,0 +1,58 @@
+[
+  {
+    "tool": "golangci-lint/godoclint",
+    "id": "deprecated",
+    "summary": "Begin deprecation notices with Deprecated:.",
+    "bad": "// Read returns the current value.\n//\n// DEPRECATED: Use Current.\nfunc Read() string { return \"value\" }",
+    "good": "// Read returns the current value.\n//\n// Deprecated: Use Current.\nfunc Read() string { return \"value\" }"
+  },
+  {
+    "tool": "golangci-lint/godoclint",
+    "id": "no-unused-link",
+    "summary": "Reference each link that a declaration comment defines.",
+    "bad": "// Read returns the current value.\n//\n// [reference]: https://example.com/docs\nfunc Read() string { return \"value\" }",
+    "good": "// Read returns the current value from the [reference].\n//\n// [reference]: https://example.com/docs\nfunc Read() string { return \"value\" }"
+  },
+  {
+    "tool": "golangci-lint/godoclint",
+    "id": "require-stdlib-doclink",
+    "summary": "Link standard library identifiers in declaration comments.",
+    "bad": "// Print writes text with fmt.Print.\nfunc Print(text string) { fmt.Print(text) }",
+    "good": "// Print writes text with [fmt.Print].\nfunc Print(text string) { fmt.Print(text) }"
+  },
+  {
+    "tool": "golangci-lint/godoclint",
+    "id": "pkg-doc",
+    "summary": "Begin the package comment with Package and the package name.",
+    "bad": "// Request helpers.\npackage requests",
+    "good": "// Package requests processes HTTP requests.\npackage requests"
+  },
+  {
+    "tool": "golangci-lint/godoclint",
+    "id": "single-pkg-doc",
+    "summary": "Write one package comment for each package.",
+    "bad": "// In first.go:\n// Package requests processes HTTP requests.\npackage requests\n\n// In second.go:\n// Package requests processes HTTP requests.\npackage requests",
+    "good": "// In first.go:\n// Package requests processes HTTP requests.\npackage requests\n\n// In second.go:\npackage requests"
+  },
+  {
+    "tool": "golangci-lint/godoclint",
+    "id": "require-pkg-doc",
+    "summary": "Add a package comment.",
+    "bad": "package requests",
+    "good": "// Package requests processes HTTP requests.\npackage requests"
+  },
+  {
+    "tool": "golangci-lint/godoclint",
+    "id": "start-with-name",
+    "summary": "Begin a declaration comment with its identifier.",
+    "bad": "// Returns the current value.\nfunc Read() string { return \"value\" }",
+    "good": "// Read returns the current value.\nfunc Read() string { return \"value\" }"
+  },
+  {
+    "tool": "golangci-lint/godoclint",
+    "id": "require-doc",
+    "summary": "Document exported declarations.",
+    "bad": "func Read() string { return \"value\" }",
+    "good": "// Read returns the current value.\nfunc Read() string { return \"value\" }"
+  }
+]

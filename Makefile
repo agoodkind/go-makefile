@@ -49,7 +49,7 @@ STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
         lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
         staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new \
         baseline baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
-        go-mk-sync update-go-mk smoke-fetch help
+        go-mk-sync update-go-mk smoke-fetch help help-examples
 
 # Each gate target runs the central go.mk recipe once per Go module.
 
@@ -236,3 +236,6 @@ check:
 
 help:
 	$(ROOT_GO_MK) help
+
+help-examples:
+	@$(ROOT_GO_MK) help-examples
