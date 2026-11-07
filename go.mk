@@ -253,7 +253,8 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-rta_slog_field_bypass \
 	-lifecycle_noop_closer \
 	-lifecycle_silent_close_err \
-	-no_tilde_path_literal
+	-no_tilde_path_literal \
+	-doc_structure
 # The engine appends these flags even when a consumer overrides
 # STATICCHECK_EXTRA_FLAGS.
 STATICCHECK_EXTRA_TEST_FLAGS    ?= \

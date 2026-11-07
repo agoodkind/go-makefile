@@ -14,6 +14,7 @@ import "golang.org/x/tools/go/analysis"
 // Analyzers returns all custom AST analyzers in this set.
 func Analyzers() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
+		DocStructureAnalyzer,
 		SlogErrorWithoutErrAnalyzer,
 		BannedDirectOutputAnalyzer,
 		HotLoopInfoLogAnalyzer,
