@@ -7,24 +7,15 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// DocStructureAnalyzer checks the structure of exported function comments.
+// DocStructureAnalyzer checks the layout of exported function and method comments.
 //
-// Each existing comment must begin with an introduction and a separate
-// explanation, followed by a list or preformatted block for an example or
-// layout. This check verifies the block structure that Go's comment parser
-// recognizes; it cannot establish the accuracy or usefulness of the content.
+// The analyzer uses Go's comment parser to require a summary paragraph,
+// a separate explanation, and an example or layout in a list or indented
+// block. It reports incomplete comments at their first line.
 //
-// A complete function comment can use this form:
+// Run this check by itself with:
 //
-//	// Double returns value multiplied by two.
-//	//
-//	// The multiplication uses Go's int arithmetic, including its overflow
-//	// behavior, and returns zero when value is zero.
-//	//
-//	// For example:
-//	//
-//	//     Double(3) == 6
-//	func Double(value int) int { return value * 2 }
+//	staticcheck-extra -doc_structure ./...
 var DocStructureAnalyzer = &analysis.Analyzer{
 	Name: "doc_structure",
 	Doc:  "require an introduction, explanation, and example or layout in exported function comments",
