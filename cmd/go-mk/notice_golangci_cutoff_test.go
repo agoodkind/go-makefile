@@ -45,13 +45,16 @@ func TestGolangciNoticeUsesOnlyValidHistoricalFindings(t *testing.T) {
 			writeConsumerFile(t, consumerDir, "notices.txt", "1\tINTRODUCED=2026-05-25T19:38:46-07:00 GATE=golangci LINTER=revive RULE=file-length-limit\tEnable the file length rule\n")
 			command := exec.Command(engine, "notice")
 			command.Dir = consumerDir
-			command.Env = append(os.Environ(),
-				"_GO_MK_ROOT="+consumerDir,
-				"_GO_MK_NOTICES_FILE="+filepath.Join(consumerDir, "notices.txt"),
+			command.Env = []string{
+				"PATH=" + os.Getenv("PATH"),
+				"HOME=" + os.Getenv("HOME"),
+				"TMPDIR=" + os.Getenv("TMPDIR"),
+				"_GO_MK_ROOT=" + consumerDir,
+				"_GO_MK_NOTICES_FILE=" + filepath.Join(consumerDir, "notices.txt"),
 				"GOLANGCI_LINT_FLAGS=-c .make/golangci.yml",
 				"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml",
-				"GITHUB_ACTIONS=", "GITHUB_RUN_ID=",
-			)
+				"GOLANGCI_LINT_TARGETS=./...",
+			}
 			output, err := command.CombinedOutput()
 			if err != nil {
 				t.Fatalf("notice command failed: %v\n%s", err, output)
