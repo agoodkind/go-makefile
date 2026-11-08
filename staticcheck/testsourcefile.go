@@ -52,93 +52,133 @@ var TestSourceFileAnalyzer = &analysis.Analyzer{
 func runTestSourceFile(pass *analysis.Pass) (any, error) {
 	for _, file := range analyzableTestFiles(pass) {
 		reportEmbedDirectives(pass, file)
+
 		for _, declaration := range file.Decls {
 			var body *ast.BlockStmt
 			if function, ok := declaration.(*ast.FuncDecl); ok {
 				body = function.Body
 			}
+
 			ast.Inspect(declaration, func(node ast.Node) bool {
 				call, ok := node.(*ast.CallExpr)
 				if ok {
 					reportConstantFileRead(pass, file, body, call)
 				}
+
 				return true
 			})
 		}
 	}
+
 	return nil, nil
 }
 
 // The content is the non-error result of the read and each local variable
 // assigned from an expression that uses it. A read is test input, not text
-// under assertion, when the content is an argument of os.WriteFile or of a
+// under assertion, when the content is an argument of [os.WriteFile] or of a
 // function of the same module declared in a non-test file.
 func readIsProductionInput(pass *analysis.Pass, body *ast.BlockStmt, read *ast.CallExpr) bool {
 	if body == nil {
 		return false
 	}
+
 	tainted := make(map[types.Object]bool)
-	uses := func(expr ast.Node) bool {
-		found := false
-		ast.Inspect(expr, func(node ast.Node) bool {
-			if node == read {
-				found = true
-			}
-			if ident, ok := node.(*ast.Ident); ok && tainted[pass.TypesInfo.ObjectOf(ident)] {
-				found = true
-			}
-			return !found
-		})
-		return found
-	}
 	for changed := true; changed; {
-		changed = false
-		ast.Inspect(body, func(node ast.Node) bool {
-			assign, ok := node.(*ast.AssignStmt)
-			if !ok {
-				return true
-			}
-			fromRead := false
-			for _, right := range assign.Rhs {
-				if uses(right) {
-					fromRead = true
-				}
-			}
-			if !fromRead {
-				return true
-			}
-			for _, left := range assign.Lhs {
-				ident, ok := left.(*ast.Ident)
-				if !ok || ident.Name == "_" {
-					continue
-				}
-				obj := pass.TypesInfo.ObjectOf(ident)
-				if obj == nil || tainted[obj] || isErrorType(obj.Type()) {
-					continue
-				}
-				tainted[obj] = true
-				changed = true
-			}
-			return true
-		})
+		changed = propagateReadInputs(pass, body, read, tainted)
 	}
+
 	passed := false
+
 	ast.Inspect(body, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
 		if !ok || call == read || passed {
 			return !passed
 		}
+
 		if !receivesInput(pass, call) {
 			return true
 		}
+
 		for _, argument := range call.Args {
-			if uses(argument) {
+			if usesReadInput(pass, argument, read, tainted) {
 				passed = true
 			}
 		}
+
 		return !passed
 	})
+
 	return passed
+}
+
+func usesReadInput(
+	pass *analysis.Pass,
+	expression ast.Node,
+	read *ast.CallExpr,
+	tainted map[types.Object]bool,
+) bool {
+	found := false
+
+	ast.Inspect(expression, func(node ast.Node) bool {
+		if node == read {
+			found = true
+		}
+
+		if identifier, ok := node.(*ast.Ident); ok && tainted[pass.TypesInfo.ObjectOf(identifier)] {
+			found = true
+		}
+
+		return !found
+	})
+
+	return found
+}
+
+func propagateReadInputs(
+	pass *analysis.Pass,
+	body *ast.BlockStmt,
+	read *ast.CallExpr,
+	tainted map[types.Object]bool,
+) bool {
+	changed := false
+
+	ast.Inspect(body, func(node ast.Node) bool {
+		assignment, ok := node.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+
+		fromRead := false
+
+		for _, right := range assignment.Rhs {
+			if usesReadInput(pass, right, read, tainted) {
+				fromRead = true
+			}
+		}
+
+		if !fromRead {
+			return true
+		}
+
+		for _, left := range assignment.Lhs {
+			identifier, ok := left.(*ast.Ident)
+			if !ok || identifier.Name == "_" {
+				continue
+			}
+
+			object := pass.TypesInfo.ObjectOf(identifier)
+			if object == nil || tainted[object] || isErrorType(object.Type()) {
+				continue
+			}
+
+			tainted[object] = true
+			changed = true
+		}
+
+		return true
+	})
+
+	return changed
 }
 
 func receivesInput(pass *analysis.Pass, call *ast.CallExpr) bool {
@@ -146,9 +186,11 @@ func receivesInput(pass *analysis.Pass, call *ast.CallExpr) bool {
 	if !ok || function.Pkg() == nil {
 		return false
 	}
+
 	if function.Pkg().Path() == osPackagePath && function.Name() == "WriteFile" {
 		return true
 	}
+
 	return sameModulePackage(pass, function.Pkg().Path()) && !isTestFile(fileName(pass, function.Pos()))
 }
 
@@ -158,25 +200,32 @@ func reportConstantFileRead(pass *analysis.Pass, file *ast.File, body *ast.Block
 			pass, file, call.Pos(),
 			"This test parses Go source with go/parser. A test must assert on behavior and not on the text of a source file. Run the code and assert on its outcome.",
 		)
+
 		return
 	}
+
 	if !isOSFileOpenCall(pass, call) || len(call.Args) == 0 {
 		return
 	}
+
 	if readIsProductionInput(pass, body, call) {
 		return
 	}
+
 	if joinHasParentElement(pass, call.Args[0]) {
 		reportAtf(
 			pass, file, call.Pos(),
 			"This test reads a file through a parent directory path. A test must assert on behavior and not on the text of a source, template, or configuration file. Run the code that uses the file and assert on its outcome, or move the test input under testdata.",
 		)
+
 		return
 	}
+
 	filePath, ok := constantPathArgument(pass, call.Args[0])
 	if !ok || isAllowedConstantPath(filePath) {
 		return
 	}
+
 	reportAtf(
 		pass, file, call.Pos(),
 		"This test reads the file at the constant path %q. A test must assert on behavior and not on the text of a source, template, or configuration file. Run the code that uses the file and assert on its outcome, or move the test input under testdata.",
@@ -189,6 +238,7 @@ func isSourceParserCall(pass *analysis.Pass, call *ast.CallExpr) bool {
 	if !ok || function.Pkg() == nil || function.Pkg().Path() != goParserPackage {
 		return false
 	}
+
 	return function.Name() == "ParseFile" || function.Name() == "ParseDir"
 }
 
@@ -198,35 +248,43 @@ func joinHasParentElement(pass *analysis.Pass, expr ast.Expr) bool {
 	if !ok || !isPathJoinCall(pass, call) {
 		return false
 	}
+
 	hasParent := false
 	hasVariable := false
+
 	for _, argument := range call.Args {
 		value, isConstant := constantString(pass, argument)
 		if !isConstant {
 			hasVariable = true
+
 			continue
 		}
+
 		if hasTestDataElement(value) {
 			return false
 		}
+
 		for _, element := range strings.Split(filepath.ToSlash(value), "/") {
 			if element == parentDirElement {
 				hasParent = true
 			}
 		}
 	}
+
 	return hasParent && hasVariable
 }
 
 func isOSFileOpenCall(pass *analysis.Pass, call *ast.CallExpr) bool {
-	function, ok := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
-	if !ok || function.Pkg() == nil || function.Pkg().Path() != osPackagePath {
+	function, isFunction := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
+	if !isFunction || function.Pkg() == nil || function.Pkg().Path() != osPackagePath {
 		return false
 	}
-	signature, ok := function.Type().(*types.Signature)
-	if !ok || signature.Recv() != nil {
+
+	signature, isSignature := function.Type().(*types.Signature)
+	if !isSignature || signature.Recv() != nil {
 		return false
 	}
+
 	return osFileOpenFunctions[function.Name()]
 }
 
@@ -234,18 +292,22 @@ func constantPathArgument(pass *analysis.Pass, expr ast.Expr) (string, bool) {
 	if value, ok := constantString(pass, expr); ok {
 		return value, true
 	}
-	call, ok := expr.(*ast.CallExpr)
-	if !ok || call.Ellipsis.IsValid() || !isPathJoinCall(pass, call) {
+
+	call, isCall := expr.(*ast.CallExpr)
+	if !isCall || call.Ellipsis.IsValid() || !isPathJoinCall(pass, call) {
 		return "", false
 	}
+
 	elements := make([]string, 0, len(call.Args))
 	for _, argument := range call.Args {
 		value, ok := constantString(pass, argument)
 		if !ok {
 			return "", false
 		}
+
 		elements = append(elements, value)
 	}
+
 	return filepath.ToSlash(filepath.Join(elements...)), true
 }
 
@@ -254,6 +316,7 @@ func constantString(pass *analysis.Pass, expr ast.Expr) (string, bool) {
 	if !ok || typeAndValue.Value == nil || typeAndValue.Value.Kind() != constant.String {
 		return "", false
 	}
+
 	return constant.StringVal(typeAndValue.Value), true
 }
 
@@ -262,7 +325,9 @@ func isPathJoinCall(pass *analysis.Pass, call *ast.CallExpr) bool {
 	if !ok || function.Pkg() == nil || function.Name() != joinFunctionName {
 		return false
 	}
+
 	packagePath := function.Pkg().Path()
+
 	return packagePath == filepathPackage || packagePath == pathPackagePath
 }
 
@@ -270,11 +335,13 @@ func isAllowedConstantPath(filePath string) bool {
 	if hasTestDataElement(filePath) {
 		return true
 	}
+
 	for _, prefix := range systemPathPrefixes {
 		if strings.HasPrefix(filePath, prefix) {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -285,6 +352,7 @@ func hasTestDataElement(filePath string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -294,11 +362,13 @@ func reportEmbedDirectives(pass *analysis.Pass, file *ast.File) {
 		if !ok || genDecl.Tok != token.VAR {
 			continue
 		}
+
 		for _, spec := range genDecl.Specs {
 			valueSpec, ok := spec.(*ast.ValueSpec)
 			if !ok {
 				continue
 			}
+
 			reportEmbedGroup(pass, file, genDecl.Doc, valueSpec)
 			reportEmbedGroup(pass, file, valueSpec.Doc, valueSpec)
 		}
@@ -314,11 +384,13 @@ func reportEmbedGroup(
 	if group == nil || len(spec.Names) == 0 {
 		return
 	}
+
 	for _, comment := range group.List {
 		pattern, found := outsideTestDataPattern(comment.Text)
 		if !found {
 			continue
 		}
+
 		reportAtf(
 			pass, file, spec.Names[0].Pos(),
 			"This test embeds the file pattern %q. A test must assert on behavior and not on the text of a source, template, or configuration file. Run the code that uses the file and assert on its outcome, or move the test input under testdata.",
@@ -332,24 +404,29 @@ func outsideTestDataPattern(commentText string) (string, bool) {
 	if !ok || (rest != "" && rest[0] != ' ' && rest[0] != '\t') {
 		return "", false
 	}
+
 	for _, pattern := range embedPatterns(rest) {
 		if !hasTestDataElement(pattern) {
 			return pattern, true
 		}
 	}
+
 	return "", false
 }
 
 // A quoted pattern may contain whitespace.
 func embedPatterns(arguments string) []string {
 	var patterns []string
+
 	remaining := strings.TrimSpace(arguments)
 	for remaining != "" {
 		var pattern string
+
 		pattern, remaining = nextEmbedPattern(remaining)
 		patterns = append(patterns, pattern)
 		remaining = strings.TrimSpace(remaining)
 	}
+
 	return patterns
 }
 
@@ -364,9 +441,11 @@ func nextEmbedPattern(arguments string) (string, string) {
 			}
 		}
 	}
+
 	end := strings.IndexAny(arguments, " \t")
 	if end < 0 {
 		return arguments, ""
 	}
+
 	return arguments[:end], arguments[end:]
 }

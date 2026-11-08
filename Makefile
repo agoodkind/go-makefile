@@ -14,8 +14,8 @@ GO_MK_RELEASE_BINS := go-mk:./cmd/go-mk go-mk-install:./cmd/go-mk-install
 GO_MK_INSTALL_BINS := $(GO_MK_RELEASE_BINS)
 
 # Canonical golangci config lives in this repo at golangci.yml.
-ROOT_LINT_ARGS  := GOLANGCI_LINT_FLAGS="-c golangci.yml" GOLANGCI_LINT_TARGETS=.
-STATIC_LINT_ARGS := GOLANGCI_LINT_FLAGS="-c ../golangci.yml" GOLANGCI_LINT_TARGETS=./...
+ROOT_LINT_ARGS  := GOLANGCI_LINT_FLAGS="-c .make/golangci.yml" GOLANGCI_LINT_TARGETS=.
+STATIC_LINT_ARGS := GOLANGCI_LINT_FLAGS="-c .make/golangci.yml" GOLANGCI_LINT_TARGETS=./...
 ROOT_LINT_ARGS += GO_MK_NOTICE_MAKEFILE=go.mk
 STATIC_LINT_ARGS += GO_MK_NOTICE_MAKEFILE=../go.mk
 
@@ -51,6 +51,11 @@ ROOT_RELEASE_GO_MK := $(ROOT_GO_MK) GO_MK_MODULES=go-release.mk BINARY=go-mk CMD
         staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new \
         baseline baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
         go-mk-sync update-go-mk smoke-fetch help help-examples
+
+.PHONY: go-mk-workspace go-mk-cgo-deps
+
+go-mk-workspace go-mk-cgo-deps:
+	$(ROOT_GO_MK) $@
 
 # Each gate target runs the central go.mk recipe once per Go module.
 
