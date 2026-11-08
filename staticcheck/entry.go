@@ -26,6 +26,12 @@ var CommandEntryAnalyzer = &analysis.Analyzer{
 	Run:  runCommandEntry,
 }
 
+type entryCheck struct {
+	*analysis.Pass
+
+	standardPackages map[string]bool
+}
+
 func runCommandEntry(pass *analysis.Pass) (any, error) {
 	path := pass.Pkg.Path()
 	if pass.Module != nil {
@@ -35,6 +41,8 @@ func runCommandEntry(pass *analysis.Pass) (any, error) {
 	if !strings.HasPrefix(path, "cmd/") {
 		return nil, nil
 	}
+
+	check := &entryCheck{Pass: pass, standardPackages: make(map[string]bool)}
 
 	for _, file := range pass.Files {
 		if isTestFile(fileName(pass, file.Pos())) || isGeneratedTestMainFile(file, fileName(pass, file.Pos())) {
@@ -51,7 +59,7 @@ func runCommandEntry(pass *analysis.Pass) (any, error) {
 
 			occurrences[identity]++
 
-			if !entryDeclaration(pass, declaration) {
+			if !entryDeclaration(check, declaration) {
 				reportAtf(
 					pass,
 					file,
@@ -67,7 +75,7 @@ func runCommandEntry(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-func entryDeclaration(pass *analysis.Pass, declaration ast.Decl) bool {
+func entryDeclaration(pass *entryCheck, declaration ast.Decl) bool {
 	if general, ok := declaration.(*ast.GenDecl); ok {
 		if general.Tok == token.IMPORT {
 			return true
@@ -97,7 +105,7 @@ func entryDeclaration(pass *analysis.Pass, declaration ast.Decl) bool {
 	return entryBlock(pass, function.Body.List, false)
 }
 
-func entryBlock(pass *analysis.Pass, statements []ast.Stmt, handling bool) bool {
+func entryBlock(pass *entryCheck, statements []ast.Stmt, handling bool) bool {
 	for _, statement := range statements {
 		if !entryStatement(pass, statement, handling) {
 			return false
@@ -107,7 +115,7 @@ func entryBlock(pass *analysis.Pass, statements []ast.Stmt, handling bool) bool 
 	return true
 }
 
-func entryStatement(pass *analysis.Pass, statement ast.Stmt, handling bool) bool {
+func entryStatement(pass *entryCheck, statement ast.Stmt, handling bool) bool {
 	switch node := statement.(type) {
 	case *ast.ExprStmt:
 		return entryExpression(pass, node.X, handling)
@@ -145,7 +153,7 @@ func entryStatement(pass *analysis.Pass, statement ast.Stmt, handling bool) bool
 	return false
 }
 
-func entryAssignment(pass *analysis.Pass, node *ast.AssignStmt, handling bool) bool {
+func entryAssignment(pass *entryCheck, node *ast.AssignStmt, handling bool) bool {
 	for _, target := range node.Lhs {
 		if _, ok := target.(*ast.Ident); !ok {
 			return false
@@ -165,7 +173,7 @@ func entryAssignment(pass *analysis.Pass, node *ast.AssignStmt, handling bool) b
 	return node.Tok == token.DEFINE || node.Tok == token.ASSIGN
 }
 
-func entryCondition(pass *analysis.Pass, expression ast.Expr) bool {
+func entryCondition(pass *entryCheck, expression ast.Expr) bool {
 	switch node := expression.(type) {
 	case *ast.BinaryExpr:
 		operators := []token.Token{token.EQL, token.NEQ, token.LSS, token.GTR, token.LEQ, token.GEQ, token.LAND, token.LOR}
@@ -178,7 +186,7 @@ func entryCondition(pass *analysis.Pass, expression ast.Expr) bool {
 	}
 }
 
-func entryExpression(pass *analysis.Pass, expression ast.Expr, handling bool) bool {
+func entryExpression(pass *entryCheck, expression ast.Expr, handling bool) bool {
 	switch node := expression.(type) {
 	case *ast.Ident, *ast.BasicLit:
 		return true
@@ -197,9 +205,7 @@ func entryExpression(pass *analysis.Pass, expression ast.Expr, handling bool) bo
 		}
 
 		path := function.Pkg().Path()
-		metadata, err := build.Default.Import(path, "", build.FindOnly)
-		standard := err == nil && metadata.Goroot
-		if standard || handling {
+		if pass.standardPackage(path) || handling {
 			name := path + "." + function.Name()
 			allowed := " errors.Is errors.As errors.Join fmt.Errorf os.Exit "
 			logging := path == "log/slog" && slices.Contains(
@@ -222,6 +228,18 @@ func entryExpression(pass *analysis.Pass, expression ast.Expr, handling bool) bo
 	}
 
 	return false
+}
+
+func (check *entryCheck) standardPackage(path string) bool {
+	if standard, found := check.standardPackages[path]; found {
+		return standard
+	}
+
+	metadata, err := build.Default.Import(path, "", build.FindOnly)
+	standard := err == nil && metadata.Goroot
+	check.standardPackages[path] = standard
+
+	return standard
 }
 
 func entryInteger(value types.Type) bool {

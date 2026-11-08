@@ -29,8 +29,9 @@ func plain(number value.Number) int { return int(number) }
 
 func Value() int {
 	short := sum(1, 2)
+	combine := sum
 	nested := sum(
-		sum(
+		combine(
 			1, 2), 3)
 	comment := sum(
 		4, /* Preserve this comment. */ 5)

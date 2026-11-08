@@ -23,11 +23,11 @@ import (
 //     expression (`fmt.Errorf` with %w, `errors.Join` with multiple
 //     args, etc.).
 //   - Walk back up to the enclosing function body and look for any
-//     slog.Error / slog.Warn / log.Error / log.Warn call within it.
+//     [slog.Error] / [slog.Warn] / log.Error / log.Warn call within it.
 //   - If none, report the return statement.
 //
 // Fix paths:
-//   - Add a slog.Error or slog.Warn call in the same function body
+//   - Add a [slog.Error] or [slog.Warn] call in the same function body
 //     before returning the wrapped error.
 //   - If the function is a pure encoder/decoder, rename it to
 //     match a stdlib codec or io interface (Marshal*/Unmarshal* prefix,

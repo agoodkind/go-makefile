@@ -53,8 +53,8 @@ import (
 //     a composite-literal wrapper. This avoids false positives on
 //     legitimate structured logs where the value happens to be a
 //     marker-bearing type used as real telemetry.
-//   - The detector does not fire on calls to slog.LogAttrs or on
-//     slog.With. The bypass shape we have observed in clyde adopters
+//   - The detector does not fire on calls to [slog.LogAttrs] or on
+//     [slog.With]. The bypass shape we have observed in clyde adopters
 //     uses positional key-value pairs.
 //   - The detector requires the marker method to have an empty body
 //     (no statements). A marker method with even a stray return

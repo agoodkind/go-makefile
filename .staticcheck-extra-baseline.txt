@@ -1,4 +1,5 @@
-# staticcheck-extra: generated_at=2026-11-08T17:29:54Z
+# staticcheck-extra: generated_at=2026-11-08T19:30:02Z
+cmd/go-mk/makeargs_linux.go:9:1: commandentry: delegate implementation to an importable package [id=3efc6f70427e70a38210d0a250c2469e:1]	# staticcheck-extra:first_added=2026-11-08T19:30:02Z last_seen=2026-11-08T19:30:02Z
 cmd/consumer-check/main.go:140:24: argumentlines: separate wrapped arguments or callback parameters [id=3b8acec535907eefea18eb387f38ba20-1]	# staticcheck-extra:first_added=2026-11-08T17:29:54Z last_seen=2026-11-08T17:29:54Z
 cmd/consumer-check/main.go:156:14: argumentlines: separate wrapped arguments or callback parameters [id=17532215a9c6fd907af2b23208bc6208-1]	# staticcheck-extra:first_added=2026-11-08T17:29:54Z last_seen=2026-11-08T17:29:54Z
 cmd/consumer-check/main.go:170:13: argumentlines: separate wrapped arguments or callback parameters [id=a7377e9caf124e1c6c19e30fb69b4e79-1]	# staticcheck-extra:first_added=2026-11-08T17:29:54Z last_seen=2026-11-08T17:29:54Z

@@ -98,6 +98,7 @@ func runArgumentLines(pass *analysis.Pass, selected map[string]bool) (any, error
 			identity, err := ruleFingerprint(node)
 			if err != nil {
 				layoutError = err
+
 				return false
 			}
 
@@ -105,6 +106,7 @@ func runArgumentLines(pass *analysis.Pass, selected map[string]bool) (any, error
 			list, err := layout.list(node)
 			if err != nil {
 				layoutError = err
+
 				return false
 			}
 
@@ -212,6 +214,7 @@ func (layout argumentLayout) list(node ast.Node) (argumentList, error) {
 
 func (layout argumentLayout) gap(start, end token.Pos) []byte {
 	file := layout.pass.Fset.File(start)
+
 	return layout.contents[file.Offset(start):file.Offset(end)]
 }
 
