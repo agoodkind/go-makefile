@@ -162,12 +162,10 @@ func loadGrpcMethodNameTargets(a *analysis.Analyzer) []grpcMethodNameTarget {
 // last slash is then split on dots. A two-part tail names a function;
 // a three-part tail names a Type.Method pair.
 func parseGrpcMethodNameTarget(entry string) (grpcMethodNameTarget, bool) {
-	colonIdx := strings.LastIndex(entry, ":")
-	if colonIdx < 0 {
+	head, tail, hasColon := strings.CutLast(entry, ":")
+	if !hasColon {
 		return grpcMethodNameTarget{}, false
 	}
-	head := entry[:colonIdx]
-	tail := entry[colonIdx+1:]
 	argIndex, err := strconv.Atoi(tail)
 	if err != nil || argIndex < 0 {
 		return grpcMethodNameTarget{}, false
@@ -207,11 +205,11 @@ func parseGrpcMethodNameTarget(entry string) (grpcMethodNameTarget, bool) {
 // directory and the second return is false; the caller falls back to
 // dotted parsing in that case.
 func splitGrpcMethodNameHead(head string) (string, string, bool) {
-	slashIdx := strings.LastIndex(head, "/")
-	if slashIdx < 0 {
+	directory, segment, hasSlash := strings.CutLast(head, "/")
+	if !hasSlash {
 		return "", head, false
 	}
-	return head[:slashIdx], head[slashIdx+1:], true
+	return directory, segment, true
 }
 
 // matchGrpcMethodNameTarget tries to match the call against any
