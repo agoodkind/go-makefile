@@ -61,7 +61,7 @@ func golangciCommand(mode string) (string, []string, error) {
 // and extra path environment variables.
 func golangciExcludePattern() string {
 	return lint.ExcludePattern(
-		lintEnvDefault("GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
+		os.Getenv("GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS"),
 		os.Getenv("GOLANGCI_LINT_EXCLUDE_PATHS"),
 	)
 }

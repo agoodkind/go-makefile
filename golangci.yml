@@ -125,7 +125,6 @@ linters:
       - legacy
       - std-error-handling
     paths:
-      - _test\.go
       - vendor
       - gen
       - third_party$
