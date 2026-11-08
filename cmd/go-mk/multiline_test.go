@@ -55,15 +55,18 @@ func TestNoticeBaselinesMultilineGolangciDiagnostics(t *testing.T) {
 	noticesPath := filepath.Join(consumer, "notices.txt")
 	command := exec.CommandContext(t.Context(), engine, "notice")
 	command.Dir = consumer
-	command.Env = append(
-		os.Environ(),
+	command.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + os.Getenv("HOME"),
+		"TMPDIR=" + os.Getenv("TMPDIR"),
+		"GOCACHE=" + os.Getenv("GOCACHE"),
 		"_GO_MK_ROOT="+consumer,
 		"_GO_MK_NOTICES_FILE="+noticesPath,
 		"GOLANGCI_LINT="+linter,
 		"GOLANGCI_LINT_FLAGS=-c .make/golangci.yml",
 		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml",
 		"GOLANGCI_LINT_TARGETS=./widget",
-	)
+	}
 	output, err := command.CombinedOutput()
 
 	if err != nil || strings.Contains(string(output), "auto-baseline failed") {
