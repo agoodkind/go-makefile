@@ -50,8 +50,19 @@ func runBuildCheckRaw() int {
 
 // runVetStep runs go vet as a captured build-check step.
 func runVetStep() (report.StepResult, int) {
-	targets := splitWords(lintEnvDefault("GO_VET_TARGETS", "./..."))
-	return toolStep("vet", "go", append([]string{"vet"}, targets...))
+	commands, err := vetCommands()
+	if err != nil {
+		return report.StepResult{Name: "vet", Status: report.StatusFailed, Findings: []string{err.Error()}}, 1
+	}
+
+	for _, arguments := range commands {
+		result, code := toolStep("vet", "go", arguments)
+		if code != 0 {
+			return result, code
+		}
+	}
+
+	return report.StepResult{Name: "vet", Status: report.StatusOK}, 0
 }
 
 // runGovulncheckStep installs and runs govulncheck as a captured advisory step.

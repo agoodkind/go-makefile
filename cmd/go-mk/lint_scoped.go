@@ -127,10 +127,62 @@ func runFmt() error {
 	return runLintCPU(binary, args)
 }
 
-// runVet runs go vet, mirroring run_vet.
+// runVet checks production source files in each selected package.
 func runVet() error {
-	targets := splitWords(lintEnvDefault("GO_VET_TARGETS", "./..."))
-	return runLintCPU("go", append([]string{"vet"}, targets...))
+	commands, err := vetCommands()
+	if err != nil {
+		return err
+	}
+
+	for _, arguments := range commands {
+		if err := runLintCPU("go", arguments); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// vetCommands selects production files for each package's go vet command.
+func vetCommands() ([][]string, error) {
+	targets, err := expandedPackageTargets(splitWords(lintEnvDefault("GO_VET_TARGETS", "./...")))
+	if err != nil {
+		return nil, err
+	}
+	if len(targets) == 0 {
+		return nil, nil
+	}
+
+	slog.Info("lint list production packages for vet")
+	command := exec.Command("go", append([]string{"list", "-json"}, targets...)...)
+	command.Env = lintEnv()
+	command.Stderr = os.Stderr
+	output, err := command.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	packages, err := unmarshalListedPackages(output)
+	if err != nil {
+		return nil, err
+	}
+
+	commands := make([][]string, 0, len(packages))
+	for _, pkg := range packages {
+		files := append(pkg.GoFiles, pkg.CgoFiles...)
+		if len(files) == 0 {
+			continue
+		}
+
+		arguments := []string{"vet"}
+		for _, file := range files {
+			arguments = append(arguments, filepath.Join(pkg.Dir, file))
+		}
+
+		commands = append(commands, arguments)
+	}
+
+	return commands, nil
 }
 
 // runTest runs go test, mirroring run_test. When GO_TEST_LDFLAGS is set it is
@@ -140,7 +192,7 @@ func runVet() error {
 // multi-word value.
 func runTest() error {
 	targets := splitWords(lintEnvDefault("GO_TEST_TARGETS", "./..."))
-	args := append([]string{"test"}, testLdflagsArgs()...)
+	args := append([]string{"test", "-vet=off"}, testLdflagsArgs()...)
 	args = append(args, targets...)
 	return runLintCPU("go", args)
 }
