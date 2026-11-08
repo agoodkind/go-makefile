@@ -369,7 +369,7 @@ func extractFindings(rawPath, matchPattern, excludePattern string) ([]string, in
 	root := lintRoot()
 	kept := make([]string, 0, len(lines))
 	droppedOutOfTree := 0
-	for _, line := range lines {
+	for _, line := range findings.JoinDiagnosticLines(lines) {
 		if !pattern.MatchString(line) {
 			continue
 		}
