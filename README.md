@@ -60,13 +60,14 @@ by one fetched file, `go.mk`.
   the consumer binary install to the `selfupdate` package. See
   [docs/installer/overview.md](docs/installer/overview.md) for the flow and
   trust chain.
-- Do not pin the lint tools (golangci-lint, gocyclo, deadcode, govulncheck,
-  gofumpt, goimports, staticcheck-extra) with a go.mod `tool` directive; go.mk
-  installs them itself with versions it controls via the `*_INSTALL` variables,
-  and a duplicate directive only drags each tool's transitive graph into the
-  module. Scaffold removes these managed tool directives on every run and leaves
-  project-specific tools alone; run `go mod tidy` afterward to prune their
-  dependencies.
+- Do not add Go `tool` directives for managed lint tools (golangci-lint,
+  gocyclo, deadcode, govulncheck, gofumpt, goimports, staticcheck-extra),
+  because go.mk installs them. By default, `staticcheck-extra` uses a
+  verified binary from the shared rolling release; `STATICCHECK_EXTRA_INSTALL`
+  selects a source installation. The other `*_INSTALL` variables select tool
+  package versions. Scaffold removes managed tool directives on every run and
+  leaves project-specific tools alone; run `go mod tidy` afterward to prune
+  their dependencies.
 - Lint gates diff tool findings against committed baseline files and fail only on
   new findings. Scaffold adds repo-local `.gitignore` allowlist rules for future
   baseline files and `.go-mk-applied-notices`, but it does not create them during

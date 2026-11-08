@@ -93,6 +93,7 @@ func testReleaseFeed(tag string) string {
   <id>tag:github.com,2008:https://github.com/owner/name/releases</id>
   <entry>
     <id>tag:github.com,2008:Repository/1/` + tag + `</id>
+    <updated>2026-09-29T00:00:00Z</updated>
   </entry>
 </feed>
 `
