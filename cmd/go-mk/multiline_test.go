@@ -129,6 +129,7 @@ func TestNoticeBaselinesMultilineGolangciDiagnostics(t *testing.T) {
 const excerptSource = `package widget
 
 func unusedHelper() int { return 1 } // returns one from (unusedHelper)
+func unusedMapped() int { return 2 } // input.proto:7: original reference (typecheck)
 `
 
 // TestNoticeExcludesSourceLinesFromBaseline checks that a notice baselines a
@@ -181,6 +182,7 @@ func TestNoticeExcludesSourceLinesFromBaseline(t *testing.T) {
 
 	baseline := readConsumerFile(t, consumer, ".golangci-lint-baseline.txt")
 	located := false
+	mapped := false
 
 	for line := range strings.SplitSeq(baseline, "\n") {
 		if strings.HasPrefix(line, "func unusedHelper") {
@@ -190,9 +192,12 @@ func TestNoticeExcludesSourceLinesFromBaseline(t *testing.T) {
 		if strings.HasPrefix(line, "widget/helper.go:3:") && strings.Contains(line, "(unused)") {
 			located = true
 		}
+		if strings.HasPrefix(line, "widget/helper.go:4:") && strings.Contains(line, "(unused)") {
+			mapped = true
+		}
 	}
 
-	if !located {
+	if !located || !mapped {
 		t.Fatalf("baseline omitted the located unused finding:\n%s", baseline)
 	}
 }

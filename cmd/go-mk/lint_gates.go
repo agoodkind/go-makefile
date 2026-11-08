@@ -53,6 +53,9 @@ func golangciCommand(mode string) (string, []string, error) {
 	}
 	args := []string{mode}
 	args = append(args, splitWords(flagsText)...)
+	if mode == "run" {
+		args = append(args, "--output.text.print-issued-lines=false")
+	}
 	args = append(args, targets...)
 	return binary, args, nil
 }
@@ -246,22 +249,17 @@ func captureGolangciScope(rawPath, findingsPath string, mode captureMode) error 
 	excludePattern := golangciExcludePattern()
 	if mode == captureNotice {
 		excludePattern = ""
-		lines, err := readFileLines(rawPath)
-		if err != nil {
-			return err
-		}
-		for _, finding := range findings.JoinDiagnosticLines(lines) {
-			_, located := findings.FindingPath(finding)
-			if located && strings.HasSuffix(finding, "(typecheck)") {
-				return fmt.Errorf("notice golangci-lint could not type-check the source: %s", finding)
-			}
-		}
 	}
 	extracted, _, err := extractFindings(rawPath, goFindingPattern.String(), excludePattern)
 	if err != nil {
 		return err
 	}
 	if mode == captureNotice {
+		for _, finding := range extracted {
+			if strings.HasSuffix(finding, "(typecheck)") {
+				return fmt.Errorf("notice golangci-lint could not type-check the source: %s", finding)
+			}
+		}
 		extracted = filterExcluded(extracted, golangciExcludePattern())
 	}
 	scopePattern := lint.GolangciScopePattern(
