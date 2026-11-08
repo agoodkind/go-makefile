@@ -77,8 +77,8 @@ func subRepoColdCheckout(t *testing.T) subRepoFixture {
 		"GIT_COMMITTER_NAME":  "Submodule Test",
 		"GIT_COMMITTER_EMAIL": "submodule-test@example.invalid",
 	})
-	binary := subRepoBuildEngine(t, fixture, environment)
-	// The Go settings apply only to the engine build in this fixture.
+	binary := gomk.BuiltTestEngine(t)
+	// Git fixture commands do not need the isolated Go settings.
 	var env []string
 	for _, entry := range environment {
 		if strings.HasPrefix(entry, "GO") || strings.HasPrefix(entry, "CGO_ENABLED=") {
@@ -99,21 +99,6 @@ func subRepoColdCheckout(t *testing.T) subRepoFixture {
 	checkout := filepath.Join(fixture, "checkout")
 	subRepoGit(t, env, fixture, "clone", "--no-recurse-submodules", consumer, checkout)
 	return subRepoFixture{checkout: checkout, binary: binary, env: env}
-}
-
-func subRepoBuildEngine(t *testing.T, fixture string, env []string) string {
-	t.Helper()
-	binary := filepath.Join(fixture, "go-mk")
-	command := exec.Command("go", "build", "-o", binary, ".")
-	command.Env = append(env,
-		"GOPROXY=https://proxy.golang.org",
-		"GOSUMDB=sum.golang.org",
-	)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("build go-mk failed: %v\n%s", err, output)
-	}
-	return binary
 }
 
 func subRepoInit(t *testing.T, env []string, directory, file, content string) string {
