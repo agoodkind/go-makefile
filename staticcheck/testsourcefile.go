@@ -148,19 +148,16 @@ func propagateReadInputs(
 			return true
 		}
 
-		fromRead := false
-
-		for _, right := range assignment.Rhs {
-			if usesReadInput(pass, right, read, tainted) {
-				fromRead = true
+		for index, left := range assignment.Lhs {
+			right := assignment.Rhs[0]
+			if len(assignment.Rhs) == len(assignment.Lhs) {
+				right = assignment.Rhs[index]
 			}
-		}
 
-		if !fromRead {
-			return true
-		}
+			if !usesReadInput(pass, right, read, tainted) {
+				continue
+			}
 
-		for _, left := range assignment.Lhs {
 			identifier, ok := left.(*ast.Ident)
 			if !ok || identifier.Name == "_" {
 				continue

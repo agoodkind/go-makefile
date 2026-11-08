@@ -7,5 +7,5 @@
 1	INTRODUCED=2026-05-25T19:38:46-07:00 GATE=golangci LINTER=revive RULE=file-length-limit	Enabled the revive file-length-limit rule (max 1000 lines per file). Files already over the limit were auto-baselined into your golangci-lint baseline; review the diff and commit it. New files over 1000 lines will fail lint.
 2	INTRODUCED=2026-10-05T00:00:00-07:00 GATE=staticcheck-extra PATTERN=_test\.go:	Enabled the test-habit analyzers (testpackage, testassert, testdouble, testseam, testsourcefile) in the staticcheck-extra gate. Existing findings in _test.go files were auto-baselined into the staticcheck-extra baseline; review the diff and commit it. New test code with these findings fails the gate. See docs/staticcheck/tests.md in go-makefile.
 3	INTRODUCED=2026-11-07T13:41:31-08:00 GATE=staticcheck-extra PATTERN=doc_structure:	Require an introduction, explanation, and example or layout in exported function comments. Review and commit the baseline for existing findings.
-11	INTRODUCED=2026-11-07T15:10:53-08:00 GATE=golangci LINTER=exhaustruct_v5	Migrated internal struct initialization checks to exhaustruct_v5.
-12	INTRODUCED=2026-11-07T15:10:53-08:00 GATE=golangci LINTER=modernize RULE=embedlit	Enabled promoted-field literal simplification with the v5 struct checker.
+11	INTRODUCED=2026-11-07T15:10:53-08:00 GATE=golangci LINTER=exhaustruct_v5	Internal struct initialization checks use exhaustruct_v5.
+12	INTRODUCED=2026-11-07T15:10:53-08:00 GATE=golangci LINTER=modernize RULE=embedlit	The shared configuration enables the embedlit modernization check.

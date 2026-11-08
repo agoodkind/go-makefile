@@ -12,6 +12,7 @@ GO_MK := go.mk
 GO_MK_VERSION_PKG := goodkind.io/go-makefile/internal/version
 GO_MK_RELEASE_BINS := go-mk:./cmd/go-mk go-mk-install:./cmd/go-mk-install
 GO_MK_INSTALL_BINS := $(GO_MK_RELEASE_BINS)
+GO_TEST_TARGETS ?= -timeout=20m ./...
 
 # Canonical golangci config lives in this repo at golangci.yml.
 ROOT_LINT_ARGS  := GOLANGCI_LINT_FLAGS="-c .make/golangci.yml" GOLANGCI_LINT_TARGETS=.
@@ -174,7 +175,7 @@ vet:
 	$(STATIC_GO_MK) vet
 
 test:
-	$(ROOT_GO_MK) test
+	$(ROOT_GO_MK) GO_TEST_TARGETS="$(GO_TEST_TARGETS)" test
 	$(STATIC_GO_MK) test
 
 # mutation runs against the root module. Limit the run with

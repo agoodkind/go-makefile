@@ -1,9 +1,10 @@
 package main_test
 
 import (
-	"os"
 	"strings"
 	"testing"
+
+	gomk "goodkind.io/go-makefile/cmd/go-mk"
 )
 
 const initializationTypes = `package model
@@ -23,7 +24,7 @@ type Server = http.Server
 // TestExhaustructV5Selection checks internal, aliased, empty, and
 // promoted literals.
 func TestExhaustructV5Selection(test *testing.T) {
-	engine := noticeGitBuildEngine(test, os.Environ())
+	engine := gomk.BuiltTestEngine(test)
 
 	for _, scenario := range []struct {
 		name        string
@@ -64,7 +65,7 @@ func TestExhaustructV5Selection(test *testing.T) {
 // TestExhaustructV5UsesAppliedNotice checks historical adoption and later
 // literal rejection.
 func TestExhaustructV5UsesAppliedNotice(test *testing.T) {
-	engine := noticeGitBuildEngine(test, os.Environ())
+	engine := gomk.BuiltTestEngine(test)
 	consumer := initializationConsumer(test)
 	writeConsumerFile(test, consumer, "notices.txt", lintPolicyNotice(test, "11"))
 	writeConsumerFile(test, consumer, "internal/model/model.go", initializationTypes+`
