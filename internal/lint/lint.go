@@ -43,6 +43,8 @@ func ExcludePattern(defaultPatterns, extraPatterns string) string {
 const testFileExcludePath = `_test\.go:`
 
 var staticcheckTestFileFlags = map[string]struct{}{
+	"filenameprefix": {},
+	"argumentlines":  {},
 	"testdouble":     {},
 	"testpackage":    {},
 	"testassert":     {},

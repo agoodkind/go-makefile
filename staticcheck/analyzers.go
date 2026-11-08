@@ -21,6 +21,9 @@ import "golang.org/x/tools/go/analysis"
 //	multichecker.Main(staticcheck.Analyzers()...)
 func Analyzers() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
+		CommandEntryAnalyzer,
+		FilenamePrefixAnalyzer,
+		ArgumentLinesAnalyzer,
 		DocStructureAnalyzer,
 		SlogErrorWithoutErrAnalyzer,
 		BannedDirectOutputAnalyzer,

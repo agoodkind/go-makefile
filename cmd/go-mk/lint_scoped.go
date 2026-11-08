@@ -7,6 +7,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"strings"
 
 	"goodkind.io/go-makefile/internal/findings"
+	formatting "goodkind.io/go-makefile/internal/format"
 	"goodkind.io/go-makefile/internal/lint"
 )
 
@@ -114,17 +116,20 @@ func moduleGoFiles(targets []string) ([]string, error) {
 // runFmt applies the configured Go formatters scoped to the current module,
 // mirroring run_fmt. It no-ops when the module owns no Go files.
 func runFmt() error {
-	if err := ensureLintTools(); err != nil {
-		return err
+	if err := formatting.Run(
+		ensureLintTools,
+		staticcheckResolveBin,
+		staticcheckSelectedBin,
+		moduleGoFiles,
+		runLintCPU,
+	); err != nil {
+		wrapped := fmt.Errorf("format Go source: %w", err)
+		slog.Error("format Go source", slog.Any("err", wrapped))
+
+		return wrapped
 	}
-	binary, args, err := golangciFmtCommand()
-	if errors.Is(err, errNoGoFiles) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return runLintCPU(binary, args)
+
+	return nil
 }
 
 // runVet runs go vet, mirroring run_vet.

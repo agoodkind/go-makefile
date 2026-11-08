@@ -2,12 +2,15 @@ version: "2"
 
 run:
   timeout: 10m
+  relative-path-mode: wd
 
 linters:
   default: all
   enable:
     - exhaustruct_v5
   disable:
+    # Inline error checks are allowed.
+    - noinlineerr
     # Shared consumers do not have an import allowlist.
     - depguard
     # Use exhaustruct_v5 for struct initialization checks.
@@ -21,6 +24,20 @@ linters:
     # Use wsl_v5 for whitespace checks.
     - wsl
   settings:
+    wsl_v5:
+      default: none
+      enable:
+        - after-block
+        - return
+        - err
+        - for
+        - range
+      allow-first-in-block: false
+      allow-whole-block: false
+      branch-max-lines: 2
+      case-max-lines: 0
+      cuddle-max-statements: 1
+
     cyclop:
       max-complexity: 30
 
