@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	gomk "goodkind.io/go-makefile/cmd/go-mk"
 )
 
 func TestGolangciNoticeUsesOnlyValidHistoricalFindings(t *testing.T) {
-	engine := noticeGitBuildEngine(t, os.Environ())
+	engine := gomk.BuiltTestEngine(t)
 	for _, scenario := range []struct {
 		name       string
 		historical bool
