@@ -21,6 +21,9 @@ import (
 // splits on for printing. It mirrors the awk regexp /:[0-9]+:[0-9]+:/ exactly.
 var locationPattern = regexp.MustCompile(`:[0-9]+:[0-9]+:`)
 
+// lineLocationPattern matches Go diagnostics that omit the column.
+var lineLocationPattern = regexp.MustCompile(`^.+\.go:[0-9]+:[ \t]`)
+
 // blankPattern matches a line that is empty or only spaces and tabs, mirroring
 // the awk /^[ \t]*$/ test that drops blank baseline lines.
 var blankPattern = regexp.MustCompile(`^[ \t]*$`)
@@ -30,6 +33,8 @@ var blankPattern = regexp.MustCompile(`^[ \t]*$`)
 // normalize_path. The prefixes are removed only when they sit at the very start
 // of the line, and each removal feeds the next, so a pwd that is a prefix of cwd
 // is handled by the sequential checks just as the awk does with index()==1.
+//
+// Diagnostics without a column use column one.
 //
 // ---- NormalizePath ----
 func NormalizePath(line, pwd, cwd string) string {
@@ -43,7 +48,15 @@ func NormalizePath(line, pwd, cwd string) string {
 	for strings.HasPrefix(out, "../") {
 		out = out[len("../"):]
 	}
-	return out
+
+	location := lineLocationPattern.FindStringIndex(out)
+	if location == nil {
+		return out
+	}
+
+	column := location[1] - len(": ")
+
+	return out[:column] + ":1" + out[column:]
 }
 
 // Key reduces a finding line to a stable identity by normalizing the path and

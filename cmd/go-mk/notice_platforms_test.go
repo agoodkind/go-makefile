@@ -61,8 +61,8 @@ func TestNoticeRecordsNoBuildErrorsFromAnotherPlatform(t *testing.T) {
 		}
 	}
 
-	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n" {
-		t.Fatalf("applied notices = %q, want notices 1 and 2", applied)
+	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n3\n" {
+		t.Fatalf("applied notices = %q, want notices 1, 2, and 3", applied)
 	}
 }
 

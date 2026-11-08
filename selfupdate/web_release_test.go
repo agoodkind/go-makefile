@@ -36,6 +36,7 @@ type webRelease struct {
 	paths              []string
 	authorizations     []string
 	feedTag            string
+	additionalEntries  string
 	stableTag          string
 	bundle             []byte
 	checksumNamePrefix string
@@ -59,7 +60,9 @@ func (release *webRelease) serve(writer http.ResponseWriter, request *http.Reque
 	switch request.URL.Path {
 	case repoPath + ".atom":
 		feed := `<feed xmlns="http://www.w3.org/2005/Atom"><id>tag:github.com,2008:` + repoPath + `</id>` +
-			`<entry><id>tag:github.com,2008:Repository/1/` + release.feedTag + `</id></entry></feed>`
+			release.additionalEntries +
+			`<entry><id>tag:github.com,2008:Repository/1/` + release.feedTag + `</id>` +
+			`<updated>2026-11-03T16:28:00Z</updated></entry></feed>`
 		_, _ = writer.Write([]byte(feed))
 
 		return
@@ -175,6 +178,31 @@ func TestCheckFindsRollingReleaseInFeedWithoutGitHubAPI(t *testing.T) {
 	}
 
 	release.assertNoAPIRequests(t)
+}
+
+func TestCheckSelectsNewestReleaseWhenFeedStartsWithOlderTag(t *testing.T) {
+	release := newWebRelease(t, webTestRollingTag, webTestStableTag, nil)
+	release.additionalEntries = `<entry><id>tag:github.com,2008:Repository/1/staticcheck/v0.2.0</id>` +
+		`<updated>2026-11-03T15:00:00Z</updated></entry>`
+
+	result, err := selfupdate.Check(context.Background(), webOptions(t, release, true))
+	if err != nil {
+		t.Fatalf("Check() error: %v", err)
+	}
+	if result.LatestTag != webTestRollingTag || result.AssetName != webTestAssetName {
+		t.Fatalf("Check() = %+v, want %s and %s", result, webTestRollingTag, webTestAssetName)
+	}
+	release.assertNoAPIRequests(t)
+}
+
+func TestCheckRejectsFeedEntryWithoutUpdateTime(t *testing.T) {
+	release := newWebRelease(t, webTestRollingTag, webTestStableTag, nil)
+	release.additionalEntries = `<entry><id>tag:github.com,2008:Repository/1/staticcheck/v0.2.0</id></entry>`
+
+	_, err := selfupdate.Check(context.Background(), webOptions(t, release, true))
+	if err == nil || !strings.Contains(err.Error(), "missing its update time") {
+		t.Fatalf("Check() error = %v, want a missing update time error", err)
+	}
 }
 
 func TestCheckFindsStableReleaseInRedirectThroughWebBaseEnv(t *testing.T) {

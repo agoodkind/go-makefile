@@ -12,10 +12,13 @@ GO_MK := go.mk
 GO_MK_VERSION_PKG := goodkind.io/go-makefile/internal/version
 GO_MK_RELEASE_BINS := go-mk:./cmd/go-mk go-mk-install:./cmd/go-mk-install
 GO_MK_INSTALL_BINS := $(GO_MK_RELEASE_BINS)
+GO_TEST_TARGETS ?= -timeout=20m ./...
 
 # Canonical golangci config lives in this repo at golangci.yml.
-ROOT_LINT_ARGS  := GOLANGCI_LINT_FLAGS="-c golangci.yml" GOLANGCI_LINT_TARGETS=.
-STATIC_LINT_ARGS := GOLANGCI_LINT_FLAGS="-c ../golangci.yml" GOLANGCI_LINT_TARGETS=./...
+ROOT_LINT_ARGS  := GOLANGCI_LINT_FLAGS="-c .make/golangci.yml" GOLANGCI_LINT_TARGETS=.
+STATIC_LINT_ARGS := GOLANGCI_LINT_FLAGS="-c .make/golangci.yml" GOLANGCI_LINT_TARGETS=./...
+ROOT_LINT_ARGS += GO_MK_NOTICE_MAKEFILE=go.mk
+STATIC_LINT_ARGS += GO_MK_NOTICE_MAKEFILE=../go.mk
 
 # Dog-food: build the staticcheck-extra binary from this checkout instead of
 # `go install ...@latest`, so analyzer changes are exercised before push.
@@ -37,10 +40,11 @@ STATIC_LINT_ARGS += $(GO_MK_LOCAL_ARGS)
 
 ROOT_GO_MK   := $(MAKE) -f $(GO_MK) $(ROOT_LINT_ARGS)
 STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
+ROOT_RELEASE_GO_MK := $(ROOT_GO_MK) GO_MK_MODULES=go-release.mk BINARY=go-mk CMD=./cmd/go-mk VPKG=$(GO_MK_VERSION_PKG) RELEASE_BINS="$(GO_MK_RELEASE_BINS)" INSTALL_BINS="$(GO_MK_INSTALL_BINS)"
 
 .DEFAULT_GOAL := help
 
-.PHONY: build release check lint fmt vet test mutation govulncheck go-version-check build-check ci-changed go-mk-cache-manifest go-mk-ci-job-layout go-mk-golangci-cache-save-decision go-mk-generate \
+.PHONY: build release go-mk-release-assets check lint fmt vet test mutation govulncheck go-version-check build-check ci-changed go-mk-cache-manifest go-mk-ci-job-layout go-mk-golangci-cache-save-decision go-mk-generate \
         lint-tools lint-golangci lint-files lint-diff lint-format lint-gocyclo lint-deadcode lint-make-vars staticcheck-extra \
         lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
         lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new \
@@ -49,6 +53,11 @@ STATIC_GO_MK := $(MAKE) -C staticcheck -f ../$(GO_MK) $(STATIC_LINT_ARGS)
         baseline baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
         go-mk-sync update-go-mk smoke-fetch help help-examples
 
+.PHONY: go-mk-workspace go-mk-cgo-deps
+
+go-mk-workspace go-mk-cgo-deps:
+	$(ROOT_GO_MK) $@
+
 # Each gate target runs the central go.mk recipe once per Go module.
 
 build:
@@ -56,7 +65,10 @@ build:
 	$(STATIC_GO_MK) build
 
 release:
-	$(ROOT_GO_MK) GO_MK_MODULES=go-release.mk BINARY=go-mk CMD=./cmd/go-mk VPKG=$(GO_MK_VERSION_PKG) RELEASE_BINS="$(GO_MK_RELEASE_BINS)" INSTALL_BINS="$(GO_MK_INSTALL_BINS)" release
+	$(ROOT_RELEASE_GO_MK) release
+
+go-mk-release-assets:
+	@$(ROOT_RELEASE_GO_MK) go-mk-release-assets
 
 build-check:
 	$(ROOT_GO_MK) build-check
@@ -163,7 +175,7 @@ vet:
 	$(STATIC_GO_MK) vet
 
 test:
-	$(ROOT_GO_MK) test
+	$(ROOT_GO_MK) GO_TEST_TARGETS="$(GO_TEST_TARGETS)" test
 	$(STATIC_GO_MK) test
 
 # mutation runs against the root module. Limit the run with

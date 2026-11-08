@@ -17,7 +17,7 @@ func TestRunNoticeRecordsDirectiveWhenAdoptionIsAfterNotice(t *testing.T) {
 	}
 
 	environment := noticeGitEnvironment(t)
-	engine := noticeGitBuildEngine(t, environment)
+	engine := gomk.BuiltTestEngine(t)
 	root := noticeGitRepository(t, environment, "2026-05-26T03:38:46Z")
 	baselinePath := filepath.Join(root, ".golangci-lint-baseline.txt")
 	if err := os.WriteFile(baselinePath, []byte("# existing baseline\n"), 0o644); err != nil {
@@ -68,18 +68,6 @@ func noticeGitEnvironment(t *testing.T) []string {
 		"GIT_COMMITTER_EMAIL": "notice@example.invalid",
 		"GOPATH":              filepath.Join(home, "go"),
 	})
-}
-
-func noticeGitBuildEngine(t *testing.T, environment []string) string {
-	t.Helper()
-	engine := filepath.Join(t.TempDir(), "go-mk")
-	command := exec.Command("go", "build", "-o", engine, ".")
-	command.Env = append(environment, "GOPROXY=https://proxy.golang.org", "GOSUMDB=sum.golang.org")
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("build go-mk: %v\n%s", err, output)
-	}
-
-	return engine
 }
 
 func noticeGitRepository(t *testing.T, environment []string, adoptionDate string) string {

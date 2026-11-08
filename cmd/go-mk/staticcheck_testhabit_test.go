@@ -33,8 +33,8 @@ func TestStaticcheckExtraBaselinesOlderTestFindingsOnce(t *testing.T) {
 		t.Fatalf("baseline lacks the older test finding %s:\n%s", olderTestFinding, baseline)
 	}
 
-	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n" {
-		t.Fatalf("applied notices = %q, want notices 1 and 2", applied)
+	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n3\n" {
+		t.Fatalf("applied notices = %q, want notices 1, 2, and 3", applied)
 	}
 
 	writeConsumerFile(t, consumerDir, "widget/useful_test.go", assertingTest)
@@ -99,7 +99,7 @@ func newConsumerRepository(t *testing.T, commitDate string) string {
 		"widget/widget_test.go": "package widget\n\nimport \"testing\"\n\nfunc TestDouble(t *testing.T) {\n\tif Double(2) != 4 {\n\t\tt.Fatal(\"Double(2) != 4\")\n\t}\n}\n",
 		".make/golangci.yml":    "version: \"2\"\n",
 		".gitignore":            ".make/\n",
-		"notices.txt":           "1\tINTRODUCED=2026-05-25T19:38:46-07:00 GATE=golangci LINTER=revive RULE=file-length-limit\tEnable the file length rule\n2\tINTRODUCED=2026-10-05T00:00:00-07:00 GATE=staticcheck-extra PATTERN=_test\\.go:\tEnable test checks\n",
+		"notices.txt":           lintPolicyNotice(t, "1") + lintPolicyNotice(t, "2") + lintPolicyNotice(t, "3"),
 		appliedNoticeFile:       "1\n",
 		"Makefile":              "GO_MK_DEV_DIR := " + repoRoot + "\n_GO_MK_PROVISIONED := 1\ninclude " + filepath.Join(repoRoot, "go.mk") + "\n_GO_MK_NOTICES_FILE := " + filepath.Join(consumerDir, "notices.txt") + "\n",
 	}

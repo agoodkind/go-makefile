@@ -948,6 +948,9 @@ var (
 	testEngineErr  error
 )
 
+// BuiltTestEngine gives external command fixtures the cached real engine.
+var BuiltTestEngine = builtTestEngine
+
 func builtTestEngine(t *testing.T) string {
 	t.Helper()
 	root := repoRootForTest(t)

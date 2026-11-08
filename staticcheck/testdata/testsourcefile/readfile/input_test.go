@@ -16,7 +16,8 @@ func TestPassesContentToProduction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if readfile.Parse(raw) == 0 {
+	_, content := "constant", raw
+	if readfile.Parse(content) == 0 {
 		t.Fatal("Parse returned 0")
 	}
 }
@@ -58,5 +59,19 @@ func TestAssertsOnText(t *testing.T) {
 	}
 	if readfile.Parse(nil) != 0 {
 		t.Fatal("Parse(nil) != 0")
+	}
+}
+
+func TestParallelAssignmentDoesNotUseUnrelatedInput(t *testing.T) {
+	raw, err := os.ReadFile(sharedDocument) // want `reads the file at the constant path "../../instances/network.json"`
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, safe := string(raw), []byte("constant")
+	if !strings.Contains(text, "table-id") {
+		t.Fatal("document omits table-id")
+	}
+	if readfile.Parse(safe) == 0 {
+		t.Fatal("Parse returned 0")
 	}
 }

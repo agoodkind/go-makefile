@@ -8,11 +8,21 @@ import (
 )
 
 func captureNoticeStaticcheckFindings(rawPath, findingsPath string) error {
-	if err := captureStaticcheckFindings(rawPath, findingsPath, captureNotice); err != nil {
-		return err
+	if err := notice.CaptureStaticcheck(
+		rawPath,
+		findingsPath,
+		captureStaticcheckFindings,
+		captureNotice,
+		addOtherPlatformFindings,
+		lintRoot,
+	); err != nil {
+		wrapped := fmt.Errorf("capture scoped notice findings: %w", err)
+		slog.Error("capture notice findings", slog.Any("err", wrapped))
+
+		return wrapped
 	}
 
-	return addOtherPlatformFindings(findingsPath)
+	return nil
 }
 
 func restrictNoticeFindings(
