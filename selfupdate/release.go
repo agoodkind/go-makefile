@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"golang.org/x/mod/semver"
 )
@@ -39,7 +40,8 @@ type releaseFeed struct {
 }
 
 type releaseFeedEntry struct {
-	ID string `xml:"id"`
+	ID      string    `xml:"id"`
+	Updated time.Time `xml:"updated"`
 }
 
 func fetchLatestRelease(ctx context.Context, options Options) (release, error) {
@@ -73,13 +75,22 @@ func fetchNewestFeedTag(ctx context.Context, options Options) (string, error) {
 		log.WarnContext(ctx, "update release feed had no entry", "repo", repo, "err", noReleaseErr)
 		return "", noReleaseErr
 	}
-	_, entryPath, found := strings.Cut(feed.Entries[0].ID, releaseFeedIDMarker)
+	newest := feed.Entries[0]
+	for _, entry := range feed.Entries {
+		if entry.Updated.IsZero() {
+			return "", fmt.Errorf("release feed entry %q is missing its update time", entry.ID)
+		}
+		if entry.Updated.After(newest.Updated) {
+			newest = entry
+		}
+	}
+	_, entryPath, found := strings.Cut(newest.ID, releaseFeedIDMarker)
 	if !found {
-		return "", fmt.Errorf("release feed entry id %q has no repository path", feed.Entries[0].ID)
+		return "", fmt.Errorf("release feed entry id %q has no repository path", newest.ID)
 	}
 	_, tag, found := strings.Cut(entryPath, "/")
 	if !found || tag == "" {
-		return "", fmt.Errorf("release feed entry id %q has no tag", feed.Entries[0].ID)
+		return "", fmt.Errorf("release feed entry id %q has no tag", newest.ID)
 	}
 	return tag, nil
 }
