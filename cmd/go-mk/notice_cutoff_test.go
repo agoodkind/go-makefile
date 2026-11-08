@@ -31,7 +31,7 @@ func TestNoticeRejectsFindingsCommittedAfterItsEffectiveDate(t *testing.T) {
 				runConsumerGit(t, consumerDir, scenario.commitDate, "commit", "--quiet", "--message", "Add a later test")
 			}
 
-			output, err := runConsumerMake(consumerDir, "staticcheck-extra")
+			output, err := runConsumerMake(consumerDir, "staticcheck-extra", testAnalyzerFlags)
 			if err == nil {
 				t.Fatalf("gate passed on a finding added after the notice took effect:\n%s", output)
 			}
@@ -71,7 +71,7 @@ func TestNoticeRejectsLaterSubtestsWithTheSameDiagnostic(t *testing.T) {
 			runConsumerGit(t, consumerDir, afterNoticeDate, "add", "widget/subtests_test.go")
 			runConsumerGit(t, consumerDir, afterNoticeDate, "commit", "--quiet", "--message", "Add a later subtest")
 
-			output, err := runConsumerMake(consumerDir, "staticcheck-extra")
+			output, err := runConsumerMake(consumerDir, "staticcheck-extra", testAnalyzerFlags)
 			if err == nil {
 				t.Fatalf("gate passed with a later occurrence of a historical diagnostic:\n%s", output)
 			}
@@ -96,7 +96,7 @@ func TestNoticePreparesHistoricalGeneratedSource(t *testing.T) {
 	runConsumerGit(t, consumerDir, beforeNoticeDate, "add", ".")
 	runConsumerGit(t, consumerDir, beforeNoticeDate, "commit", "--quiet", "--message", "Add generated source")
 
-	output, err := runConsumerMake(consumerDir, "staticcheck-extra")
+	output, err := runConsumerMake(consumerDir, "staticcheck-extra", testAnalyzerFlags)
 	if err != nil {
 		t.Fatalf("notice failed to analyze the prepared historical source:\n%v\n%s", err, output)
 	}
@@ -118,7 +118,7 @@ func TestNoticeDoesNotApplyWhenHistoricalSourceDoesNotBuild(t *testing.T) {
 	runConsumerGit(t, consumerDir, afterNoticeDate, "add", "widget/widget.go")
 	runConsumerGit(t, consumerDir, afterNoticeDate, "commit", "--quiet", "--message", "Fix the build error")
 
-	output, err := runConsumerMake(consumerDir, "staticcheck-extra")
+	output, err := runConsumerMake(consumerDir, "staticcheck-extra", testAnalyzerFlags)
 	if err == nil || !strings.Contains(output, "missingValue") {
 		t.Fatalf("gate did not report the historical build error:\n%v\n%s", err, output)
 	}
@@ -139,7 +139,7 @@ func TestNoticePreservesExplicitMakefile(t *testing.T) {
 	}
 	runConsumerGit(t, consumerDir, beforeNoticeDate, "add", ".")
 	runConsumerGit(t, consumerDir, beforeNoticeDate, "commit", "--quiet", "--message", "Use an explicit Makefile")
-	output, err := runConsumerMake(consumerDir, "-f", "pipeline.mk", "GO_MK_NOTICE_MAKEFILE=pipeline.mk", "staticcheck-extra")
+	output, err := runConsumerMake(consumerDir, "-f", "pipeline.mk", "GO_MK_NOTICE_MAKEFILE=pipeline.mk", "staticcheck-extra", testAnalyzerFlags)
 	if err != nil {
 		t.Fatalf("notice failed with an explicit Makefile: %v\n%s", err, output)
 	}

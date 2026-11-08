@@ -29,8 +29,7 @@ const (
 	staticcheckTestFlagsEnv = "STATICCHECK_EXTRA_TEST_FLAGS"
 )
 
-// The engine appends the test-habit list itself. A consumer Makefile that
-// assigns STATICCHECK_EXTRA_FLAGS still runs the test-habit analyzers.
+// The engine appends explicitly configured test analyzer flags.
 func staticcheckFlagsText() string {
 	return strings.TrimSpace(os.Getenv(staticcheckFlagsEnv) + " " + os.Getenv(staticcheckTestFlagsEnv))
 }
