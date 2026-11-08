@@ -24,11 +24,13 @@ func runGoroutineWithoutRecover(pass *analysis.Pass) (any, error) {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		ast.Inspect(file, func(node ast.Node) bool {
 			gostmt, ok := node.(*ast.GoStmt)
 			if !ok {
 				return true
 			}
+
 			lit := goroutineFuncLit(gostmt.Call)
 			if lit == nil {
 				// Goroutine launches a named func. Caller's func body is not
@@ -37,12 +39,15 @@ func runGoroutineWithoutRecover(pass *analysis.Pass) (any, error) {
 				reportAtf(pass, file, gostmt.Pos(), "goroutine launched against a named func; wrap in a func literal that defers recover()")
 				return true
 			}
+
 			if !funcLitHasDeferredRecover(lit) {
 				reportAtf(pass, file, gostmt.Pos(), "goroutine launched without a deferred recover(); add `defer func() { if r := recover(); r != nil { slog.Error(...) } }()`")
 			}
+
 			return true
 		})
 	}
+
 	return nil, nil
 }
 
@@ -50,10 +55,12 @@ func goroutineFuncLit(call *ast.CallExpr) *ast.FuncLit {
 	if call == nil {
 		return nil
 	}
+
 	lit, ok := call.Fun.(*ast.FuncLit)
 	if !ok {
 		return nil
 	}
+
 	return lit
 }
 
@@ -91,21 +98,26 @@ func funcLitHasDeferredRecover(lit *ast.FuncLit) bool {
 	if lit == nil || lit.Body == nil {
 		return false
 	}
+
 	found := false
 	ast.Inspect(lit.Body, func(node ast.Node) bool {
 		if found {
 			return false
 		}
+
 		def, ok := node.(*ast.DeferStmt)
 		if !ok {
 			return true
 		}
+
 		if deferIsRealRecoverHandler(def) {
 			found = true
 			return false
 		}
+
 		return true
 	})
+
 	return found
 }
 
@@ -117,14 +129,17 @@ func deferIsRealRecoverHandler(def *ast.DeferStmt) bool {
 	if def == nil || def.Call == nil {
 		return false
 	}
+
 	// Direct `defer recover()` cannot do anything useful with the value.
 	if id, ok := def.Call.Fun.(*ast.Ident); ok && id.Name == "recover" {
 		return false
 	}
+
 	lit, ok := def.Call.Fun.(*ast.FuncLit)
 	if !ok || lit.Body == nil {
 		return false
 	}
+
 	return funcLitBodyHandlesRecover(lit.Body)
 }
 
@@ -139,13 +154,16 @@ func funcLitBodyHandlesRecover(body *ast.BlockStmt) bool {
 	if body == nil {
 		return false
 	}
+
 	recoverName := recoverBindingName(body)
 	if recoverName == "" {
 		return false
 	}
+
 	if bodyRepanicsWithName(body, recoverName) {
 		return false
 	}
+
 	return recoverNameHasUsefulReference(body, recoverName)
 }
 
@@ -155,13 +173,16 @@ func recoverBindingName(body *ast.BlockStmt) string {
 		if recoverName != "" {
 			return false
 		}
+
 		name, ok := recoverBindingNameFromNode(n)
 		if ok {
 			recoverName = name
 			return false
 		}
+
 		return true
 	})
+
 	return recoverName
 }
 
@@ -174,6 +195,7 @@ func recoverBindingNameFromNode(node ast.Node) (string, bool) {
 			return assignBindsRecover(init)
 		}
 	}
+
 	return "", false
 }
 
@@ -183,16 +205,20 @@ func bodyRepanicsWithName(body *ast.BlockStmt, recoverName string) bool {
 		if rePanic {
 			return false
 		}
+
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
+
 		if callPanicsWithName(call, recoverName) {
 			rePanic = true
 			return false
 		}
+
 		return true
 	})
+
 	return rePanic
 }
 
@@ -201,7 +227,9 @@ func callPanicsWithName(call *ast.CallExpr, recoverName string) bool {
 	if !ok || id.Name != "panic" || len(call.Args) != 1 {
 		return false
 	}
+
 	argIdent, ok := call.Args[0].(*ast.Ident)
+
 	return ok && argIdent.Name == recoverName
 }
 
@@ -211,16 +239,20 @@ func recoverNameHasUsefulReference(body *ast.BlockStmt, recoverName string) bool
 		if useful {
 			return false
 		}
+
 		ident, ok := n.(*ast.Ident)
 		if !ok || ident.Name != recoverName {
 			return true
 		}
+
 		if !identIsOnlyNilCheckOrPanicArg(body, ident) {
 			useful = true
 			return false
 		}
+
 		return true
 	})
+
 	return useful
 }
 
@@ -228,18 +260,22 @@ func assignBindsRecover(s *ast.AssignStmt) (string, bool) {
 	if s == nil || len(s.Lhs) == 0 || len(s.Rhs) == 0 {
 		return "", false
 	}
+
 	call, ok := s.Rhs[0].(*ast.CallExpr)
 	if !ok {
 		return "", false
 	}
+
 	id, ok := call.Fun.(*ast.Ident)
 	if !ok || id.Name != "recover" {
 		return "", false
 	}
+
 	lhsIdent, ok := s.Lhs[0].(*ast.Ident)
 	if !ok || lhsIdent.Name == "_" {
 		return "", false
 	}
+
 	return lhsIdent.Name, true
 }
 
@@ -257,6 +293,7 @@ func identIsOnlyNilCheckOrPanicArg(body *ast.BlockStmt, target *ast.Ident) bool 
 			return len(call.Args) == 1 && call.Args[0] == target
 		}
 	}
+
 	if bin, ok := parent.(*ast.BinaryExpr); ok {
 		if bin.Op == token.EQL || bin.Op == token.NEQ {
 			if isNilLit(bin.X) || isNilLit(bin.Y) {
@@ -264,6 +301,7 @@ func identIsOnlyNilCheckOrPanicArg(body *ast.BlockStmt, target *ast.Ident) bool 
 			}
 		}
 	}
+
 	return false
 }
 
@@ -275,14 +313,19 @@ func buildParentMap(root ast.Node) map[ast.Node]ast.Node {
 			if len(stack) > 0 {
 				stack = stack[:len(stack)-1]
 			}
+
 			return true
 		}
+
 		if len(stack) > 0 {
 			parents[n] = stack[len(stack)-1]
 		}
+
 		stack = append(stack, n)
+
 		return true
 	})
+
 	return parents
 }
 
@@ -312,22 +355,28 @@ func runSilentDeferClose(pass *analysis.Pass) (any, error) {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		ast.Inspect(file, func(node ast.Node) bool {
 			def, ok := node.(*ast.DeferStmt)
 			if !ok {
 				return true
 			}
+
 			_, name, ok := selectorName(def.Call.Fun)
 			if !ok {
 				return true
 			}
+
 			if !isCloseMethodName(name) {
 				return true
 			}
+
 			reportAtf(pass, file, def.Pos(), "bare `defer .%s()` drops the error; wrap in `defer func() { _ = ...%s() }()` for intentional silence or check err with slog.Warn", name, name)
+
 			return true
 		})
 	}
+
 	return nil, nil
 }
 
@@ -336,6 +385,7 @@ func isCloseMethodName(name string) bool {
 	case "Close", "CloseSend", "Shutdown", "Stop":
 		return true
 	}
+
 	return false
 }
 
@@ -344,13 +394,16 @@ func isAnyLevelSlogCall(call *ast.CallExpr) bool {
 	if !ok {
 		return false
 	}
+
 	if !isLikelyLoggerReceiver(receiver) {
 		return false
 	}
+
 	switch name {
-	case "Debug", "Info", "Warn", "Error",
-		"DebugContext", "InfoContext", "WarnContext", "ErrorContext":
+	case selectorDebug, selectorInfo, selectorWarn, selectorError,
+		selectorDebugContext, selectorInfoContext, selectorWarnContext, selectorErrorContext:
 		return true
 	}
+
 	return false
 }

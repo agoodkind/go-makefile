@@ -9,10 +9,81 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
+
+	"goodkind.io/go-makefile/internal/findings"
 )
 
-// CaptureInDirectory prepares and analyzes a historical module with its own lint cache.
+var (
+	errRelativeEngine        = errors.New("historical capture requires an absolute go-mk executable path")
+	errConfigPathMissing     = errors.New("requires a configuration path")
+	errConfigOutsideCheckout = errors.New("historical capture requires a golangci-lint config inside")
+	errConfigWhitespace      = errors.New("historical config path contains whitespace unsupported by lint flags")
+)
+
+// CaptureStaticcheck limits a notice capture to its selected baseline scope.
+//
+// The function combines current-platform and other-platform findings before
+// applying STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN.
+//
+// The callbacks perform these operations:
+//   - capture writes the current-platform findings.
+//   - otherPlatforms adds findings for the remaining target platforms.
+//   - rootPath supplies the root for normalizing diagnostic paths.
+func CaptureStaticcheck[Mode ~int](
+	rawPath string,
+	findingsPath string,
+	capture func(string, string, Mode) error,
+	mode Mode,
+	otherPlatforms func(string) error,
+	rootPath func() string,
+) error {
+	if err := capture(rawPath, findingsPath, mode); err != nil {
+		return err
+	}
+
+	if err := otherPlatforms(findingsPath); err != nil {
+		return err
+	}
+
+	pattern, err := regexp.Compile(os.Getenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN"))
+	if err != nil {
+		return failure("compile staticcheck notice scope", err)
+	}
+
+	lines, err := readHistoryFindings(findingsPath)
+	if err != nil {
+		return err
+	}
+
+	root := rootPath()
+	scoped := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		payload, found := findings.Baseline(line, "staticcheck-extra", root, root)
+		if found && pattern.MatchString(payload) {
+			scoped = append(scoped, payload)
+		}
+	}
+
+	slices.Sort(scoped)
+
+	return writeHistoryFindings(findingsPath, slices.Compact(scoped))
+}
+
+// CaptureInDirectory prepares and analyzes a historical module.
+//
+// The current go-mk executable prepares the historical module before capture.
+// The function restores the caller's directory and environment after
+// capture returns.
+//
+// Historical capture performs these steps:
+//   - Prepare the workspace and cgo dependencies.
+//   - Run capture with a separate lint cache and staged configuration.
+//   - Restore the caller's working directory and environment.
 func CaptureInDirectory(
 	directory string,
 	rawPath string,
@@ -27,16 +98,42 @@ func CaptureInDirectory(
 	return CaptureWithEngine(engine, directory, rawPath, findingsPath, capture)
 }
 
-// CaptureWithEngine prepares a historical module with the supplied go-mk executable.
+// CaptureWithEngine prepares a historical module with a go-mk executable.
+//
+// The engine path must be absolute. The callback runs in the historical module
+// after workspace and cgo preparation, with a separate golangci-lint cache.
+//
+// The caller supplies these inputs:
+//   - engine selects the current go-mk executable.
+//   - directory selects the historical module.
+//   - capture writes the raw output and normalized findings.
 func CaptureWithEngine(
 	engine string,
 	directory string,
 	rawPath string,
 	findingsPath string,
 	capture func(string, string) error,
-) (captureErr error) {
+) error {
+	var restoreError error
+	captureError := captureWithEnvironment(engine, directory, rawPath, findingsPath, capture, &restoreError)
+	combinedError := errors.Join(captureError, restoreError)
+	if combinedError != nil {
+		slog.Error("notice historical capture failed", slog.Any("err", combinedError))
+	}
+
+	return combinedError
+}
+
+func captureWithEnvironment(
+	engine string,
+	directory string,
+	rawPath string,
+	findingsPath string,
+	capture func(string, string) error,
+	restoreError *error,
+) error {
 	if !filepath.IsAbs(engine) {
-		return fmt.Errorf("historical capture requires an absolute go-mk executable path: %q", engine)
+		return inputFailure(errRelativeEngine, "", ": "+strconv.Quote(engine))
 	}
 
 	workingDir, err := os.Getwd()
@@ -60,7 +157,7 @@ func CaptureWithEngine(
 			return failure("set "+name+" for historical capture", err)
 		}
 
-		defer restoreVariable(name, previous, present, &captureErr)
+		defer restoreVariable(name, previous, present, restoreError)
 	}
 
 	if err := os.Chdir(module); err != nil {
@@ -69,7 +166,7 @@ func CaptureWithEngine(
 
 	defer func() {
 		if err := os.Chdir(workingDir); err != nil {
-			captureErr = errors.Join(captureErr, failure("restore notice working directory", err))
+			*restoreError = errors.Join(*restoreError, failure("restore notice working directory", err))
 		}
 	}()
 
@@ -136,7 +233,7 @@ func stageConfigFlags(module, value string) (string, error) {
 		case flag == "-c" || flag == "--config":
 			index++
 			if index == len(flags) || strings.HasPrefix(flags[index], "-") {
-				return "", fmt.Errorf("%s requires a configuration path", flag)
+				return "", inputFailure(errConfigPathMissing, flag+" ", "")
 			}
 
 			path = flags[index]
@@ -150,7 +247,7 @@ func stageConfigFlags(module, value string) (string, error) {
 		}
 
 		if path == "" {
-			return "", fmt.Errorf("%s requires a configuration path", flag)
+			return "", inputFailure(errConfigPathMissing, flag+" ", "")
 		}
 
 		staged, err := stageConfig(module, path)
@@ -192,10 +289,17 @@ func stageConfig(module, path string) (string, error) {
 	}
 
 	if !filepath.IsLocal(relative) {
-		return "", fmt.Errorf("historical capture requires a golangci-lint config inside %s: %s", current, absolute)
+		return "", inputFailure(errConfigOutsideCheckout, "", " "+current+": "+absolute)
 	}
 
-	contents, err := os.ReadFile(absolute)
+	checkout, err := os.OpenRoot(current)
+	if err != nil {
+		return "", failure("open current checkout for config staging", err)
+	}
+
+	defer func() { _ = checkout.Close() }()
+
+	contents, err := checkout.ReadFile(relative)
 	if err != nil {
 		return "", failure("read current golangci-lint config "+absolute, err)
 	}
@@ -231,7 +335,7 @@ func writeStagedConfig(historical, relative string, contents []byte) (string, er
 	name := filepath.Join(directory, ".notice-"+rand.Text()+filepath.Ext(relative))
 	path := filepath.Join(historical, name)
 	if len(strings.Fields(path)) != 1 {
-		return "", fmt.Errorf("historical config path contains whitespace unsupported by lint flags: %s", path)
+		return "", inputFailure(errConfigWhitespace, "", ": "+path)
 	}
 
 	if err := checkout.WriteFile(name, contents, 0o600); err != nil {

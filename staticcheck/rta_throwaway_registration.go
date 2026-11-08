@@ -50,6 +50,7 @@ func newRTAThrowawayRegistrationAnalyzer() *analysis.Analyzer {
 	}
 	a.Flags.String("server_constructors", "", "comma-separated qualified call names that return a server (e.g. grpc.NewServer)")
 	a.Flags.String("registration_funcs", "", "comma-separated qualified call names that register a service on a server (e.g. clydev1.RegisterClydeServiceServer)")
+
 	return a
 }
 
@@ -61,14 +62,17 @@ func runRTAThrowawayRegistration(pass *analysis.Pass) (any, error) {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {
 				continue
 			}
+
 			checkRTAThrowawayInFunc(pass, file, fn, cfg)
 		}
 	}
+
 	return nil, nil
 }
 
@@ -82,29 +86,39 @@ func loadRTAThrowawayConfig(a *analysis.Analyzer) rtaThrowawayConfig {
 		serverConstructors: csvFlagSet(&a.Flags, "server_constructors"),
 		registrationFuncs:  csvFlagSet(&a.Flags, "registration_funcs"),
 	}
+
 	return cfg
 }
 
 func checkRTAThrowawayInFunc(pass *analysis.Pass, file *ast.File, fn *ast.FuncDecl, cfg rtaThrowawayConfig) {
 	for _, stmt := range fn.Body.List {
-		assign, ok := stmt.(*ast.AssignStmt)
-		if !ok || assign.Tok != token.DEFINE {
+		assign, valid := stmt.(*ast.AssignStmt)
+		if !valid || assign.Tok != token.DEFINE {
 			continue
 		}
-		varName, callName, ok := serverConstructorAssignment(assign, cfg)
-		if !ok {
+
+		varName, callName, valid := serverConstructorAssignment(assign, cfg)
+		if !valid {
 			continue
 		}
+
 		usage := classifyServerVarUsage(fn.Body, varName, fn.Body.Pos(), assign.End(), cfg)
 		if usage.servedOrReturned {
 			continue
 		}
+
 		if !usage.registered {
 			continue
 		}
-		reportAtf(pass, file, assign.Pos(),
+
+		reportAtf(
+			pass,
+			file,
+			assign.Pos(),
 			"[RTA003] %q is constructed via %s and only passed to a Register*Server call; the server is never served, returned, or stored. This is a deadcode RTA bypass: drop the registration if the server is unused, or call Serve/ListenAndServe on it",
-			varName, callName)
+			varName,
+			callName,
+		)
 	}
 }
 
@@ -116,21 +130,26 @@ func serverConstructorAssignment(assign *ast.AssignStmt, cfg rtaThrowawayConfig)
 	if len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
 		return "", "", false
 	}
+
 	ident, ok := assign.Lhs[0].(*ast.Ident)
 	if !ok || ident.Name == "_" {
 		return "", "", false
 	}
+
 	call, ok := assign.Rhs[0].(*ast.CallExpr)
 	if !ok {
 		return "", "", false
 	}
+
 	qualified, ok := qualifiedCallName(call)
 	if !ok {
 		return "", "", false
 	}
+
 	if !isServerConstructor(qualified, cfg) {
 		return "", "", false
 	}
+
 	return ident.Name, qualified, true
 }
 
@@ -139,10 +158,12 @@ func isServerConstructor(qualified string, cfg rtaThrowawayConfig) bool {
 		_, hit := cfg.serverConstructors[qualified]
 		return hit
 	}
+
 	_, short, hasDot := strings.CutLast(qualified, ".")
 	if !hasDot {
 		short = qualified
 	}
+
 	return strings.HasSuffix(short, "NewServer")
 }
 
@@ -151,10 +172,12 @@ func isRegistrationFunc(qualified string, cfg rtaThrowawayConfig) bool {
 		_, hit := cfg.registrationFuncs[qualified]
 		return hit
 	}
+
 	_, short, hasDot := strings.CutLast(qualified, ".")
 	if !hasDot {
 		short = qualified
 	}
+
 	return registerServerCallPattern.MatchString(short)
 }
 
@@ -179,12 +202,16 @@ func classifyServerVarUsage(body *ast.BlockStmt, varName string, _ token.Pos, de
 		if !ok || ident.Name != varName {
 			return true
 		}
+
 		if ident.Pos() < declEnd {
 			return true
 		}
+
 		usage.recordReference(ident, parents, cfg)
+
 		return true
 	})
+
 	return usage
 }
 
@@ -193,6 +220,7 @@ func (u *serverVarUsage) recordReference(ident *ast.Ident, parents map[ast.Node]
 	if parent == nil {
 		return
 	}
+
 	switch p := parent.(type) {
 	case *ast.CallExpr:
 		u.recordCallReference(ident, p, parents, cfg)
@@ -216,20 +244,24 @@ func (u *serverVarUsage) recordCallReference(ident *ast.Ident, call *ast.CallExp
 	if !qualifiedOK {
 		return
 	}
+
 	if isRegistrationFunc(qualified, cfg) && len(call.Args) > 0 && call.Args[0] == ident {
 		u.registered = true
 		return
 	}
+
 	_, short, hasDot := strings.CutLast(qualified, ".")
 	if !hasDot {
 		short = qualified
 	}
+
 	switch short {
 	case "Serve", "ListenAndServe", "ServeTLS", "ListenAndServeTLS", "Shutdown", "GracefulStop", "Stop":
 		if isReceiverOfCall(ident, call) {
 			u.servedOrReturned = true
 		}
 	}
+
 	_ = parents
 }
 
@@ -237,6 +269,7 @@ func (u *serverVarUsage) recordSelectorReference(ident *ast.Ident, sel *ast.Sele
 	if sel.X != ident {
 		return
 	}
+
 	gp := parents[sel]
 	if call, ok := gp.(*ast.CallExpr); ok && call.Fun == sel {
 		switch sel.Sel.Name {
@@ -251,6 +284,7 @@ func isReceiverOfCall(ident *ast.Ident, call *ast.CallExpr) bool {
 	if !ok {
 		return false
 	}
+
 	return sel.X == ident
 }
 
@@ -260,6 +294,7 @@ func isStructFieldLHS(assign *ast.AssignStmt) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -274,33 +309,39 @@ func qualifiedCallName(call *ast.CallExpr) (string, bool) {
 		if recv, ok := fun.X.(*ast.Ident); ok {
 			return recv.Name + "." + fun.Sel.Name, true
 		}
+
 		return fun.Sel.Name, true
 	}
+
 	return "", false
 }
 
-// csvFlagSet reads a comma-separated string flag from fs and returns
+// csvFlagSet reads a comma-separated string flag from flags and returns
 // the trimmed non-empty entries as a set. Missing or empty flags
 // produce an empty set, which callers interpret as "use built-in
 // defaults".
-func csvFlagSet(fs *flag.FlagSet, name string) map[string]struct{} {
+func csvFlagSet(flags *flag.FlagSet, name string) map[string]struct{} {
 	out := map[string]struct{}{}
-	if fs == nil {
+	if flags == nil {
 		return out
 	}
-	f := fs.Lookup(name)
+
+	f := flags.Lookup(name)
 	if f == nil {
 		return out
 	}
+
 	val := f.Value.String()
 	if val == "" {
 		return out
 	}
+
 	for item := range strings.SplitSeq(val, ",") {
 		trimmed := strings.TrimSpace(item)
 		if trimmed != "" {
 			out[trimmed] = struct{}{}
 		}
 	}
+
 	return out
 }

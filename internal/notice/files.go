@@ -2,6 +2,7 @@ package notice
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -17,6 +18,13 @@ func historyOutput(message string, args ...string) (string, error) {
 	}
 
 	return string(output), nil
+}
+
+func inputFailure(cause error, prefix, suffix string) error {
+	wrapped := fmt.Errorf("%s%w%s", prefix, cause, suffix)
+	slog.Error("notice input failed", slog.Any("err", wrapped))
+
+	return wrapped
 }
 
 func readHistoryFindings(path string) ([]string, error) {

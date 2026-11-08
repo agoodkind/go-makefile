@@ -106,8 +106,12 @@ func Discard() {
 }
 `)
 
-	output, err := lintPolicyMake(consumer, engine,
-		"lint-golangci", "GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --enable-only=errcheck")
+	output, err := lintPolicyMake(
+		consumer,
+		engine,
+		"lint-golangci",
+		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --enable-only=errcheck",
+	)
 	if err != nil {
 		test.Fatalf("explicit error discard failed: %v\n%s", err, output)
 	}
@@ -157,7 +161,8 @@ func lintPolicyMake(consumer, engine string, arguments ...string) (string, error
 	const environmentCount = 2
 
 	options := make([]string, 0, environmentCount+len(arguments))
-	options = append(options,
+	options = append(
+		options,
 		"GO_MK_BIN="+engine,
 		"_GO_MK_NOTICES_FILE="+filepath.Join(consumer, "notices.txt"),
 	)

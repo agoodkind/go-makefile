@@ -69,22 +69,26 @@ func newRTASlogFieldBypassAnalyzer() *analysis.Analyzer {
 		Doc:  "rejects slog calls whose value-position attribute boxes a marker-typed struct only to keep its method reachable for deadcode",
 		Run:  runRTASlogFieldBypass,
 	}
-	a.Flags.String("marker_methods", defaultRTASlogMarkerMethodList,
-		"comma-separated method names that identify a deadcode marker type when present as an empty no-arg no-return method")
+	a.Flags.String(
+		"marker_methods",
+		defaultRTASlogMarkerMethodList,
+		"comma-separated method names that identify a deadcode marker type when present as an empty no-arg no-return method",
+	)
+
 	return a
 }
 
 const defaultRTASlogMarkerMethodList = "IsLivetrackMeta"
 
 var rtaSlogTrackedFuncs = map[string]struct{}{
-	"Debug":        {},
-	"DebugContext": {},
-	"Info":         {},
-	"InfoContext":  {},
-	"Warn":         {},
-	"WarnContext":  {},
-	"Error":        {},
-	"ErrorContext": {},
+	selectorDebug:        {},
+	selectorDebugContext: {},
+	selectorInfo:         {},
+	selectorInfoContext:  {},
+	selectorWarn:         {},
+	selectorWarnContext:  {},
+	selectorError:        {},
+	selectorErrorContext: {},
 }
 
 func runRTASlogFieldBypass(pass *analysis.Pass) (any, error) {
@@ -92,13 +96,16 @@ func runRTASlogFieldBypass(pass *analysis.Pass) (any, error) {
 	if len(markers) == 0 {
 		markers = map[string]struct{}{"IsLivetrackMeta": {}}
 	}
+
 	emptyMethods := collectEmptyMarkerMethods(pass.Files, markers)
 	for _, file := range pass.Files {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		checkRTASlogFieldBypassInFile(pass, file, markers, emptyMethods)
 	}
+
 	return nil, nil
 }
 
@@ -117,31 +124,39 @@ type rtaSlogMarkerKey struct {
 
 func collectEmptyMarkerMethods(files []*ast.File, markers map[string]struct{}) map[rtaSlogMarkerKey]struct{} {
 	out := map[rtaSlogMarkerKey]struct{}{}
+
 	for _, file := range files {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok {
 				continue
 			}
+
 			if fn.Recv == nil || fn.Name == nil {
 				continue
 			}
+
 			if _, accepted := markers[fn.Name.Name]; !accepted {
 				continue
 			}
+
 			if !funcDeclIsNoArgsNoReturns(fn) {
 				continue
 			}
+
 			if !funcDeclBodyIsEmpty(fn) {
 				continue
 			}
+
 			recv := receiverTypeNameFromFuncDecl(fn)
 			if recv == "" {
 				continue
 			}
+
 			out[rtaSlogMarkerKey{recvTypeName: recv, methodName: fn.Name.Name}] = struct{}{}
 		}
 	}
+
 	return out
 }
 
@@ -149,12 +164,15 @@ func funcDeclIsNoArgsNoReturns(fn *ast.FuncDecl) bool {
 	if fn.Type == nil {
 		return false
 	}
+
 	if fn.Type.Params != nil && len(fn.Type.Params.List) > 0 {
 		return false
 	}
+
 	if fn.Type.Results != nil && len(fn.Type.Results.List) > 0 {
 		return false
 	}
+
 	return true
 }
 
@@ -162,6 +180,7 @@ func funcDeclBodyIsEmpty(fn *ast.FuncDecl) bool {
 	if fn.Body == nil {
 		return false
 	}
+
 	return len(fn.Body.List) == 0
 }
 
@@ -174,20 +193,25 @@ func receiverTypeNameFromFuncDecl(fn *ast.FuncDecl) string {
 	if fn.Recv == nil || len(fn.Recv.List) == 0 {
 		return ""
 	}
+
 	expr := fn.Recv.List[0].Type
 	if star, ok := expr.(*ast.StarExpr); ok {
 		expr = star.X
 	}
+
 	if idx, ok := expr.(*ast.IndexExpr); ok {
 		expr = idx.X
 	}
+
 	if idx, ok := expr.(*ast.IndexListExpr); ok {
 		expr = idx.X
 	}
+
 	ident, ok := expr.(*ast.Ident)
 	if !ok {
 		return ""
 	}
+
 	return ident.Name
 }
 
@@ -197,6 +221,7 @@ func checkRTASlogFieldBypassInFile(pass *analysis.Pass, file *ast.File, markers 
 		if !ok || fn.Body == nil {
 			continue
 		}
+
 		checkRTASlogFieldBypassInFunc(pass, file, fn, markers, emptyMethods)
 	}
 }
@@ -207,9 +232,11 @@ func checkRTASlogFieldBypassInFunc(pass *analysis.Pass, file *ast.File, fn *ast.
 		if !ok {
 			return true
 		}
+
 		if !isTrackedSlogCall(call) {
 			return true
 		}
+
 		valueArgs := slogValueArgPositions(call)
 		for _, idx := range valueArgs {
 			arg := call.Args[idx]
@@ -217,14 +244,23 @@ func checkRTASlogFieldBypassInFunc(pass *analysis.Pass, file *ast.File, fn *ast.
 			if !isMarker {
 				continue
 			}
+
 			if !isInlineOrLocallyScopedValue(fn.Body, arg) {
 				continue
 			}
+
 			fieldKey := slogFieldKeyForValue(call, idx)
-			reportAtf(pass, file, arg.Pos(),
+			reportAtf(
+				pass,
+				file,
+				arg.Pos(),
 				"[RTA004] slog field %q boxes a marker-typed value of %q (carries empty method %q) and the value has no non-slog consumer; this is a deadcode RTA bypass. Drop the field, or route the value through a real consumer if it is genuinely load-bearing",
-				fieldKey, formatType(recvType), markerName)
+				fieldKey,
+				formatType(recvType),
+				markerName,
+			)
 		}
+
 		return true
 	})
 }
@@ -239,12 +275,15 @@ func isTrackedSlogCall(call *ast.CallExpr) bool {
 	if !ok {
 		return false
 	}
+
 	if _, tracked := rtaSlogTrackedFuncs[name]; !tracked {
 		return false
 	}
+
 	if receiver == "slog" {
 		return true
 	}
+
 	return isLikelyLoggerReceiver(receiver)
 }
 
@@ -258,17 +297,22 @@ func slogValueArgPositions(call *ast.CallExpr) []int {
 	if !ok {
 		return nil
 	}
+
 	messageIndex := 0
 	if strings.HasSuffix(name, "Context") {
 		messageIndex = 1
 	}
+
 	if len(call.Args) <= messageIndex+1 {
 		return nil
 	}
+
 	var out []int
+
 	for i := messageIndex + 2; i < len(call.Args); i += 2 {
 		out = append(out, i)
 	}
+
 	return out
 }
 
@@ -280,10 +324,12 @@ func slogFieldKeyForValue(call *ast.CallExpr, valueIdx int) string {
 	if valueIdx == 0 {
 		return "(unknown key)"
 	}
+
 	keyExpr := call.Args[valueIdx-1]
 	if value, ok := stringLiteral(keyExpr); ok {
 		return value
 	}
+
 	return "(non-literal key)"
 }
 
@@ -298,27 +344,34 @@ func classifyMarkerValue(pass *analysis.Pass, expr ast.Expr, markers map[string]
 	if pass.TypesInfo == nil {
 		return "", nil, false
 	}
+
 	staticType := pass.TypesInfo.TypeOf(expr)
 	if staticType == nil {
 		return "", nil, false
 	}
+
 	named, structType := unwrapToStruct(staticType)
 	if structType == nil || named == nil {
 		return "", nil, false
 	}
+
 	for method := range named.Methods() {
 		if _, accepted := markers[method.Name()]; !accepted {
 			continue
 		}
+
 		if !signatureIsNoArgsNoReturns(method.Type()) {
 			continue
 		}
+
 		key := rtaSlogMarkerKey{recvTypeName: named.Obj().Name(), methodName: method.Name()}
 		if _, ok := emptyMethods[key]; !ok {
 			continue
 		}
+
 		return method.Name(), staticType, true
 	}
+
 	return "", nil, false
 }
 
@@ -328,17 +381,20 @@ func classifyMarkerValue(pass *analysis.Pass, expr ast.Expr, markers map[string]
 // CLYDE-308 bypass shape always carries a named type whose method
 // set is what RTA needs to mark live.
 func unwrapToStruct(t types.Type) (*types.Named, *types.Struct) {
-	if ptr, ok := t.(*types.Pointer); ok {
+	if ptr, valid := t.(*types.Pointer); valid {
 		t = ptr.Elem()
 	}
-	named, ok := t.(*types.Named)
-	if !ok {
+
+	named, valid := t.(*types.Named)
+	if !valid {
 		return nil, nil
 	}
-	structType, ok := named.Underlying().(*types.Struct)
-	if !ok {
+
+	structType, valid := named.Underlying().(*types.Struct)
+	if !valid {
 		return nil, nil
 	}
+
 	return named, structType
 }
 
@@ -347,6 +403,7 @@ func signatureIsNoArgsNoReturns(t types.Type) bool {
 	if !ok {
 		return false
 	}
+
 	return sig.Params().Len() == 0 && sig.Results().Len() == 0
 }
 
@@ -364,13 +421,16 @@ func isInlineOrLocallyScopedValue(fnBody *ast.BlockStmt, expr ast.Expr) bool {
 	if isCompositeOrAddrOfComposite(expr) {
 		return true
 	}
+
 	ident, ok := expr.(*ast.Ident)
 	if !ok {
 		return false
 	}
+
 	if ident.Name == "_" {
 		return false
 	}
+
 	return localVarHasNoOtherConsumer(fnBody, ident)
 }
 
@@ -378,13 +438,16 @@ func isCompositeOrAddrOfComposite(expr ast.Expr) bool {
 	if _, ok := expr.(*ast.CompositeLit); ok {
 		return true
 	}
+
 	unary, ok := expr.(*ast.UnaryExpr)
 	if !ok {
 		return false
 	}
+
 	if _, ok := unary.X.(*ast.CompositeLit); ok {
 		return true
 	}
+
 	return false
 }
 
@@ -403,18 +466,24 @@ func localVarHasNoOtherConsumer(fnBody *ast.BlockStmt, target *ast.Ident) bool {
 		if !ok || ident.Name != target.Name {
 			return true
 		}
+
 		if isDeclarationFromCompositeLit(ident, parents) {
 			return true
 		}
+
 		if isInsideTrackedSlogCallArgs(ident, parents) {
 			return true
 		}
+
 		if isOwnIdentInDecl(ident, parents) {
 			return true
 		}
+
 		otherConsumer = true
+
 		return true
 	})
+
 	return !otherConsumer
 }
 
@@ -429,12 +498,15 @@ func isDeclarationFromCompositeLit(ident *ast.Ident, parents map[ast.Node]ast.No
 	if !ok {
 		return false
 	}
+
 	if len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
 		return false
 	}
+
 	if assign.Lhs[0] != ident {
 		return false
 	}
+
 	return isCompositeOrAddrOfComposite(assign.Rhs[0])
 }
 
@@ -450,6 +522,7 @@ func isOwnIdentInDecl(ident *ast.Ident, parents map[ast.Node]ast.Node) bool {
 	case *ast.ValueSpec:
 		return slices.Contains(p.Names, ident)
 	}
+
 	return false
 }
 
@@ -460,20 +533,25 @@ func isOwnIdentInDecl(ident *ast.Ident, parents map[ast.Node]ast.Node) bool {
 // flowing into the slog field, not into a separate consumer.
 func isInsideTrackedSlogCallArgs(ident *ast.Ident, parents map[ast.Node]ast.Node) bool {
 	var node ast.Node = ident
+
 	for {
 		parent, ok := parents[node]
 		if !ok || parent == nil {
 			return false
 		}
+
 		if call, isCall := parent.(*ast.CallExpr); isCall {
 			if call.Fun == node {
 				return false
 			}
+
 			if isTrackedSlogCall(call) {
 				return true
 			}
+
 			return false
 		}
+
 		node = parent
 	}
 }

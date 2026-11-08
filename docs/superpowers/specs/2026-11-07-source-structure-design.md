@@ -14,6 +14,11 @@
   later violations. Preserve the published effective dates and distinguish
   repeated declarations in the same file.
 
+Allow inline error checks. Keep G702 enabled. Apply the two reviewed G702
+exceptions only to validated source installation and historical Makefile
+preparation in go-makefile. Keep those exceptions out of the shared consumer
+configuration.
+
 Apply these `wsl_v5` settings:
 
 ```yaml

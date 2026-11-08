@@ -2,6 +2,7 @@ package notice
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -13,6 +14,13 @@ import (
 
 	"goodkind.io/go-makefile/internal/baseline"
 	"goodkind.io/go-makefile/internal/findings"
+)
+
+const findingLocationFields = 3
+
+var (
+	errFindingPath     = errors.New("notice cannot locate finding")
+	errFindingLocation = errors.New("notice finding has an invalid source location")
 )
 
 type findingSource struct {
@@ -29,10 +37,10 @@ func (sources findingSources) identity(finding, root string) (string, error) {
 	key := baseline.Key(finding)
 	file, ok := findings.FindingPath(finding)
 	if !ok {
-		return "", fmt.Errorf("notice cannot locate finding: %s", finding)
+		return "", inputFailure(errFindingPath, "", ": "+finding)
 	}
 
-	location := strings.SplitN(strings.TrimPrefix(finding, file+":"), ":", 3)
+	location := strings.SplitN(strings.TrimPrefix(finding, file+":"), ":", findingLocationFields)
 	line, err := strconv.Atoi(location[0])
 	if err != nil {
 		return "", failure("parse notice finding line", err)
@@ -62,7 +70,7 @@ func (sources findingSources) identity(finding, root string) (string, error) {
 
 	tokenFile := source.fileSet.File(source.file.Pos())
 	if line < 1 || line > tokenFile.LineCount() || column < 1 {
-		return "", fmt.Errorf("notice finding has an invalid source location: %s", finding)
+		return "", inputFailure(errFindingLocation, "", ": "+finding)
 	}
 
 	position := tokenFile.LineStart(line) + token.Pos(column-1)
@@ -123,7 +131,8 @@ func findingIdentity(finding, root string, sources findingSources, gate, rule st
 		return key, nil
 	}
 
-	if gate == "staticcheck-extra" && strings.Contains(key, "[id=") && (strings.Contains(key, "commandentry:") || strings.Contains(key, "argumentlines:")) {
+	canonicalCommand := strings.Contains(key, "commandentry:") || strings.Contains(key, "argumentlines:")
+	if gate == "staticcheck-extra" && strings.Contains(key, "[id=") && canonicalCommand {
 		return key, nil
 	}
 

@@ -4,11 +4,17 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/format"
 	"go/parser"
 	"go/token"
+)
+
+var (
+	errFormattingDeclarationMissing = errors.New("cannot locate the declaration containing a formatting finding")
+	errFormattingNodeMissing        = errors.New("cannot locate a formatting finding in its declaration")
 )
 
 func nodeFingerprint(node ast.Node) (string, error) {
@@ -56,7 +62,7 @@ func hasGroupedParameters(node ast.Node) bool {
 	return false
 }
 
-// Expand a private syntax tree so fingerprinting cannot change the analyzer's input.
+// expandFingerprintParameters normalizes a copy of the input syntax tree.
 func expandFingerprintParameters(original ast.Node, rendered *bytes.Buffer) error {
 	var node ast.Node
 	if _, declaration := original.(ast.Decl); declaration {
@@ -84,8 +90,9 @@ func expandFingerprintParameters(original ast.Node, rendered *bytes.Buffer) erro
 		var fields []*ast.Field
 
 		for _, field := range signature.Params.List {
-			if len(field.Names) < 2 {
+			if len(field.Names) <= 1 {
 				fields = append(fields, field)
+
 				continue
 			}
 
@@ -140,7 +147,7 @@ func declarationName(declaration ast.Decl) string {
 func occurrenceIdentity(file *ast.File, node ast.Node) (string, error) {
 	scope := declarationFor(file, node)
 	if scope == nil {
-		return "", fmt.Errorf("cannot locate the declaration containing a formatting finding")
+		return "", errFormattingDeclarationMissing
 	}
 
 	parent, err := declarationIdentity(file, scope)
@@ -169,6 +176,7 @@ func occurrenceIdentity(file *ast.File, node ast.Node) (string, error) {
 		identity, err := nodeFingerprint(candidate)
 		if err != nil {
 			identityErr = err
+
 			return false
 		}
 
@@ -178,6 +186,7 @@ func occurrenceIdentity(file *ast.File, node ast.Node) (string, error) {
 
 		if candidate == node {
 			found = true
+
 			return false
 		}
 
@@ -188,7 +197,7 @@ func occurrenceIdentity(file *ast.File, node ast.Node) (string, error) {
 	}
 
 	if !found {
-		return "", fmt.Errorf("cannot locate a formatting finding in its declaration")
+		return "", errFormattingNodeMissing
 	}
 
 	digest := sha256.Sum256([]byte(key))
@@ -235,9 +244,11 @@ func sameLayoutKind(first, second ast.Node) bool {
 	switch first.(type) {
 	case *ast.CallExpr:
 		_, ok := second.(*ast.CallExpr)
+
 		return ok
 	case *ast.FuncType:
 		_, ok := second.(*ast.FuncType)
+
 		return ok
 	}
 

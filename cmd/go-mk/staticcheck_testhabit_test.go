@@ -1,26 +1,47 @@
 package main_test
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"text/template"
 )
 
 const (
-	olderTestFinding  = "widget/widget_test.go:1:9"
-	baselineFileName  = ".staticcheck-extra-baseline.txt"
-	appliedNoticeFile = ".go-mk-applied-notices"
+	testHabitNoticeIDs = "1\n2\n3\n"
+	olderTestFinding   = "widget/widget_test.go:1:9"
+	baselineFileName   = ".staticcheck-extra-baseline.txt"
+	appliedNoticeFile  = ".go-mk-applied-notices"
 
 	// Notice 2 in notices.txt has the date 2026-10-05.
 	beforeNoticeDate = "2026-01-01T00:00:00Z"
 	afterNoticeDate  = "2027-01-01T00:00:00Z"
 
-	assertionFreeTest = "package widget_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/consumer/widget\"\n)\n\nfunc TestDoubleRuns(t *testing.T) {\n\twidget.Double(2)\n}\n"
-	assertingTest     = "package widget_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/consumer/widget\"\n)\n\nfunc TestDoubleOfThree(t *testing.T) {\n\tif widget.Double(3) != 6 {\n\t\tt.Fatal(\"Double(3) != 6\")\n\t}\n}\n"
+	testPreamble = `package widget_test
+
+import (
+	"testing"
+
+	"example.com/consumer/widget"
 )
 
+`
+	assertionFreeTest = testPreamble + `func TestDoubleRuns(t *testing.T) {
+	widget.Double(2)
+}
+`
+	assertingTest = testPreamble + `func TestDoubleOfThree(t *testing.T) {
+	if widget.Double(3) != 6 {
+		t.Fatal("Double(3) != 6")
+	}
+}
+`
+)
+
+// TestStaticcheckExtraBaselinesOlderTestFindingsOnce checks notice adoption.
 func TestStaticcheckExtraBaselinesOlderTestFindingsOnce(t *testing.T) {
 	consumerDir := newConsumerRepository(t, beforeNoticeDate)
 
@@ -33,7 +54,7 @@ func TestStaticcheckExtraBaselinesOlderTestFindingsOnce(t *testing.T) {
 		t.Fatalf("baseline lacks the older test finding %s:\n%s", olderTestFinding, baseline)
 	}
 
-	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n3\n" {
+	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != testHabitNoticeIDs {
 		t.Fatalf("applied notices = %q, want notices 1, 2, and 3", applied)
 	}
 
@@ -62,6 +83,8 @@ func TestStaticcheckExtraBaselinesOlderTestFindingsOnce(t *testing.T) {
 	}
 }
 
+// TestStaticcheckExtraDoesNotBaselineAConsumerNewerThanTheNotice checks a
+// consumer that adopted the rules after the cutoff.
 func TestStaticcheckExtraDoesNotBaselineAConsumerNewerThanTheNotice(t *testing.T) {
 	consumerDir := newConsumerRepository(t, afterNoticeDate)
 
@@ -89,19 +112,32 @@ func newConsumerRepository(t *testing.T, commitDate string) string {
 
 	fixtureDir := t.TempDir()
 	consumerDir := filepath.Join(fixtureDir, "checkout")
+	if err := os.Mkdir(consumerDir, 0o700); err != nil {
+		t.Fatalf("create consumer checkout: %v", err)
+	}
+
 	if err := os.Mkdir(filepath.Join(fixtureDir, "tmp"), 0o700); err != nil {
 		t.Fatalf("create consumer temporary directory: %v", err)
 	}
 
 	files := map[string]string{
-		"go.mod":                "module example.com/consumer\n\ngo 1.26\n",
-		"widget/widget.go":      "package widget\n\nfunc Double(value int) int {\n\treturn value * 2\n}\n",
-		"widget/widget_test.go": "package widget\n\nimport \"testing\"\n\nfunc TestDouble(t *testing.T) {\n\tif Double(2) != 4 {\n\t\tt.Fatal(\"Double(2) != 4\")\n\t}\n}\n",
-		".make/golangci.yml":    "version: \"2\"\n",
-		".gitignore":            ".make/\n",
-		"notices.txt":           lintPolicyNotice(t, "1") + lintPolicyNotice(t, "2") + lintPolicyNotice(t, "3"),
-		appliedNoticeFile:       "1\n",
-		"Makefile":              "GO_MK_DEV_DIR := " + repoRoot + "\n_GO_MK_PROVISIONED := 1\ninclude " + filepath.Join(repoRoot, "go.mk") + "\n_GO_MK_NOTICES_FILE := " + filepath.Join(consumerDir, "notices.txt") + "\n",
+		fixtureModule: "module example.com/consumer\n\ngo 1.26\n",
+		fixtureWidget: "package widget\n\nfunc Double(value int) int {\n\treturn value * 2\n}\n",
+		fixtureWidgetTest: `package widget
+
+import "testing"
+
+func TestDouble(t *testing.T) {
+	if Double(2) != 4 {
+		t.Fatal("Double(2) != 4")
+	}
+}
+`,
+		".make/golangci.yml": "version: \"2\"\n",
+		".gitignore":         ".make/\n",
+		"notices.txt":        lintPolicyNotice(t, "1") + lintPolicyNotice(t, "2") + lintPolicyNotice(t, "3"),
+		appliedNoticeFile:    "1\n",
+		fixtureMakefile:      consumerMakefile(t, repoRoot),
 	}
 	for name, content := range files {
 		writeConsumerFile(t, consumerDir, name, content)
@@ -114,15 +150,36 @@ func newConsumerRepository(t *testing.T, commitDate string) string {
 	return consumerDir
 }
 
+func consumerMakefile(t *testing.T, repository string) string {
+	t.Helper()
+	fixture, err := template.ParseFiles(filepath.Join("testdata", "consumer", fixtureMakefile))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var contents strings.Builder
+	if err := fixture.Execute(&contents, repository); err != nil {
+		t.Fatal(err)
+	}
+
+	return contents.String()
+}
+
 func writeConsumerFile(t *testing.T, consumerDir, name, content string) {
 	t.Helper()
 
-	path := filepath.Join(consumerDir, name)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	checkout, err := os.OpenRoot(consumerDir)
+	if err != nil {
+		t.Fatalf("open consumer checkout: %v", err)
+	}
+
+	defer func() { _ = checkout.Close() }()
+
+	if err := checkout.MkdirAll(filepath.Dir(name), 0o700); err != nil {
 		t.Fatalf("create directory for %s: %v", name, err)
 	}
 
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := checkout.WriteFile(name, []byte(content), 0o600); err != nil {
 		t.Fatalf("write %s: %v", name, err)
 	}
 }
@@ -142,7 +199,7 @@ func readConsumerFile(t *testing.T, consumerDir, name string) string {
 func runConsumerGit(t *testing.T, consumerDir, commitDate string, arguments ...string) {
 	t.Helper()
 
-	command := exec.Command("git", arguments...)
+	command := exec.CommandContext(t.Context(), "git", arguments...)
 	command.Dir = consumerDir
 	command.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
@@ -163,14 +220,15 @@ func runConsumerGit(t *testing.T, consumerDir, commitDate string, arguments ...s
 
 // An inherited MAKEFLAGS would override the consumer Makefile variables.
 func runConsumerMake(consumerDir string, arguments ...string) (string, error) {
-	root, err := exec.Command("git", "-C", consumerDir, "rev-parse", "--show-toplevel").CombinedOutput()
+	ctx := context.Background()
+	root, err := exec.CommandContext(ctx, "git", "-C", consumerDir, "rev-parse", "--show-toplevel").CombinedOutput()
 	if err != nil {
 		return string(root), err
 	}
 
 	// All modules in one consumer share its golangci-lint.lock file.
 	temporary := filepath.Join(filepath.Dir(strings.TrimSpace(string(root))), "tmp")
-	command := exec.Command("make", arguments...)
+	command := exec.CommandContext(ctx, "make", arguments...)
 	command.Dir = consumerDir
 	command.Env = []string{
 		"PATH=" + os.Getenv("PATH"),

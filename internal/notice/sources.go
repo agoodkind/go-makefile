@@ -31,7 +31,17 @@ type listedError struct {
 	Err string `json:"Err"`
 }
 
+var errSourcePackage = errors.New("load notice source package")
+
 // SourceFiles maps source files for a platform to their package directories.
+//
+// Reported package and dependency errors fail the listing. The function does
+// not include packages excluded by the target platform's build constraints.
+//
+// The returned map uses this layout:
+//   - Each key is a source path relative to root().
+//   - Each value is the corresponding relative package directory.
+//   - Production and test source files use the same map.
 func SourceFiles(
 	goos string,
 	goarch string,
@@ -72,6 +82,7 @@ func replaceEnvironment(environment []string, name, value string) []string {
 	for index, entry := range environment {
 		if strings.HasPrefix(entry, prefix) {
 			environment[index] = prefix + value
+
 			return environment
 		}
 	}
@@ -126,7 +137,7 @@ func packageLoadError(listed listedPackage) error {
 			continue
 		}
 
-		return failure("load notice source package "+listed.ImportPath, errors.New(problem.Err))
+		return inputFailure(errSourcePackage, "", " "+listed.ImportPath+": "+problem.Err)
 	}
 
 	return nil

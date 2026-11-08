@@ -50,7 +50,7 @@ func TestNoticeRejectsFindingsCommittedAfterItsEffectiveDate(t *testing.T) {
 				t.Fatalf("notice baselined a finding added after its effective date:\n%s", baseline)
 			}
 
-			if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n3\n" {
+			if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != testHabitNoticeIDs {
 				t.Fatalf("applied notices = %q, want all notices after the historical capture succeeds", applied)
 			}
 		})
@@ -112,7 +112,7 @@ func TestNoticePreparesHistoricalGeneratedSource(t *testing.T) {
 		t.Fatalf("baseline lacks the historical finding:\n%s", baseline)
 	}
 
-	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n3\n" {
+	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != testHabitNoticeIDs {
 		t.Fatalf("applied notices = %q, want all notices", applied)
 	}
 }

@@ -6,12 +6,29 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"goodkind.io/go-makefile/internal/capture"
 )
 
-// CaptureCommand adds whitespace findings from tests and generated source to a golangci-lint run.
+var (
+	errFlagValue        = errors.New("requires a value")
+	errLinterSelection  = errors.New("golangci-lint linters exited")
+	errWhitespaceStatus = errors.New("golangci-lint whitespace capture exited")
+	selectionFlags      = []string{"--enable", "-E", "--disable", "-D", "--enable-only", "--default", "--fast-only"}
+)
+
+// CaptureCommand runs a command and records its output and exit status.
+//
+// When golangci-lint enables wsl_v5, a second run appends whitespace
+// findings for files covered by the shared exclusions. Both runs use
+// the caller's environment and package selection.
+//
+// For example, the capture for this command includes whitespace
+// findings in test files:
+//
+//	golangci-lint run --enable-only=wsl_v5 ./...
 func CaptureCommand(
 	binary string,
 	args []string,
@@ -29,7 +46,7 @@ func CaptureCommand(
 		linter = "golangci-lint"
 	}
 
-	if binary != linter || len(args) == 0 || args[0] != "run" {
+	if binary != linter || len(args) == 0 || args[0] != golangciRunCommand {
 		return result.Status, nil
 	}
 
@@ -44,7 +61,8 @@ func CaptureCommand(
 	}
 
 	if enabled {
-		if err := captureWhitespace(binary, remaining, env, outputPath); err != nil {
+		err = captureWhitespace(binary, remaining, env, outputPath)
+		if err != nil {
 			return 0, err
 		}
 	}
@@ -61,11 +79,12 @@ func linterFlags(arguments []string) ([]string, []string, error) {
 		name, _, joined := strings.Cut(flag, "=")
 		if name == "--" {
 			remaining = append(remaining, arguments[index:]...)
+
 			break
 		}
 
-		config := name == "-c" || name == "--config" || name == "--no-config"
-		selection := name == "--enable" || name == "-E" || name == "--disable" || name == "-D" || name == "--enable-only" || name == "--default" || name == "--fast-only"
+		config := name == "-c" || name == configFlag || name == noConfigFlag
+		selection := slices.Contains(selectionFlags, name)
 		exitCode := name == "--issues-exit-code"
 		if !config && !selection && !exitCode {
 			compact := strings.HasPrefix(flag, "-c") || strings.HasPrefix(flag, "-E") || strings.HasPrefix(flag, "-D")
@@ -81,10 +100,10 @@ func linterFlags(arguments []string) ([]string, []string, error) {
 		}
 
 		start := index
-		if !joined && name != "--no-config" && name != "--fast-only" {
+		if !joined && name != noConfigFlag && name != "--fast-only" {
 			index++
 			if index >= len(arguments) {
-				return nil, nil, fmt.Errorf("%s requires a value", flag)
+				return nil, nil, failure(flag, errFlagValue)
 			}
 		}
 
@@ -119,7 +138,7 @@ func whitespaceEnabled(binary string, flags, env []string) (bool, error) {
 	}
 
 	if result.Status != 0 {
-		return false, fmt.Errorf("golangci-lint linters exited %d: %s", result.Status, output)
+		return false, failure("read enabled linters", fmt.Errorf("%w %d: %s", errLinterSelection, result.Status, output))
 	}
 
 	var configured struct {
@@ -127,7 +146,8 @@ func whitespaceEnabled(binary string, flags, env []string) (bool, error) {
 			Name string `json:"name"`
 		} `json:"Enabled"`
 	}
-	if err := json.Unmarshal(output, &configured); err != nil {
+	err = json.Unmarshal(output, &configured)
+	if err != nil {
 		return false, failure("decode enabled linters", err)
 	}
 
@@ -147,7 +167,9 @@ func captureWhitespace(binary string, args, env []string, outputPath string) err
 	}
 	defer removeTemporary(config)
 
-	args = []string{"run", "--enable-only=wsl_v5", "--config", config, "--issues-exit-code=0"}
+	options := []string{golangciRunCommand, "--enable-only=wsl_v5", configFlag, config, "--issues-exit-code=0"}
+	args = make([]string, 0, len(options)+len(remaining))
+	args = append(args, options...)
 	args = append(args, remaining...)
 	temporary, err := temporaryFile("", "go-mk-whitespace-*.out", nil)
 	if err != nil {
@@ -166,7 +188,7 @@ func captureWhitespace(binary string, args, env []string, outputPath string) err
 			return failure("read whitespace capture error", err)
 		}
 
-		return fmt.Errorf("golangci-lint whitespace capture exited %d: %s", result.Status, contents)
+		return failure("capture whitespace findings", fmt.Errorf("%w %d: %s", errWhitespaceStatus, result.Status, contents))
 	}
 
 	return appendCapture(outputPath, temporary)
@@ -188,7 +210,8 @@ func appendCapture(destination, source string) error {
 	_, copyErr := io.Copy(output, input)
 
 	closeErr := output.Close()
-	if err := errors.Join(copyErr, closeErr); err != nil {
+	err = errors.Join(copyErr, closeErr)
+	if err != nil {
 		return failure("append whitespace findings", err)
 	}
 

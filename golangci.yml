@@ -9,6 +9,8 @@ linters:
   enable:
     - exhaustruct_v5
   disable:
+    # Inline error checks are allowed.
+    - noinlineerr
     # Shared consumers do not have an import allowlist.
     - depguard
     # Use exhaustruct_v5 for struct initialization checks.
@@ -134,7 +136,7 @@ linters:
         - status.Newf(
 
   exclusions:
-    generated: lax
+    generated: &go_makefile_generated lax
     presets:
       - common-false-positives
       - legacy

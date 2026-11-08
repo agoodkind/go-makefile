@@ -15,7 +15,13 @@ type listElement struct {
 	annotation string
 }
 
-func parameterLineEdits(fileSet *token.FileSet, function *ast.FuncType, contents []byte, checked checkedTypes) ([]analysis.TextEdit, error) {
+type sourceLayout struct {
+	fileSet  *token.FileSet
+	contents []byte
+}
+
+func (layout sourceLayout) parameters(function *ast.FuncType, checked checkedTypes) ([]analysis.TextEdit, error) {
+	fileSet, contents := layout.fileSet, layout.contents
 	if function.Params == nil {
 		return nil, nil
 	}
@@ -36,6 +42,7 @@ func parameterLineEdits(fileSet *token.FileSet, function *ast.FuncType, contents
 
 		if len(field.Names) == 0 {
 			elements = append(elements, listElement{start: field.Pos(), end: field.End()})
+
 			continue
 		}
 
@@ -50,7 +57,7 @@ func parameterLineEdits(fileSet *token.FileSet, function *ast.FuncType, contents
 		}
 	}
 
-	return listLineEdits(fileSet, function.Params.Opening, function.Params.Closing, elements, contents, callback), nil
+	return layout.lines(function.Params.Opening, function.Params.Closing, elements, callback), nil
 }
 
 func inlineCallback(expression ast.Expr) bool {
@@ -66,7 +73,8 @@ func inlineCallback(expression ast.Expr) bool {
 	return false
 }
 
-func listLineEdits(fileSet *token.FileSet, opening, closing token.Pos, elements []listElement, contents []byte, force bool) []analysis.TextEdit {
+func (layout sourceLayout) lines(opening, closing token.Pos, elements []listElement, force bool) []analysis.TextEdit {
+	fileSet, contents := layout.fileSet, layout.contents
 	if len(elements) == 0 {
 		return nil
 	}

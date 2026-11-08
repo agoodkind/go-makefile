@@ -2,7 +2,7 @@ package notice
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -16,7 +16,23 @@ import (
 
 const historyMakeDirectory = ".make"
 
-// RestrictFindings retains findings that existed before the notice effective date.
+var (
+	errNoticeDate       = errors.New("auto-baseline requires a notice with a valid INTRODUCED date")
+	errShallowHistory   = errors.New("auto-baseline requires full Git history; fetch the missing history and retry")
+	errHistoricalCommit = errors.New("auto-baseline cannot find a commit before")
+	errIncompleteRename = errors.New("notice history contains an incomplete rename")
+)
+
+// RestrictFindings retains findings from before the notice effective date.
+//
+// The current tools analyze the latest reachable commit before introduced.
+// Current findings remain eligible only when their identities also occur
+// in that capture.
+//
+// The historical comparison uses these inputs:
+//   - introduced sets the cutoff and excludes the effective timestamp itself.
+//   - capture analyzes historical sources with the current tooling.
+//   - findingsPath receives only eligible current findings.
 func RestrictFindings(
 	findingsPath string,
 	gate string,
@@ -25,7 +41,7 @@ func RestrictFindings(
 	capture func(string, string) error,
 ) error {
 	if introduced.IsZero() {
-		return fmt.Errorf("auto-baseline requires a notice with a valid INTRODUCED date")
+		return errNoticeDate
 	}
 
 	shallow, err := historyOutput("notice history depth", "rev-parse", "--is-shallow-repository")
@@ -34,7 +50,7 @@ func RestrictFindings(
 	}
 
 	if strings.TrimSpace(shallow) == "true" {
-		return fmt.Errorf("auto-baseline requires full Git history; fetch the missing history and retry")
+		return errShallowHistory
 	}
 
 	cutoff := introduced.Add(-time.Second).Format(time.RFC3339)
@@ -45,7 +61,7 @@ func RestrictFindings(
 
 	revision = strings.TrimSpace(revision)
 	if revision == "" {
-		return fmt.Errorf("auto-baseline cannot find a commit before %s", introduced.Format(time.RFC3339))
+		return inputFailure(errHistoricalCommit, "", " "+introduced.Format(time.RFC3339))
 	}
 
 	current, err := readHistoryFindings(findingsPath)
@@ -74,6 +90,7 @@ func RestrictFindings(
 
 		if accepted[identity] == 0 {
 			rejected[baseline.Key(finding)] = true
+
 			continue
 		}
 
@@ -134,11 +151,7 @@ func captureHistory(
 		}
 	}()
 	checkout := filepath.Join(temporaryDir, "checkout")
-	if err := historyGit("", "clone", "--shared", "--no-checkout", "--quiet", "--", repository, checkout); err != nil {
-		return nil, err
-	}
-
-	if err := historyGit(checkout, "checkout", "--quiet", "--detach", revision); err != nil {
+	if err := cloneHistory(repository, checkout, revision); err != nil {
 		return nil, err
 	}
 
@@ -147,7 +160,10 @@ func captureHistory(
 		return nil, failure("resolve notice history module", err)
 	}
 
-	if err := StageTools(filepath.Join(workingDir, historyMakeDirectory), filepath.Join(moduleDir, historyMakeDirectory)); err != nil {
+	if err := StageTools(
+		filepath.Join(workingDir, historyMakeDirectory),
+		filepath.Join(moduleDir, historyMakeDirectory),
+	); err != nil {
 		return nil, err
 	}
 
@@ -192,8 +208,27 @@ func captureHistory(
 	return historical, nil
 }
 
+func cloneHistory(repository, checkout, revision string) error {
+	if err := historyGit("", "clone", "--shared", "--no-checkout", "--quiet", "--", repository, checkout); err != nil {
+		return err
+	}
+
+	return historyGit(checkout, "checkout", "--quiet", "--detach", revision)
+}
+
 func historicalModule(revision, currentPath string) (string, error) {
-	output, err := historyOutput("notice follow module renames", "log", "--follow", "--diff-filter=R", "--format=", "--name-status", "-z", revision+"..HEAD", "--", "go.mod")
+	output, err := historyOutput(
+		"notice follow module renames",
+		"log",
+		"--follow",
+		"--diff-filter=R",
+		"--format=",
+		"--name-status",
+		"-z",
+		revision+"..HEAD",
+		"--",
+		"go.mod",
+	)
 	if err != nil {
 		return "", err
 	}
@@ -209,7 +244,15 @@ func historicalModule(revision, currentPath string) (string, error) {
 }
 
 func historyRenames(revision string) (map[string]string, error) {
-	output, err := historyOutput("notice history renames", "diff", "--name-status", "-z", "--find-renames", revision, "HEAD")
+	output, err := historyOutput(
+		"notice history renames",
+		"diff",
+		"--name-status",
+		"-z",
+		"--find-renames",
+		revision,
+		"HEAD",
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +269,7 @@ func historyRenames(revision string) (map[string]string, error) {
 		}
 
 		if index >= len(fields) {
-			return nil, fmt.Errorf("notice history contains an incomplete rename")
+			return nil, errIncompleteRename
 		}
 
 		renames[previous] = fields[index]

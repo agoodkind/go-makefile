@@ -1,7 +1,9 @@
 package notice
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,7 +15,20 @@ import (
 
 const staticcheckDiagnosticsStatus = 3
 
-// OtherPlatformFindings analyzes files that only the requested platform builds.
+var (
+	errMissingAnalyzer = errors.New("notice requires an executable staticcheck-extra analyzer")
+	errTargetBuild     = errors.New("staticcheck-extra cannot build")
+)
+
+// OtherPlatformFindings analyzes source files unique to a target platform.
+//
+// A target build failure returns an error with the required platform and
+// captured output path. The caller supplies analyzer and environment callbacks.
+//
+// The analysis follows this sequence:
+//  1. SourceFiles lists the target platform's source files.
+//  2. The analyzer checks packages with files outside builtFiles.
+//  3. The result includes findings only from those additional files.
 func OtherPlatformFindings(
 	goos string,
 	goarch string,
@@ -50,7 +65,7 @@ func OtherPlatformFindings(
 	}
 
 	if selected == "" {
-		return nil, fmt.Errorf("notice requires an executable staticcheck-extra analyzer")
+		return nil, errMissingAnalyzer
 	}
 
 	packages := make([]string, 0, len(packageDirs))
@@ -67,8 +82,10 @@ func OtherPlatformFindings(
 	}
 
 	if result.Status != 0 && result.Status != staticcheckDiagnosticsStatus {
-		return nil, fmt.Errorf(
-			"staticcheck-extra cannot build %s for %s/%s on this host (exit status %d, output in %s). Run make check on a %s/%s host",
+		buildError := fmt.Errorf(
+			"%w %s for %s/%s on this host (exit status %d, output in %s). "+
+				"Run make check on a %s/%s host",
+			errTargetBuild,
 			strings.Join(packages, " "),
 			goos,
 			goarch,
@@ -77,6 +94,9 @@ func OtherPlatformFindings(
 			goos,
 			goarch,
 		)
+		slog.Error("notice target build failed", slog.Any("err", buildError))
+
+		return nil, buildError
 	}
 
 	return platformFindings(rawPath, root(), onlyTarget)

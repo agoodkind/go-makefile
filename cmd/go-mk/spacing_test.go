@@ -7,15 +7,12 @@ import (
 	"testing"
 )
 
+// TestWhitespaceNoticeRejectsLaterOccurrences checks new spacing
+// violations in an existing file.
 func TestWhitespaceNoticeRejectsLaterOccurrences(t *testing.T) {
 	t.Parallel()
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 	repository, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	notices, err := os.ReadFile(filepath.Join(repository, "notices.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,9 +22,8 @@ func TestWhitespaceNoticeRejectsLaterOccurrences(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	writeConsumerFile(t, consumer, "notices.txt", string(notices))
 	writeConsumerFile(t, consumer, ".make/golangci.yml", string(configuration))
-	writeConsumerFile(t, consumer, appliedNoticeFile, "1\n2\n3\n4\n5\n")
+	previous := setPendingNotices(t, consumer, whitespaceNotice)
 	historical := `package widget
 
 func Spacing(value int) int {
@@ -53,7 +49,7 @@ func Spacing(value int) int {
 		t.Fatalf("whitespace notice failed: %v\n%s", err, output)
 	}
 
-	if applied := readConsumerFile(t, consumer, appliedNoticeFile); !strings.Contains(applied, "\n6\n") {
+	if applied := readConsumerFile(t, consumer, appliedNoticeFile); applied != previous+whitespaceNotice+"\n" {
 		t.Fatalf("whitespace notice did not apply:\n%s\n%s", applied, output)
 	}
 
@@ -62,13 +58,13 @@ func Spacing(value int) int {
 		t.Fatalf("whitespace notice did not identify the historical finding:\n%s", baseline)
 	}
 
-	if output, err := runConsumerMake(consumer, "lint-golangci", flags); err != nil {
+	if output, err := runConsumerMake(consumer, fixtureGolangciGate, flags); err != nil {
 		t.Fatalf("historical whitespace finding failed its gate: %v\n%s", err, output)
 	}
 
 	shifted := "// Package widget exercises spacing checks.\n" + historical
 	writeConsumerFile(t, consumer, "widget/spacing.go", shifted)
-	if output, err := runConsumerMake(consumer, "lint-golangci", flags); err != nil {
+	if output, err := runConsumerMake(consumer, fixtureGolangciGate, flags); err != nil {
 		t.Fatalf("source line shifts changed the historical identity: %v\n%s", err, output)
 	}
 
@@ -101,18 +97,14 @@ func Spacing(value int) int {
 			),
 		},
 	} {
-		t.Run(scenario.name, func(
-			t *testing.T,
-		) {
-			writeConsumerFile(t, consumer, "widget/spacing.go", scenario.source)
-			output, err := runConsumerMake(consumer, "lint-golangci", flags)
-			if err == nil || !strings.Contains(output, "widget/spacing.go:") || !strings.Contains(output, "(after-block)") {
-				t.Fatalf("whitespace gate accepted a later occurrence: %v\n%s", err, output)
-			}
+		writeConsumerFile(t, consumer, "widget/spacing.go", scenario.source)
+		output, err := runConsumerMake(consumer, fixtureGolangciGate, flags)
+		if err == nil || !strings.Contains(output, "widget/spacing.go:") || !strings.Contains(output, "(after-block)") {
+			t.Fatalf("whitespace gate accepted %s: %v\n%s", scenario.name, err, output)
+		}
 
-			if current := readConsumerFile(t, consumer, ".golangci-lint-baseline.txt"); current != baseline {
-				t.Fatalf("whitespace gate changed the applied baseline:\n%s", current)
-			}
-		})
+		if current := readConsumerFile(t, consumer, ".golangci-lint-baseline.txt"); current != baseline {
+			t.Fatalf("whitespace gate changed the applied baseline in %s:\n%s", scenario.name, current)
+		}
 	}
 }

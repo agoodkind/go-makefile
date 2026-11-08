@@ -26,13 +26,13 @@ func runMissingBoundaryLog(pass *analysis.Pass) (any, error) {
 		}
 
 		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil || !isBoundaryFunction(fn) {
+			function, ok := decl.(*ast.FuncDecl)
+			if !ok || function.Body == nil || !isBoundaryFunction(function) {
 				continue
 			}
 
-			if !functionHasBoundaryLog(fn) {
-				reportAtf(pass, file, fn.Pos(), "boundary function must emit at least one structured slog event")
+			if !functionHasBoundaryLog(function) {
+				reportAtf(pass, file, function.Pos(), "boundary function must emit at least one structured slog event")
 			}
 		}
 	}
@@ -76,13 +76,13 @@ func hasHTTPHandlerSignature(fn *ast.FuncDecl) bool {
 func functionHasExternalBoundary(fn *ast.FuncDecl) bool {
 	found := false
 	inspectFunc(fn, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
+		call, valid := node.(*ast.CallExpr)
+		if !valid {
 			return true
 		}
 
-		receiver, name, ok := selectorName(call.Fun)
-		if !ok {
+		receiver, name, valid := selectorName(call.Fun)
+		if !valid {
 			return true
 		}
 
@@ -110,18 +110,27 @@ func functionHasExternalBoundary(fn *ast.FuncDecl) bool {
 func functionHasBoundaryLog(fn *ast.FuncDecl) bool {
 	found := false
 	inspectFunc(fn, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
+		call, isCall := node.(*ast.CallExpr)
+		if !isCall {
 			return true
 		}
 
-		_, name, ok := selectorName(call.Fun)
-		if !ok {
+		_, name, isSelector := selectorName(call.Fun)
+		if !isSelector {
 			return true
 		}
 
 		switch name {
-		case "Debug", "DebugContext", "Info", "InfoContext", "Warn", "WarnContext", "Error", "ErrorContext", "Log", "LogAttrs":
+		case selectorDebug,
+			selectorDebugContext,
+			selectorInfo,
+			selectorInfoContext,
+			selectorWarn,
+			selectorWarnContext,
+			selectorError,
+			selectorErrorContext,
+			selectorLog,
+			selectorLogAttrs:
 			found = true
 			return false
 		default:

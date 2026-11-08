@@ -20,12 +20,12 @@ const (
 )
 
 var failingTestingMethods = map[string]bool{
-	"Error":   true,
-	"Errorf":  true,
-	"Fatal":   true,
-	"Fatalf":  true,
-	"Fail":    true,
-	"FailNow": true,
+	selectorError:  true,
+	selectorErrorf: true,
+	"Fatal":        true,
+	"Fatalf":       true,
+	"Fail":         true,
+	"FailNow":      true,
 }
 
 var skippingTestingMethods = map[string]bool{
@@ -53,10 +53,12 @@ func runTestAssert(pass *analysis.Pass) (any, error) {
 	if tbInterface == nil {
 		return nil, nil
 	}
+
 	checker := assertionChecker{pass: pass, tbInterface: tbInterface}
 	for _, file := range analyzableTestFiles(pass) {
 		checker.checkFile(file)
 	}
+
 	return nil, nil
 }
 
@@ -70,16 +72,20 @@ func testingInterface(pass *analysis.Pass) *types.Interface {
 		if imported.Path() != testingPackagePath {
 			continue
 		}
+
 		object := imported.Scope().Lookup(testInterfaceName)
 		if object == nil {
 			return nil
 		}
+
 		tbInterface, ok := object.Type().Underlying().(*types.Interface)
 		if !ok {
 			return nil
 		}
+
 		return tbInterface
 	}
+
 	return nil
 }
 
@@ -89,35 +95,48 @@ func (checker assertionChecker) checkFile(file *ast.File) {
 		if !ok || function.Body == nil || !checker.isTestFunction(function) {
 			continue
 		}
+
 		if checker.canFail(function.Body) {
 			if checker.assertsOnlyErrorNilness(function.Body) {
 				reportAtf(
-					checker.pass, file, function.Name.Pos(),
+					checker.pass,
+					file,
+					function.Name.Pos(),
 					"Test %s asserts only that an error is nil or not nil. A test must assert an outcome of the code under test. Add a check on the returned value, on the state that the call changed, or on the kind of the error.",
 					function.Name.Name,
 				)
 			}
+
 			continue
 		}
+
 		reportAtf(
-			checker.pass, file, function.Name.Pos(),
+			checker.pass,
+			file,
+			function.Name.Pos(),
 			"Test %s has no statement able to fail the test. A test must assert an outcome of the code under test. Add a check that calls t.Error, t.Fatal, or a helper with a testing.TB parameter.",
 			function.Name.Name,
 		)
 	}
+
 	ast.Inspect(file, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
+
 		literal := checker.subtestLiteral(call)
 		if literal == nil || checker.canFail(literal.Body) {
 			return true
 		}
+
 		reportAtf(
-			checker.pass, file, literal.Pos(),
+			checker.pass,
+			file,
+			literal.Pos(),
 			"This subtest has no statement able to fail the subtest. A subtest must assert an outcome of the code under test. Add a check that calls t.Error, t.Fatal, or a helper with a testing.TB parameter.",
 		)
+
 		return true
 	})
 }
@@ -126,14 +145,17 @@ func (checker assertionChecker) isTestFunction(function *ast.FuncDecl) bool {
 	if function.Recv != nil || !strings.HasPrefix(function.Name.Name, testFunctionPrefix) {
 		return false
 	}
+
 	parameters := function.Type.Params.List
 	if len(parameters) != 1 || len(parameters[0].Names) > 1 {
 		return false
 	}
+
 	pointer, ok := checker.pass.TypesInfo.TypeOf(parameters[0].Type).(*types.Pointer)
 	if !ok {
 		return false
 	}
+
 	return isTestingNamed(pointer.Elem(), testTypeName)
 }
 
@@ -142,6 +164,7 @@ func isTestingNamed(typ types.Type, name string) bool {
 	if !ok || named.Obj().Pkg() == nil {
 		return false
 	}
+
 	return named.Obj().Pkg().Path() == testingPackagePath && named.Obj().Name() == name
 }
 
@@ -149,10 +172,12 @@ func (checker assertionChecker) subtestLiteral(call *ast.CallExpr) *ast.FuncLit 
 	if !checker.isTestRunCall(call) || len(call.Args) < subtestLiteralMinArg {
 		return nil
 	}
+
 	literal, ok := call.Args[len(call.Args)-1].(*ast.FuncLit)
 	if !ok {
 		return nil
 	}
+
 	return literal
 }
 
@@ -161,14 +186,17 @@ func (checker assertionChecker) testingMethod(call *ast.CallExpr) *types.Func {
 	if !ok {
 		return nil
 	}
+
 	method, ok := checker.pass.TypesInfo.Uses[selector.Sel].(*types.Func)
 	if !ok || method.Pkg() == nil || method.Pkg().Path() != testingPackagePath {
 		return nil
 	}
+
 	signature, ok := method.Type().(*types.Signature)
 	if !ok || signature.Recv() == nil {
 		return nil
 	}
+
 	return method
 }
 
@@ -177,14 +205,17 @@ func (checker assertionChecker) isTestRunCall(call *ast.CallExpr) bool {
 	if method == nil || method.Name() != subtestMethodName {
 		return false
 	}
+
 	signature, ok := method.Type().(*types.Signature)
 	if !ok {
 		return false
 	}
+
 	receiver := signature.Recv().Type()
 	if pointer, isPointer := receiver.(*types.Pointer); isPointer {
 		receiver = pointer.Elem()
 	}
+
 	return isTestingNamed(receiver, testTypeName)
 }
 
@@ -192,17 +223,21 @@ func (checker assertionChecker) canFail(body *ast.BlockStmt) bool {
 	if checker.onlySkips(body) {
 		return true
 	}
+
 	found := false
 	ast.Inspect(body, func(node ast.Node) bool {
 		if found {
 			return false
 		}
+
 		call, ok := node.(*ast.CallExpr)
 		if ok && checker.isFailingCall(call) {
 			found = true
 		}
+
 		return !found
 	})
+
 	return found
 }
 
@@ -222,10 +257,12 @@ func (checker assertionChecker) assertsOnlyErrorNilness(body *ast.BlockStmt) boo
 		if node == nil || !onlyNilness {
 			return
 		}
+
 		if statement, ok := node.(*ast.IfStmt); ok {
 			if statement.Init != nil {
 				visit(statement.Init)
 			}
+
 			visit(statement.Cond)
 			conditions = append(conditions, statement.Cond)
 			visit(statement.Body)
@@ -233,8 +270,10 @@ func (checker assertionChecker) assertsOnlyErrorNilness(body *ast.BlockStmt) boo
 			if statement.Else != nil {
 				visit(statement.Else)
 			}
+
 			return
 		}
+
 		if call, ok := node.(*ast.CallExpr); ok {
 			method := checker.testingMethod(call)
 			switch {
@@ -249,6 +288,7 @@ func (checker assertionChecker) assertsOnlyErrorNilness(body *ast.BlockStmt) boo
 				onlyNilness = false
 			}
 		}
+
 		for _, child := range childNodes(node) {
 			visit(child)
 		}
@@ -257,6 +297,7 @@ func (checker assertionChecker) assertsOnlyErrorNilness(body *ast.BlockStmt) boo
 	if !onlyNilness || failingCalls == 0 || checker.hasOtherOutcomeCheck(body) {
 		return false
 	}
+
 	return expectsFailure || checker.discardsResult(body)
 }
 
@@ -278,14 +319,17 @@ func (checker assertionChecker) hasOtherOutcomeCheck(body *ast.BlockStmt) bool {
 				if pair, ok := element.(*ast.KeyValueExpr); ok {
 					element = pair.Value
 				}
+
 				elementType := checker.pass.TypesInfo.TypeOf(element)
 				if elementType != nil && types.Implements(elementType, checker.tbInterface) {
 					found = true
 				}
 			}
 		}
+
 		return !found
 	})
+
 	return found
 }
 
@@ -297,29 +341,37 @@ func (checker assertionChecker) discardsResult(body *ast.BlockStmt) bool {
 		if !ok || len(assign.Rhs) != 1 || len(assign.Lhs) < 2 {
 			return !found
 		}
+
 		if _, isCall := assign.Rhs[0].(*ast.CallExpr); !isCall {
 			return true
 		}
+
 		tuple, ok := checker.pass.TypesInfo.TypeOf(assign.Rhs[0]).(*types.Tuple)
 		if !ok || tuple.Len() != len(assign.Lhs) {
 			return true
 		}
+
 		hasError := false
 		hasBlank := false
+
 		for i, left := range assign.Lhs {
 			if types.Identical(tuple.At(i).Type(), errorType) {
 				hasError = true
 				continue
 			}
+
 			if ident, isIdent := left.(*ast.Ident); isIdent && ident.Name == "_" {
 				hasBlank = true
 			}
 		}
+
 		if hasError && hasBlank {
 			found = true
 		}
+
 		return !found
 	})
+
 	return found
 }
 
@@ -331,11 +383,14 @@ func childNodes(node ast.Node) []ast.Node {
 			first = false
 			return true
 		}
+
 		if child != nil {
 			children = append(children, child)
 		}
+
 		return false
 	})
+
 	return children
 }
 
@@ -344,16 +399,20 @@ func (checker assertionChecker) isErrorNilComparison(condition ast.Expr) bool {
 	if !ok || (binary.Op != token.NEQ && binary.Op != token.EQL) {
 		return false
 	}
+
 	info := checker.pass.TypesInfo
+
 	for _, pair := range [][2]ast.Expr{{binary.X, binary.Y}, {binary.Y, binary.X}} {
 		if !info.Types[pair[1]].IsNil() {
 			continue
 		}
+
 		valueType := info.TypeOf(pair[0])
 		if valueType != nil && types.Identical(valueType, types.Universe.Lookup("error").Type()) {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -361,20 +420,24 @@ func (checker assertionChecker) onlySkips(body *ast.BlockStmt) bool {
 	if len(body.List) == 0 {
 		return false
 	}
+
 	for _, statement := range body.List {
 		expression, ok := statement.(*ast.ExprStmt)
 		if !ok {
 			return false
 		}
+
 		call, ok := expression.X.(*ast.CallExpr)
 		if !ok {
 			return false
 		}
+
 		method := checker.testingMethod(call)
 		if method == nil || !skippingTestingMethods[method.Name()] {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -382,14 +445,17 @@ func (checker assertionChecker) isFailingCall(call *ast.CallExpr) bool {
 	if checker.pass.TypesInfo.Types[call.Fun].IsType() {
 		return false
 	}
+
 	if method := checker.testingMethod(call); method != nil {
 		if failingTestingMethods[method.Name()] {
 			return true
 		}
 	}
+
 	if checker.isTestRunCall(call) {
 		return checker.subtestLiteral(call) == nil
 	}
+
 	return checker.passesTestingValue(call)
 }
 
@@ -399,9 +465,11 @@ func (checker assertionChecker) passesTestingValue(call *ast.CallExpr) bool {
 		if argumentType == nil {
 			continue
 		}
+
 		if types.Implements(argumentType, checker.tbInterface) {
 			return true
 		}
 	}
+
 	return false
 }

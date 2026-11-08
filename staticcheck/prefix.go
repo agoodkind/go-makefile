@@ -14,7 +14,8 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// FilenamePrefixAnalyzer requires directories for repeated filename prefixes.
+// FilenamePrefixAnalyzer requires directories for repeated filename
+// prefixes.
 var FilenamePrefixAnalyzer = &analysis.Analyzer{
 	Name: "filenameprefix",
 	Doc:  "requires a shared directory for sibling files that repeat a prefix",
@@ -22,6 +23,12 @@ var FilenamePrefixAnalyzer = &analysis.Analyzer{
 }
 
 const minimumFilenamePrefix = 3
+
+const architectureSuffixes = "386 amd64 arm arm64 loong64 mips mips64 mips64le mipsle " +
+	"ppc64 ppc64le riscv64 s390x wasm"
+
+const operatingSystemSuffixes = "aix android darwin dragonfly freebsd illumos ios js linux " +
+	"netbsd openbsd plan9 solaris wasip1 windows"
 
 func runFilenamePrefix(pass *analysis.Pass) (any, error) {
 	sources, err := originalSources(pass)
@@ -43,7 +50,8 @@ func runFilenamePrefix(pass *analysis.Pass) (any, error) {
 	sort.Strings(ordered)
 
 	for _, directory := range ordered {
-		if err := reportFilenamePrefixes(pass, directory); err != nil {
+		err := reportFilenamePrefixes(pass, directory)
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -102,7 +110,8 @@ func reportFilenamePrefixes(pass *analysis.Pass, directory string) error {
 			suffix = stem
 		}
 
-		reportAtf(pass, file, file.Name.Pos(), "filenameprefix: %s repeats prefix %q; use directory %q and filename stem %q", name, prefix, prefix, suffix)
+		message := "filenameprefix: %s repeats prefix %q; use directory %q and filename stem %q"
+		reportAtf(pass, file, file.Name.Pos(), message, name, prefix, prefix, suffix)
 	}
 
 	return nil
@@ -132,21 +141,21 @@ func sharedFilenamePrefix(first, second string) string {
 
 func filenameStem(name string) string {
 	stem := strings.TrimSuffix(strings.TrimSuffix(name, ".go"), "_test")
-	stem = trimPlatformSuffix(stem, "386 amd64 arm arm64 loong64 mips mips64 mips64le mipsle ppc64 ppc64le riscv64 s390x wasm")
+	stem = trimPlatformSuffix(stem, architectureSuffixes)
 
-	return trimPlatformSuffix(stem, "aix android darwin dragonfly freebsd illumos ios js linux netbsd openbsd plan9 solaris wasip1 windows")
+	return trimPlatformSuffix(stem, operatingSystemSuffixes)
 }
 
 func trimPlatformSuffix(stem, platforms string) string {
-	separator := strings.LastIndexByte(stem, '_')
-	if separator < 0 {
+	before, after, ok := strings.CutLast(stem, "_")
+	if !ok {
 		return stem
 	}
 
-	suffix := stem[separator+1:]
+	suffix := after
 
 	if slices.Contains(strings.Fields(platforms), suffix) {
-		return stem[:separator]
+		return before
 	}
 
 	return stem
@@ -163,7 +172,9 @@ func filenameGroups(ordered []string) map[string]string {
 			}
 
 			for _, candidate := range ordered {
-				if utf8.RuneCountInString(candidate) >= minimumFilenamePrefix && len(candidate) < len(prefix) && strings.HasPrefix(stem, candidate) && strings.HasPrefix(other, candidate) {
+				shorter := len(candidate) < len(prefix)
+				shared := strings.HasPrefix(stem, candidate) && strings.HasPrefix(other, candidate)
+				if utf8.RuneCountInString(candidate) >= minimumFilenamePrefix && shorter && shared {
 					prefix = candidate
 				}
 			}

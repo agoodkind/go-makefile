@@ -2,12 +2,23 @@ package format
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+)
+
+const (
+	configFlag   = "--config"
+	noConfigFlag = "--no-config"
+)
+
+var (
+	errConfigMapping = errors.New("golangci-lint configuration must contain a YAML mapping")
+	errConfigPath    = errors.New("requires a configuration path")
+	errConfigFlags   = errors.New("--no-config cannot be used with a configuration path")
+	errConfigMissing = errors.New("set GOLANGCI_LINT_FLAGS=-c <path> to select a golangci-lint configuration")
 )
 
 func whitespaceConfiguration() (string, []string, []string, error) {
@@ -22,19 +33,20 @@ func whitespaceSettings(arguments []string, formatTests bool) (string, []string,
 
 	contents := []byte("version: \"2\"\n")
 	if path != "" {
-		contents, err = os.ReadFile(path)
+		contents, err = readConfig(path)
 		if err != nil {
-			return "", nil, nil, failure("read golangci-lint configuration", err)
+			return "", nil, nil, err
 		}
 	}
 
 	var document yaml.Node
-	if err := yaml.Unmarshal(contents, &document); err != nil {
+	err = yaml.Unmarshal(contents, &document)
+	if err != nil {
 		return "", nil, nil, failure("parse golangci-lint configuration", err)
 	}
 
 	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
-		return "", nil, nil, fmt.Errorf("golangci-lint configuration must contain a YAML mapping")
+		return "", nil, nil, errConfigMapping
 	}
 
 	root := document.Content[0]
@@ -45,19 +57,18 @@ func whitespaceSettings(arguments []string, formatTests bool) (string, []string,
 
 	var tags []string
 	if node := existingValue(run, "build-tags"); node != nil {
-		if err := node.Decode(&tags); err != nil {
+		err = node.Decode(&tags)
+		if err != nil {
 			return "", nil, nil, failure("read formatting build tags", err)
 		}
 	}
 
 	exclusions := mappingValue(mappingValue(root, "linters"), "exclusions")
-	shared := false
 	paths := existingValue(exclusions, "paths")
 	if paths != nil {
 		selected := paths.Content[:0]
 		for _, path := range paths.Content {
 			if path.Anchor == "go_makefile_test_files" {
-				shared = true
 				continue
 			}
 
@@ -71,7 +82,8 @@ func whitespaceSettings(arguments []string, formatTests bool) (string, []string,
 		paths.Content = selected
 	}
 
-	if generated := existingValue(exclusions, "generated"); generated == nil || (shared && generated.Value == "lax") {
+	generated := existingValue(exclusions, "generated")
+	if generated == nil || generated.Anchor == "go_makefile_generated" {
 		setScalar(exclusions, "generated", "disable", "!!str")
 	}
 
@@ -86,6 +98,27 @@ func whitespaceSettings(arguments []string, formatTests bool) (string, []string,
 	return temporary, flags, tags, err
 }
 
+func readConfig(path string) ([]byte, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, failure("resolve golangci-lint configuration", err)
+	}
+
+	directory, err := os.OpenRoot(filepath.Dir(resolved))
+	if err != nil {
+		return nil, failure("open golangci-lint configuration directory", err)
+	}
+
+	defer func() { _ = directory.Close() }()
+
+	contents, err := directory.ReadFile(filepath.Base(resolved))
+	if err != nil {
+		return nil, failure("read golangci-lint configuration", err)
+	}
+
+	return contents, nil
+}
+
 func configurationFlags(flags []string) (string, []string, error) {
 	var path string
 	var remaining []string
@@ -94,19 +127,25 @@ func configurationFlags(flags []string) (string, []string, error) {
 	for index := 0; index < len(flags); index++ {
 		flag := flags[index]
 		switch {
-		case flag == "--no-config" || flag == "--no-config=true":
+		case flag == noConfigFlag || flag == noConfigFlag+"=true":
 			noConfig = true
-		case flag == "-c" || flag == "--config":
+		case flag == "-c" || flag == configFlag:
 			index++
 			if index == len(flags) || flags[index] == "" || strings.HasPrefix(flags[index], "-") {
-				return "", nil, fmt.Errorf("%s requires a configuration path", flag)
+				return "", nil, failure(flag, errConfigPath)
 			}
 
 			path = flags[index]
-		case strings.HasPrefix(flag, "--config="):
-			path = strings.TrimPrefix(flag, "--config=")
+		case strings.HasPrefix(flag, configFlag+"="):
+			path = strings.TrimPrefix(flag, configFlag+"=")
+			if path == "" {
+				return "", nil, failure(configFlag, errConfigPath)
+			}
 		case strings.HasPrefix(flag, "-c="):
 			path = strings.TrimPrefix(flag, "-c=")
+			if path == "" {
+				return "", nil, failure("-c", errConfigPath)
+			}
 		case strings.HasPrefix(flag, "-c"):
 			path = strings.TrimPrefix(flag, "-c")
 		default:
@@ -115,31 +154,40 @@ func configurationFlags(flags []string) (string, []string, error) {
 	}
 
 	if noConfig && path != "" {
-		return "", nil, fmt.Errorf("--no-config cannot be used with a configuration path")
+		return "", nil, errConfigFlags
 	}
 
 	if noConfig || path != "" {
 		return path, remaining, nil
 	}
 
+	path, err := findConfiguration()
+
+	return path, remaining, err
+}
+
+func findConfiguration() (string, error) {
 	directory, err := os.Getwd()
 	if err != nil {
-		return "", nil, failure("resolve configuration directory", err)
+		return "", failure("resolve configuration directory", err)
 	}
 
 	for {
 		for _, name := range []string{".golangci.yml", ".golangci.yaml", ".golangci.json"} {
 			candidate := filepath.Join(directory, name)
-			if _, err := os.Stat(candidate); err == nil {
-				return candidate, remaining, nil
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return "", nil, failure("find golangci-lint configuration", err)
+			_, err := os.Stat(candidate)
+			if err == nil {
+				return candidate, nil
+			}
+
+			if !errors.Is(err, os.ErrNotExist) {
+				return "", failure("find golangci-lint configuration", err)
 			}
 		}
 
 		parent := filepath.Dir(directory)
 		if parent == directory {
-			return "", nil, fmt.Errorf("make fmt requires a golangci-lint YAML configuration; set GOLANGCI_LINT_FLAGS=-c <path>")
+			return "", errConfigMissing
 		}
 
 		directory = parent

@@ -5,10 +5,13 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"goodkind.io/go-makefile/internal/lint"
 )
+
+const golangciRunCommand = "run"
 
 func whitespace(
 	binary string,
@@ -27,7 +30,8 @@ func whitespace(
 	}
 
 	for _, group := range groups {
-		if err := whitespacePlatform(binary, configuration, flags, group, run); err != nil {
+		err = whitespacePlatform(binary, configuration, flags, group, run)
+		if err != nil {
 			return err
 		}
 	}
@@ -48,10 +52,8 @@ func whitespacePlatform(
 	}
 	defer removeTemporary(patch)
 
-	args := []string{"GOOS=" + group.goos, "GOARCH=" + group.goarch, binary, "run"}
-	args = append(args, flags...)
-	args = append(
-		args,
+	prefix := []string{"GOOS=" + group.goos, "GOARCH=" + group.goarch, binary, golangciRunCommand}
+	fixes := []string{
 		"--config",
 		configuration,
 		"--fix",
@@ -60,9 +62,10 @@ func whitespacePlatform(
 		"--new-from-patch",
 		patch,
 		"--whole-files",
-	)
-	args = append(args, lint.ScopedPackagesFromFiles(group.files)...)
-	if err := run("env", args); err != nil {
+	}
+	args := slices.Concat(prefix, flags, fixes, lint.ScopedPackagesFromFiles(group.files))
+	err = run("env", args)
+	if err != nil {
 		return failure("format whitespace for "+group.goos+"/"+group.goarch, err)
 	}
 
@@ -115,11 +118,13 @@ func temporaryFile(directory, pattern string, contents []byte) (string, error) {
 	closeErr := file.Close()
 	if writeErr != nil {
 		removeTemporary(file.Name())
+
 		return "", failure("write formatting file", writeErr)
 	}
 
 	if closeErr != nil {
 		removeTemporary(file.Name())
+
 		return "", failure("close formatting file", closeErr)
 	}
 
@@ -127,7 +132,18 @@ func temporaryFile(directory, pattern string, contents []byte) (string, error) {
 }
 
 func removeTemporary(path string) {
-	if err := os.Remove(path); err != nil {
+	directory, name := filepath.Split(path)
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		slog.Error("open temporary formatting directory", slog.String("path", path), slog.Any("err", err))
+
+		return
+	}
+
+	defer func() { _ = root.Close() }()
+
+	err = root.Remove(name)
+	if err != nil {
 		slog.Error("remove temporary formatting file", slog.String("path", path), slog.Any("err", err))
 	}
 }

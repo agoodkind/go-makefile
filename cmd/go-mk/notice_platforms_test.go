@@ -61,7 +61,7 @@ func TestNoticeRecordsNoBuildErrorsFromAnotherPlatform(t *testing.T) {
 		}
 	}
 
-	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n3\n" {
+	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != testHabitNoticeIDs {
 		t.Fatalf("applied notices = %q, want notices 1, 2, and 3", applied)
 	}
 }

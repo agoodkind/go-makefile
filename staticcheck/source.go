@@ -38,7 +38,7 @@ func originalSources(pass *analysis.Pass) ([]analysisSource, error) {
 			return nil, fmt.Errorf("read analyzer source: %w", err)
 		}
 
-		// Cgo supplies a generated syntax tree with positions mapped to the source.
+		// Cgo reports generated syntax positions against the original source.
 		// Parse that source before using its byte offsets.
 		if physical != path {
 			file, err = parser.ParseFile(pass.Fset, path, contents, parser.ParseComments|parser.SkipObjectResolution)

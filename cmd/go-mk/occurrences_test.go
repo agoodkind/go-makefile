@@ -7,6 +7,8 @@ import (
 	"testing"
 )
 
+// TestNoticesDistinguishIdenticalInitializers checks duplicate
+// declarations after notice application.
 func TestNoticesDistinguishIdenticalInitializers(t *testing.T) {
 	t.Parallel()
 	consumer := newConsumerRepository(t, beforeNoticeDate)
@@ -15,9 +17,8 @@ func TestNoticesDistinguishIdenticalInitializers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	writeConsumerFile(t, consumer, "notices.txt", readConsumerFile(t, repository, "notices.txt"))
 	writeConsumerFile(t, consumer, ".make/golangci.yml", readConsumerFile(t, repository, "golangci.yml"))
-	writeConsumerFile(t, consumer, appliedNoticeFile, "1\n2\n3\n4\n")
+	previous := setPendingNotices(t, consumer, argumentsNotice, whitespaceNotice)
 	const path = "widget/initializers.go"
 	const preamble = "package widget\n\nfunc consume(first, second int) {}\n"
 	const violating = `
@@ -46,18 +47,19 @@ func init() {
 	runConsumerGit(t, consumer, beforeNoticeDate, "add", ".")
 	runConsumerGit(t, consumer, beforeNoticeDate, "commit", "--quiet", "--message", "Add historical initializers")
 	flags := []string{
-		"STATICCHECK_EXTRA_FLAGS=-argumentlines",
-		"STATICCHECK_EXTRA_TEST_FLAGS=",
+		fixtureArgumentFlags,
+		fixtureTestFlagsOff,
 		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --enable-only=wsl_v5",
 	}
 	output, err := runConsumerMake(consumer, append([]string{"go-mk-notice"}, flags...)...)
-	if err != nil || readConsumerFile(t, consumer, appliedNoticeFile) != "1\n2\n3\n4\n5\n6\n" {
+	expected := previous + argumentsNotice + "\n" + whitespaceNotice + "\n"
+	if err != nil || readConsumerFile(t, consumer, appliedNoticeFile) != expected {
 		t.Fatalf("historical notices failed: %v\n%s", err, output)
 	}
 
 	gates := []struct{ name, baseline, diagnostic, statement string }{
-		{"staticcheck-extra", baselineFileName, "argumentlines:", "\tconsume(\n"},
-		{"lint-golangci", ".golangci-lint-baseline.txt", "(after-block)", "\t}\n"},
+		{fixtureStaticcheckGate, baselineFileName, "argumentlines:", "\tconsume(\n"},
+		{fixtureGolangciGate, ".golangci-lint-baseline.txt", "(after-block)", "\t}\n"},
 	}
 
 	for _, gate := range gates {
@@ -77,24 +79,22 @@ func init() {
 		{"appended initializer", preamble + violating + formatted + violating, true},
 		{"swapped formatting", preamble + formatted + violating, true},
 	} {
-		t.Run(scenario.name, func(t *testing.T) {
-			writeConsumerFile(t, consumer, path, scenario.source)
-			runConsumerGit(t, consumer, afterNoticeDate, "add", path)
-			runConsumerGit(t, consumer, afterNoticeDate, "commit", "--quiet", "--message", scenario.name)
+		writeConsumerFile(t, consumer, path, scenario.source)
+		runConsumerGit(t, consumer, afterNoticeDate, "add", path)
+		runConsumerGit(t, consumer, afterNoticeDate, "commit", "--quiet", "--message", scenario.name)
 
-			for _, gate := range gates {
-				output, err := runConsumerMake(consumer, append([]string{gate.name}, flags...)...)
-				if scenario.reject {
-					before, _, _ := strings.Cut(violating, gate.statement)
-					line := strings.Count(strings.TrimSuffix(scenario.source, violating)+before, "\n") + 1
-					location := fmt.Sprintf("%s:%d:", path, line)
-					if err == nil || !strings.Contains(output, location) || !strings.Contains(output, gate.diagnostic) {
-						t.Errorf("%s did not reject the later initializer: %v\n%s", gate.name, err, output)
-					}
-				} else if err != nil {
-					t.Errorf("%s rejected the historical initializer after a line shift: %v\n%s", gate.name, err, output)
+		for _, gate := range gates {
+			output, err := runConsumerMake(consumer, append([]string{gate.name}, flags...)...)
+			if scenario.reject {
+				before, _, _ := strings.Cut(violating, gate.statement)
+				line := strings.Count(strings.TrimSuffix(scenario.source, violating)+before, "\n") + 1
+				location := fmt.Sprintf("%s:%d:", path, line)
+				if err == nil || !strings.Contains(output, location) || !strings.Contains(output, gate.diagnostic) {
+					t.Errorf("%s did not reject the later initializer in %s: %v\n%s", gate.name, scenario.name, err, output)
 				}
+			} else if err != nil {
+				t.Errorf("%s rejected the historical initializer after a line shift: %v\n%s", gate.name, err, output)
 			}
-		})
+		}
 	}
 }

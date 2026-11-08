@@ -11,6 +11,10 @@ import (
 	"testing"
 )
 
+const genericMethodDiagnosticStatus = 3
+
+// TestStaticcheckExtraGo127GenericMethods accepts generic methods and
+// reports a parameter with type any through the built analyzer.
 func TestStaticcheckExtraGo127GenericMethods(t *testing.T) {
 	t.Parallel()
 	// This fixture verifies Go 1.27 syntax when that compiler runs the suite.
@@ -19,7 +23,7 @@ func TestStaticcheckExtraGo127GenericMethods(t *testing.T) {
 	}
 
 	binary := filepath.Join(t.TempDir(), "staticcheck-extra")
-	build := exec.Command("go", "build", "-o", binary, ".")
+	build := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build staticcheck-extra: %v\n%s", err, output)
 	}
@@ -42,13 +46,13 @@ func Sum() int {
 	return value.Number(2).Add(3)
 }
 `)
-	compile := exec.Command("go", "test", "./...")
+	compile := exec.CommandContext(t.Context(), "go", "test", "./...")
 	compile.Dir = fixture
 	if output, err := compile.CombinedOutput(); err != nil {
 		t.Fatalf("compile generic-method fixture: %v\n%s", err, output)
 	}
 
-	analyze := exec.Command(binary, "-no_any_or_empty_interface", ".")
+	analyze := exec.CommandContext(t.Context(), binary, "-no_any_or_empty_interface", ".")
 	analyze.Dir = fixture
 	if output, err := analyze.CombinedOutput(); err != nil || len(output) != 0 {
 		t.Fatalf("analyze generic-method fixture: %v\n%s", err, output)
@@ -58,11 +62,11 @@ func Sum() int {
 
 func Loose(input any) {}
 `)
-	analyze = exec.Command(binary, "-no_any_or_empty_interface", ".")
+	analyze = exec.CommandContext(t.Context(), binary, "-no_any_or_empty_interface", ".")
 	analyze.Dir = fixture
 	output, err := analyze.CombinedOutput()
 	var exitError *exec.ExitError
-	if !errors.As(err, &exitError) || exitError.ExitCode() != 3 {
+	if !errors.As(err, &exitError) || exitError.ExitCode() != genericMethodDiagnosticStatus {
 		t.Fatalf("analyzer exit = %v, want diagnostic exit 3\n%s", err, output)
 	}
 

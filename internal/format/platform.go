@@ -2,6 +2,7 @@ package format
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"go/build"
 	"log/slog"
@@ -9,6 +10,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+)
+
+var (
+	errWhitespacePlatformUnavailable = errors.New("selected source does not match a supported Go platform")
+	errInvalidWhitespacePlatform     = errors.New("invalid Go build platform")
 )
 
 type platform struct {
@@ -52,6 +58,7 @@ func sourcePlatforms(files, tags []string) ([]platform, error) {
 			if matches {
 				groups = addPlatformFile(groups, candidate, filepath.ToSlash(relative))
 				matched = true
+
 				break
 			}
 
@@ -66,7 +73,10 @@ func sourcePlatforms(files, tags []string) ([]platform, error) {
 		}
 
 		if !matched {
-			return nil, fmt.Errorf("selected source %s does not match any supported Go platform with the configured build tags; set run.build-tags to enable this file", file)
+			wrapped := fmt.Errorf("%w: %s; set run.build-tags to enable this file", errWhitespacePlatformUnavailable, file)
+			slog.Error("select source formatting platform", slog.Any("err", wrapped))
+
+			return nil, wrapped
 		}
 	}
 
@@ -85,7 +95,10 @@ func availablePlatforms() ([]platform, error) {
 	for target := range strings.FieldsSeq(string(output)) {
 		goos, goarch, valid := strings.Cut(target, "/")
 		if !valid {
-			return nil, fmt.Errorf("invalid Go build platform %q", target)
+			wrapped := fmt.Errorf("%w %q", errInvalidWhitespacePlatform, target)
+			slog.Error("read available formatting platform", slog.Any("err", wrapped))
+
+			return nil, wrapped
 		}
 
 		platforms = append(platforms, platform{goos: goos, goarch: goarch, files: nil})
@@ -98,6 +111,7 @@ func addPlatformFile(groups []platform, candidate platform, file string) []platf
 	for index := range groups {
 		if groups[index].goos == candidate.goos && groups[index].goarch == candidate.goarch {
 			groups[index].files = append(groups[index].files, file)
+
 			return groups
 		}
 	}

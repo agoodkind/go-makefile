@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 )
 
-var errNoGoFiles = errors.New("no go files in module")
+var (
+	errNoGoFiles           = errors.New("no go files in module")
+	errNoArgumentFormatter = errors.New("make fmt requires the staticcheck-extra formatter")
+)
 
 type command struct {
 	binary string
@@ -18,6 +22,14 @@ type command struct {
 }
 
 // Command builds the formatter command for the module's selected source files.
+//
+// GOLANGCI_FMT_FILES overrides module discovery. A module without Go source
+// returns the supplied noFiles error.
+//
+// With two explicit files and a configuration flag, the arguments have this
+// layout:
+//
+//	fmt -c golangci.yml main.go options.go
 func Command(
 	listFiles func([]string) ([]string, error),
 	noFiles error,
@@ -58,14 +70,22 @@ func plan(
 		return command{}, noFiles
 	}
 
-	args := []string{"fmt"}
-	args = append(args, strings.Fields(os.Getenv("GOLANGCI_LINT_FLAGS"))...)
-	args = append(args, files...)
+	flags := strings.Fields(os.Getenv("GOLANGCI_LINT_FLAGS"))
+	args := slices.Concat([]string{"fmt"}, flags, files)
 
 	return command{binary: binary, args: args, files: files}, nil
 }
 
-// Run applies argument and whitespace fixes before the existing formatters.
+// Run formats the module's selected Go source.
+//
+// The callbacks prepare tools, discover module files, and execute commands.
+// Run stops after the first failed operation.
+//
+// Run uses this order:
+//
+//  1. Format argument lists and callback declarations.
+//  2. Apply the configured whitespace fixes.
+//  3. Run the configured Go formatters.
 func Run(
 	ensureTools func() error,
 	resolveAnalyzer func() error,
@@ -73,7 +93,8 @@ func Run(
 	listFiles func([]string) ([]string, error),
 	run func(string, []string) error,
 ) error {
-	if err := ensureTools(); err != nil {
+	err := ensureTools()
+	if err != nil {
 		return failure("prepare formatting tools", err)
 	}
 
@@ -86,7 +107,8 @@ func Run(
 		return err
 	}
 
-	if err := resolveAnalyzer(); err != nil {
+	err = resolveAnalyzer()
+	if err != nil {
 		return failure("prepare argument formatter", err)
 	}
 
@@ -96,7 +118,7 @@ func Run(
 	}
 
 	if analyzer == "" {
-		return fmt.Errorf("make fmt requires the staticcheck-extra formatter")
+		return errNoArgumentFormatter
 	}
 
 	configuration, _, tags, err := whitespaceConfiguration()
@@ -105,17 +127,20 @@ func Run(
 	}
 	defer removeTemporary(configuration)
 
-	arguments := []string{"GO_MK_FORMAT_BUILD_TAGS=" + strings.Join(tags, ","), analyzer, "-format-arguments"}
-	arguments = append(arguments, selected.files...)
-	if err := run("env", arguments); err != nil {
+	prefix := []string{"GO_MK_FORMAT_BUILD_TAGS=" + strings.Join(tags, ","), analyzer, "-format-arguments"}
+	arguments := slices.Concat(prefix, selected.files)
+	err = run("env", arguments)
+	if err != nil {
 		return failure("format argument lists", err)
 	}
 
-	if err := whitespace(selected.binary, selected.files, run); err != nil {
+	err = whitespace(selected.binary, selected.files, run)
+	if err != nil {
 		return err
 	}
 
-	if err := run(selected.binary, selected.args); err != nil {
+	err = run(selected.binary, selected.args)
+	if err != nil {
 		return failure("run Go formatters", err)
 	}
 
@@ -124,7 +149,7 @@ func Run(
 
 func failure(message string, err error) error {
 	wrapped := fmt.Errorf("%s: %w", message, err)
-	slog.Error(message, slog.Any("err", wrapped))
+	slog.Error("formatting failed", slog.String("operation", message), slog.Any("err", wrapped))
 
 	return wrapped
 }

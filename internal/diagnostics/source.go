@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -18,6 +19,14 @@ import (
 const whitespaceTag = " (wsl_v5)"
 
 var sourceLocation = regexp.MustCompile(`^(.+\.go):([0-9]+):([0-9]+): `)
+
+var (
+	errFindingLocation = errors.New("cannot locate whitespace finding")
+	errSourceLocation  = errors.New("invalid source location")
+	errSourceColumn    = errors.New("source column exceeds file size")
+	errStatement       = errors.New("cannot bind whitespace finding to a statement")
+	errDeclaration     = errors.New("cannot bind whitespace finding to a declaration")
+)
 
 type source struct {
 	fileSet      *token.FileSet
@@ -43,7 +52,7 @@ func whitespaceIdentity(line, root string, sources map[string]*source) (string, 
 
 	location := sourceLocation.FindStringSubmatch(line)
 	if location == nil {
-		return "", fmt.Errorf("cannot locate whitespace finding: %s", line)
+		return "", failure(line, errFindingLocation)
 	}
 
 	path := location[1]
@@ -80,12 +89,12 @@ func whitespaceIdentity(line, root string, sources map[string]*source) (string, 
 func (parsed *source) identity(line, column int, adjacent bool) (string, error) {
 	file := parsed.fileSet.File(parsed.file.Pos())
 	if line < 1 || line > file.LineCount() || column < 1 {
-		return "", fmt.Errorf("invalid source location")
+		return "", errSourceLocation
 	}
 
 	position := file.LineStart(line) + token.Pos(column-1)
 	if position > file.Pos(file.Size()) {
-		return "", fmt.Errorf("source column exceeds file size")
+		return "", errSourceColumn
 	}
 
 	for index, node := range parsed.file.Decls {
@@ -106,15 +115,16 @@ func (parsed *source) identity(line, column int, adjacent bool) (string, error) 
 
 		selected, found := selectStatement(context.statements, position, adjacent)
 		if !found {
-			return "", fmt.Errorf("cannot bind whitespace finding to a statement")
+			return "", errStatement
 		}
 
-		digest := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d", context.fingerprint, selected.fingerprint, selected.ordinal)))
+		key := fmt.Sprintf("%s\x00%s\x00%d", context.fingerprint, selected.fingerprint, selected.ordinal)
+		digest := sha256.Sum256([]byte(key))
 
 		return hex.EncodeToString(digest[:]), nil
 	}
 
-	return "", fmt.Errorf("cannot bind whitespace finding to a declaration")
+	return "", errDeclaration
 }
 
 func analyzeDeclaration(node ast.Decl, preceding []ast.Decl) (declaration, error) {
@@ -142,6 +152,7 @@ func analyzeDeclaration(node ast.Decl, preceding []ast.Decl) (declaration, error
 		fingerprint, err := canonical(current)
 		if err != nil {
 			visitErr = err
+
 			return false
 		}
 

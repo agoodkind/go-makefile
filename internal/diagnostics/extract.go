@@ -1,7 +1,8 @@
-// Package diagnostics normalizes captured findings and identifies source occurrences.
+// Package diagnostics normalizes findings and identifies their source.
 package diagnostics
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -15,12 +16,18 @@ import (
 	"goodkind.io/go-makefile/internal/lint"
 )
 
-// GolangciExcludePattern preserves caller exclusions and admits whitespace findings in tests.
+var errDroppedFindings = errors.New("notice capture discarded")
+
+// GolangciExcludePattern builds the path filter for golangci-lint findings.
+//
+// A legacy default test exclusion admits wsl_v5 findings in test files.
+// An explicit exclusion applies to every linter, including wsl_v5.
+//
+// For example, this setting excludes all test findings:
+//
+//	GOLANGCI_LINT_EXCLUDE_PATHS=_test\.go:
 func GolangciExcludePattern() string {
 	defaults := os.Getenv("GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS")
-	if defaults == "" {
-		defaults = `_test\.go:`
-	}
 
 	var patterns []string
 
@@ -43,9 +50,11 @@ func GolangciExcludePattern() string {
 	return strings.Join(patterns, "|")
 }
 
-// A line without this suffix is shorter than the suffix or differs at one character.
+// A different ending is shorter than the suffix or differs at one character.
 func exceptSuffix(suffix string) string {
-	options := []string{".{0," + strconv.Itoa(len(suffix)-1) + "}"}
+	options := make([]string, 1, len(suffix)+1)
+	options[0] = ".{0," + strconv.Itoa(len(suffix)-1) + "}"
+
 	for index, character := range suffix {
 		rest := regexp.QuoteMeta(suffix[index+1:])
 		options = append(options, ".*[^"+regexp.QuoteMeta(string(character))+"]"+rest)
@@ -54,7 +63,14 @@ func exceptSuffix(suffix string) string {
 	return "(?:" + strings.Join(options, "|") + ")$"
 }
 
-// Extract reads captured findings and adds source identities to WSL diagnostics.
+// Extract reads lint findings and returns the number outside the worktree.
+//
+// It filters paths and identifies each whitespace finding by its source
+// statement. The identity survives a source line shift.
+//
+// A whitespace finding includes the identity before the linter name:
+//
+//	widget.go:7:2: <message> [source:<fingerprint>] (wsl_v5)
 func Extract(
 	rawPath string,
 	matchPattern string,
@@ -97,6 +113,7 @@ func Extract(
 
 		if path, ok := findings.FindingPath(normalized); ok && !resolvesInTree(path, root) {
 			droppedOutOfTree++
+
 			continue
 		}
 
@@ -130,7 +147,8 @@ func resolvesInTree(path, root string) bool {
 		return false
 	}
 
-	if _, err := os.Stat(target); err != nil {
+	_, err := os.Stat(target)
+	if err != nil {
 		return !os.IsNotExist(err)
 	}
 
@@ -158,7 +176,14 @@ func failure(message string, err error) error {
 	return wrapped
 }
 
-// CaptureNotice rejects captures that discard findings outside the current tree.
+// CaptureNotice rejects a notice capture with findings outside the worktree.
+//
+// It runs the capture and checks the raw findings before a notice can
+// record an incomplete baseline.
+//
+// A capture with two out-of-tree paths reports:
+//
+//	notice capture discarded 2 findings outside the current tree
 func CaptureNotice[Mode ~int](
 	rawPath string,
 	findingsPath string,
@@ -167,7 +192,8 @@ func CaptureNotice[Mode ~int](
 	mode Mode,
 	rootPath func() string,
 ) error {
-	if err := capture(rawPath, findingsPath, mode); err != nil {
+	err := capture(rawPath, findingsPath, mode)
+	if err != nil {
 		return err
 	}
 
@@ -177,7 +203,13 @@ func CaptureNotice[Mode ~int](
 	}
 
 	if dropped > 0 {
-		return fmt.Errorf("notice capture discarded %d findings outside the current tree; rerun with a fresh GOLANGCI_LINT_CACHE directory", dropped)
+		err := fmt.Errorf(
+			"%w %d findings outside the current tree; rerun with a fresh GOLANGCI_LINT_CACHE directory",
+			errDroppedFindings,
+			dropped,
+		)
+
+		return failure("validate notice capture", err)
 	}
 
 	return nil

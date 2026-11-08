@@ -4,7 +4,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,9 +13,9 @@ import (
 	"regexp"
 	"strings"
 
+	"goodkind.io/go-makefile/internal/analyzer"
 	"goodkind.io/go-makefile/internal/findings"
 	"goodkind.io/go-makefile/internal/lint"
-	"goodkind.io/go-makefile/selfupdate"
 )
 
 // errStaticcheckBin signals that staticcheck-extra binary resolution failed with
@@ -124,42 +123,14 @@ func staticcheckBuildFromRepo() error {
 // runs go install with GONOSUMDB for the analyzer modules and GOBIN set to the
 // GOPATH bin. It runs a process, so it emits a boundary log.
 func staticcheckInstallBinary() error {
-	installSpec := os.Getenv("STATICCHECK_EXTRA_INSTALL")
-	if installSpec == "" {
-		return fmt.Errorf("STATICCHECK_EXTRA_INSTALL is required for a source installation")
-	}
-	binaryName := filepath.Base(strings.SplitN(installSpec, "@", 2)[0])
-	gopath, err := goEnvPath("GOPATH")
-	if err != nil {
-		return err
+	if err := analyzer.InstallSource(goEnvPath, staticcheckOutputPath, hostLintEnv); err != nil {
+		wrapped := fmt.Errorf("install analyzer source: %w", err)
+		slog.Error("install analyzer source", slog.Any("err", wrapped))
+
+		return wrapped
 	}
 
-	goBin := filepath.Join(gopath, "bin")
-	installedPath := filepath.Join(goBin, binaryName)
-	output, err := staticcheckOutputPath()
-	if err != nil {
-		return err
-	}
-
-	slog.Info("staticcheck install binary", slog.String("spec", installSpec))
-	cmd := exec.Command("go", "install", installSpec)
-	env := hostLintEnv()
-	env = setEnvVar(env, "GONOSUMDB", "goodkind.io/go-makefile,goodkind.io/go-makefile/staticcheck")
-	env = setEnvVar(env, "GOBIN", goBin)
-	cmd.Env = env
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
-		return err
-	}
-
-	_ = os.Remove(output)
-
-	return os.Symlink(installedPath, output)
+	return nil
 }
 
 // staticcheckNewerSource reports whether any .go file under repo is newer than
@@ -210,121 +181,35 @@ func staticcheckNewerSource(repo, output string) (bool, error) {
 // staticcheckResolveBin uses an explicit binary or local checkout before
 // installing the analyzer from a source specification or rolling release.
 func staticcheckResolveBin() error {
-	slog.Info("staticcheck resolve binary")
-	configured := os.Getenv("STATICCHECK_EXTRA_BIN")
-	repo := os.Getenv("STATICCHECK_EXTRA_BUILD_REPO")
-	pkg := os.Getenv("STATICCHECK_EXTRA_BUILD_PKG")
-	installSpec := os.Getenv("STATICCHECK_EXTRA_INSTALL")
-	output, err := staticcheckOutputPath()
-	if err != nil {
-		return err
+	if err := analyzer.Resolve(
+		staticcheckOutputPath,
+		isExecutable,
+		staticcheckMissingFlags,
+		staticcheckNewerSource,
+		staticcheckBuildFromRepo,
+		staticcheckInstallBinary,
+		staticcheckInstallRelease,
+		goEnvPath,
+		writeStdout,
+		errStaticcheckBin,
+	); err != nil {
+		wrapped := fmt.Errorf("resolve analyzer executable: %w", err)
+		slog.Error("resolve analyzer executable", slog.Any("err", wrapped))
+
+		return wrapped
 	}
 
-	if configured != "" {
-		if !isExecutable(configured) {
-			writeStdout("staticcheck-extra: " + configured + " not executable\n")
-			return errStaticcheckBin
-		}
-
-		if staticcheckMissingFlags(configured) {
-			writeStdout("staticcheck-extra: " + configured + " does not support requested flags\n")
-			return errStaticcheckBin
-		}
-
-		return nil
-	}
-
-	if repo != "" {
-		info, statErr := os.Stat(repo)
-		if statErr != nil || !info.IsDir() {
-			writeStdout("staticcheck-extra: build repo " + repo + " not present; skipping\n")
-			return nil
-		}
-
-		if pkg == "" {
-			writeStdout("staticcheck-extra: STATICCHECK_EXTRA_BUILD_PKG not set\n")
-			return errStaticcheckBin
-		}
-
-		stale := !isExecutable(output)
-		if !stale {
-			newer, newerErr := staticcheckNewerSource(repo, output)
-			if newerErr != nil {
-				return newerErr
-			}
-
-			stale = newer
-		}
-
-		if !stale {
-			stale = staticcheckMissingFlags(output)
-		}
-
-		if stale {
-			return staticcheckBuildFromRepo()
-		}
-
-		return nil
-	}
-
-	if installSpec == "" {
-		return staticcheckInstallRelease()
-	}
-
-	if strings.HasSuffix(installSpec, "@latest") {
-		return staticcheckInstallBinary()
-	}
-
-	binaryName := filepath.Base(strings.SplitN(installSpec, "@", 2)[0])
-	gopath, err := goEnvPath("GOPATH")
-	if err != nil {
-		return err
-	}
-
-	installedPath := filepath.Join(gopath, "bin", binaryName)
-	if !isExecutable(installedPath) || staticcheckMissingFlags(installedPath) {
-		return staticcheckInstallBinary()
-	}
-
-	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
-		return err
-	}
-
-	_ = os.Remove(output)
-
-	return os.Symlink(installedPath, output)
+	return nil
 }
 
 func staticcheckInstallRelease() error {
-	slog.Info("staticcheck install rolling release")
-	output, err := staticcheckOutputPath()
-	if err != nil {
-		return err
+	if err := analyzer.InstallRelease(staticcheckOutputPath, staticcheckFlagsText, goMkSelfUpdateRepo); err != nil {
+		wrapped := fmt.Errorf("install analyzer release: %w", err)
+		slog.Error("install analyzer release", slog.Any("err", wrapped))
+
+		return wrapped
 	}
-	directory := filepath.Dir(output)
-	if err := os.MkdirAll(directory, 0o755); err != nil {
-		return err
-	}
-	cache := filepath.Join(directory, "staticcheck-release")
-	installed, err := selfupdate.InstallReleaseBinaries(context.Background(), selfupdate.InstallReleaseBinariesOptions{
-		Channel: selfupdate.ReleaseChannelRolling,
-		BinDir:  directory,
-		Options: []selfupdate.Options{{
-			Config: selfupdate.Config{
-				Repo:          goMkSelfUpdateRepo,
-				Binary:        "staticcheck-extra",
-				WebBaseURLEnv: "STATICCHECK_EXTRA_RELEASE_BASE_URL",
-				ValidateArgs:  append(splitWords(staticcheckFlagsText()), "-flags"),
-				ValidateMatch: "\"Name\"",
-			},
-			CacheDir:  cache,
-			StatePath: filepath.Join(cache, "state.json"),
-		}},
-	})
-	if err != nil {
-		return err
-	}
-	slog.Info("staticcheck installed release", slog.String("tag", installed[0].Tag))
+
 	return nil
 }
 

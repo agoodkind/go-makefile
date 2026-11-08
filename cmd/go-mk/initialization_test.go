@@ -44,8 +44,12 @@ func TestExhaustructV5Selection(test *testing.T) {
 		test.Run(scenario.name, func(child *testing.T) {
 			consumer := initializationConsumer(child)
 			writeConsumerFile(child, consumer, "internal/model/model.go", initializationTypes+scenario.declaration+"\n")
-			output, err := lintPolicyMake(consumer, engine,
-				"lint-golangci", "GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --enable-only=exhaustruct_v5")
+			output, err := lintPolicyMake(
+				consumer,
+				engine,
+				"lint-golangci",
+				"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --enable-only=exhaustruct_v5",
+			)
 
 			if scenario.fails {
 				if err == nil || !strings.Contains(output, "(exhaustruct_v5)") {
@@ -88,8 +92,12 @@ func Historical() Record { return Record{Name: "historical"} }
 
 func Later() Record { return Record{Name: "later"} }
 `)
-	output, err = lintPolicyMake(consumer, engine,
-		"lint-golangci", "GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --enable-only=exhaustruct_v5")
+	output, err = lintPolicyMake(
+		consumer,
+		engine,
+		"lint-golangci",
+		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --enable-only=exhaustruct_v5",
+	)
 
 	if err == nil || !strings.Contains(output, "internal/model/later.go:") {
 		test.Fatalf("a later incomplete literal did not fail: %v\n%s", err, output)

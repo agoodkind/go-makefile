@@ -21,6 +21,11 @@ var CommandEntryAnalyzer = &analysis.Analyzer{
 	Run:  runCommandEntry,
 }
 
+const (
+	entryErrorPredicateArguments = 2
+	entryWrappingArguments       = 2
+)
+
 func runCommandEntry(pass *analysis.Pass) (any, error) {
 	packagePath := pass.Pkg.Path()
 	if pass.Module != nil {
@@ -60,7 +65,15 @@ func runCommandEntry(pass *analysis.Pass) (any, error) {
 			}
 
 			counts[identity]++
-			reportAtf(pass, file, declaration.Pos(), "commandentry: %s contains implementation in cmd; delegate to an importable package [id=%s-%d]", declarationName(declaration), identity, counts[identity])
+			reportAtf(
+				pass,
+				file,
+				declaration.Pos(),
+				"commandentry: %s contains implementation in cmd; delegate to an importable package [id=%s-%d]",
+				declarationName(declaration),
+				identity,
+				counts[identity],
+			)
 		}
 	}
 
@@ -200,6 +213,7 @@ func (body *entryBody) statement(statement ast.Stmt, handling bool) bool {
 	switch typed := statement.(type) {
 	case *ast.ExprStmt:
 		_, ok := typed.X.(*ast.CallExpr)
+
 		return ok && body.expression(typed.X)
 	case *ast.ReturnStmt:
 		for _, result := range typed.Results {
@@ -446,13 +460,17 @@ func (body *entryBody) importedCallback(literal *ast.FuncLit) bool {
 		expression = statement.X
 	}
 
-	call, ok := expression.(*ast.CallExpr)
-	if !ok {
+	call, callable := expression.(*ast.CallExpr)
+	if !callable {
 		return false
 	}
 
-	function, ok := typeutil.Callee(body.grammar.pass.TypesInfo, call).(*types.Func)
-	if !ok || function.Pkg() == nil || function.Pkg() == body.grammar.pass.Pkg || !body.grammar.applicationFunction(function) {
+	function, resolved := typeutil.Callee(body.grammar.pass.TypesInfo, call).(*types.Func)
+	if !resolved || function.Pkg() == nil || function.Pkg() == body.grammar.pass.Pkg {
+		return false
+	}
+
+	if !body.grammar.applicationFunction(function) {
 		return false
 	}
 
@@ -478,7 +496,9 @@ func (body *entryBody) call(call *ast.CallExpr) bool {
 
 	if function.Pkg() == nil {
 		selector, ok := call.Fun.(*ast.SelectorExpr)
-		return ok && function.Name() == "Error" && len(call.Args) == 0 && entryError(pass.TypesInfo.TypeOf(selector.X))
+		errorMethod := function.Name() == selectorError && len(call.Args) == 0
+
+		return ok && errorMethod && entryError(pass.TypesInfo.TypeOf(selector.X))
 	}
 
 	path := function.Pkg().Path()
@@ -491,15 +511,17 @@ func (body *entryBody) call(call *ast.CallExpr) bool {
 
 	if path == "log/slog" {
 		body.useValues(call.Args)
+
 		return body.loggingCall(function.Name())
 	}
 
-	if path == "fmt" && function.Name() == "Errorf" {
+	if path == fmtPackagePath && function.Name() == selectorErrorf {
 		body.useValues(call.Args)
+
 		return body.wrappedError(call)
 	}
 
-	if path == "errors" && function.Name() == "Join" {
+	if path == errorsPackagePath && function.Name() == "Join" {
 		body.useValues(call.Args)
 
 		for _, argument := range call.Args {
@@ -513,7 +535,7 @@ func (body *entryBody) call(call *ast.CallExpr) bool {
 		return len(call.Args) > 0
 	}
 
-	if path == "errors" && function.Name() == "Is" {
+	if path == errorsPackagePath && function.Name() == "Is" {
 		return body.errorPredicate(call)
 	}
 
@@ -533,7 +555,12 @@ func (body *entryBody) call(call *ast.CallExpr) bool {
 func (body *entryBody) errorPredicate(call *ast.CallExpr) bool {
 	pass := body.grammar.pass
 	function, ok := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
-	if !ok || function.Pkg() == nil || function.Pkg().Path() != "errors" || function.Name() != "Is" || len(call.Args) != 2 {
+	if !ok || function.Pkg() == nil {
+		return false
+	}
+
+	errorFunction := function.Pkg().Path() == errorsPackagePath && function.Name() == "Is"
+	if !errorFunction || len(call.Args) != entryErrorPredicateArguments {
 		return false
 	}
 
@@ -637,8 +664,18 @@ func (body *entryBody) statusConversion(call *ast.CallExpr) bool {
 
 func (body *entryBody) loggingCall(name string) bool {
 	switch name {
-	case "Debug", "Info", "Warn", "Error", "Log", "LogAttrs", "DebugContext", "InfoContext", "WarnContext", "ErrorContext":
+	case selectorDebug,
+		selectorInfo,
+		selectorWarn,
+		selectorError,
+		selectorLog,
+		selectorLogAttrs,
+		selectorDebugContext,
+		selectorInfoContext,
+		selectorWarnContext,
+		selectorErrorContext:
 		body.handled = true
+
 		return true
 	case "Any", "Bool", "Duration", "Float64", "Group", "GroupAttrs", "Int", "Int64", "String", "Time", "Uint64":
 		return true
@@ -648,13 +685,14 @@ func (body *entryBody) loggingCall(name string) bool {
 }
 
 func (body *entryBody) wrappedError(call *ast.CallExpr) bool {
-	if len(call.Args) < 2 {
+	if len(call.Args) < entryWrappingArguments {
 		return false
 	}
 
 	for _, argument := range call.Args[1:] {
 		if entryError(body.grammar.pass.TypesInfo.TypeOf(argument)) {
 			body.handled = true
+
 			return true
 		}
 	}
@@ -672,6 +710,7 @@ func (grammar *commandGrammar) applicationFunction(function *types.Func) bool {
 	metadata, err := build.Default.Import(owner.Path(), filepath.Dir(path), build.FindOnly)
 	if err != nil {
 		grammar.importError = fmt.Errorf("inspect command import %q: %w", owner.Path(), err)
+
 		return false
 	}
 

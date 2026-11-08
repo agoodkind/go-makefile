@@ -9,7 +9,7 @@ import (
 
 func TestNoticeUsesTheOriginalAdoptionDateAfterAModuleMove(t *testing.T) {
 	repositoryDir := newConsumerRepository(t, beforeNoticeDate)
-	moduleEntries := []string{"go.mod", "widget", ".gitignore", appliedNoticeFile, "Makefile"}
+	moduleEntries := []string{fixtureModule, "widget", ".gitignore", appliedNoticeFile, fixtureMakefile, "notices.txt"}
 	if err := os.MkdirAll(filepath.Join(repositoryDir, "gateway"), 0o755); err != nil {
 		t.Fatalf("create gateway: %v", err)
 	}
@@ -29,5 +29,9 @@ func TestNoticeUsesTheOriginalAdoptionDateAfterAModuleMove(t *testing.T) {
 	}
 	if baseline := readConsumerFile(t, moduleDir, baselineFileName); !strings.Contains(baseline, olderTestFinding) {
 		t.Fatalf("notice output lacks %s:\n%s", olderTestFinding, baseline)
+	}
+
+	if applied := readConsumerFile(t, moduleDir, appliedNoticeFile); applied != testHabitNoticeIDs {
+		t.Fatalf("moved consumer did not record its historical notices:\n%s\n%s", applied, output)
 	}
 }

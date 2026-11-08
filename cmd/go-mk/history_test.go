@@ -2,27 +2,32 @@ package main_test
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"text/template"
 
+	gomk "goodkind.io/go-makefile/cmd/go-mk"
+	"goodkind.io/go-makefile/internal/capture"
 	"goodkind.io/go-makefile/internal/notice"
 )
 
+// TestNoticePreparesGoMakefileModules checks historical notices in both
+// modules.
 func TestNoticePreparesGoMakefileModules(t *testing.T) {
 	t.Parallel()
 	consumer, repository := newNoticeModules(t)
+	previous := setPendingNotices(t, consumer, "2")
+	setPendingNotices(t, filepath.Join(consumer, "staticcheck"), "2")
 
 	output, err := runConsumerMake(
 		consumer,
-		"staticcheck-extra",
+		fixtureStaticcheckGate,
 		"GO_MK_LOCAL_ARGS=GO_MK_DEV_DIR="+repository+" GO_MK_BUILD_REPO="+repository,
 		"STATICCHECK_EXTRA_LOCAL_ARGS=STATICCHECK_EXTRA_BUILD_REPO="+filepath.Join(repository, "staticcheck"),
 		"_GO_MK_NOTICES_FILE="+filepath.Join(consumer, "notices.txt"),
 		"STATICCHECK_EXTRA_FLAGS=-testpackage",
-		"STATICCHECK_EXTRA_TEST_FLAGS=",
+		fixtureTestFlagsOff,
 	)
 	if err != nil {
 		t.Fatalf("go-makefile historical notice failed: %v\n%s", err, output)
@@ -33,8 +38,8 @@ func TestNoticePreparesGoMakefileModules(t *testing.T) {
 			t.Fatalf("baseline in %s lacks the historical finding:\n%s", directory, baseline)
 		}
 
-		if applied := readConsumerFile(t, directory, appliedNoticeFile); applied != "1\n2\n" {
-			t.Fatalf("applied notices in %s = %q, want both notices", directory, applied)
+		if applied := readConsumerFile(t, directory, appliedNoticeFile); applied != previous+"2\n" {
+			t.Fatalf("historical test notice did not apply in %s:\n%s", directory, applied)
 		}
 	}
 }
@@ -47,15 +52,15 @@ func newNoticeModules(t *testing.T) (string, string) {
 		t.Fatal(err)
 	}
 
-	for _, name := range []string{"Makefile", "go.mk"} {
+	for _, name := range []string{fixtureMakefile, "go.mk"} {
 		writeConsumerFile(t, consumer, name, readConsumerFile(t, repository, name))
 	}
 
-	writeConsumerFile(t, consumer, "go.mod", "module goodkind.io/go-makefile\n\ngo 1.26\n")
+	writeConsumerFile(t, consumer, fixtureModule, "module goodkind.io/go-makefile\n\ngo 1.26\n")
 	writeConsumerFile(t, consumer, "staticcheck/go.mod", "module goodkind.io/go-makefile/staticcheck\n\ngo 1.26\n")
 	writeConsumerFile(t, consumer, "golangci.yml", readConsumerFile(t, consumer, ".make/golangci.yml"))
 
-	for _, name := range []string{"widget/widget.go", "widget/widget_test.go", ".make/golangci.yml", appliedNoticeFile} {
+	for _, name := range []string{fixtureWidget, fixtureWidgetTest, ".make/golangci.yml", appliedNoticeFile} {
 		writeConsumerFile(t, consumer, filepath.Join("staticcheck", name), readConsumerFile(t, consumer, name))
 	}
 
@@ -65,16 +70,25 @@ func newNoticeModules(t *testing.T) (string, string) {
 	return consumer, repository
 }
 
+// TestNoticeUsesCurrentConfigInHistoricalModule checks a nested module
+// against the current policy.
 func TestNoticeUsesCurrentConfigInHistoricalModule(t *testing.T) {
 	t.Parallel()
 	consumer, repository := newNoticeModules(t)
 	module := filepath.Join(consumer, "staticcheck")
-	writeConsumerFile(t, module, "widget/spacing.go", "package widget\nfunc Spacing(value int) int {\nif value < 0 {\nreturn 0\n}\nreturn value\n}\n")
+	const spacing = `package widget
+func Spacing(value int) int {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+`
+	writeConsumerFile(t, module, "widget/spacing.go", spacing)
 	runConsumerGit(t, consumer, beforeNoticeDate, "add", ".")
 	runConsumerGit(t, consumer, beforeNoticeDate, "commit", "--quiet", "--message", "Add historical spacing")
 	writeConsumerFile(t, consumer, "golangci.yml", readConsumerFile(t, repository, "golangci.yml"))
-	writeConsumerFile(t, consumer, "notices.txt", readConsumerFile(t, repository, "notices.txt"))
-	writeConsumerFile(t, module, appliedNoticeFile, "1\n2\n3\n4\n5\n")
+	previous := setPendingNotices(t, module, whitespaceNotice)
 	runConsumerGit(t, consumer, afterNoticeDate, "add", ".")
 	runConsumerGit(t, consumer, afterNoticeDate, "commit", "--quiet", "--message", "Enable current whitespace policy")
 
@@ -86,26 +100,29 @@ func TestNoticeUsesCurrentConfigInHistoricalModule(t *testing.T) {
 		"GO_MK_DEV_DIR="+repository,
 		"GOLANGCI_LINT_FLAGS=-c "+filepath.Join(consumer, "golangci.yml"),
 		"GOLANGCI_LINT_RUN_FLAGS=--config=../golangci.yml --enable-only=wsl_v5",
-		"_GO_MK_NOTICES_FILE="+filepath.Join(consumer, "notices.txt"),
+		"_GO_MK_NOTICES_FILE="+filepath.Join(module, "notices.txt"),
 	)
 	if err != nil {
 		t.Fatalf("capture historical whitespace: %v\n%s", err, output)
 	}
 
-	if applied := readConsumerFile(t, module, appliedNoticeFile); !strings.Contains(applied, "\n6\n") {
-		t.Fatalf("notice 6 did not apply:\n%s\n%s", applied, output)
+	if applied := readConsumerFile(t, module, appliedNoticeFile); applied != previous+whitespaceNotice+"\n" {
+		t.Fatalf("whitespace notice did not apply:\n%s\n%s", applied, output)
 	}
 
-	if baseline := readConsumerFile(t, module, ".golangci-lint-baseline.txt"); !strings.Contains(baseline, "widget/spacing.go:") || !strings.Contains(baseline, "(wsl_v5)") {
+	baseline := readConsumerFile(t, module, ".golangci-lint-baseline.txt")
+	if !strings.Contains(baseline, "widget/spacing.go:") || !strings.Contains(baseline, "(wsl_v5)") {
 		t.Fatalf("baseline lacks the historical spacing finding:\n%s\n%s", baseline, output)
 	}
 }
 
+// TestHistoricalCaptureIsolatesGolangciCache checks the linter's cache
+// and caller settings.
 func TestHistoricalCaptureIsolatesGolangciCache(t *testing.T) {
 	historical := newConsumerRepository(t, beforeNoticeDate)
 	current := newConsumerRepository(t, beforeNoticeDate)
 	callerCache := t.TempDir()
-	engine := noticeGitBuildEngine(t, os.Environ())
+	engine := gomk.BuiltTestEngine(t)
 	validation, err := template.ParseFiles(filepath.Join("testdata", "history", "engine.mk"))
 	if err != nil {
 		t.Fatal(err)
@@ -116,8 +133,8 @@ func TestHistoricalCaptureIsolatesGolangciCache(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	makefile.WriteString(readConsumerFile(t, historical, "Makefile"))
-	writeConsumerFile(t, historical, "Makefile", makefile.String())
+	makefile.WriteString(readConsumerFile(t, historical, fixtureMakefile))
+	writeConsumerFile(t, historical, fixtureMakefile, makefile.String())
 	t.Chdir(current)
 	caller, err := os.Getwd()
 	if err != nil {
@@ -126,13 +143,15 @@ func TestHistoricalCaptureIsolatesGolangciCache(t *testing.T) {
 
 	t.Setenv("GOLANGCI_LINT_CACHE", callerCache)
 	t.Setenv("GOLANGCI_LINT", "golangci-lint")
+	t.Setenv("GO_MK_NOTICE_MAKEFILE", fixtureMakefile)
 	const flags = "-c .make/golangci.yml"
 	t.Setenv("GOLANGCI_LINT_FLAGS", flags)
 	t.Setenv("GOLANGCI_LINT_RUN_FLAGS", flags+" --enable-only=wsl_v5")
 	t.Setenv("_GO_MK_ROOT", caller)
 	var historicalCache string
 
-	err = notice.CaptureWithEngine(engine, historical, "", "", func(_, _ string) error {
+	outputPath := filepath.Join(t.TempDir(), "golangci-lint.out")
+	err = notice.CaptureWithEngine(engine, historical, outputPath, "", func(rawPath, _ string) error {
 		historicalCache = os.Getenv("GOLANGCI_LINT_CACHE")
 
 		for _, name := range []string{"GOLANGCI_LINT_FLAGS", "GOLANGCI_LINT_RUN_FLAGS"} {
@@ -144,11 +163,13 @@ func TestHistoricalCaptureIsolatesGolangciCache(t *testing.T) {
 		}
 
 		arguments := append([]string{"run"}, strings.Fields(os.Getenv("GOLANGCI_LINT_RUN_FLAGS"))...)
-		command := exec.CommandContext(t.Context(), os.Getenv("GOLANGCI_LINT"), append(arguments, "./widget")...)
-		command.Stdout = os.Stdout
-		command.Stderr = os.Stderr
+		arguments = append(arguments, "./widget")
+		result, err := capture.Run(os.Getenv("GOLANGCI_LINT"), arguments, os.Environ(), rawPath)
+		if err != nil || result.Status != 0 {
+			t.Fatalf("historical linter exited %d: %v; output: %s", result.Status, err, rawPath)
+		}
 
-		return command.Run()
+		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -177,6 +198,7 @@ func TestHistoricalCaptureIsolatesGolangciCache(t *testing.T) {
 	for name, expected := range map[string]string{
 		"GOLANGCI_LINT_CACHE": callerCache, "GOLANGCI_LINT": "golangci-lint", "_GO_MK_ROOT": caller,
 		"GOLANGCI_LINT_FLAGS": flags, "GOLANGCI_LINT_RUN_FLAGS": flags + " --enable-only=wsl_v5",
+		"GO_MK_NOTICE_MAKEFILE": fixtureMakefile,
 	} {
 		if value := os.Getenv(name); value != expected {
 			t.Fatalf("%s after historical capture = %q, want %q", name, value, expected)

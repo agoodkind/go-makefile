@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"os"
@@ -14,6 +15,20 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/packages"
+)
+
+const (
+	fixFlagName   = "fix"
+	diffFlagName  = "diff"
+	jsonFlagName  = "json"
+	testFlagName  = "test"
+	flagsFlagName = "flags"
+)
+
+var (
+	errArgumentAnalysis    = errors.New("argument analysis failed before applying fixes")
+	errUnknownAnalyzerFlag = errors.New("unknown analyzer flag")
+	errAnalyzerFlagValue   = errors.New("analyzer flag requires a value")
 )
 
 type driverFlag struct {
@@ -31,16 +46,22 @@ type argumentFixOptions struct {
 	patterns   []string
 }
 
-func fixGeneratedArguments(arguments []string) error {
-	requested := false
+func argumentFixRequested(arguments []string) bool {
+	shortFix, longFix := "-"+fixFlagName, "--"+fixFlagName
 
 	for _, argument := range arguments {
-		if argument == "-fix" || argument == "--fix" || strings.HasPrefix(argument, "-fix=") || strings.HasPrefix(argument, "--fix=") {
-			requested = true
+		bare := argument == shortFix || argument == longFix
+		valued := strings.HasPrefix(argument, shortFix+"=") || strings.HasPrefix(argument, longFix+"=")
+		if bare || valued {
+			return true
 		}
 	}
 
-	if !requested {
+	return false
+}
+
+func fixGeneratedArguments(arguments []string) error {
+	if !argumentFixRequested(arguments) {
 		return nil
 	}
 
@@ -80,8 +101,9 @@ func fixGeneratedArguments(arguments []string) error {
 	for _, analyzers := range packagesByName {
 		if result, found := analyzers[ArgumentLinesAnalyzer.Name]; found {
 			var findings []json.RawMessage
-			if err := json.Unmarshal(result, &findings); err != nil {
-				return fmt.Errorf("argument analysis failed before applying fixes: %s", result)
+			err := json.Unmarshal(result, &findings)
+			if err != nil {
+				return fmt.Errorf("%w: %s", errArgumentAnalysis, result)
 			}
 
 			active = active || len(findings) > 0
@@ -115,7 +137,8 @@ func fixGeneratedArguments(arguments []string) error {
 			continue
 		}
 
-		if err := printArgumentDiff(path, formatted.original[path], formatted.contents[path]); err != nil {
+		err := printArgumentDiff(path, formatted.original[path], formatted.contents[path])
+		if err != nil {
 			return err
 		}
 	}
@@ -134,7 +157,7 @@ func nativeDriverFlags(binary string) (map[string]bool, error) {
 		return nil, fmt.Errorf("decode native analyzer flags: %w", err)
 	}
 
-	flags := map[string]bool{"fix": true, "debug": false, "cpuprofile": false, "memprofile": false, "trace": false}
+	flags := map[string]bool{fixFlagName: true, "debug": false, "cpuprofile": false, "memprofile": false, "trace": false}
 
 	for _, flag := range listed {
 		flags[flag.Name] = flag.Bool
@@ -155,6 +178,7 @@ func parseArgumentFixOptions(arguments []string, flags map[string]bool) (argumen
 			}
 
 			options.patterns = arguments[index:]
+
 			break
 		}
 
@@ -165,7 +189,7 @@ func parseArgumentFixOptions(arguments []string, flags map[string]bool) (argumen
 
 		boolean, known := flags[name]
 		if !known && !options.query {
-			return argumentFixOptions{}, fmt.Errorf("unknown analyzer flag -%s", name)
+			return argumentFixOptions{}, fmt.Errorf("%w -%s", errUnknownAnalyzerFlag, name)
 		}
 
 		handled, err := options.booleanFlag(name, value, explicit)
@@ -181,7 +205,7 @@ func parseArgumentFixOptions(arguments []string, flags map[string]bool) (argumen
 		if known && !boolean && !explicit {
 			index++
 			if index == len(arguments) {
-				return argumentFixOptions{}, fmt.Errorf("-%s requires a value", name)
+				return argumentFixOptions{}, fmt.Errorf("-%s: %w", name, errAnalyzerFlagValue)
 			}
 
 			options.inspect = append(options.inspect, arguments[index])
@@ -192,7 +216,8 @@ func parseArgumentFixOptions(arguments []string, flags map[string]bool) (argumen
 }
 
 func (options *argumentFixOptions) booleanFlag(name, value string, explicit bool) (bool, error) {
-	if name != "fix" && name != "diff" && name != "json" && name != "test" && name != "flags" {
+	if name != fixFlagName && name != diffFlagName && name != jsonFlagName &&
+		name != testFlagName && name != flagsFlagName {
 		return false, nil
 	}
 
@@ -206,17 +231,17 @@ func (options *argumentFixOptions) booleanFlag(name, value string, explicit bool
 	}
 
 	switch name {
-	case "fix":
+	case fixFlagName:
 		options.fix = enabled
-	case "diff":
+	case diffFlagName:
 		options.diff = enabled
-	case "test":
+	case testFlagName:
 		options.tests = enabled
-	case "flags":
+	case flagsFlagName:
 		options.queryFlags = enabled
 	}
 
-	return name != "test" && name != "flags", nil
+	return name != testFlagName && name != flagsFlagName, nil
 }
 
 func generatedArgumentFiles(patterns []string, tests bool) ([]string, error) {

@@ -2,6 +2,7 @@ package staticcheck
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/build"
@@ -15,6 +16,15 @@ import (
 
 	"golang.org/x/tools/go/packages"
 )
+
+var (
+	errParameterType  = errors.New("type information is unavailable")
+	errSourcePlatform = errors.New("does not match a supported Go platform")
+	errGoPlatform     = errors.New("invalid Go platform")
+	errPackageTypes   = errors.New("package lacks type information")
+)
+
+type sourceTypes map[string]checkedTypes
 
 type typePosition struct {
 	path   string
@@ -51,7 +61,11 @@ func (checked checkedTypes) position(fileSet *token.FileSet, expression ast.Expr
 }
 
 func checkedSourceTypes(fileSet *token.FileSet, information *types.Info) checkedTypes {
-	checked := checkedTypes{direct: information, positions: make(map[typePosition]types.Type), paths: make(map[string]string)}
+	checked := checkedTypes{
+		direct:    information,
+		positions: make(map[typePosition]types.Type),
+		paths:     make(map[string]string),
+	}
 	checked.add(fileSet, information)
 
 	return checked
@@ -87,7 +101,10 @@ func (checked checkedTypes) callback(fileSet *token.FileSet, expression ast.Expr
 	}
 
 	if resolved == nil {
-		return false, fmt.Errorf("type information is unavailable for parameter %s at %s", types.ExprString(expression), fileSet.PositionFor(expression.Pos(), true))
+		parameter := types.ExprString(expression)
+		position := fileSet.PositionFor(expression.Pos(), true)
+
+		return false, fmt.Errorf("%w for parameter %s at %s", errParameterType, parameter, position)
 	}
 
 	_, callback := types.Unalias(resolved).Underlying().(*types.Signature)
@@ -115,6 +132,7 @@ func formattingPlatforms(paths []string) ([]formattingPlatform, error) {
 			if matches {
 				groups = addFormattingPlatform(groups, candidate, path)
 				matched = true
+
 				break
 			}
 
@@ -134,7 +152,7 @@ func formattingPlatforms(paths []string) ([]formattingPlatform, error) {
 				action = "set run.build-tags to enable this file"
 			}
 
-			return nil, fmt.Errorf("selected source %s does not match a supported Go platform; %s", path, action)
+			return nil, fmt.Errorf("selected source %s %w; %s", path, errSourcePlatform, action)
 		}
 	}
 
@@ -178,7 +196,7 @@ func otherFormattingPlatforms() ([]formattingPlatform, error) {
 	for target := range strings.FieldsSeq(string(output)) {
 		goos, goarch, valid := strings.Cut(target, "/")
 		if !valid {
-			return nil, fmt.Errorf("invalid Go platform %q", target)
+			return nil, fmt.Errorf("%w %q", errGoPlatform, target)
 		}
 
 		platforms = append(platforms, formattingPlatform{goos: goos, goarch: goarch, files: nil})
@@ -187,21 +205,22 @@ func otherFormattingPlatforms() ([]formattingPlatform, error) {
 	return platforms, nil
 }
 
-func addFormattingPlatform(groups []formattingPlatform, candidate formattingPlatform, path string) []formattingPlatform {
+func addFormattingPlatform(groups []formattingPlatform, target formattingPlatform, path string) []formattingPlatform {
 	for index := range groups {
-		if groups[index].goos == candidate.goos && groups[index].goarch == candidate.goarch {
+		if groups[index].goos == target.goos && groups[index].goarch == target.goarch {
 			groups[index].files = append(groups[index].files, path)
+
 			return groups
 		}
 	}
 
-	candidate.files = []string{path}
+	target.files = []string{path}
 
-	return append(groups, candidate)
+	return append(groups, target)
 }
 
-func loadFormattingTypes(groups []formattingPlatform, overlay map[string][]byte) (map[string]checkedTypes, error) {
-	checked := make(map[string]checkedTypes)
+func loadFormattingTypes(groups []formattingPlatform, overlay map[string][]byte) (sourceTypes, error) {
+	checked := make(sourceTypes)
 
 	for _, group := range groups {
 		selected := make(map[string]bool)
@@ -218,9 +237,15 @@ func loadFormattingTypes(groups []formattingPlatform, overlay map[string][]byte)
 		}
 
 		sort.Strings(ordered)
-		configuration := &packages.Config{Mode: packages.LoadSyntax, Tests: true, Overlay: overlay, Dir: filepath.Dir(group.files[0])}
+		configuration := &packages.Config{
+			Mode:    packages.LoadSyntax,
+			Tests:   true,
+			Overlay: overlay,
+			Dir:     filepath.Dir(group.files[0]),
+		}
 		configuration.Env = append(os.Environ(), "GOOS="+group.goos, "GOARCH="+group.goarch)
-		if (group.goos != build.Default.GOOS || group.goarch != build.Default.GOARCH) && strings.TrimSpace(os.Getenv("GO_MK_CC")) == "" {
+		foreign := group.goos != build.Default.GOOS || group.goarch != build.Default.GOARCH
+		if foreign && strings.TrimSpace(os.Getenv("GO_MK_CC")) == "" {
 			configuration.Env = append(configuration.Env, "CGO_ENABLED=0")
 		}
 
@@ -237,11 +262,17 @@ func loadFormattingTypes(groups []formattingPlatform, overlay map[string][]byte)
 
 		for _, pkg := range loaded {
 			if len(pkg.Errors) > 0 {
-				return nil, fmt.Errorf("load argument formatting package %s for %s/%s: %w", pkg.PkgPath, group.goos, group.goarch, pkg.Errors[0])
+				return nil, fmt.Errorf(
+					"load argument formatting package %s for %s/%s: %w",
+					pkg.PkgPath,
+					group.goos,
+					group.goarch,
+					pkg.Errors[0],
+				)
 			}
 
 			if pkg.TypesInfo == nil {
-				return nil, fmt.Errorf("argument formatting package %s lacks type information", pkg.PkgPath)
+				return nil, fmt.Errorf("%s: %w", pkg.PkgPath, errPackageTypes)
 			}
 
 			information.add(pkg.Fset, pkg.TypesInfo)

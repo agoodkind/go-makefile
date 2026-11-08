@@ -63,8 +63,12 @@ func TestTestCoverageUsesAppliedNotice(test *testing.T) {
 		test.Fatalf("adoption did not separate historical tests from production findings: %v\n%s", err, output)
 	}
 
-	writeConsumerFile(test, consumer, "widget/current.go", strings.Replace(coverageCurrentProduction,
-		"os.WriteFile", "_ = os.WriteFile", 1))
+	writeConsumerFile(test, consumer, "widget/current.go", strings.Replace(
+		coverageCurrentProduction,
+		"os.WriteFile",
+		"_ = os.WriteFile",
+		1,
+	))
 	coverageRejectLaterTest(test, consumer, engine, baseline)
 }
 
@@ -101,8 +105,13 @@ func TestLater(test *testing.T){os.WriteFile("later.txt",nil,0o600)}
 		t.Fatalf("later test finding did not fail: %v\n%s", err, output)
 	}
 
-	output, err = lintPolicyMake(consumer, engine, "lint-files", "LINT_FILES=widget/later_test.go",
-		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --enable-only=errcheck")
+	output, err = lintPolicyMake(
+		consumer,
+		engine,
+		"lint-files",
+		"LINT_FILES=widget/later_test.go",
+		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --enable-only=errcheck",
+	)
 	if err == nil || !strings.Contains(output, "widget/later_test.go:") {
 		t.Fatalf("scoped lint dropped the test finding: %v\n%s", err, output)
 	}
@@ -123,6 +132,10 @@ func TestLater(test *testing.T){os.WriteFile("later.txt",nil,0o600)}
 }
 
 func coverageGate(consumer, engine string) (string, error) {
-	return lintPolicyMake(consumer, engine, "lint-golangci",
-		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --enable-only=errcheck")
+	return lintPolicyMake(
+		consumer,
+		engine,
+		"lint-golangci",
+		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --enable-only=errcheck",
+	)
 }
