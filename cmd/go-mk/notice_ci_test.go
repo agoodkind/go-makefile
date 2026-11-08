@@ -11,7 +11,7 @@ import (
 func TestStaticcheckExtraInGitHubActionsDoesNotApplyANotice(t *testing.T) {
 	consumerDir := newConsumerRepository(t, beforeNoticeDate)
 
-	command := exec.Command("make", "staticcheck-extra")
+	command := exec.Command("make", "staticcheck-extra", testAnalyzerFlags)
 	command.Dir = consumerDir
 	command.Env = []string{
 		"PATH=" + os.Getenv("PATH"),

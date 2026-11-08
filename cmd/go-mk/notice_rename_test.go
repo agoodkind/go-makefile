@@ -23,7 +23,7 @@ func TestNoticeUsesTheOriginalAdoptionDateAfterAModuleMove(t *testing.T) {
 	runConsumerGit(t, repositoryDir, afterNoticeDate, "add", "gateway/go.mod")
 	runConsumerGit(t, repositoryDir, afterNoticeDate, "commit", "--quiet", "--message", "Update module metadata after the move")
 
-	output, err := runConsumerMake(moduleDir, "staticcheck-extra")
+	output, err := runConsumerMake(moduleDir, "staticcheck-extra", testAnalyzerFlags)
 	if err != nil {
 		t.Fatalf("gate failed in a consumer that adopted go-makefile before the notice: %v\n%s", err, output)
 	}
