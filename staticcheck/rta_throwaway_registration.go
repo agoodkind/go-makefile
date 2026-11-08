@@ -139,9 +139,9 @@ func isServerConstructor(qualified string, cfg rtaThrowawayConfig) bool {
 		_, hit := cfg.serverConstructors[qualified]
 		return hit
 	}
-	short := qualified
-	if dot := strings.LastIndex(qualified, "."); dot >= 0 {
-		short = qualified[dot+1:]
+	_, short, hasDot := strings.CutLast(qualified, ".")
+	if !hasDot {
+		short = qualified
 	}
 	return strings.HasSuffix(short, "NewServer")
 }
@@ -151,9 +151,9 @@ func isRegistrationFunc(qualified string, cfg rtaThrowawayConfig) bool {
 		_, hit := cfg.registrationFuncs[qualified]
 		return hit
 	}
-	short := qualified
-	if dot := strings.LastIndex(qualified, "."); dot >= 0 {
-		short = qualified[dot+1:]
+	_, short, hasDot := strings.CutLast(qualified, ".")
+	if !hasDot {
+		short = qualified
 	}
 	return registerServerCallPattern.MatchString(short)
 }
@@ -220,9 +220,9 @@ func (u *serverVarUsage) recordCallReference(ident *ast.Ident, call *ast.CallExp
 		u.registered = true
 		return
 	}
-	short := qualified
-	if dot := strings.LastIndex(qualified, "."); dot >= 0 {
-		short = qualified[dot+1:]
+	_, short, hasDot := strings.CutLast(qualified, ".")
+	if !hasDot {
+		short = qualified
 	}
 	switch short {
 	case "Serve", "ListenAndServe", "ServeTLS", "ListenAndServeTLS", "Shutdown", "GracefulStop", "Stop":

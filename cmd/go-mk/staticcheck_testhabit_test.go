@@ -151,6 +151,7 @@ func runConsumerMake(consumerDir string, arguments ...string) (string, error) {
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + os.Getenv("HOME"),
 		"TMPDIR=" + os.Getenv("TMPDIR"),
+		"GOCACHE=" + os.Getenv("GOCACHE"),
 	}
 	output, err := command.CombinedOutput()
 	return string(output), err

@@ -1,1 +1,6 @@
-# golangci-lint: generated_at=2026-05-30T03:15:09Z
+# golangci-lint: generated_at=2026-11-08T02:04:03Z
+render.go:29:2: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T22:59:30Z last_seen=2026-11-08T02:04:03Z
+render.go:41:2: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T22:59:30Z last_seen=2026-11-08T02:04:03Z
+render.go:48:2: missing whitespace above this line (too many statements above if) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:46:44Z last_seen=2026-11-08T02:04:03Z
+render.go:48:2: variable name 'b' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T22:59:30Z last_seen=2026-11-08T02:04:03Z
+render.go:54:2: variable name 't' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T22:59:30Z last_seen=2026-11-08T02:04:03Z

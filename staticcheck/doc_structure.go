@@ -7,7 +7,10 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// DocStructureAnalyzer checks the layout of exported function and method comments.
+const docStructureParagraphCount = 2
+
+// DocStructureAnalyzer checks the layout of exported function and
+// method comments.
 //
 // The analyzer uses Go's comment parser to require a summary paragraph,
 // a separate explanation, and an example or layout in a list or indented
@@ -28,32 +31,41 @@ func runDocStructure(pass *analysis.Pass) (any, error) {
 		if isTestFile(path) || isGeneratedFile(file, path) {
 			continue
 		}
+
 		for _, declaration := range file.Decls {
 			function, ok := declaration.(*ast.FuncDecl)
 			if !ok || !function.Name.IsExported() || function.Doc == nil {
 				continue
 			}
+
 			var parser comment.Parser
+
 			blocks := parser.Parse(function.Doc.Text()).Content
 			introduction, explanation := false, false
-			if len(blocks) >= 2 {
+
+			if len(blocks) >= docStructureParagraphCount {
 				_, introduction = blocks[0].(*comment.Paragraph)
 				_, explanation = blocks[1].(*comment.Paragraph)
 			}
+
 			illustration := false
+
 			for index, block := range blocks {
-				if index < 2 {
+				if index < docStructureParagraphCount {
 					continue
 				}
+
 				switch block.(type) {
 				case *comment.Code, *comment.List:
 					illustration = true
 				}
 			}
+
 			if !introduction || !explanation || !illustration {
 				pass.Reportf(function.Doc.Pos(), "doc_structure: add an introduction, explanation, and example or layout")
 			}
 		}
 	}
+
 	return nil, nil
 }
