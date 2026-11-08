@@ -52,6 +52,9 @@ func golangciCommand(mode string) (string, []string, error) {
 		targets = expanded
 	}
 	args := []string{mode}
+	if mode == "run" {
+		args = append(args, "--output.text.print-issued-lines=false")
+	}
 	args = append(args, splitWords(flagsText)...)
 	args = append(args, targets...)
 	return binary, args, nil
