@@ -8,6 +8,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"sort"
 
 	"golang.org/x/tools/go/analysis"
@@ -26,6 +27,8 @@ func runArgumentLines(pass *analysis.Pass) (any, error) {
 		return nil, err
 	}
 
+	checked := checkedSourceTypes(pass.Fset, pass.TypesInfo)
+
 	for _, source := range sources {
 		var analysisErr error
 		ast.Inspect(source.file, func(node ast.Node) bool {
@@ -33,7 +36,12 @@ func runArgumentLines(pass *analysis.Pass) (any, error) {
 				return false
 			}
 
-			position, kind, edits := layoutEdits(pass.Fset, node, source.contents)
+			position, kind, edits, err := layoutEdits(pass.Fset, node, source.contents, checked)
+			if err != nil {
+				analysisErr = err
+				return false
+			}
+
 			if len(edits) == 0 {
 				return true
 			}
@@ -64,11 +72,11 @@ func runArgumentLines(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-func layoutEdits(fileSet *token.FileSet, node ast.Node, contents []byte) (token.Pos, string, []analysis.TextEdit) {
+func layoutEdits(fileSet *token.FileSet, node ast.Node, contents []byte, checked checkedTypes) (token.Pos, string, []analysis.TextEdit, error) {
 	switch typed := node.(type) {
 	case *ast.CallExpr:
 		if len(typed.Args) < 2 {
-			return token.NoPos, "", nil
+			return token.NoPos, "", nil, nil
 		}
 
 		elements := make([]listElement, 0, len(typed.Args))
@@ -80,16 +88,18 @@ func layoutEdits(fileSet *token.FileSet, node ast.Node, contents []byte) (token.
 			elements[len(elements)-1].end = typed.Ellipsis + token.Pos(len("..."))
 		}
 
-		return typed.Lparen, "argument", listLineEdits(fileSet, typed.Lparen, typed.Rparen, elements, contents, false)
+		return typed.Lparen, "argument", listLineEdits(fileSet, typed.Lparen, typed.Rparen, elements, contents, false), nil
 	case *ast.FuncType:
 		if typed.Params == nil {
-			return token.NoPos, "", nil
+			return token.NoPos, "", nil, nil
 		}
 
-		return typed.Params.Opening, "parameter", parameterLineEdits(fileSet, typed, contents)
+		edits, err := parameterLineEdits(fileSet, typed, contents, checked)
+
+		return typed.Params.Opening, "parameter", edits, err
 	}
 
-	return token.NoPos, "", nil
+	return token.NoPos, "", nil, nil
 }
 
 func argumentTrailingComma(contents []byte) bool {
@@ -111,76 +121,130 @@ func argumentTrailingComma(contents []byte) bool {
 	return false
 }
 
+type argumentFormatting struct {
+	selected []string
+	original map[string][]byte
+	contents map[string][]byte
+}
+
 // FormatArguments formats argument lists and declarations with callbacks.
 func FormatArguments(paths []string) error {
-	if len(paths) == 0 {
-		return fmt.Errorf("provide Go source files to format")
+	formatted, err := prepareArgumentFormatting(paths)
+	if err != nil {
+		return err
 	}
+
+	selected, original, contents := formatted.selected, formatted.original, formatted.contents
+	for _, path := range selected {
+		if bytes.Equal(original[path], contents[path]) {
+			continue
+		}
+
+		info, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("read argument source permissions: %w", err)
+		}
+
+		if err := os.WriteFile(path, contents[path], info.Mode().Perm()); err != nil {
+			return fmt.Errorf("write formatted arguments: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func prepareArgumentFormatting(paths []string) (argumentFormatting, error) {
+	if len(paths) == 0 {
+		return argumentFormatting{}, fmt.Errorf("provide Go source files to format")
+	}
+
+	original := make(map[string][]byte)
+	contents := make(map[string][]byte)
+	var selected []string
 
 	for _, path := range paths {
-		if err := formatArgumentFile(path); err != nil {
-			return fmt.Errorf("format arguments in %s: %w", path, err)
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return argumentFormatting{}, fmt.Errorf("resolve argument source: %w", err)
 		}
+
+		absolute, err = filepath.EvalSymlinks(absolute)
+		if err != nil {
+			return argumentFormatting{}, fmt.Errorf("resolve argument source: %w", err)
+		}
+
+		if _, duplicate := original[absolute]; duplicate {
+			continue
+		}
+
+		data, err := os.ReadFile(absolute)
+		if err != nil {
+			return argumentFormatting{}, fmt.Errorf("read argument source: %w", err)
+		}
+
+		original[absolute], contents[absolute] = data, data
+		selected = append(selected, absolute)
 	}
 
-	return nil
-}
-
-func formatArgumentFile(path string) error {
-	original, err := os.ReadFile(path)
+	groups, err := formattingPlatforms(selected)
 	if err != nil {
-		return fmt.Errorf("read argument source: %w", err)
+		return argumentFormatting{}, err
 	}
-
-	contents := original
 
 	for {
-		formatted, changed, err := formatArgumentSource(path, contents)
+		checked, err := loadFormattingTypes(groups, contents)
 		if err != nil {
-			return err
+			return argumentFormatting{}, err
 		}
 
-		if !changed {
+		changedAny := false
+
+		for _, path := range selected {
+			formatted, changed, err := formatArgumentSource(path, contents[path], checked[path])
+			if err != nil {
+				return argumentFormatting{}, fmt.Errorf("format arguments in %s: %w", path, err)
+			}
+
+			if !changed {
+				continue
+			}
+
+			if bytes.Equal(formatted, contents[path]) {
+				return argumentFormatting{}, fmt.Errorf("argument formatting did not stabilize in %s", path)
+			}
+
+			contents[path] = formatted
+			changedAny = true
+		}
+
+		if !changedAny {
 			break
 		}
-
-		if bytes.Equal(formatted, contents) {
-			return fmt.Errorf("argument formatting did not stabilize")
-		}
-
-		contents = formatted
 	}
 
-	if bytes.Equal(original, contents) {
-		return nil
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("read argument source permissions: %w", err)
-	}
-
-	if err := os.WriteFile(path, contents, info.Mode().Perm()); err != nil {
-		return fmt.Errorf("write formatted arguments: %w", err)
-	}
-
-	return nil
+	return argumentFormatting{selected: selected, original: original, contents: contents}, nil
 }
 
-func formatArgumentSource(path string, contents []byte) ([]byte, bool, error) {
+func formatArgumentSource(path string, contents []byte, checked checkedTypes) ([]byte, bool, error) {
 	fileSet := token.NewFileSet()
 	file, err := parser.ParseFile(fileSet, path, contents, parser.ParseComments)
 	if err != nil {
 		return nil, false, fmt.Errorf("parse argument source: %w", err)
 	}
 
-	if isGeneratedFile(file, path) {
-		return contents, false, nil
-	}
-
 	insertions := make(map[int]string)
+	var analysisErr error
 	ast.Inspect(file, func(node ast.Node) bool {
-		_, _, edits := layoutEdits(fileSet, node, contents)
+		if analysisErr != nil {
+			return false
+		}
+
+		_, _, edits, err := layoutEdits(fileSet, node, contents, checked)
+		if err != nil {
+			analysisErr = err
+			return false
+		}
+
 		for _, edit := range edits {
 			offset := fileSet.File(edit.Pos).Offset(edit.Pos)
 			insertions[offset] += string(edit.NewText)
@@ -188,6 +252,10 @@ func formatArgumentSource(path string, contents []byte) ([]byte, bool, error) {
 
 		return true
 	})
+	if analysisErr != nil {
+		return nil, false, analysisErr
+	}
+
 	if len(insertions) == 0 {
 		return contents, false, nil
 	}

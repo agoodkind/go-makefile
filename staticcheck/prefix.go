@@ -72,7 +72,7 @@ func reportFilenamePrefixes(pass *analysis.Pass, directory string) error {
 			return fmt.Errorf("parse filename prefix source: %w", err)
 		}
 
-		if isGeneratedFile(file, path) || isGeneratedTestMainFile(file, path) {
+		if isGeneratedTestMainFile(file, path) {
 			continue
 		}
 

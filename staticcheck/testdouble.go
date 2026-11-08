@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
-	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -195,13 +194,11 @@ func wrapsInterface(obj, target *types.TypeName) bool {
 	if !ok {
 		return false
 	}
-
-	for field := range structType.Fields() {
-		if types.Identical(field.Type(), target.Type()) {
+	for i := range structType.NumFields() {
+		if types.Identical(structType.Field(i).Type(), target.Type()) {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -345,8 +342,8 @@ func (finder *testDoubleFinder) checkReturn(statement *ast.ReturnStmt, stack []a
 }
 
 func (finder *testDoubleFinder) enclosingSignature(stack []ast.Node) *types.Signature {
-	for _, node := range slices.Backward(stack) {
-		switch function := node.(type) {
+	for i := len(stack) - 1; i >= 0; i-- {
+		switch function := stack[i].(type) {
 		case *ast.FuncLit:
 			signature, _ := finder.pass.TypesInfo.TypeOf(function).(*types.Signature)
 			return signature
@@ -355,7 +352,6 @@ func (finder *testDoubleFinder) enclosingSignature(stack []ast.Node) *types.Sign
 			return signature
 		}
 	}
-
 	return nil
 }
 

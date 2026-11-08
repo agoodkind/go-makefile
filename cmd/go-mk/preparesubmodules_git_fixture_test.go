@@ -23,6 +23,7 @@ func TestPrepareSubmodulesForOutputsInterleavesNestedDiscovery(t *testing.T) {
 	subRepoAssertAbsent(t, filepath.Join(parent, ".gitmodules"))
 	subRepoPrepare(t, fixture, "third_party/gksyntax/treesitter/grammars/swift/upstream/src/parser.c "+
 		"third_party/gksyntax/treesitter/grammars/perl/upstream/src/parser.c")
+
 	for _, language := range []string{"swift", "perl"} {
 		parser := filepath.Join(parent, "treesitter", "grammars", language, "upstream", "src", "parser.c")
 		subRepoAssertFile(t, parser, language+" parser\n")
@@ -34,6 +35,7 @@ func TestPrepareSubmodulesForOutputsExcludesUnrelatedSubmodule(t *testing.T) {
 	parent := filepath.Join(fixture.checkout, "third_party", "gksyntax")
 	subRepoPrepare(t, fixture, "third_party/gksyntax/other/file.go")
 	subRepoAssertFile(t, filepath.Join(parent, "other", "file.go"), "package other\n")
+
 	for _, language := range []string{"swift", "perl", "dart"} {
 		submodule := filepath.Join(parent, "treesitter", "grammars", language, "upstream")
 		subRepoAssertAbsent(t, filepath.Join(submodule, ".git"))
@@ -57,11 +59,13 @@ func subRepoColdCheckout(t *testing.T) subRepoFixture {
 	if runtime.GOOS == "windows" {
 		t.Skip("the Git fixture uses /dev/null")
 	}
+
 	fixture := t.TempDir()
 	home := filepath.Join(fixture, "home")
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	gitConfig := filepath.Join(fixture, "gitconfig")
 	subRepoWriteFile(t, gitConfig, "[protocol \"file\"]\n\tallow = always\n"+
 		"[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n")
@@ -80,24 +84,29 @@ func subRepoColdCheckout(t *testing.T) subRepoFixture {
 	binary := subRepoBuildEngine(t, fixture, environment)
 	// The Go settings apply only to the engine build in this fixture.
 	var env []string
+
 	for _, entry := range environment {
 		if strings.HasPrefix(entry, "GO") || strings.HasPrefix(entry, "CGO_ENABLED=") {
 			continue
 		}
+
 		env = append(env, entry)
 	}
 
 	parent := subRepoInit(t, env, filepath.Join(fixture, "gksyntax"), "other/file.go", "package other\n")
+
 	for _, language := range []string{"swift", "perl", "dart"} {
 		grammar := subRepoInit(t, env, filepath.Join(fixture, language), "src/parser.c", language+" parser\n")
 		subRepoGit(t, env, parent, "submodule", "add", grammar, "treesitter/grammars/"+language+"/upstream")
 	}
+
 	subRepoGit(t, env, parent, "commit", "-am", "Add grammar submodules")
 	consumer := subRepoInit(t, env, filepath.Join(fixture, "consumer"), "README.md", "Consumer fixture\n")
 	subRepoGit(t, env, consumer, "submodule", "add", parent, "third_party/gksyntax")
 	subRepoGit(t, env, consumer, "commit", "-am", "Add syntax submodule")
 	checkout := filepath.Join(fixture, "checkout")
 	subRepoGit(t, env, fixture, "clone", "--no-recurse-submodules", consumer, checkout)
+
 	return subRepoFixture{checkout: checkout, binary: binary, env: env}
 }
 
@@ -105,7 +114,8 @@ func subRepoBuildEngine(t *testing.T, fixture string, env []string) string {
 	t.Helper()
 	binary := filepath.Join(fixture, "go-mk")
 	command := exec.Command("go", "build", "-o", binary, ".")
-	command.Env = append(env,
+	command.Env = append(
+		env,
 		"GOPROXY=https://proxy.golang.org",
 		"GOSUMDB=sum.golang.org",
 	)
@@ -113,6 +123,7 @@ func subRepoBuildEngine(t *testing.T, fixture string, env []string) string {
 	if err != nil {
 		t.Fatalf("build go-mk failed: %v\n%s", err, output)
 	}
+
 	return binary
 }
 
@@ -121,10 +132,12 @@ func subRepoInit(t *testing.T, env []string, directory, file, content string) st
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	subRepoGit(t, env, directory, "init")
 	subRepoWriteFile(t, filepath.Join(directory, filepath.FromSlash(file)), content)
 	subRepoGit(t, env, directory, "add", ".")
 	subRepoGit(t, env, directory, "commit", "-m", "Add fixture content")
+
 	return directory
 }
 
@@ -144,6 +157,7 @@ func subRepoWriteFile(t *testing.T, file, content string) {
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -155,6 +169,7 @@ func subRepoAssertFile(t *testing.T, file, expected string) {
 	if err != nil {
 		t.Fatalf("read initialized submodule file %s: %v", file, err)
 	}
+
 	if string(content) != expected {
 		t.Fatalf("%s content = %q, want %q", file, content, expected)
 	}

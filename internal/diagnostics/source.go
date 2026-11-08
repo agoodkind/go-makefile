@@ -71,7 +71,7 @@ func whitespaceIdentity(line, root string, sources map[string]*source) (string, 
 
 	identity, err := parsed.identity(lineNumber, column, strings.Contains(line, "unnecessary whitespace"))
 	if err != nil {
-		return "", failure("identify whitespace finding in "+path, err)
+		return "", failure("identify whitespace finding "+line, err)
 	}
 
 	return strings.TrimSuffix(line, whitespaceTag) + " [source:" + identity + "]" + whitespaceTag, nil
@@ -88,7 +88,7 @@ func (parsed *source) identity(line, column int, adjacent bool) (string, error) 
 		return "", fmt.Errorf("source column exceeds file size")
 	}
 
-	for _, node := range parsed.file.Decls {
+	for index, node := range parsed.file.Decls {
 		if position < node.Pos() || position > node.End() {
 			continue
 		}
@@ -96,7 +96,7 @@ func (parsed *source) identity(line, column int, adjacent bool) (string, error) 
 		context, loaded := parsed.declarations[node]
 		if !loaded {
 			var err error
-			context, err = analyzeDeclaration(node)
+			context, err = analyzeDeclaration(node, parsed.file.Decls[:index])
 			if err != nil {
 				return "", err
 			}
@@ -117,8 +117,8 @@ func (parsed *source) identity(line, column int, adjacent bool) (string, error) 
 	return "", fmt.Errorf("cannot bind whitespace finding to a declaration")
 }
 
-func analyzeDeclaration(node ast.Decl) (declaration, error) {
-	fingerprint, err := canonical(node)
+func analyzeDeclaration(node ast.Decl, preceding []ast.Decl) (declaration, error) {
+	fingerprint, err := declarationIdentity(node, preceding)
 	if err != nil {
 		return declaration{}, err
 	}
@@ -157,6 +157,38 @@ func analyzeDeclaration(node ast.Decl) (declaration, error) {
 	}
 
 	return result, nil
+}
+
+func declarationIdentity(node ast.Decl, preceding []ast.Decl) (string, error) {
+	fingerprint, err := canonical(node)
+	if err != nil {
+		return "", err
+	}
+
+	function, isFunction := node.(*ast.FuncDecl)
+	ordinal := 1
+
+	for _, earlier := range preceding {
+		prior, wasFunction := earlier.(*ast.FuncDecl)
+		if wasFunction != isFunction || (isFunction && prior.Name.Name != function.Name.Name) {
+			continue
+		}
+
+		identity, err := canonical(earlier)
+		if err != nil {
+			return "", err
+		}
+
+		if identity == fingerprint {
+			ordinal++
+		}
+	}
+
+	if ordinal == 1 {
+		return fingerprint, nil
+	}
+
+	return fmt.Sprintf("%s\x00%d", fingerprint, ordinal), nil
 }
 
 func canonical(node ast.Node) (string, error) {

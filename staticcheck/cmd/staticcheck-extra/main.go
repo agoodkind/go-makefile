@@ -5,11 +5,13 @@
 package main
 
 import (
+	"log/slog"
 	"os"
 
 	"goodkind.io/go-makefile/staticcheck"
 )
 
 func main() {
+	slog.Debug("staticcheck-extra invoked")
 	os.Exit(staticcheck.Run())
 }

@@ -8,5 +8,5 @@
 2	INTRODUCED=2026-10-05T00:00:00-07:00 GATE=staticcheck-extra PATTERN=_test\.go:	Enabled the test-habit analyzers (testpackage, testassert, testdouble, testseam, testsourcefile) in the staticcheck-extra gate. Existing findings in _test.go files were auto-baselined into the staticcheck-extra baseline; review the diff and commit it. New test code with these findings fails the gate. See docs/staticcheck/tests.md in go-makefile.
 3	INTRODUCED=2026-11-07T13:22:28-08:00 GATE=staticcheck-extra PATTERN=commandentry:	Enabled commandentry. Keep cmd entry points limited to delegation and exit status.
 4	INTRODUCED=2026-11-07T13:22:28-08:00 GATE=staticcheck-extra PATTERN=filenameprefix:	Enabled filenameprefix. Use a shared directory when two filename stems repeat a prefix of at least three characters.
-5	INTRODUCED=2026-11-07T13:22:28-08:00 GATE=staticcheck-extra PATTERN=argumentlines:	Enabled argumentlines. Put wrapped arguments and inline callback declaration parameters on separate lines.
+5	INTRODUCED=2026-11-07T13:22:28-08:00 GATE=staticcheck-extra PATTERN=argumentlines:	Enabled argumentlines. Put wrapped arguments and callback declaration parameters on separate lines.
 6	INTRODUCED=2026-11-07T13:22:28-08:00 GATE=golangci LINTER=wsl_v5	Enabled wsl_v5 spacing checks. Run make fmt to apply the shared formatting rules.

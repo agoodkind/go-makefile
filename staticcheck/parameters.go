@@ -15,9 +15,9 @@ type listElement struct {
 	annotation string
 }
 
-func parameterLineEdits(fileSet *token.FileSet, function *ast.FuncType, contents []byte) []analysis.TextEdit {
+func parameterLineEdits(fileSet *token.FileSet, function *ast.FuncType, contents []byte, checked checkedTypes) ([]analysis.TextEdit, error) {
 	if function.Params == nil {
-		return nil
+		return nil, nil
 	}
 
 	file := fileSet.File(function.Pos())
@@ -25,7 +25,12 @@ func parameterLineEdits(fileSet *token.FileSet, function *ast.FuncType, contents
 	callback := false
 
 	for _, field := range function.Params.List {
-		if inlineCallback(field.Type) {
+		isCallback, err := checked.callback(fileSet, field.Type)
+		if err != nil {
+			return nil, err
+		}
+
+		if isCallback {
 			callback = true
 		}
 
@@ -45,7 +50,7 @@ func parameterLineEdits(fileSet *token.FileSet, function *ast.FuncType, contents
 		}
 	}
 
-	return listLineEdits(fileSet, function.Params.Opening, function.Params.Closing, elements, contents, callback)
+	return listLineEdits(fileSet, function.Params.Opening, function.Params.Closing, elements, contents, callback), nil
 }
 
 func inlineCallback(expression ast.Expr) bool {

@@ -16,7 +16,7 @@ Spec: [Approved scope](../specs/2026-11-07-source-structure-design.md).
 
 Keep command implementation in importable packages outside cmd.
 Keep short calls and simple declarations on one line.
-Wrap declarations with inline callback parameters and put wrapped list elements on separate lines.
+Wrap declarations with callback parameters and put wrapped list elements on separate lines.
 Use the exact wsl_v5 settings in the specification.
 Require two distinct filename stems and three shared prefix characters.
 Normalize ordinary Go test and platform suffixes before comparing stems.
@@ -27,7 +27,7 @@ The user requested implementation directly; continue without another approval.
 ## Review focus
 
 Delegating main functions must also pass the existing boundary-log check.
-Inline callback parameters must wrap declarations without wrapping simple declarations.
+Callback parameters, including named function types, must wrap declarations without wrapping simple declarations.
 Nested suggested fixes must not overwrite each other.
 Test and platform variants of one stem must not create a filename group.
 A new member of a historical group must fail after notice application.
@@ -36,7 +36,7 @@ A new member of a historical group must fail after notice application.
 
 Create [entry.go](../../../staticcheck/entry.go) for CommandEntryAnalyzer
 and the shared predicate that recognizes an imported command delegation.
-Update [boundary.go](../../../staticcheck/boundary.go) to accept that shape.
+Preserve the existing boundary-logging and error-wrapping requirements.
 Use the public analyzer interface with real fixture packages for regression tests.
 
 - [x] Implement CommandEntryAnalyzer with the commandentry flag.
@@ -54,7 +54,7 @@ otherwise detect the shared character prefix. Report each affected file.
 ## Task 3: Format arguments and callback declarations
 
 Create [arguments.go](../../../staticcheck/arguments.go) for
-ArgumentLinesAnalyzer. Include inline callback declarations. Provide suggested fixes that preserve comments and
+ArgumentLinesAnalyzer. Include callback declarations. Provide suggested fixes that preserve comments and
 variadic arguments. Register all three analyzers in
 [analyzers.go](../../../staticcheck/analyzers.go).
 

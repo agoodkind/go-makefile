@@ -50,10 +50,6 @@ func originalSources(pass *analysis.Pass) ([]analysisSource, error) {
 			pass.Files = append(slices.Clone(pass.Files), file)
 		}
 
-		if isGeneratedFile(file, path) {
-			continue
-		}
-
 		sources = append(sources, analysisSource{path: path, file: file, contents: contents})
 	}
 

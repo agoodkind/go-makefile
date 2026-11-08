@@ -11,14 +11,21 @@ import (
 )
 
 func whitespaceConfiguration() (string, []string, []string, error) {
-	path, flags, err := configurationFlags(strings.Fields(os.Getenv("GOLANGCI_LINT_FLAGS")))
+	return whitespaceSettings(strings.Fields(os.Getenv("GOLANGCI_LINT_FLAGS")), true)
+}
+
+func whitespaceSettings(arguments []string, formatTests bool) (string, []string, []string, error) {
+	path, flags, err := configurationFlags(arguments)
 	if err != nil {
 		return "", nil, nil, err
 	}
 
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		return "", nil, nil, failure("read golangci-lint configuration", err)
+	contents := []byte("version: \"2\"\n")
+	if path != "" {
+		contents, err = os.ReadFile(path)
+		if err != nil {
+			return "", nil, nil, failure("read golangci-lint configuration", err)
+		}
 	}
 
 	var document yaml.Node
@@ -32,7 +39,10 @@ func whitespaceConfiguration() (string, []string, []string, error) {
 
 	root := document.Content[0]
 	run := mappingValue(root, "run")
-	setScalar(run, "tests", "true", "!!bool")
+	if formatTests {
+		setScalar(run, "tests", "true", "!!bool")
+	}
+
 	var tags []string
 	if node := existingValue(run, "build-tags"); node != nil {
 		if err := node.Decode(&tags); err != nil {
@@ -40,16 +50,29 @@ func whitespaceConfiguration() (string, []string, []string, error) {
 		}
 	}
 
-	paths := existingValue(mappingValue(mappingValue(root, "linters"), "exclusions"), "paths")
+	exclusions := mappingValue(mappingValue(root, "linters"), "exclusions")
+	shared := false
+	paths := existingValue(exclusions, "paths")
 	if paths != nil {
 		selected := paths.Content[:0]
 		for _, path := range paths.Content {
-			if path.Value != `_test\.go` && path.Value != `_test\.go$` {
-				selected = append(selected, path)
+			if path.Anchor == "go_makefile_test_files" {
+				shared = true
+				continue
 			}
+
+			if formatTests && (path.Value == `_test\.go` || path.Value == `_test\.go$`) {
+				continue
+			}
+
+			selected = append(selected, path)
 		}
 
 		paths.Content = selected
+	}
+
+	if generated := existingValue(exclusions, "generated"); generated == nil || (shared && generated.Value == "lax") {
+		setScalar(exclusions, "generated", "disable", "!!str")
 	}
 
 	contents, err = yaml.Marshal(&document)
@@ -66,13 +89,16 @@ func whitespaceConfiguration() (string, []string, []string, error) {
 func configurationFlags(flags []string) (string, []string, error) {
 	var path string
 	var remaining []string
+	var noConfig bool
 
 	for index := 0; index < len(flags); index++ {
 		flag := flags[index]
 		switch {
+		case flag == "--no-config" || flag == "--no-config=true":
+			noConfig = true
 		case flag == "-c" || flag == "--config":
 			index++
-			if index == len(flags) {
+			if index == len(flags) || flags[index] == "" || strings.HasPrefix(flags[index], "-") {
 				return "", nil, fmt.Errorf("%s requires a configuration path", flag)
 			}
 
@@ -81,12 +107,18 @@ func configurationFlags(flags []string) (string, []string, error) {
 			path = strings.TrimPrefix(flag, "--config=")
 		case strings.HasPrefix(flag, "-c="):
 			path = strings.TrimPrefix(flag, "-c=")
+		case strings.HasPrefix(flag, "-c"):
+			path = strings.TrimPrefix(flag, "-c")
 		default:
 			remaining = append(remaining, flag)
 		}
 	}
 
-	if path != "" {
+	if noConfig && path != "" {
+		return "", nil, fmt.Errorf("--no-config cannot be used with a configuration path")
+	}
+
+	if noConfig || path != "" {
 		return path, remaining, nil
 	}
 

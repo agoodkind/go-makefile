@@ -7,7 +7,6 @@ import (
 	"go/types"
 	"path"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -72,13 +71,12 @@ func runTestSourceFile(pass *analysis.Pass) (any, error) {
 
 // The content is the non-error result of the read and each local variable
 // assigned from an expression that uses it. A read is test input, not text
-// under assertion, when the content is an argument of [os.WriteFile] or of a
+// under assertion, when the content is an argument of os.WriteFile or of a
 // function of the same module declared in a non-test file.
 func readIsProductionInput(pass *analysis.Pass, body *ast.BlockStmt, read *ast.CallExpr) bool {
 	if body == nil {
 		return false
 	}
-
 	tainted := make(map[types.Object]bool)
 	uses := func(expr ast.Node) bool {
 		found := false
@@ -86,46 +84,13 @@ func readIsProductionInput(pass *analysis.Pass, body *ast.BlockStmt, read *ast.C
 			if node == read {
 				found = true
 			}
-
 			if ident, ok := node.(*ast.Ident); ok && tainted[pass.TypesInfo.ObjectOf(ident)] {
 				found = true
 			}
-
 			return !found
 		})
-
 		return found
 	}
-	propagateReadAssignments(pass, body, tainted, uses)
-	passed := false
-	ast.Inspect(body, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok || call == read || passed {
-			return !passed
-		}
-
-		if !receivesInput(pass, call) {
-			return true
-		}
-
-		for _, argument := range call.Args {
-			if uses(argument) {
-				passed = true
-			}
-		}
-
-		return !passed
-	})
-
-	return passed
-}
-
-func propagateReadAssignments(
-	pass *analysis.Pass,
-	body *ast.BlockStmt,
-	tainted map[types.Object]bool,
-	uses func(ast.Node) bool,
-) {
 	for changed := true; changed; {
 		changed = false
 		ast.Inspect(body, func(node ast.Node) bool {
@@ -133,37 +98,47 @@ func propagateReadAssignments(
 			if !ok {
 				return true
 			}
-
 			fromRead := false
-
 			for _, right := range assign.Rhs {
 				if uses(right) {
 					fromRead = true
 				}
 			}
-
 			if !fromRead {
 				return true
 			}
-
 			for _, left := range assign.Lhs {
 				ident, ok := left.(*ast.Ident)
 				if !ok || ident.Name == "_" {
 					continue
 				}
-
 				obj := pass.TypesInfo.ObjectOf(ident)
 				if obj == nil || tainted[obj] || isErrorType(obj.Type()) {
 					continue
 				}
-
 				tainted[obj] = true
 				changed = true
 			}
-
 			return true
 		})
 	}
+	passed := false
+	ast.Inspect(body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || call == read || passed {
+			return !passed
+		}
+		if !receivesInput(pass, call) {
+			return true
+		}
+		for _, argument := range call.Args {
+			if uses(argument) {
+				passed = true
+			}
+		}
+		return !passed
+	})
+	return passed
 }
 
 func receivesInput(pass *analysis.Pass, call *ast.CallExpr) bool {
@@ -223,28 +198,23 @@ func joinHasParentElement(pass *analysis.Pass, expr ast.Expr) bool {
 	if !ok || !isPathJoinCall(pass, call) {
 		return false
 	}
-
 	hasParent := false
 	hasVariable := false
-
 	for _, argument := range call.Args {
 		value, isConstant := constantString(pass, argument)
 		if !isConstant {
 			hasVariable = true
 			continue
 		}
-
 		if hasTestDataElement(value) {
 			return false
 		}
-
-		for element := range strings.SplitSeq(filepath.ToSlash(value), "/") {
+		for _, element := range strings.Split(filepath.ToSlash(value), "/") {
 			if element == parentDirElement {
 				hasParent = true
 			}
 		}
 	}
-
 	return hasParent && hasVariable
 }
 
@@ -310,7 +280,12 @@ func isAllowedConstantPath(filePath string) bool {
 
 func hasTestDataElement(filePath string) bool {
 	cleaned := path.Clean(filepath.ToSlash(filePath))
-	return slices.Contains(strings.Split(cleaned, "/"), testDataDirName)
+	for _, element := range strings.Split(cleaned, "/") {
+		if element == testDataDirName {
+			return true
+		}
+	}
+	return false
 }
 
 func reportEmbedDirectives(pass *analysis.Pass, file *ast.File) {

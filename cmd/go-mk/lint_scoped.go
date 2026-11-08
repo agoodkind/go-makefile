@@ -7,6 +7,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -29,7 +30,17 @@ var errNoGoFiles = errors.New("no go files in module")
 // GOLANGCI_FMT_FILES overrides the computed list. It returns errNoGoFiles when
 // the module owns no Go files so callers pass the gate without invoking fmt.
 func golangciFmtCommand() (string, []string, error) {
-	return formatting.Command(moduleGoFiles, errNoGoFiles)
+	binary, arguments, err := formatting.Command(moduleGoFiles, errNoGoFiles)
+	if err != nil {
+		wrapped := fmt.Errorf("prepare formatter command: %w", err)
+		if !errors.Is(err, errNoGoFiles) {
+			slog.Error("prepare formatter command", slog.Any("err", wrapped))
+		}
+
+		return "", nil, wrapped
+	}
+
+	return binary, arguments, nil
 }
 
 // moduleGoFiles enumerates the .go files the current module owns for the given
@@ -53,23 +64,30 @@ func moduleGoFiles(targets []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	roots, err := nestedWorktreeRoots()
 	if err != nil {
 		return nil, err
 	}
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, err
 	}
+
 	lines := make([]string, 0)
+
 	for line := range strings.SplitSeq(string(out), "\n") {
 		if line == "" {
 			continue
 		}
+
 		lines = append(lines, line)
 	}
+
 	if len(roots) > 0 {
 		relLines := make([]string, 0, len(lines))
+
 		absByRel := make(map[string]string, len(lines))
 		for _, line := range lines {
 			rel, relErr := filepath.Rel(cwd, line)
@@ -78,30 +96,42 @@ func moduleGoFiles(targets []string) ([]string, error) {
 				absByRel[line] = line
 				continue
 			}
+
 			key := "./" + filepath.ToSlash(rel)
 			relLines = append(relLines, key)
 			absByRel[key] = line
 		}
+
 		kept := dropPathsUnderNestedWorktrees(relLines, roots)
+
 		out := make([]string, 0, len(kept))
 		for _, key := range kept {
 			out = append(out, absByRel[key])
 		}
+
 		lines = out
 	}
+
 	return sortedUnique(lines), nil
 }
 
 // runFmt applies the configured Go formatters scoped to the current module,
 // mirroring run_fmt. It no-ops when the module owns no Go files.
 func runFmt() error {
-	return formatting.Run(
+	if err := formatting.Run(
 		ensureLintTools,
 		staticcheckResolveBin,
 		staticcheckSelectedBin,
 		moduleGoFiles,
 		runLintCPU,
-	)
+	); err != nil {
+		wrapped := fmt.Errorf("format Go source: %w", err)
+		slog.Error("format Go source", slog.Any("err", wrapped))
+
+		return wrapped
+	}
+
+	return nil
 }
 
 // runVet runs go vet, mirroring run_vet.
@@ -119,6 +149,7 @@ func runTest() error {
 	targets := splitWords(lintEnvDefault("GO_TEST_TARGETS", "./..."))
 	args := append([]string{"test"}, testLdflagsArgs()...)
 	args = append(args, targets...)
+
 	return runLintCPU("go", args)
 }
 
@@ -130,6 +161,7 @@ func testLdflagsArgs() []string {
 	if value == "" {
 		return nil
 	}
+
 	return []string{"-ldflags", value}
 }
 
@@ -143,9 +175,11 @@ func runCaptureGolangci(args []string) error {
 	if err := ensureMakeDir(); err != nil {
 		return err
 	}
+
 	rawPath := captureArg(args, 0, filepath.Join(makeDir, "golangci-lint.raw.out"))
 	findingsPath := captureArg(args, 1, filepath.Join(makeDir, "golangci-lint.out"))
 	_, _, err := captureGolangciFindings(rawPath, findingsPath)
+
 	return err
 }
 
@@ -157,6 +191,7 @@ func runCaptureGolangciBaseline(args []string) error {
 	if err := ensureMakeDir(); err != nil {
 		return err
 	}
+
 	rawPath := captureArg(args, 0, filepath.Join(makeDir, "golangci-lint-baseline.raw.out"))
 	findingsPath := captureArg(args, 1, filepath.Join(makeDir, "golangci-lint-baseline.out"))
 	runCount := 3
@@ -165,28 +200,35 @@ func runCaptureGolangciBaseline(args []string) error {
 			runCount = parsed
 		}
 	}
+
 	allRaw := make([]string, 0)
 	allFindings := make([]string, 0)
+
 	for runIndex := 1; runIndex <= runCount; runIndex++ {
 		runRaw := filepath.Join(makeDir, "golangci-lint-baseline."+itoa(runIndex)+".raw.out")
 		runFindings := filepath.Join(makeDir, "golangci-lint-baseline."+itoa(runIndex)+".out")
 		if _, _, err := captureGolangciFindings(runRaw, runFindings); err != nil {
 			return err
 		}
+
 		rawLines, err := readFileLines(runRaw)
 		if err != nil {
 			return err
 		}
+
 		findingLines, err := readFileLines(runFindings)
 		if err != nil {
 			return err
 		}
+
 		allRaw = append(allRaw, rawLines...)
 		allFindings = append(allFindings, findingLines...)
 	}
+
 	if err := writeFindingsFile(rawPath, allRaw); err != nil {
 		return err
 	}
+
 	return writeFindingsFile(findingsPath, sortedUnique(allFindings))
 }
 
@@ -195,8 +237,10 @@ func runCaptureGolangciScope(args []string) error {
 	if err := ensureMakeDir(); err != nil {
 		return err
 	}
+
 	rawPath := captureArg(args, 0, filepath.Join(makeDir, "golangci-lint-scope.raw.out"))
 	findingsPath := captureArg(args, 1, filepath.Join(makeDir, "golangci-lint-scope.out"))
+
 	return captureGolangciScopeFindings(rawPath, findingsPath)
 }
 
@@ -206,12 +250,15 @@ func runCaptureGocyclo(args []string) error {
 	if err := ensureMakeDir(); err != nil {
 		return err
 	}
+
 	if err := installGoTool(lintEnvDefault("GOCYCLO_INSTALL", "github.com/fzipp/gocyclo/cmd/gocyclo@latest")); err != nil {
 		return err
 	}
+
 	rawPath := captureArg(args, 0, filepath.Join(makeDir, "gocyclo.raw.out"))
 	findingsPath := captureArg(args, 1, filepath.Join(makeDir, "gocyclo.out"))
 	_, err := captureGocycloFindings(rawPath, findingsPath)
+
 	return err
 }
 
@@ -221,11 +268,14 @@ func runCaptureDeadcode(args []string) error {
 	if err := ensureMakeDir(); err != nil {
 		return err
 	}
+
 	if err := installGoTool(lintEnvDefault("DEADCODE_INSTALL", "golang.org/x/tools/cmd/deadcode@latest")); err != nil {
 		return err
 	}
+
 	rawPath := captureArg(args, 0, filepath.Join(makeDir, "deadcode.raw.out"))
 	findingsPath := captureArg(args, 1, filepath.Join(makeDir, "deadcode.out"))
+
 	return captureDeadcodeFindings(rawPath, findingsPath)
 }
 
@@ -236,6 +286,7 @@ func captureArg(args []string, index int, fallback string) string {
 	if index < len(args) && args[index] != "" {
 		return args[index]
 	}
+
 	return fallback
 }
 
@@ -249,12 +300,15 @@ func runLintFiles() int {
 		writeStdout("lint-files: LINT_FILES is empty\n")
 		return 0
 	}
+
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+
 	if err := ensureLintTools(); err != nil {
 		return statusFromError(err)
 	}
+
 	// Resolve (build) the analyzer binary in-process, the work the
 	// staticcheck-extra-bin make prerequisite used to do. A resolution failure is
 	// best-effort: resolveStaticcheckBin below then reports the gate as skipped.
@@ -271,16 +325,20 @@ func runLintFiles() int {
 	if _, err := captureCommand(lintEnvDefault("GOLANGCI_LINT", "golangci-lint"), golangciArgs, golangciRaw); err != nil {
 		return statusFromError(err)
 	}
+
 	ok, err := runScopedGate(
-		"golangci-lint", golangciRaw,
+		"golangci-lint",
+		golangciRaw,
 		filepath.Join(makeDir, "lint-files.golangci.out"),
 		files,
 		lintEnvDefault("GOLANGCI_LINT_BASELINE", ".golangci-lint-baseline.txt"),
-		golangciExcludePattern(), lineRangesFile,
+		golangciExcludePattern(),
+		lineRangesFile,
 	)
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	if !ok {
 		status = 1
 	}
@@ -292,17 +350,21 @@ func runLintFiles() int {
 		if _, err := captureCommand(staticcheckBin, staticcheckArgs, staticcheckRaw); err != nil {
 			return statusFromError(err)
 		}
+
 		excludePattern := staticcheckExcludePattern()
 		ok, err := runScopedGate(
-			"staticcheck-extra", staticcheckRaw,
+			"staticcheck-extra",
+			staticcheckRaw,
 			filepath.Join(makeDir, "lint-files.staticcheck.out"),
 			files,
 			lintEnvDefault("STATICCHECK_EXTRA_BASELINE", ".staticcheck-extra-baseline.txt"),
-			excludePattern, lineRangesFile,
+			excludePattern,
+			lineRangesFile,
 		)
 		if err != nil {
 			return statusFromError(err)
 		}
+
 		if !ok {
 			status = 1
 		}
@@ -313,6 +375,7 @@ func runLintFiles() int {
 	if status != 0 && os.Getenv("BASELINE") != "" {
 		writeStdout("\nRun with BASELINE=\"\" to see all findings without the baseline gate.\n")
 	}
+
 	return status
 }
 
@@ -324,12 +387,15 @@ func resolveStaticcheckBin() string {
 		if isExecutable(configured) {
 			return configured
 		}
+
 		return ""
 	}
+
 	candidate := filepath.Join(makeDir, "staticcheck-extra")
 	if isExecutable(candidate) {
 		return candidate
 	}
+
 	return ""
 }
 
@@ -340,6 +406,7 @@ func isExecutable(path string) bool {
 	if err != nil {
 		return false
 	}
+
 	return info.Mode().Perm()&0o111 != 0
 }
 
@@ -352,9 +419,11 @@ func runScopedGate(gateName, rawPath, findingsPath string, files []string, basel
 	if err != nil {
 		return false, err
 	}
+
 	if writeErr := writeFindingsFile(findingsPath, extracted); writeErr != nil {
 		return false, writeErr
 	}
+
 	scopeLabel := "listed files"
 	var filtered []string
 	if rangesFile != "" {
@@ -363,6 +432,7 @@ func runScopedGate(gateName, rawPath, findingsPath string, files []string, basel
 		if rangeErr != nil {
 			return false, rangeErr
 		}
+
 		filtered = findings.LineFilter(extracted, ranges)
 	} else {
 		filtered = lint.FilterScopedFindings(extracted, files)
@@ -372,17 +442,24 @@ func runScopedGate(gateName, rawPath, findingsPath string, files []string, basel
 		writeStdout(gateName + ": OK (0 findings on " + scopeLabel + ")\n")
 		return true, nil
 	}
+
 	if os.Getenv("BASELINE") == "" {
 		writeStdout(gateName + " findings on " + scopeLabel + ":\n")
+
 		for _, line := range filtered {
 			writeStdout(line + "\n")
 		}
+
 		return false, nil
 	}
+
 	return runGateAndPrint(
-		gateName, filtered, baselinePath,
+		gateName,
+		filtered,
+		baselinePath,
 		"Fix the new findings before this gate will pass.",
-		excludePattern, "",
+		excludePattern,
+		"",
 	)
 }
 
@@ -395,19 +472,23 @@ func loadRangeRows(path string) ([]findings.Range, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	ranges := make([]findings.Range, 0, len(lines))
 	for _, line := range lines {
 		fields := strings.Split(line, "\t")
 		if len(fields) < 3 {
 			continue
 		}
+
 		start, startErr := atoiSafe(fields[1])
 		end, endErr := atoiSafe(fields[2])
 		if startErr != nil || endErr != nil {
 			continue
 		}
+
 		ranges = append(ranges, findings.Range{File: fields[0], Start: start, End: end})
 	}
+
 	return ranges, nil
 }
 
@@ -419,32 +500,40 @@ func runLintDiff() int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+
 	stagedFiles, err := stagedGoFiles()
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	if len(stagedFiles) == 0 {
 		writeStdout("lint-diff: no staged .go files\n")
 		return 0
 	}
+
 	patchLines, err := stagedGoDiff()
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	ranges := findings.Ranges(patchLines)
 	rangesFile := filepath.Join(makeDir, "lint-diff.ranges")
 	if err := writeRangesFile(rangesFile, ranges); err != nil {
 		return statusFromError(err)
 	}
+
 	if len(ranges) == 0 {
 		writeStdout("lint-diff: no staged Go line changes\n")
 		return 0
 	}
+
 	if os.Getenv("BASELINE") == "" {
 		_ = os.Setenv("BASELINE", "1")
 	}
+
 	_ = os.Setenv("LINT_FILES", strings.Join(stagedFiles, " "))
 	_ = os.Setenv("LINT_LINE_RANGES", rangesFile)
+
 	return runLintFiles()
 }
 
@@ -457,12 +546,15 @@ func stagedGoFiles() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	files := make([]string, 0)
+
 	for _, line := range strings.Split(string(out), "\n") {
 		if strings.HasSuffix(line, ".go") {
 			files = append(files, line)
 		}
 	}
+
 	return files, nil
 }
 
@@ -475,10 +567,12 @@ func stagedGoDiff() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	text := strings.TrimSuffix(string(out), "\n")
 	if text == "" {
 		return []string{}, nil
 	}
+
 	return strings.Split(text, "\n"), nil
 }
 
@@ -488,6 +582,7 @@ func stagedGoDiff() ([]string, error) {
 func writeRangesFile(path string, ranges []findings.Range) error {
 	slog.Info("lint write ranges file", slog.String("path", path))
 	var builder strings.Builder
+
 	for _, span := range ranges {
 		builder.WriteString(span.File)
 		builder.WriteString("\t")
@@ -496,5 +591,6 @@ func writeRangesFile(path string, ranges []findings.Range) error {
 		builder.WriteString(itoa(span.End))
 		builder.WriteString("\n")
 	}
+
 	return os.WriteFile(path, []byte(builder.String()), 0o644)
 }

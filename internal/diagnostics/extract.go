@@ -8,10 +8,51 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"goodkind.io/go-makefile/internal/findings"
+	"goodkind.io/go-makefile/internal/lint"
 )
+
+// GolangciExcludePattern preserves caller exclusions and admits whitespace findings in tests.
+func GolangciExcludePattern() string {
+	defaults := os.Getenv("GOLANGCI_LINT_DEFAULT_EXCLUDE_PATHS")
+	if defaults == "" {
+		defaults = `_test\.go:`
+	}
+
+	var patterns []string
+
+	for pattern := range strings.SplitSeq(defaults, ",") {
+		if pattern == "" {
+			continue
+		}
+
+		if pattern == `_test\.go:` {
+			pattern += exceptSuffix(whitespaceTag)
+		}
+
+		patterns = append(patterns, pattern)
+	}
+
+	if extra := lint.ExcludePattern("", os.Getenv("GOLANGCI_LINT_EXCLUDE_PATHS")); extra != "" {
+		patterns = append(patterns, extra)
+	}
+
+	return strings.Join(patterns, "|")
+}
+
+// A line without this suffix is shorter than the suffix or differs at one character.
+func exceptSuffix(suffix string) string {
+	options := []string{".{0," + strconv.Itoa(len(suffix)-1) + "}"}
+	for index, character := range suffix {
+		rest := regexp.QuoteMeta(suffix[index+1:])
+		options = append(options, ".*[^"+regexp.QuoteMeta(string(character))+"]"+rest)
+	}
+
+	return "(?:" + strings.Join(options, "|") + ")$"
+}
 
 // Extract reads captured findings and adds source identities to WSL diagnostics.
 func Extract(

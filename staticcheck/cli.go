@@ -17,6 +17,11 @@ func Run() int {
 		return 0
 	}
 
+	if err := fixGeneratedArguments(os.Args[1:]); err != nil {
+		_, _ = os.Stderr.WriteString(err.Error() + "\n")
+		return 1
+	}
+
 	multichecker.Main(Analyzers()...)
 
 	return 0

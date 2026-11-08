@@ -100,50 +100,61 @@ func testReleaseFeed(tag string) string {
 
 func testChecksums(archives map[string][]byte) string {
 	lines := strings.Builder{}
+
 	for _, name := range slices.Sorted(maps.Keys(archives)) {
 		lines.WriteString(testSHA256Hex(archives[name]) + "  " + name + "\n")
 	}
+
 	return lines.String()
 }
 
 func newReleaseFixture(t *testing.T, binaries map[string][]byte) *releaseFixture {
 	t.Helper()
 	fixture := &releaseFixture{archives: map[string][]byte{}, refusedDownloads: map[string]bool{}}
+
 	for binary, content := range binaries {
 		assetName := binary + "_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
 		fixture.archives[assetName] = tarGzipSingleFile(t, binary, content)
 	}
+
 	downloadPrefix := "/" + installDirTestRepo + "/releases/download/" + installDirTestNewTag + "/"
 	fixture.server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if strings.HasPrefix(request.URL.Path, "/repos/") {
 			t.Errorf("update sent a GitHub API request: %s", request.URL.Path)
 		}
+
 		if request.URL.Path == "/"+installDirTestRepo+"/releases.atom" {
 			_, _ = writer.Write([]byte(testReleaseFeed(installDirTestNewTag)))
 			return
 		}
+
 		assetName, found := strings.CutPrefix(request.URL.Path, downloadPrefix)
 		if !found {
 			http.NotFound(writer, request)
 			return
 		}
+
 		if assetName == checksumsAssetName {
 			_, _ = writer.Write([]byte(testChecksums(fixture.archives)))
 			return
 		}
+
 		archive, ok := fixture.archives[assetName]
 		if !ok || fixture.refusedDownloads[assetName] {
 			http.NotFound(writer, request)
 			return
 		}
+
 		_, _ = writer.Write(archive)
 	}))
 	t.Cleanup(fixture.server.Close)
+
 	return fixture
 }
 
 func (fixture *releaseFixture) options(t *testing.T, binary string, installDir string, stateDir string, validateMatch string) Options {
 	t.Helper()
+
 	return Options{
 		Config: Config{
 			Repo:             installDirTestRepo,
@@ -190,9 +201,11 @@ func TestApplyValidatesOriginRelativeCandidateInInstallDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply() error: %v", err)
 	}
+
 	if !result.Applied || result.LatestTag != installDirTestNewTag {
 		t.Fatalf("Apply() Applied=%t LatestTag=%q, want true and %q", result.Applied, result.LatestTag, installDirTestNewTag)
 	}
+
 	assertFileBytes(t, installedPath, candidate)
 	assertDirectoryEntries(t, installDir, []string{libraryName, "probe"})
 	output, err := exec.Command(installedPath, "version").CombinedOutput()
@@ -217,6 +230,7 @@ func TestApplyAllLeavesEveryBinaryUnchangedWhenOneCandidateFails(t *testing.T) {
 
 	installDir := t.TempDir()
 	stateDir := t.TempDir()
+
 	oldContents := map[string][]byte{
 		"alpha": []byte("old alpha"),
 		"beta":  []byte("old beta"),
@@ -225,6 +239,7 @@ func TestApplyAllLeavesEveryBinaryUnchangedWhenOneCandidateFails(t *testing.T) {
 	for binary, content := range oldContents {
 		writeInstalledBinary(t, filepath.Join(installDir, binary), content)
 	}
+
 	allOptions := []Options{
 		fixture.options(t, "alpha", installDir, stateDir, "version: pure"),
 		fixture.options(t, "beta", installDir, stateDir, "version: pure"),
@@ -235,14 +250,17 @@ func TestApplyAllLeavesEveryBinaryUnchangedWhenOneCandidateFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "candidate version failed") {
 		t.Fatalf("ApplyAll() error = %v, want gamma candidate failure", err)
 	}
+
 	for binary, content := range oldContents {
 		assertFileBytes(t, filepath.Join(installDir, binary), content)
 	}
+
 	assertDirectoryEntries(t, installDir, []string{"alpha", "beta", "gamma"})
 	state, err := LoadState(filepath.Join(stateDir, "update-state.json"))
 	if err != nil {
 		t.Fatalf("LoadState() error: %v", err)
 	}
+
 	if state.LastResult != "error" {
 		t.Fatalf("LastResult = %q, want error", state.LastResult)
 	}
@@ -251,11 +269,13 @@ func TestApplyAllLeavesEveryBinaryUnchangedWhenOneCandidateFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyAll() valid pair error: %v", err)
 	}
+
 	for index, result := range results {
 		if !result.Applied {
 			t.Fatalf("result %d Applied = false, want true", index)
 		}
 	}
+
 	assertFileBytes(t, filepath.Join(installDir, "alpha"), pureCandidate)
 	assertFileBytes(t, filepath.Join(installDir, "beta"), pureCandidate)
 	assertFileBytes(t, filepath.Join(installDir, "gamma"), oldContents["gamma"])
@@ -285,6 +305,7 @@ func TestInterruptedApplyHelperProcess(t *testing.T) {
 	if os.Getenv(interruptedApplyHelperEnv) != "1" {
 		return
 	}
+
 	skipAttestationVerification(t)
 	switch os.Getenv(interruptedApplyPointEnv) {
 	case killDuringRenames:
@@ -294,6 +315,7 @@ func TestInterruptedApplyHelperProcess(t *testing.T) {
 			if renameCount == 2 {
 				os.Exit(interruptedApplyExitCode)
 			}
+
 			return installCandidate(candidatePath, installPath)
 		}
 	case killDuringCleanup:
@@ -304,9 +326,11 @@ func TestInterruptedApplyHelperProcess(t *testing.T) {
 	default:
 		t.Fatalf("unknown kill point %q", os.Getenv(interruptedApplyPointEnv))
 	}
+
 	fixture := &releaseFixture{server: &httptest.Server{URL: os.Getenv(interruptedApplyServerEnv)}}
 	installDir := os.Getenv(interruptedApplyInstallEnv)
 	stateDir := os.Getenv(interruptedApplyStateEnv)
+
 	allOptions := []Options{
 		fixture.options(t, "alpha", installDir, stateDir, "version: pure"),
 		fixture.options(t, "beta", installDir, stateDir, "version: pure"),
@@ -314,6 +338,7 @@ func TestInterruptedApplyHelperProcess(t *testing.T) {
 	for index := range allOptions {
 		allOptions[index].Client = http.DefaultClient
 	}
+
 	_, err := ApplyAll(context.Background(), allOptions)
 	t.Fatalf("ApplyAll() returned before the kill point: %v", err)
 }
@@ -340,7 +365,8 @@ func runInterruptedApply(t *testing.T, killPoint string) interruptedApply {
 	writeInstalledBinary(t, filepath.Join(run.installDir, "beta"), []byte("old beta"))
 
 	helper := exec.Command(os.Args[0], "-test.run=^TestInterruptedApplyHelperProcess$", "-test.count=1")
-	helper.Env = append(os.Environ(),
+	helper.Env = append(
+		os.Environ(),
 		interruptedApplyHelperEnv+"=1",
 		interruptedApplyPointEnv+"="+killPoint,
 		interruptedApplyServerEnv+"="+run.fixture.server.URL,
@@ -352,6 +378,7 @@ func runInterruptedApply(t *testing.T, killPoint string) interruptedApply {
 	if !errors.As(err, &exitError) || exitError.ExitCode() != interruptedApplyExitCode {
 		t.Fatalf("helper process error = %v, want exit code %d\n%s", err, interruptedApplyExitCode, output)
 	}
+
 	return run
 }
 
@@ -359,6 +386,7 @@ func runInterruptedApply(t *testing.T, killPoint string) interruptedApply {
 // version equal to the latest tag, so only the leftover recovery acts.
 func (run interruptedApply) applyWithoutNewRelease(t *testing.T) {
 	t.Helper()
+
 	allOptions := []Options{
 		run.fixture.options(t, "alpha", run.installDir, run.stateDir, "version: pure"),
 		run.fixture.options(t, "beta", run.installDir, run.stateDir, "version: pure"),
@@ -366,15 +394,18 @@ func (run interruptedApply) applyWithoutNewRelease(t *testing.T) {
 	for index := range allOptions {
 		allOptions[index].Config.CurrentVersion = installDirTestNewTag
 	}
+
 	results, err := ApplyAll(context.Background(), allOptions)
 	if err != nil {
 		t.Fatalf("ApplyAll() after the kill error: %v", err)
 	}
+
 	for index, result := range results {
 		if result.Applied || result.UpdateAvailable {
 			t.Fatalf("result %d Applied=%t UpdateAvailable=%t, want false and false", index, result.Applied, result.UpdateAvailable)
 		}
 	}
+
 	if _, err := os.Stat(filepath.Join(run.stateDir, "update-install-committed")); !os.IsNotExist(err) {
 		t.Fatalf("commit marker still present after recovery: %v", err)
 	}
@@ -383,6 +414,7 @@ func (run interruptedApply) applyWithoutNewRelease(t *testing.T) {
 func assertHiddenPrefixes(t *testing.T, directory string, want []string) {
 	t.Helper()
 	leftovers := hiddenEntryPrefixes(t, directory)
+
 	for _, prefix := range want {
 		if !slices.Contains(leftovers, prefix) {
 			t.Fatalf("killed apply left %v, want an entry starting with %s", leftovers, prefix)
@@ -438,6 +470,7 @@ func TestApplyAllDryRunLeavesInstallDirectoryUnchanged(t *testing.T) {
 	if err := os.Chmod(installDir, 0o555); err != nil {
 		t.Fatalf("make install directory read-only: %v", err)
 	}
+
 	t.Cleanup(func() { _ = os.Chmod(installDir, 0o755) })
 
 	allOptions := []Options{
@@ -447,24 +480,35 @@ func TestApplyAllDryRunLeavesInstallDirectoryUnchanged(t *testing.T) {
 	for index := range allOptions {
 		allOptions[index].DryRun = true
 	}
+
 	results, err := ApplyAll(context.Background(), allOptions)
 	if err != nil {
 		t.Fatalf("ApplyAll() dry run error: %v", err)
 	}
+
 	for index, result := range results {
 		if !result.UpdateAvailable || result.Applied || !result.DryRun || !result.LaunchCheckSkipped {
-			t.Fatalf("result %d UpdateAvailable=%t Applied=%t DryRun=%t LaunchCheckSkipped=%t, want true false true true",
-				index, result.UpdateAvailable, result.Applied, result.DryRun, result.LaunchCheckSkipped)
+			t.Fatalf(
+				"result %d UpdateAvailable=%t Applied=%t DryRun=%t LaunchCheckSkipped=%t, want true false true true",
+				index,
+				result.UpdateAvailable,
+				result.Applied,
+				result.DryRun,
+				result.LaunchCheckSkipped,
+			)
 		}
 	}
+
 	after := directorySizes(t, installDir)
 	if !maps.Equal(before, after) {
 		t.Fatalf("install directory changed during a dry run: before %v, after %v", before, after)
 	}
+
 	state, err := LoadState(filepath.Join(stateDir, "update-state.json"))
 	if err != nil {
 		t.Fatalf("LoadState() error: %v", err)
 	}
+
 	if state.LastResult != "dry_run" {
 		t.Fatalf("LastResult = %q, want dry_run", state.LastResult)
 	}
@@ -478,14 +522,18 @@ func hiddenEntryPrefixes(t *testing.T, directory string) []string {
 	if err != nil {
 		t.Fatalf("read %s: %v", directory, err)
 	}
+
 	prefixes := []string{}
+
 	for _, entry := range entries {
 		name := entry.Name()
 		if !strings.HasPrefix(name, ".") {
 			continue
 		}
+
 		prefixes = append(prefixes, name[:strings.LastIndex(name, "-")+1])
 	}
+
 	return prefixes
 }
 
@@ -495,14 +543,17 @@ func directorySizes(t *testing.T, directory string) map[string]int64 {
 	if err != nil {
 		t.Fatalf("read %s: %v", directory, err)
 	}
+
 	sizes := make(map[string]int64, len(entries))
 	for _, entry := range entries {
 		info, err := entry.Info()
 		if err != nil {
 			t.Fatalf("stat %s: %v", entry.Name(), err)
 		}
+
 		sizes[entry.Name()] = info.Size()
 	}
+
 	return sizes
 }
 
@@ -512,6 +563,7 @@ func buildProbeLibrary(t *testing.T, directory string) string {
 	if err := os.WriteFile(sourcePath, []byte(probeLibrarySource), 0o600); err != nil {
 		t.Fatalf("write probe library source: %v", err)
 	}
+
 	libraryName := "libprobe.so"
 	arguments := []string{"-shared", "-fPIC", "-o", filepath.Join(directory, libraryName), sourcePath}
 	if runtime.GOOS == "darwin" {
@@ -523,10 +575,12 @@ func buildProbeLibrary(t *testing.T, directory string) string {
 			sourcePath,
 		}
 	}
+
 	output, err := exec.Command("cc", arguments...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("build probe library: %v\n%s", err, output)
 	}
+
 	return libraryName
 }
 
@@ -538,6 +592,7 @@ func cgoOriginEnvironment(t *testing.T, libraryDir string) []string {
 	if runtime.GOOS == "darwin" {
 		originRunpath = "@loader_path"
 	}
+
 	return []string{
 		"CGO_ENABLED=1",
 		"CGO_LDFLAGS=-L" + libraryDir + " -lprobe -Wl,-rpath," + originRunpath,
@@ -547,6 +602,7 @@ func cgoOriginEnvironment(t *testing.T, libraryDir string) []string {
 func buildProbeBinary(t *testing.T, source string, environment []string) []byte {
 	t.Helper()
 	moduleDir := t.TempDir()
+
 	files := map[string]string{
 		"go.mod":  "module probe\n\ngo 1.22\n",
 		"main.go": source,
@@ -556,6 +612,7 @@ func buildProbeBinary(t *testing.T, source string, environment []string) []byte 
 			t.Fatalf("write probe %s: %v", name, err)
 		}
 	}
+
 	outputPath := filepath.Join(t.TempDir(), "probe")
 	command := exec.Command("go", "build", "-o", outputPath, ".")
 	command.Dir = moduleDir
@@ -563,10 +620,12 @@ func buildProbeBinary(t *testing.T, source string, environment []string) []byte 
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("build probe binary: %v\n%s", err, output)
 	}
+
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
 		t.Fatalf("read probe binary: %v", err)
 	}
+
 	return content
 }
 
@@ -579,15 +638,19 @@ func tarGzipSingleFile(t *testing.T, name string, content []byte) []byte {
 	if err := tarWriter.WriteHeader(header); err != nil {
 		t.Fatalf("write tar header: %v", err)
 	}
+
 	if _, err := tarWriter.Write(content); err != nil {
 		t.Fatalf("write tar content: %v", err)
 	}
+
 	if err := tarWriter.Close(); err != nil {
 		t.Fatalf("close tar: %v", err)
 	}
+
 	if err := gzipWriter.Close(); err != nil {
 		t.Fatalf("close gzip: %v", err)
 	}
+
 	return buffer.Bytes()
 }
 
@@ -606,10 +669,12 @@ func assertDirectoryEntries(t *testing.T, directory string, want []string) {
 	if err != nil {
 		t.Fatalf("read %s: %v", directory, err)
 	}
+
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		names = append(names, entry.Name())
 	}
+
 	slices.Sort(names)
 	sortedWant := slices.Clone(want)
 	slices.Sort(sortedWant)

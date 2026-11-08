@@ -99,7 +99,15 @@ func Run(
 		return fmt.Errorf("make fmt requires the staticcheck-extra formatter")
 	}
 
-	if err := run(analyzer, append([]string{"-format-arguments"}, selected.files...)); err != nil {
+	configuration, _, tags, err := whitespaceConfiguration()
+	if err != nil {
+		return failure("read argument formatter build tags", err)
+	}
+	defer removeTemporary(configuration)
+
+	arguments := []string{"GO_MK_FORMAT_BUILD_TAGS=" + strings.Join(tags, ","), analyzer, "-format-arguments"}
+	arguments = append(arguments, selected.files...)
+	if err := run("env", arguments); err != nil {
 		return failure("format argument lists", err)
 	}
 

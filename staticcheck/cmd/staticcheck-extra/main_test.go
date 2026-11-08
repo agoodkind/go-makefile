@@ -65,6 +65,7 @@ func Loose(input any) {}
 	if !errors.As(err, &exitError) || exitError.ExitCode() != 3 {
 		t.Fatalf("analyzer exit = %v, want diagnostic exit 3\n%s", err, output)
 	}
+
 	if !strings.Contains(string(output), "loose.go:3:18: do not use any") {
 		t.Fatalf("analyzer did not report the loose parameter:\n%s", output)
 	}
@@ -77,6 +78,7 @@ func writeFixtureFile(t *testing.T, directory, name, content string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}

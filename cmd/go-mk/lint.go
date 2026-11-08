@@ -11,6 +11,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -24,6 +25,7 @@ import (
 	"goodkind.io/go-makefile/internal/capture"
 	"goodkind.io/go-makefile/internal/diagnostics"
 	"goodkind.io/go-makefile/internal/findings"
+	formatting "goodkind.io/go-makefile/internal/format"
 	"goodkind.io/go-makefile/internal/lintgate"
 	"goodkind.io/go-makefile/internal/report"
 )
@@ -45,6 +47,7 @@ func lintEnvDefault(name, fallback string) string {
 	if value == "" {
 		return fallback
 	}
+
 	return value
 }
 
@@ -156,6 +159,7 @@ func statusFromError(err error) int {
 		writeStderr("go-mk: " + err.Error() + "\n")
 		return 1
 	}
+
 	return 0
 }
 
@@ -168,12 +172,14 @@ func recordFailedGate(gateName string) {
 		slog.Error("lint could not create make dir", slog.String("err", err.Error()))
 		return
 	}
+
 	path := filepath.Join(makeDir, "lint.failed")
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		slog.Error("lint could not open failed-gate file", slog.String("err", err.Error()))
 		return
 	}
+
 	defer func() { _ = file.Close() }()
 	if _, err := file.WriteString(gateName + "\n"); err != nil {
 		slog.Error("lint could not write failed-gate file", slog.String("err", err.Error()))
@@ -193,11 +199,15 @@ func splitWords(text string) []string {
 // returned as a status, not a Go error; a real failure (exec not found, output
 // write error) is returned as an error. The boundary log lives in capture.Run.
 func captureCommand(name string, args []string, outputPath string) (int, error) {
-	result, err := capture.Run(name, args, lintEnv(), outputPath)
+	status, err := formatting.CaptureCommand(name, args, outputPath, lintEnv)
 	if err != nil {
-		return 0, err
+		wrapped := fmt.Errorf("capture %s output: %w", name, err)
+		slog.Error("capture command output", slog.Any("err", wrapped))
+
+		return status, wrapped
 	}
-	return result.Status, nil
+
+	return status, nil
 }
 
 // lintEnv builds the environment for a captured lint command, mirroring
@@ -232,6 +242,7 @@ func lintEnv() []string {
 			env = setEnvVar(env, "CGO_ENABLED", "0")
 		}
 	}
+
 	// Isolate golangci-lint's content-addressed results cache per worktree, and
 	// per platform during a matrix run, so a sibling worktree or a different
 	// target cannot poison this run with stored absolute paths. A caller-set
@@ -244,6 +255,7 @@ func lintEnv() []string {
 			env = setEnvVar(env, "GOLANGCI_LINT_CACHE", cacheDir)
 		}
 	}
+
 	return env
 }
 
@@ -257,6 +269,7 @@ func golangciCacheDir() string {
 	if activePlatform.goos != "" {
 		return filepath.Join(makeDir, golangciCacheDirName+"-"+activePlatform.goos+"-"+activePlatform.goarch)
 	}
+
 	return filepath.Join(makeDir, golangciCacheDirName)
 }
 
@@ -281,12 +294,14 @@ func golangciCachePatterns() []string {
 // returning the updated slice.
 func setEnvVar(env []string, key, value string) []string {
 	prefix := key + "="
+
 	for index, entry := range env {
 		if strings.HasPrefix(entry, prefix) {
 			env[index] = prefix + value
 			return env
 		}
 	}
+
 	return append(env, prefix+value)
 }
 
@@ -300,6 +315,7 @@ func runLintCPU(name string, args []string) error {
 	cmd.Env = lintEnv()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
 	return cmd.Run()
 }
 
@@ -312,6 +328,7 @@ func goEnvPath(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	return strings.TrimSpace(string(out)), nil
 }
 
@@ -325,6 +342,7 @@ func hostLintEnv() []string {
 	activePlatform = platformTarget{}
 	env := lintEnv()
 	activePlatform = saved
+
 	return env
 }
 
@@ -338,18 +356,28 @@ func installGoTool(spec string) error {
 		writeStdout("go install: empty install spec\n")
 		return errEmptyInstallSpec
 	}
+
 	slog.Info("lint install go tool", slog.String("spec", spec))
 	args := append([]string{"install"}, words...)
 	cmd := exec.Command("go", args...)
 	cmd.Env = hostLintEnv()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
 	return cmd.Run()
 }
 
 // extractFindings normalizes captured findings and identifies source occurrences.
 func extractFindings(rawPath, matchPattern, excludePattern string) ([]string, int, error) {
-	return diagnostics.Extract(rawPath, matchPattern, excludePattern, lintRoot)
+	lines, dropped, err := diagnostics.Extract(rawPath, matchPattern, excludePattern, lintRoot)
+	if err != nil {
+		wrapped := fmt.Errorf("extract lint findings: %w", err)
+		slog.Error("extract lint findings", slog.Any("err", wrapped))
+
+		return nil, dropped, wrapped
+	}
+
+	return lines, dropped, nil
 }
 
 // toolFailedWithoutFindings reports whether a non-zero tool exit with no
@@ -381,9 +409,11 @@ func lintRoot() string {
 			root = wd
 		}
 	}
+
 	if root != "" && !strings.HasSuffix(root, "/") {
 		root += "/"
 	}
+
 	return root
 }
 
@@ -391,15 +421,19 @@ func lintRoot() string {
 // mirroring sort -u. The returned slice is never nil.
 func sortedUnique(lines []string) []string {
 	seen := make(map[string]struct{}, len(lines))
+
 	out := make([]string, 0, len(lines))
 	for _, line := range lines {
 		if _, ok := seen[line]; ok {
 			continue
 		}
+
 		seen[line] = struct{}{}
 		out = append(out, line)
 	}
+
 	sort.Strings(out)
+
 	return out
 }
 
@@ -413,16 +447,20 @@ func readFileLines(path string) ([]string, error) {
 		if os.IsNotExist(err) {
 			return []string{}, nil
 		}
+
 		return nil, err
 	}
+
 	text := string(data)
 	if text == "" {
 		return []string{}, nil
 	}
+
 	trimmed := strings.TrimSuffix(text, "\n")
 	if trimmed == "" {
 		return []string{}, nil
 	}
+
 	return strings.Split(trimmed, "\n"), nil
 }
 
@@ -432,10 +470,12 @@ func readFileLines(path string) ([]string, error) {
 func writeFindingsFile(path string, lines []string) error {
 	slog.Info("lint write findings file", slog.String("path", path))
 	var builder strings.Builder
+
 	for _, line := range lines {
 		builder.WriteString(line)
 		builder.WriteString("\n")
 	}
+
 	return os.WriteFile(path, []byte(builder.String()), 0o644)
 }
 
@@ -459,10 +499,12 @@ func runGateAndPrintSuppress(gateName string, current []string, baselinePath, re
 	if err != nil {
 		return false, err
 	}
+
 	excludeRegexp, scopeRegexp, err := compilePatterns(excludePattern, scopePattern)
 	if err != nil {
 		return false, err
 	}
+
 	result := lintgate.Evaluate(gateName, current, baselineLines, excludeRegexp, scopeRegexp, remediation)
 	result.SuppressFixedCount = suppressFixed
 	if gateCollecting {
@@ -477,9 +519,11 @@ func runGateAndPrintSuppress(gateName string, current []string, baselinePath, re
 			writeStdout(line + "\n")
 		}
 	}
+
 	if !result.Passed {
 		recordFailedGate(gateName)
 	}
+
 	return result.Passed, nil
 }
 
@@ -492,15 +536,19 @@ func compilePatterns(excludePattern, scopePattern string) (*regexp.Regexp, *rege
 		if err != nil {
 			return nil, nil, err
 		}
+
 		excludeRegexp = compiled
 	}
+
 	if scopePattern != "" {
 		compiled, err := regexp.Compile(scopePattern)
 		if err != nil {
 			return nil, nil, err
 		}
+
 		scopeRegexp = compiled
 	}
+
 	return excludeRegexp, scopeRegexp, nil
 }
 
@@ -516,35 +564,45 @@ func readBaselineFindings(path, label, excludePattern, scopePattern string) ([]s
 		if os.IsNotExist(err) {
 			return []string{}, nil
 		}
+
 		return nil, err
 	}
+
 	lines, err := readFileLines(path)
 	if err != nil {
 		return nil, err
 	}
+
 	root := lintRoot()
+
 	extracted := make([]string, 0, len(lines))
 	for _, line := range lines {
 		payload, ok := findings.Baseline(line, label, root, root)
 		if !ok {
 			continue
 		}
+
 		extracted = append(extracted, payload)
 	}
+
 	excludeRegexp, scopeRegexp, err := compilePatterns(excludePattern, scopePattern)
 	if err != nil {
 		return nil, err
 	}
+
 	filtered := make([]string, 0, len(extracted))
 	for _, line := range extracted {
 		if excludeRegexp != nil && excludeRegexp.MatchString(line) {
 			continue
 		}
+
 		if scopeRegexp != nil && !scopeRegexp.MatchString(line) {
 			continue
 		}
+
 		filtered = append(filtered, line)
 	}
+
 	return sortedUnique(filtered), nil
 }
 

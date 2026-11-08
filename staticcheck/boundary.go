@@ -31,10 +31,6 @@ func runMissingBoundaryLog(pass *analysis.Pass) (any, error) {
 				continue
 			}
 
-			if fn.Name.Name == "main" && delegatingEntry(pass, fn) {
-				continue
-			}
-
 			if !functionHasBoundaryLog(fn) {
 				reportAtf(pass, file, fn.Pos(), "boundary function must emit at least one structured slog event")
 			}

@@ -28,9 +28,11 @@ func TestStaticcheckExtraBaselinesOlderTestFindingsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first gate run failed in a consumer older than the notice: %v\n%s", err, output)
 	}
+
 	if baseline := readConsumerFile(t, consumerDir, baselineFileName); !strings.Contains(baseline, olderTestFinding) {
 		t.Fatalf("baseline lacks the older test finding %s:\n%s", olderTestFinding, baseline)
 	}
+
 	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n" {
 		t.Fatalf("applied notices = %q, want notices 1 and 2", applied)
 	}
@@ -46,12 +48,15 @@ func TestStaticcheckExtraBaselinesOlderTestFindingsOnce(t *testing.T) {
 	if err == nil {
 		t.Fatalf("gate passed with a new test that asserts nothing:\n%s", output)
 	}
+
 	if !strings.Contains(output, "widget/cruft_test.go:9:6") {
 		t.Fatalf("failure output lacks the new test finding:\n%s", output)
 	}
+
 	if strings.Contains(output, olderTestFinding) {
 		t.Fatalf("failure output reports the baselined older test:\n%s", output)
 	}
+
 	if baseline := readConsumerFile(t, consumerDir, baselineFileName); strings.Contains(baseline, "cruft_test.go") {
 		t.Fatalf("a later gate run baselined the new test finding:\n%s", baseline)
 	}
@@ -64,9 +69,11 @@ func TestStaticcheckExtraDoesNotBaselineAConsumerNewerThanTheNotice(t *testing.T
 	if err == nil {
 		t.Fatalf("gate passed on a test in the package under test with no baseline:\n%s", output)
 	}
+
 	if !strings.Contains(output, olderTestFinding) {
 		t.Fatalf("failure output lacks the test finding:\n%s", output)
 	}
+
 	if _, statErr := os.Stat(filepath.Join(consumerDir, baselineFileName)); !os.IsNotExist(statErr) {
 		t.Fatalf("baseline stat error = %v, want no baseline file", statErr)
 	}
@@ -79,7 +86,13 @@ func newConsumerRepository(t *testing.T, commitDate string) string {
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
-	consumerDir := t.TempDir()
+
+	fixtureDir := t.TempDir()
+	consumerDir := filepath.Join(fixtureDir, "checkout")
+	if err := os.Mkdir(filepath.Join(fixtureDir, "tmp"), 0o700); err != nil {
+		t.Fatalf("create consumer temporary directory: %v", err)
+	}
+
 	files := map[string]string{
 		"go.mod":                "module example.com/consumer\n\ngo 1.26\n",
 		"widget/widget.go":      "package widget\n\nfunc Double(value int) int {\n\treturn value * 2\n}\n",
@@ -93,9 +106,11 @@ func newConsumerRepository(t *testing.T, commitDate string) string {
 	for name, content := range files {
 		writeConsumerFile(t, consumerDir, name, content)
 	}
+
 	runConsumerGit(t, consumerDir, commitDate, "init", "--quiet", "--initial-branch=main")
 	runConsumerGit(t, consumerDir, commitDate, "add", ".")
 	runConsumerGit(t, consumerDir, commitDate, "commit", "--quiet", "--message", "adopt go-makefile")
+
 	return consumerDir
 }
 
@@ -106,6 +121,7 @@ func writeConsumerFile(t *testing.T, consumerDir, name, content string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("create directory for %s: %v", name, err)
 	}
+
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", name, err)
 	}
@@ -118,6 +134,7 @@ func readConsumerFile(t *testing.T, consumerDir, name string) string {
 	if err != nil {
 		t.Fatalf("read %s: %v", name, err)
 	}
+
 	return string(content)
 }
 
@@ -146,14 +163,22 @@ func runConsumerGit(t *testing.T, consumerDir, commitDate string, arguments ...s
 
 // An inherited MAKEFLAGS would override the consumer Makefile variables.
 func runConsumerMake(consumerDir string, arguments ...string) (string, error) {
+	root, err := exec.Command("git", "-C", consumerDir, "rev-parse", "--show-toplevel").CombinedOutput()
+	if err != nil {
+		return string(root), err
+	}
+
+	// All modules in one consumer share its golangci-lint.lock file.
+	temporary := filepath.Join(filepath.Dir(strings.TrimSpace(string(root))), "tmp")
 	command := exec.Command("make", arguments...)
 	command.Dir = consumerDir
 	command.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + os.Getenv("HOME"),
-		"TMPDIR=" + os.Getenv("TMPDIR"),
+		"TMPDIR=" + temporary,
 		"GOCACHE=" + os.Getenv("GOCACHE"),
 	}
 	output, err := command.CombinedOutput()
+
 	return string(output), err
 }

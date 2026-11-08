@@ -25,6 +25,7 @@ func TestNoticeRejectsFindingsCommittedAfterItsEffectiveDate(t *testing.T) {
 			if scenario.file == "widget/widget_test.go" {
 				contents = readConsumerFile(t, consumerDir, scenario.file) + "\nfunc TestLater(t *testing.T) { Double(3) }\n"
 			}
+
 			writeConsumerFile(t, consumerDir, scenario.file, contents)
 			if scenario.commitDate != "" {
 				runConsumerGit(t, consumerDir, scenario.commitDate, "add", scenario.file)
@@ -35,16 +36,20 @@ func TestNoticeRejectsFindingsCommittedAfterItsEffectiveDate(t *testing.T) {
 			if err == nil {
 				t.Fatalf("gate passed on a finding added after the notice took effect:\n%s", output)
 			}
+
 			if !strings.Contains(output, scenario.finding) {
 				t.Fatalf("gate output lacks the later finding:\n%s", output)
 			}
+
 			baseline := readConsumerFile(t, consumerDir, baselineFileName)
 			if !strings.Contains(baseline, olderTestFinding) {
 				t.Fatalf("baseline lacks the finding from before the notice:\n%s\nGate output:\n%s", baseline, output)
 			}
+
 			if strings.Contains(baseline, scenario.finding) {
 				t.Fatalf("notice baselined a finding added after its effective date:\n%s", baseline)
 			}
+
 			if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n" {
 				t.Fatalf("applied notices = %q, want both notices after the historical capture succeeds", applied)
 			}
@@ -75,10 +80,12 @@ func TestNoticeRejectsLaterSubtestsWithTheSameDiagnostic(t *testing.T) {
 			if err == nil {
 				t.Fatalf("gate passed with a later occurrence of a historical diagnostic:\n%s", output)
 			}
+
 			const diagnostic = "This subtest has no statement able to fail"
 			if !strings.Contains(output, diagnostic) {
 				t.Fatalf("gate output lacks the repeated diagnostic:\n%s", output)
 			}
+
 			if baseline := readConsumerFile(t, consumerDir, baselineFileName); strings.Contains(baseline, diagnostic) {
 				t.Fatalf("notice accepted a group containing a later finding:\n%s", baseline)
 			}
@@ -100,9 +107,11 @@ func TestNoticePreparesHistoricalGeneratedSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("notice failed to analyze the prepared historical source:\n%v\n%s", err, output)
 	}
+
 	if baseline := readConsumerFile(t, consumerDir, baselineFileName); !strings.Contains(baseline, olderTestFinding) {
 		t.Fatalf("baseline lacks the historical finding:\n%s", baseline)
 	}
+
 	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n" {
 		t.Fatalf("applied notices = %q, want both notices", applied)
 	}
@@ -122,9 +131,11 @@ func TestNoticeDoesNotApplyWhenHistoricalSourceDoesNotBuild(t *testing.T) {
 	if err == nil || !strings.Contains(output, "missingValue") {
 		t.Fatalf("gate did not report the historical build error:\n%v\n%s", err, output)
 	}
+
 	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n" {
 		t.Fatalf("applied notices = %q after a failed historical capture", applied)
 	}
+
 	if _, err := os.Stat(filepath.Join(consumerDir, baselineFileName)); !os.IsNotExist(err) {
 		t.Fatalf("baseline stat error = %v, want the failed notice to leave the baseline absent", err)
 	}
