@@ -158,7 +158,7 @@ func testLdflagsArgs() []string {
 
 // defaultGovulncheckInstall selects a scanner whose x/tools supports Go 1.27.
 // Consumers can override the release through GOVULNCHECK_INSTALL.
-const defaultGovulncheckInstall = "golang.org/x/vuln/cmd/govulncheck@v1.8.0"
+const defaultGovulncheckInstall = "golang.org/x/vuln/cmd/govulncheck@v1.9.0"
 
 // runCaptureGolangci is the capture-golangci dispatcher, mirroring the shell
 // case arm. It writes the raw and findings files.
