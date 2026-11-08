@@ -1,9 +1,10 @@
 package main_test
 
 import (
-	"os"
 	"strings"
 	"testing"
+
+	gomk "goodkind.io/go-makefile/cmd/go-mk"
 )
 
 const coverageProductionRow = "widget/preserved.go:7:2: historical production finding (errcheck)\n"
@@ -33,7 +34,7 @@ func Current() {
 // TestTestCoverageUsesAppliedNotice checks historical test adoption and
 // later failures.
 func TestTestCoverageUsesAppliedNotice(test *testing.T) {
-	engine := noticeGitBuildEngine(test, os.Environ())
+	engine := gomk.BuiltTestEngine(test)
 	consumer := newConsumerRepository(test, beforeNoticeDate)
 	lintPolicyConfiguration(test, consumer)
 	writeConsumerFile(test, consumer, "notices.txt", lintPolicyNotice(test, "13"))
