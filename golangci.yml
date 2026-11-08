@@ -6,14 +6,15 @@ run:
 linters:
   default: all
   enable:
-    - exhaustruct
+    - exhaustruct_v5
   disable:
     - depguard            # we use staticcheck-extra for ban-lists
     - dupl                # noisy on legitimate similar shapes
     - embeddedstructfieldcheck  # cosmetic: blank line after embedded fields
     - err113              # we use fmt.Errorf %w consistently
     - errcheck            # superseded by wrapcheck
-    - exhaustruct_v5      # v5 changes the established external-struct policy
+    # Use exhaustruct_v5 for struct initialization checks.
+    - exhaustruct
     - forbidigo           # superseded by staticcheck-extra banned_direct_output (which honors package main)
     - funcorder           # cosmetic: method/constructor ordering
     - gochecknoglobals    # var blocks are fine
@@ -93,9 +94,10 @@ linters:
     exhaustive:
       default-signifies-exhaustive: false  # require explicit cases
 
-    exhaustruct:
-      include:
-        - 'goodkind\.io/.*/internal/.*'
+    exhaustruct_v5:
+      explicit-mode: true
+      enforce-patterns:
+        - '^goodkind\.io/.*/internal/.*$'
 
     gosec:
       # v2.14 bundles gosec 2.29, which adds the G703 taint-analysis rule. Keep
@@ -108,7 +110,6 @@ linters:
       # v2.13 adds these analyzers. Keep the established v2.12 policy until
       # consumers adopt their findings as reviewed changes.
       disable:
-        - embedlit
         - errorsastype
         - importcomment
         - reflecttypeassert
