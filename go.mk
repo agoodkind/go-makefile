@@ -253,7 +253,8 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-rta_slog_field_bypass \
 	-lifecycle_noop_closer \
 	-lifecycle_silent_close_err \
-	-no_tilde_path_literal
+	-no_tilde_path_literal \
+	-doc_structure
 # The engine appends these flags even when a consumer overrides
 # STATICCHECK_EXTRA_FLAGS.
 STATICCHECK_EXTRA_TEST_FLAGS    ?= \
@@ -324,6 +325,7 @@ export _GO_MK_SELF_DIR
 export GO_MK_DEV_DIR
 export _GO_MK_HELPER_DIR
 export _GO_MK_NOTICES_FILE
+export GO_MK_NOTICE_MAKEFILE
 export _GO_MK_SCRIPT_FILES
 export GO_MK_BASE_URL
 export GO_MK_API_REPO

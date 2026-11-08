@@ -16,6 +16,8 @@ GO_MK_INSTALL_BINS := $(GO_MK_RELEASE_BINS)
 # Canonical golangci config lives in this repo at golangci.yml.
 ROOT_LINT_ARGS  := GOLANGCI_LINT_FLAGS="-c golangci.yml" GOLANGCI_LINT_TARGETS=.
 STATIC_LINT_ARGS := GOLANGCI_LINT_FLAGS="-c ../golangci.yml" GOLANGCI_LINT_TARGETS=./...
+ROOT_LINT_ARGS += GO_MK_NOTICE_MAKEFILE=go.mk
+STATIC_LINT_ARGS += GO_MK_NOTICE_MAKEFILE=../go.mk
 
 # Dog-food: build the staticcheck-extra binary from this checkout instead of
 # `go install ...@latest`, so analyzer changes are exercised before push.

@@ -31,8 +31,8 @@ func TestStaticcheckExtraBaselinesOlderTestFindingsOnce(t *testing.T) {
 	if baseline := readConsumerFile(t, consumerDir, baselineFileName); !strings.Contains(baseline, olderTestFinding) {
 		t.Fatalf("baseline lacks the older test finding %s:\n%s", olderTestFinding, baseline)
 	}
-	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n" {
-		t.Fatalf("applied notices = %q, want notices 1 and 2", applied)
+	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n3\n" {
+		t.Fatalf("applied notices = %q, want notices 1, 2, and 3", applied)
 	}
 
 	writeConsumerFile(t, consumerDir, "widget/useful_test.go", assertingTest)
