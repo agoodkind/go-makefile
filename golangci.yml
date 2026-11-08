@@ -16,7 +16,7 @@ linters:
     - gochecknoglobals
     # The analyzer API permits registration in init functions.
     - gochecknoinits
-    # Analysis callbacks return (nil, nil) when a check does not produce a result.
+    # Analyzers that do not set ResultType return (nil, nil) on success.
     - nilnil
     # Use wsl_v5 for whitespace checks.
     - wsl

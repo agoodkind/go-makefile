@@ -1,15 +1,16 @@
 package main_test
 
 import (
-	"os"
 	"strings"
 	"testing"
+
+	gomk "goodkind.io/go-makefile/cmd/go-mk"
 )
 
 // TestDuplicateChecksUseAppliedNotices checks adoption of diagnostics
 // without a column.
 func TestDuplicateChecksUseAppliedNotices(test *testing.T) {
-	engine := noticeGitBuildEngine(test, os.Environ())
+	engine := gomk.BuiltTestEngine(test)
 	consumer := newConsumerRepository(test, beforeNoticeDate)
 	lintPolicyConfiguration(test, consumer)
 	writeConsumerFile(test, consumer, "notices.txt", lintPolicyNotice(test, "4"))

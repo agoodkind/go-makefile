@@ -34,22 +34,14 @@ var skippingTestingMethods = map[string]bool{
 	"SkipNow": true,
 }
 
-// TestAssertAnalyzer flags a test function or a t.Run function literal with
-// no
-// call able to fail the test. A test that only calls production code passes
-// whatever the code returns. The required form is an assertion on an outcome
-// of
-// the code under test through t.Error, t.Fatal, or a helper with a
-// [testing.TB]
-// parameter.
+// TestAssertAnalyzer reports tests and subtests without a failure call.
+// Calling production code alone does not assert its returned outcome.
+// An assertion can call t.Error, t.Fatal, or a [testing.TB] helper.
 //
-// A call with an argument implementing [testing.TB] counts as able to fail
-// the
-// test. Such a helper can call t.Fatal. A failing call inside a nested
-// function
-// literal, defer, goroutine, loop, or branch counts. A body made only of
-// t.Skip,
-// t.Skipf, or t.SkipNow calls is exempt.
+// Calls with arguments that implement [testing.TB] can fail the test.
+// Failure calls count inside function literals, defers, and goroutines.
+// Failure calls also count inside loops and branches.
+// A body that only calls t.Skip, t.Skipf, or t.SkipNow is exempt.
 var TestAssertAnalyzer = &analysis.Analyzer{
 	Name: "testassert",
 	Doc:  "rejects a test or subtest with no statement able to fail it; assert an outcome with t.Error, t.Fatal, or a testing.TB helper",
@@ -214,13 +206,12 @@ func (checker assertionChecker) canFail(body *ast.BlockStmt) bool {
 	return found
 }
 
-// A helper that receives a [testing.TB] value can assert an outcome, and the
-// body
-// is then not reported. A test that only requires a nil error is reported
-// when it discards another
-// result of the call with the blank identifier. A call with an error as its
-// only result has no other outcome to assert. A test that only requires a
-// non-nil error is reported: a failure for another reason passes it.
+// Helpers that receive [testing.TB] can assert an outcome.
+// The analyzer accepts tests that call those helpers.
+// A test can discard another result with the blank identifier.
+// A nil error check does not assert that discarded result.
+// A function returning only an error cannot provide another outcome.
+// A non-nil error can indicate failure for an unrelated reason.
 func (checker assertionChecker) assertsOnlyErrorNilness(body *ast.BlockStmt) bool {
 	failingCalls := 0
 	onlyNilness := true
@@ -270,10 +261,8 @@ func (checker assertionChecker) assertsOnlyErrorNilness(body *ast.BlockStmt) boo
 }
 
 // The error of an [os.Stat] or [os.Lstat] call is the assertion on the file.
-// A
-// [testing.TB] value stored in a composite literal lets a method of the
-// literal
-// fail the test.
+// A [testing.TB] value can be a field in a composite literal.
+// A method of the literal can fail the test.
 func (checker assertionChecker) hasOtherOutcomeCheck(body *ast.BlockStmt) bool {
 	found := false
 	ast.Inspect(body, func(node ast.Node) bool {

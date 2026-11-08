@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	gomk "goodkind.io/go-makefile/cmd/go-mk"
 )
 
 const policyBaseline = ".golangci-lint-baseline.txt"
@@ -12,7 +14,7 @@ const policyBaseline = ".golangci-lint-baseline.txt"
 // TestCompatibleChecksUseAppliedNotices checks historical adoption and
 // later error rejection.
 func TestCompatibleChecksUseAppliedNotices(test *testing.T) {
-	engine := noticeGitBuildEngine(test, os.Environ())
+	engine := gomk.BuiltTestEngine(test)
 	consumer := newConsumerRepository(test, beforeNoticeDate)
 	lintPolicyConfiguration(test, consumer)
 	writeConsumerFile(test, consumer, "notices.txt", lintPolicyNotice(test, "4"))
@@ -91,7 +93,7 @@ func Later() {
 // TestCompatibleChecksPreserveExplicitErrorDiscard checks deliberate
 // blank assignments.
 func TestCompatibleChecksPreserveExplicitErrorDiscard(test *testing.T) {
-	engine := noticeGitBuildEngine(test, os.Environ())
+	engine := gomk.BuiltTestEngine(test)
 	consumer := newConsumerRepository(test, afterNoticeDate)
 	lintPolicyConfiguration(test, consumer)
 	writeConsumerFile(test, consumer, "widget/discard.go", `package widget
