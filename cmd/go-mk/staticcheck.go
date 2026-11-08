@@ -26,9 +26,9 @@ import (
 // without statusFromError printing a second diagnostic.
 const errStaticcheckBin sentinelError = "staticcheck-extra bin resolution failed"
 
-// staticcheckInstallDefault follows main when a Makefile does not supply
-// the revision selected during provisioning.
-const staticcheckInstallDefault = "goodkind.io/go-makefile/staticcheck/cmd/staticcheck-extra@main"
+// staticcheckInstallDefault is the default go install spec for the analyzer,
+// mirroring the shell STATICCHECK_EXTRA_INSTALL default.
+const staticcheckInstallDefault = "goodkind.io/go-makefile/staticcheck/cmd/staticcheck-extra@latest"
 
 const (
 	staticcheckFlagsEnv     = "STATICCHECK_EXTRA_FLAGS"
@@ -193,8 +193,8 @@ func staticcheckNewerSource(repo, output string) (bool, error) {
 // executability and flag support); otherwise a dev build from
 // STATICCHECK_EXTRA_BUILD_REPO when the build output is missing, stale, or
 // lacking a flag; otherwise a go install of STATICCHECK_EXTRA_INSTALL, always
-// reinstalling for @main or @latest and reusing a pinned install that already
-// supports the flags.
+// reinstalling for @latest and reusing a pinned install that already supports
+// the flags.
 func staticcheckResolveBin() error {
 	slog.Info("staticcheck resolve binary")
 	configured := os.Getenv("STATICCHECK_EXTRA_BIN")
@@ -248,7 +248,7 @@ func staticcheckResolveBin() error {
 	if installSpec == "" {
 		return nil
 	}
-	if strings.HasSuffix(installSpec, "@latest") || strings.HasSuffix(installSpec, "@main") {
+	if strings.HasSuffix(installSpec, "@latest") {
 		return staticcheckInstallBinary()
 	}
 	binaryName := filepath.Base(strings.SplitN(installSpec, "@", 2)[0])

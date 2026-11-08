@@ -6,7 +6,37 @@ on:
   workflow_dispatch:
 
 jobs:
+  analyzer:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-staticcheck-module
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: staticcheck/go.mod
+          cache-dependency-path: staticcheck/go.sum
+      - name: Test analyzer
+        run: go test ./...
+        working-directory: staticcheck
+      - name: Publish analyzer module
+        id: analyzer
+        run: go run ./cmd/publish-staticcheck "${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
+      - name: Install published analyzer
+        env:
+          ANALYZER_VERSION: ${{ steps.analyzer.outputs.version }}
+          GOBIN: ${{ runner.temp }}/analyzer
+        run: go install "goodkind.io/go-makefile/staticcheck/cmd/staticcheck-extra@${ANALYZER_VERSION}"
+      - name: Verify analyzer flags
+        run: '"${RUNNER_TEMP}/analyzer/staticcheck-extra" -doc_structure -flags'
+
   release:
+    needs: analyzer
     uses: agoodkind/go-makefile/.github/workflows/_release.yml@main
     permissions:
       contents: write
