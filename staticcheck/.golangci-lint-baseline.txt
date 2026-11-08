@@ -1,5 +1,381 @@
-# golangci-lint: generated_at=2026-11-08T01:49:39Z
-testdouble.go:197:11: stditerators: NumFields/Field loop can simplified using Struct.Fields iteration (modernize)	# golangci-lint:first_added=2026-11-08T01:49:39Z last_seen=2026-11-08T01:49:39Z
-testdouble.go:345:6: slicesbackward: backward loop over slice can be modernized using slices.Backward (modernize)	# golangci-lint:first_added=2026-11-08T01:49:39Z last_seen=2026-11-08T01:49:39Z
-testsourcefile.go:212:27: stringsseq: Ranging over SplitSeq is more efficient (modernize)	# golangci-lint:first_added=2026-11-08T01:49:39Z last_seen=2026-11-08T01:49:39Z
-testsourcefile.go:283:2: slicescontains: Loop can be simplified using slices.Contains (modernize)	# golangci-lint:first_added=2026-11-08T01:49:39Z last_seen=2026-11-08T01:49:39Z
+# golangci-lint: generated_at=2026-11-08T01:55:28Z
+no_tilde_path_literal.go:98:1: godoc line is too long (78 > 77) (godoclint)	# golangci-lint:first_added=2026-11-07T23:00:24Z last_seen=2026-11-08T01:55:11Z
+rta_throwaway_registration.go:17:1: godoc line is too long (78 > 77) (godoclint)	# golangci-lint:first_added=2026-11-07T23:00:24Z last_seen=2026-11-08T01:55:11Z
+testdouble.go:35:1: godoc line is too long (80 > 77) (godoclint)	# golangci-lint:first_added=2026-11-07T23:00:24Z last_seen=2026-11-08T01:55:11Z
+testseam.go:141:1: godoc line is too long (106 > 77) (godoclint)	# golangci-lint:first_added=2026-11-07T23:00:24Z last_seen=2026-11-08T01:55:11Z
+testdouble.go:197:11: stditerators: NumFields/Field loop can simplified using Struct.Fields iteration (modernize)	# golangci-lint:first_added=2026-11-07T23:00:20Z last_seen=2026-11-08T01:55:09Z
+testdouble.go:345:6: slicesbackward: backward loop over slice can be modernized using slices.Backward (modernize)	# golangci-lint:first_added=2026-11-07T23:00:20Z last_seen=2026-11-08T01:55:09Z
+boundary.go:74:3: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+boundary.go:106:3: missing whitespace above this line (invalid statement above switch) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+boundary.go:107:104: string `Log` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+boundary.go:107:111: string `LogAttrs` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+boundary.go:107:17: string `DebugContext` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+boundary.go:107:1: The line is 121 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+boundary.go:107:33: string `Info` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+boundary.go:107:41: string `InfoContext` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+boundary.go:107:56: string `Warn` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+boundary.go:107:64: string `WarnContext` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+boundary.go:107:79: string `Error` has 8 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+boundary.go:107:88: string `ErrorContext` has 6 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+boundary.go:107:8: string `Debug` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+boundary.go:92:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+boundary.go:92:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+boundary.go:97:2: missing whitespace above this line (no shared variables above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+boundary.go:86:3: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+boundary.go:26:3: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+boundary.go:45:25: parameter name 'fn' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+boundary.go:46:21: string `main` has 7 occurrences, but such constant `mainPackageName` already exists (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+boundary.go:82:37: string `ListenAndServe` has 3 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+boundary.go:82:65: string `Serve` has 3 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+boundary.go:86:1: The line is 172 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+common.go:58:2: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+common.go:199:3: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+common.go:77:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+common.go:77:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+common.go:274:2: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+common.go:127:2: missing whitespace above this line (too many statements above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+common.go:148:58: string `main` has 7 occurrences, but such constant `mainPackageName` already exists (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+common.go:191:2: missing whitespace above this line (no shared variables above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+common.go:282:2: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+common.go:251:35: named return "receiver" with type "string" must not be referenced or used by a naked return (nonamedreturns)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+common.go:251:52: named return "name" with type "string" must not be referenced or used by a naked return (nonamedreturns)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+common.go:251:65: named return "ok" with type "bool" must not be referenced or used by a naked return (nonamedreturns)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+common.go:58:19: avoid inline error handling using `if err := ...; err != nil`; use plain assignment `err := ...` (noinlineerr)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+forbidden_calls.go:87:4: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+forbidden_calls.go:78:3: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+forbidden_calls.go:83:4: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+forbidden_calls.go:125:1: The line is 123 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+forbidden_calls.go:93:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+forbidden_calls.go:93:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+forbidden_calls.go:30:3: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+forbidden_calls.go:31:4: variable name 'fn' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+forbidden_calls.go:175:22: string `panic` has 3 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+forbidden_calls.go:252:45: parameter name 'fn' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+forbidden_calls.go:42:23: string `main` has 7 occurrences, but such constant `mainPackageName` already exists (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+forbidden_calls.go:87:15: string `context` has 3 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+forbidden_calls.go:88:1: The line is 130 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_and_secrets.go:91:2: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_and_secrets.go:133:2: missing whitespace above this line (no shared variables above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_and_secrets.go:115:3: missing whitespace above this line (invalid statement above switch) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_and_secrets.go:95:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+grpc_and_secrets.go:95:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_and_secrets.go:80:2: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_and_secrets.go:51:4: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_and_secrets.go:37:3: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_and_secrets.go:210:7: break with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_and_secrets.go:38:4: variable name 'fn' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_and_secrets.go:51:1: The line is 168 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_and_secrets.go:57:31: parameter name 'fn' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_and_secrets.go:69:2: missing whitespace above this line (too many statements above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_and_secrets.go:77:15: string `context` has 3 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_method_name_literal.go:230:2: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_method_name_literal.go:132:4: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_method_name_literal.go:343:2: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_method_name_literal.go:347:2: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_method_name_literal.go:180:2: missing whitespace above this line (too many statements above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_method_name_literal.go:133:1: The line is 144 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_method_name_literal.go:84:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+grpc_method_name_literal.go:84:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_method_name_literal.go:143:2: missing whitespace above this line (too many statements above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_method_name_literal.go:184:2: missing whitespace above this line (invalid statement above switch) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_method_name_literal.go:185:7: Magic number: 2, in <case> detected (mnd)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_method_name_literal.go:191:7: Magic number: 3, in <case> detected (mnd)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_method_name_literal.go:222:1: The line is 142 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_method_name_literal.go:336:27: parameter name 't' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+grpc_method_name_literal.go:76:2: variable name 'a' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:99:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:99:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:92:2: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:96:2: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:82:35: parameter name 'fn' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:153:2: missing whitespace above this line (no shared variables above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:157:10: variable name 'n' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:157:3: missing whitespace above this line (invalid statement above type-switch) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:198:54: string `slog` has 6 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:201:2: missing whitespace above this line (invalid statement above switch) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:202:16: string `Info` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:202:24: string `Warn` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:202:32: string `Error` has 8 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:202:7: string `Debug` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:203:19: string `InfoContext` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:203:34: string `WarnContext` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:203:3: string `DebugContext` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:203:49: string `ErrorContext` has 6 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:204:10: string `LogAttrs` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:204:3: string `Log` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:244:29: string `context` has 3 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:57:3: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:58:4: variable name 'fn' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:318:3: variable name 'ok' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:42:2: variable name 'a' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:47:1: The line is 140 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:74:4: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:75:1: The line is 280 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_noop_closer.go:83:39: string `Close` has 6 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:88:3: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:88:3: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:111:2: missing whitespace above this line (no shared variables above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:84:3: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:117:3: missing whitespace above this line (no shared variables above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:51:3: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:33:2: variable name 'a' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:38:1: The line is 121 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:45:37: string `Close` has 6 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:52:4: variable name 'fn' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:81:3: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:65:4: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:86:1: The line is 213 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:97:2: missing whitespace above this line (invalid statement above switch) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:98:49: string `Stop` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+lifecycle_silent_close_err.go:98:57: string `Shutdown` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+logging.go:105:14: string `Error` has 8 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+logging.go:73:4: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+logging.go:105:33: string `ErrorContext` has 6 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+logging.go:108:13: string `LogAttrs` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+logging.go:111:21: string `slog` has 6 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+logging.go:97:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+logging.go:97:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+logging.go:111:39: string `Log` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+logging.go:195:2: missing whitespace above this line (no shared variables above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+logging.go:66:4: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+logging.go:87:3: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+logging.go:159:1: The line is 131 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+logging.go:169:14: string `Info` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+logging.go:169:32: string `InfoContext` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+logging.go:58:44: string `main` has 7 occurrences, but such constant `mainPackageName` already exists (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+logging.go:70:19: string `fmt` has 3 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+logging.go:71:1: The line is 144 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+logging.go:73:1: The line is 135 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_any.go:87:2: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_any.go:73:3: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+no_any.go:73:3: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_any.go:170:40: parameter name 't' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_any.go:177:2: missing whitespace above this line (invalid statement above type-switch) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+no_any.go:177:9: variable name 'x' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_any.go:41:2: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_any.go:269:2: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_any.go:45:3: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_any.go:81:66: parameter name 'ft' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_tilde_path_literal.go:93:3: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_tilde_path_literal.go:72:3: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_tilde_path_literal.go:94:3: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+no_tilde_path_literal.go:94:3: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_tilde_path_literal.go:192:2: missing whitespace above this line (no shared variables above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_tilde_path_literal.go:57:3: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_tilde_path_literal.go:90:3: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_tilde_path_literal.go:208:2: missing whitespace above this line (invalid statement above switch) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_tilde_path_literal.go:58:1: The line is 152 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+no_tilde_path_literal.go:84:3: missing whitespace above this line (no shared variables above type-switch) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+nolint_ban.go:26:3: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+nolint_ban.go:29:1: The line is 129 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+nolint_ban.go:34:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+nolint_ban.go:34:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:200:3: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:74:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:74:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:120:2: missing whitespace above this line (no shared variables above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:122:4: variable name 'fn' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:472:4: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:95:2: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:204:73: parameter name 'fn' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:194:1: The line is 146 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:204:1: The line is 164 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:428:2: missing whitespace above this line (too many statements above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:225:1: The line is 250 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:245:17: string `slog` has 6 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:268:2: missing whitespace above this line (never cuddle decl) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:269:26: Magic number: 2, in <operation> detected (mnd)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:297:1: The line is 191 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:309:2: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:401:2: missing whitespace above this line (no shared variables above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:67:2: variable name 'a' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:69:1: The line is 135 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:80:2: string `Debug` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:81:2: string `DebugContext` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:82:2: string `Info` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:83:2: string `InfoContext` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:84:2: string `Warn` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:85:2: string `WarnContext` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:86:2: string `Error` has 8 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_slog_field_bypass.go:87:2: string `ErrorContext` has 6 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_synthetic_marker_call.go:95:3: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+rta_synthetic_marker_call.go:95:3: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_synthetic_marker_call.go:59:4: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_synthetic_marker_call.go:66:4: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_synthetic_marker_call.go:181:2: missing whitespace above this line (no shared variables above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_synthetic_marker_call.go:70:4: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_synthetic_marker_call.go:55:4: variable name 'ok' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_synthetic_marker_call.go:67:58: Magic number: 5, in <argument> detected (mnd)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_synthetic_marker_call.go:71:1: The line is 264 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_synthetic_marker_call.go:90:9: variable name 'n' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:219:2: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:69:4: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:106:1: The line is 244 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:115:116: named return "ok" with type "bool" must not be referenced or used by a naked return (nonamedreturns)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:51:1: The line is 125 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:98:3: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:85:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:85:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:174:1: The line is 137 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:196:2: missing whitespace above this line (invalid statement above type-switch) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:196:9: variable name 'p' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:214:1: The line is 139 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:227:2: missing whitespace above this line (invalid statement above switch) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:228:16: string `ListenAndServe` has 3 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:228:67: string `Shutdown` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:228:7: string `Serve` has 3 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:228:95: string `Stop` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:236:1: The line is 122 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:64:3: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:46:2: variable name 'a' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:52:1: The line is 159 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+rta_throwaway_registration.go:88:67: parameter name 'fn' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+string_enum.go:77:3: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+string_enum.go:77:3: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+string_enum.go:111:2: missing whitespace above this line (no shared variables above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+string_enum.go:61:2: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+string_enum.go:89:2: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+string_enum.go:81:66: parameter name 'sw' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+string_enum.go:98:2: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:40:4: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:57:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:57:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+structural.go:99:3: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:95:2: missing whitespace above this line (no shared variables above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:201:23: string `panic` has 3 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:227:25: parameter name 's' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:231:2: variable name 'ok' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:254:2: missing whitespace above this line (too many statements above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:272:2: missing whitespace above this line (never cuddle decl) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:273:25: parameter name 'n' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:327:4: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:327:1: The line is 179 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:336:29: string `Shutdown` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+structural.go:336:41: string `Stop` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+structural.go:336:7: string `Close` has 6 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:350:2: missing whitespace above this line (invalid statement above switch) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:351:16: string `Info` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+structural.go:351:24: string `Warn` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+structural.go:351:32: string `Error` has 8 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+structural.go:351:7: string `Debug` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:352:19: string `InfoContext` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+structural.go:352:34: string `WarnContext` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+structural.go:352:3: string `DebugContext` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:352:49: string `ErrorContext` has 6 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+structural.go:37:1: The line is 128 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+structural.go:41:1: The line is 164 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+test_habits.go:16:3: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+test_habits.go:18:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+test_habits.go:18:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:100:1: The line is 215 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:318:5: continue with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:104:4: missing whitespace above this line (too many lines above branch) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+testassert.go:233:4: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:108:1: The line is 189 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:81:3: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:123:1: The line is 200 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:87:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+testassert.go:87:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:302:3: variable name 'ok' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:335:2: missing whitespace above this line (no shared variables above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:224:2: missing whitespace above this line (never cuddle decl) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:96:3: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:247:5: missing whitespace above this line (no shared variables above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:23:2: string `Error` has 8 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:249:1: The line is 132 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:24:2: string `Errorf` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:370:2: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:315:3: missing whitespace above this line (no shared variables above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:51:1: The line is 134 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testdouble.go:75:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+testdouble.go:75:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testdouble.go:105:2: missing whitespace above this line (no shared variables above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testdouble.go:71:2: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testdouble.go:420:2: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testdouble.go:406:2: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testdouble.go:67:2: missing whitespace above this line (too many statements above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testdouble.go:174:1: The line is 141 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testdouble.go:85:4: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testdouble.go:184:1: The line is 249 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testdouble.go:207:2: missing whitespace above this line (no shared variables above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testdouble.go:290:2: missing whitespace above this line (invalid statement above type-switch) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testdouble.go:327:4: continue with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testdouble.go:309:4: missing whitespace above this line (too many lines above branch) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+testdouble.go:87:1: The line is 164 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testpackage.go:80:3: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testpackage.go:49:3: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testpackage.go:91:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+testpackage.go:91:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testpackage.go:52:1: The line is 186 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testpackage.go:54:4: continue with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testpackage.go:54:4: missing whitespace above this line (too many lines above branch) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+testpackage.go:56:3: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testpackage.go:87:1: The line is 182 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testpackage.go:71:2: missing whitespace above this line (no shared variables above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testpackage.go:84:3: missing whitespace above this line (invalid statement above inc-dec) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testpackage.go:96:2: missing whitespace above this line (no shared variables above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:90:2: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:85:3: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:95:3: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:76:3: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:99:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+testseam.go:99:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:274:2: missing whitespace above this line (never cuddle decl) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:283:2: missing whitespace above this line (no shared variables above type-switch) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:165:2: missing whitespace above this line (too many statements above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:346:2: missing whitespace above this line (too many statements above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:196:2: missing whitespace above this line (no shared variables above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:201:7: variable name 'i' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:202:4: variable name 'ok' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:244:1: The line is 127 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:261:1: The line is 270 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:298:2: missing whitespace above this line (invalid statement above type-switch) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:308:1: The line is 220 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:91:2: missing whitespace above this line (no shared variables above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:331:1: The line is 146 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:333:5: continue with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testseam.go:333:5: missing whitespace above this line (too many lines above branch) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+thin_wrapper.go:73:4: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+thin_wrapper.go:54:3: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+thin_wrapper.go:96:2: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+thin_wrapper.go:96:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+thin_wrapper.go:128:2: missing whitespace above this line (never cuddle decl) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+thin_wrapper.go:129:2: missing whitespace above this line (no shared variables above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+thin_wrapper.go:95:2: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+thin_wrapper.go:26:1: The line is 176 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+thin_wrapper.go:35:3: string `Error` has 8 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+thin_wrapper.go:36:3: string `Errorf` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+thin_wrapper.go:44:2: string `fmt` has 3 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+thin_wrapper.go:55:4: variable name 'fn' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+thin_wrapper.go:83:2: variable name 'ok' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+thin_wrapper.go:76:1: The line is 221 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+thin_wrapper.go:76:4: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:76:3: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:76:3: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:109:22: Magic number: 2, in <condition> detected (mnd)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:92:3: missing whitespace above this line (invalid statement above assign) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:124:2: missing whitespace above this line (no shared variables above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:72:3: missing whitespace above this line (invalid statement above if) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:96:3: missing whitespace above this line (invalid statement above switch) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:147:16: string `ErrorContext` has 6 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:147:32: string `Warn` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:147:40: string `WarnContext` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:147:7: string `Error` has 8 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:150:13: string `LogAttrs` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:153:17: string `slog` has 6 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:153:35: string `Log` has 5 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:62:72: parameter name 'fn' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:310:32: Magic number: 2, in <argument> detected (mnd)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:48:3: missing whitespace above this line (invalid statement above range) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:49:4: variable name 'fn' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:75:3: missing whitespace above this line (invalid statement above expr) (wsl_v5)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:75:1: The line is 251 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:97:16: string `fmt` has 3 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T00:47:33Z last_seen=2026-11-08T01:55:05Z
+wrapped_error.go:97:33: string `Errorf` has 4 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-07T23:00:14Z last_seen=2026-11-08T01:55:05Z
+testassert.go:264:1: text "testing.TB" should be replaced with "[testing.TB]" to link to stdlib type (godoclint)	# golangci-lint:first_added=2026-11-07T23:00:24Z last_seen=2026-11-08T00:47:43Z
+testassert.go:264:1: text "os.Lstat" should be replaced with "[os.Lstat]" to link to stdlib function (godoclint)	# golangci-lint:first_added=2026-11-07T23:00:24Z last_seen=2026-11-08T00:47:43Z
+testassert.go:264:1: text "os.Stat" should be replaced with "[os.Stat]" to link to stdlib function (godoclint)	# golangci-lint:first_added=2026-11-08T00:47:43Z last_seen=2026-11-08T00:47:43Z
+testassert.go:37:1: text "testing.TB" should be replaced with "[testing.TB]" to link to stdlib type (2 instances) (godoclint)	# golangci-lint:first_added=2026-11-07T23:00:24Z last_seen=2026-11-08T00:47:43Z
+testsourcefile.go:312:26: stringsseq: Ranging over SplitSeq is more efficient (modernize)	# golangci-lint:first_added=2026-11-07T23:00:20Z last_seen=2026-11-08T00:47:39Z
+testsourcefile.go:312:2: slicescontains: Loop can be simplified using slices.Contains (modernize)	# golangci-lint:first_added=2026-11-07T23:00:20Z last_seen=2026-11-08T00:47:39Z
+testsourcefile.go:72:1: text "os.WriteFile" should be replaced with "[os.WriteFile]" to link to stdlib function (godoclint)	# golangci-lint:first_added=2026-11-07T23:00:24Z last_seen=2026-11-07T23:00:24Z

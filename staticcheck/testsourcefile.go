@@ -195,7 +195,8 @@ func reportConstantFileRead(pass *analysis.Pass, file *ast.File, body *ast.Block
 	if isSourceParserCall(pass, call) {
 		reportAtf(
 			pass, file, call.Pos(),
-			"This test parses Go source with go/parser. A test must assert on behavior and not on the text of a source file. Run the code and assert on its outcome.",
+			"This test parses Go source with go/parser. A test must assert on behavior and not on "+
+				"the text of a source file. Run the code and assert on its outcome.",
 		)
 
 		return
@@ -212,7 +213,10 @@ func reportConstantFileRead(pass *analysis.Pass, file *ast.File, body *ast.Block
 	if joinHasParentElement(pass, call.Args[0]) {
 		reportAtf(
 			pass, file, call.Pos(),
-			"This test reads a file through a parent directory path. A test must assert on behavior and not on the text of a source, template, or configuration file. Run the code that uses the file and assert on its outcome, or move the test input under testdata.",
+			"This test reads a file through a parent directory path. A test must assert on "+
+				"behavior and not on the text of a source, template, or configuration file. Run the "+
+				"code that uses the file and assert on its outcome, or move the test input under "+
+				"testdata.",
 		)
 
 		return
@@ -225,7 +229,9 @@ func reportConstantFileRead(pass *analysis.Pass, file *ast.File, body *ast.Block
 
 	reportAtf(
 		pass, file, call.Pos(),
-		"This test reads the file at the constant path %q. A test must assert on behavior and not on the text of a source, template, or configuration file. Run the code that uses the file and assert on its outcome, or move the test input under testdata.",
+		"This test reads the file at the constant path %q. A test must assert on behavior and "+
+			"not on the text of a source, template, or configuration file. Run the code that uses "+
+			"the file and assert on its outcome, or move the test input under testdata.",
 		filePath,
 	)
 }
@@ -390,7 +396,9 @@ func reportEmbedGroup(
 
 		reportAtf(
 			pass, file, spec.Names[0].Pos(),
-			"This test embeds the file pattern %q. A test must assert on behavior and not on the text of a source, template, or configuration file. Run the code that uses the file and assert on its outcome, or move the test input under testdata.",
+			"This test embeds the file pattern %q. A test must assert on behavior and not on the "+
+				"text of a source, template, or configuration file. Run the code that uses the file "+
+				"and assert on its outcome, or move the test input under testdata.",
 			pattern,
 		)
 	}
