@@ -1,13 +1,10 @@
-// Staticcheck-extra orchestration for go-mk, ported from
-// scripts/go-mk-staticcheck-extra.sh: resolving the analyzer binary (an explicit
-// binary, a dev build from the staticcheck source repo, or a go install), then
-// capturing its findings and gating them against the baseline. The analyzer
-// artifact itself stays in the staticcheck/ submodule; only the orchestration
-// moves here. This file lives in package main and owns process execution and
-// file I/O; boundary functions emit a structured slog event.
+// Staticcheck-extra orchestration resolves an explicit binary, local build,
+// source installation, or verified rolling release before capturing and
+// gating analyzer diagnostics.
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,16 +16,13 @@ import (
 
 	"goodkind.io/go-makefile/internal/findings"
 	"goodkind.io/go-makefile/internal/lint"
+	"goodkind.io/go-makefile/selfupdate"
 )
 
 // errStaticcheckBin signals that staticcheck-extra binary resolution failed with
 // a message already printed to stdout, so the dispatcher returns a non-zero exit
 // without statusFromError printing a second diagnostic.
 const errStaticcheckBin sentinelError = "staticcheck-extra bin resolution failed"
-
-// staticcheckInstallDefault is the default go install spec for the analyzer,
-// mirroring the shell STATICCHECK_EXTRA_INSTALL default.
-const staticcheckInstallDefault = "goodkind.io/go-makefile/staticcheck/cmd/staticcheck-extra@latest"
 
 const (
 	staticcheckFlagsEnv     = "STATICCHECK_EXTRA_FLAGS"
@@ -120,7 +114,10 @@ func staticcheckBuildFromRepo() error {
 // runs go install with GONOSUMDB for the analyzer modules and GOBIN set to the
 // GOPATH bin. It runs a process, so it emits a boundary log.
 func staticcheckInstallBinary() error {
-	installSpec := lintEnvDefault("STATICCHECK_EXTRA_INSTALL", staticcheckInstallDefault)
+	installSpec := os.Getenv("STATICCHECK_EXTRA_INSTALL")
+	if installSpec == "" {
+		return fmt.Errorf("STATICCHECK_EXTRA_INSTALL is required for a source installation")
+	}
 	binaryName := filepath.Base(strings.SplitN(installSpec, "@", 2)[0])
 	gopath, err := goEnvPath("GOPATH")
 	if err != nil {
@@ -188,19 +185,14 @@ func staticcheckNewerSource(repo, output string) (bool, error) {
 	return found, nil
 }
 
-// staticcheckResolveBin resolves the analyzer binary, mirroring
-// staticcheck_resolve_bin: an explicit STATICCHECK_EXTRA_BIN wins (validated for
-// executability and flag support); otherwise a dev build from
-// STATICCHECK_EXTRA_BUILD_REPO when the build output is missing, stale, or
-// lacking a flag; otherwise a go install of STATICCHECK_EXTRA_INSTALL, always
-// reinstalling for @latest and reusing a pinned install that already supports
-// the flags.
+// staticcheckResolveBin uses an explicit binary or local checkout before
+// installing the analyzer from a source specification or rolling release.
 func staticcheckResolveBin() error {
 	slog.Info("staticcheck resolve binary")
 	configured := os.Getenv("STATICCHECK_EXTRA_BIN")
 	repo := os.Getenv("STATICCHECK_EXTRA_BUILD_REPO")
 	pkg := os.Getenv("STATICCHECK_EXTRA_BUILD_PKG")
-	installSpec := lintEnvDefault("STATICCHECK_EXTRA_INSTALL", staticcheckInstallDefault)
+	installSpec := os.Getenv("STATICCHECK_EXTRA_INSTALL")
 	output, err := staticcheckOutputPath()
 	if err != nil {
 		return err
@@ -246,7 +238,7 @@ func staticcheckResolveBin() error {
 	}
 
 	if installSpec == "" {
-		return nil
+		return staticcheckInstallRelease()
 	}
 	if strings.HasSuffix(installSpec, "@latest") {
 		return staticcheckInstallBinary()
@@ -265,6 +257,39 @@ func staticcheckResolveBin() error {
 	}
 	_ = os.Remove(output)
 	return os.Symlink(installedPath, output)
+}
+
+func staticcheckInstallRelease() error {
+	slog.Info("staticcheck install rolling release")
+	output, err := staticcheckOutputPath()
+	if err != nil {
+		return err
+	}
+	directory := filepath.Dir(output)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return err
+	}
+	cache := filepath.Join(directory, "staticcheck-release")
+	installed, err := selfupdate.InstallReleaseBinaries(context.Background(), selfupdate.InstallReleaseBinariesOptions{
+		Channel: selfupdate.ReleaseChannelRolling,
+		BinDir:  directory,
+		Options: []selfupdate.Options{{
+			Config: selfupdate.Config{
+				Repo:          goMkSelfUpdateRepo,
+				Binary:        "staticcheck-extra",
+				WebBaseURLEnv: "STATICCHECK_EXTRA_RELEASE_BASE_URL",
+				ValidateArgs:  append(splitWords(staticcheckFlagsText()), "-flags"),
+				ValidateMatch: "\"Name\"",
+			},
+			CacheDir:  cache,
+			StatePath: filepath.Join(cache, "state.json"),
+		}},
+	})
+	if err != nil {
+		return err
+	}
+	slog.Info("staticcheck installed release", slog.String("tag", installed[0].Tag))
+	return nil
 }
 
 // staticcheckSelectedBin returns the binary the gate runs, mirroring

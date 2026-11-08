@@ -229,7 +229,8 @@ DEADCODE_EXCLUDE_PATHS    ?=
 STATICCHECK_EXTRA_BIN           ?=
 STATICCHECK_EXTRA_BUILD_REPO    ?= $(if $(and $(GO_MK_DEV_DIR),$(wildcard $(GO_MK_DEV_DIR)/staticcheck/cmd/staticcheck-extra)),$(GO_MK_DEV_DIR)/staticcheck)
 STATICCHECK_EXTRA_BUILD_PKG     ?= $(if $(STATICCHECK_EXTRA_BUILD_REPO),./cmd/staticcheck-extra)
-STATICCHECK_EXTRA_INSTALL       ?= goodkind.io/go-makefile/staticcheck/cmd/staticcheck-extra@latest
+STATICCHECK_EXTRA_INSTALL       ?=
+STATICCHECK_EXTRA_RELEASE_BASE_URL ?=
 STATICCHECK_EXTRA_CORE_FLAGS    ?= \
 	-slog_error_without_err \
 	-banned_direct_output \
@@ -374,6 +375,7 @@ export STATICCHECK_EXTRA_BIN
 export STATICCHECK_EXTRA_BUILD_REPO
 export STATICCHECK_EXTRA_BUILD_PKG
 export STATICCHECK_EXTRA_INSTALL
+export STATICCHECK_EXTRA_RELEASE_BASE_URL
 export STATICCHECK_EXTRA_FLAGS
 export STATICCHECK_EXTRA_TEST_FLAGS
 export STATICCHECK_EXTRA_TARGETS
