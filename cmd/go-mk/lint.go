@@ -383,7 +383,11 @@ func extractFindings(rawPath, matchPattern, excludePattern string) ([]string, in
 				continue
 			}
 		}
-		if path, ok := findings.FindingPath(normalized); ok && !findingResolvesInTree(path, root) {
+		path, located := findings.FindingPath(normalized)
+		if !located {
+			continue
+		}
+		if !findingResolvesInTree(path, root) {
 			droppedOutOfTree++
 			continue
 		}

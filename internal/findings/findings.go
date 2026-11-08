@@ -19,7 +19,10 @@ import (
 
 // locationPattern matches the :line:col: run the awk collapses for keys and
 // splits on for printing. It mirrors the awk regexp /:[0-9]+:[0-9]+:/ exactly.
-var locationPattern = regexp.MustCompile(`:[0-9]+:[0-9]+:`)
+var (
+	locationPattern    = regexp.MustCompile(`:[0-9]+:[0-9]+:`)
+	findingPathPattern = regexp.MustCompile(`^(.+?):[0-9]+(?::[0-9]+)?:`)
+)
 
 // lineLocationPattern matches Go diagnostics that omit the column.
 var lineLocationPattern = regexp.MustCompile(`^.+\.go:[0-9]+:[ \t]`)
@@ -74,18 +77,20 @@ func Key(line, pwd, cwd string) string {
 	return out[:location[0]] + ":::" + out[location[1]:]
 }
 
-// FindingPath returns the file path in front of the first :line:col: run in
-// line, and false when the line has no such run (so it has no parseable path).
-// It reuses locationPattern, the same split Key and Print use, so the path is
-// the substring before the first ":line:col:".
+// FindingPath returns the file path before a source location.
 //
-// ---- FindingPath ----
+// A location contains a line number and an optional column.
+// It returns false when the input does not contain a source location.
+//
+// Example:
+//
+//	FindingPath("input.proto:7: undefined: value (typecheck)")
 func FindingPath(line string) (string, bool) {
-	location := locationPattern.FindStringIndex(line)
+	location := findingPathPattern.FindStringSubmatch(line)
 	if location == nil {
 		return "", false
 	}
-	return line[:location[0]], true
+	return location[1], true
 }
 
 // Baseline returns the baseline payload for a finding line, matching the awk
