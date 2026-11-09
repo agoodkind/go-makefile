@@ -144,9 +144,13 @@ func parseOptions(args []string, stderr io.Writer) (checkOptions, error) {
 			"",
 			"comma-separated revisions to compare, for example origin/main,HEAD",
 		)
-		target   = set.String("target", defaultTarget, "make target to run in each consumer")
-		timeout  = set.Duration("timeout", defaultTimeout, "per-build timeout")
-		workDir  = set.String("work", "", "scratch directory (a temporary one is used when empty)")
+		target  = set.String("target", defaultTarget, "make target to run in each consumer")
+		timeout = set.Duration("timeout", defaultTimeout, "per-build timeout")
+		workDir = set.String(
+			"work",
+			"",
+			"scratch directory (a temporary one is used when empty)",
+		)
 		keepWork = set.Bool("keep", false, "keep the scratch directory after the run")
 		depth    = set.Int("depth", 1, "clone depth; 0 clones full history")
 		inPlace  = set.Bool(
@@ -606,6 +610,7 @@ func reportOne(stdout io.Writer, result buildResult) {
 			result.revision,
 			result.skipped,
 		)
+
 		return
 	}
 
