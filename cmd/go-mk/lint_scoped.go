@@ -6,7 +6,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -20,42 +19,16 @@ import (
 	"goodkind.io/go-makefile/internal/vet"
 )
 
-// errNoGoFiles signals that the current module owns no Go source files, so the
-// formatter has nothing to format and the format gate passes vacuously.
-var errNoGoFiles = errors.New("no go files in module")
-
 // golangciFmtCommand builds the golangci-lint fmt argv scoped to the files the
 // current module owns. golangci-lint fmt walks the filesystem rather than
 // resolving packages through go list, so passing ./... makes it descend into
 // nested modules (a vendored git submodule or a sibling module with its own
 // go.mod) and format foreign files. Scoping to the go-list file set keeps fmt
 // within the current module, matching what every run linter already does.
-// GOLANGCI_FMT_FILES overrides the computed list. It returns errNoGoFiles when
+// GOLANGCI_FMT_FILES overrides the computed list. It returns ErrNoFiles when
 // the module owns no Go files so callers pass the gate without invoking fmt.
-func golangciFmtCommand() (string, []string, error) {
-	binary := lintEnvDefault("GOLANGCI_LINT", "golangci-lint")
-	flagsText := os.Getenv("GOLANGCI_LINT_FLAGS")
-	var files []string
-	if override := os.Getenv("GOLANGCI_FMT_FILES"); override != "" {
-		files = splitWords(override)
-	} else {
-		resolved, err := moduleGoFiles(splitWords(lintEnvDefault("GOLANGCI_LINT_TARGETS", "./...")))
-		if err != nil {
-			return "", nil, err
-		}
-
-		files = resolved
-	}
-
-	if len(files) == 0 {
-		return "", nil, errNoGoFiles
-	}
-
-	args := []string{"fmt"}
-	args = append(args, splitWords(flagsText)...)
-	args = append(args, files...)
-
-	return binary, args, nil
+func golangciFmtCommand() (formatting.Command, error) {
+	return formatting.Select(moduleGoFiles)
 }
 
 // moduleGoFiles enumerates the .go files the current module owns for the given
