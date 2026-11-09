@@ -84,6 +84,7 @@ func TestHistoryRestoresDirectoryAndEnvironmentAfterRealFailures(t *testing.T) {
 					return copyHistoryCapture(directory, "golangci-lint.out", findingsPath)
 				}
 				err = history.RestrictFindings(
+					t.Context(),
 					filepath.Join(consumer, ".make", "golangci-lint-scope.out"),
 					introduced,
 					"golangci",

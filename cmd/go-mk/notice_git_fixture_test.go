@@ -199,6 +199,43 @@ func writeLegacyMakefile(t *testing.T, consumer, fixture string) {
 	writeConsumerFile(t, consumer, "Makefile", string(contents))
 }
 
+func TestRunNoticeLeavesDirectiveUnappliedWhenGitHistoryIsBroken(t *testing.T) {
+	engine := gomk.BuiltTestEngine(t)
+	consumer := legacyNoticeRepository(t, "legacy")
+	writeConsumerFile(t, consumer, ".git/HEAD", strings.Repeat("0", 40)+"\n")
+	notices := filepath.Join(consumer, "notices.txt")
+	writeConsumerFile(
+		t,
+		consumer,
+		"notices.txt",
+		"2\tINTRODUCED=2026-10-05T00:00:00-07:00 GATE=staticcheck-extra PATTERN=_test\\.go:\tCheck existing tests\n",
+	)
+	command := exec.CommandContext(t.Context(), engine, "notice")
+	command.Dir = consumer
+	command.Env = append(
+		noticeGitEnvironment(t),
+		"_GO_MK_ROOT="+consumer,
+		"_GO_MK_NOTICES_FILE="+notices,
+		"GO_MK_APPLIED_NOTICES="+appliedNoticeFile,
+		"GOPROXY=off",
+		"GOSUMDB=off",
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("notice command failed: %v\n%s", err, output)
+	}
+
+	if !strings.Contains(string(output), "adoption history could not be read") {
+		t.Fatalf("notice did not report the Git history failure:\n%s", output)
+	}
+
+	for _, name := range []string{appliedNoticeFile, baselineFileName} {
+		if _, statErr := os.Stat(filepath.Join(consumer, name)); !os.IsNotExist(statErr) {
+			t.Fatalf("artifact %s stat error = %v after a history failure", name, statErr)
+		}
+	}
+}
+
 func noticeGitEnvironment(t *testing.T) []string {
 	t.Helper()
 	home := t.TempDir()

@@ -2,12 +2,16 @@ package notice
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 )
+
+var errNoRepository = errors.New("not a Git repository")
 
 // Adoption reports the earliest recorded use of the shared build.
 //
@@ -16,17 +20,26 @@ import (
 //
 // Inspect the current module with:
 //
-//	adopted, found := Adoption(".")
-func Adoption(directory string) (time.Time, bool) {
-	shallow, err := adoptionGit(directory, "rev-parse", "--is-shallow-repository")
-	if err != nil || strings.TrimSpace(shallow) == "true" {
-		return time.Time{}, false
+//	adopted, found, err := Adoption(ctx, ".")
+func Adoption(ctx context.Context, directory string) (time.Time, bool, error) {
+	shallow, err := adoptionGit(ctx, directory, "rev-parse", "--is-shallow-repository")
+	if errors.Is(err, errNoRepository) {
+		return time.Time{}, false, nil
+	}
+
+	if err != nil {
+		return time.Time{}, false, err
+	}
+
+	if strings.TrimSpace(shallow) == "true" {
+		return time.Time{}, false, nil
 	}
 
 	earliest := time.Time{}
 
 	for _, name := range []string{"bootstrap.mk", "go.mk", ".go-mk-applied-notices"} {
 		output, err := adoptionGit(
+			ctx,
 			directory,
 			"log",
 			"--follow",
@@ -36,7 +49,7 @@ func Adoption(directory string) (time.Time, bool) {
 			name,
 		)
 		if err != nil {
-			return time.Time{}, false
+			return time.Time{}, false, err
 		}
 
 		for line := range strings.FieldsSeq(output) {
@@ -44,16 +57,16 @@ func Adoption(directory string) (time.Time, bool) {
 		}
 	}
 
-	legacy, err := legacyAdoption(directory)
+	legacy, err := legacyAdoption(ctx, directory)
 	if err != nil {
-		return time.Time{}, false
+		return time.Time{}, false, err
 	}
 
 	if !legacy.IsZero() && (earliest.IsZero() || legacy.Before(earliest)) {
 		earliest = legacy
 	}
 
-	return earliest, !earliest.IsZero()
+	return earliest, !earliest.IsZero(), nil
 }
 
 func earlierAdoption(current time.Time, value string) time.Time {
@@ -69,13 +82,14 @@ func earlierAdoption(current time.Time, value string) time.Time {
 	return current
 }
 
-func legacyAdoption(directory string) (time.Time, error) {
-	prefix, err := adoptionGit(directory, "rev-parse", "--show-prefix")
+func legacyAdoption(ctx context.Context, directory string) (time.Time, error) {
+	prefix, err := adoptionGit(ctx, directory, "rev-parse", "--show-prefix")
 	if err != nil {
 		return time.Time{}, err
 	}
 
 	output, err := adoptionGit(
+		ctx,
 		directory,
 		"log",
 		"--first-parent",
@@ -96,6 +110,7 @@ func legacyAdoption(directory string) (time.Time, error) {
 		}
 
 		contents, err := adoptionGit(
+			ctx,
 			directory,
 			"show",
 			revision+":"+strings.TrimSpace(prefix)+"Makefile",
@@ -112,19 +127,27 @@ func legacyAdoption(directory string) (time.Time, error) {
 	return time.Time{}, nil
 }
 
-func adoptionGit(directory string, arguments ...string) (string, error) {
-	slog.Info("notice inspect adoption history", slog.String("operation", arguments[0]))
-	command := exec.CommandContext(context.Background(), "git", arguments...)
+func adoptionGit(ctx context.Context, directory string, arguments ...string) (string, error) {
+	slog.InfoContext(ctx, "notice inspect adoption history", slog.String("operation", arguments[0]))
+	command := exec.CommandContext(ctx, "git", arguments...)
 	command.Dir = directory
+	command.Env = append(os.Environ(), "LC_ALL=C")
 	output, err := command.CombinedOutput()
 	if err != nil {
+		if arguments[0] == "rev-parse" &&
+			strings.HasPrefix(string(output), "fatal: not a git repository") {
+			slog.InfoContext(ctx, "notice adoption has no Git repository")
+
+			return "", errNoRepository
+		}
+
 		wrapped := fmt.Errorf(
 			"inspect notice adoption with git %s: %w: %s",
 			arguments[0],
 			err,
 			strings.TrimSpace(string(output)),
 		)
-		slog.Error("notice adoption history failed", slog.Any("err", wrapped))
+		slog.ErrorContext(ctx, "notice adoption history failed", slog.Any("err", wrapped))
 
 		return "", wrapped
 	}

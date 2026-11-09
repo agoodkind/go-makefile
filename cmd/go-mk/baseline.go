@@ -13,6 +13,7 @@ import (
 	"goodkind.io/go-makefile/internal/baseline"
 	"goodkind.io/go-makefile/internal/gate"
 	"goodkind.io/go-makefile/internal/lint"
+	"goodkind.io/go-makefile/internal/notice/execution"
 )
 
 // baselineMode is the named enum of baseline update modes, mirroring the shell
@@ -223,6 +224,7 @@ func updateGolangciBaselineScope(collector *baselineCollector, mode string) int 
 		writeStdout(
 			"golangci-lint scope baseline: set LINTER=<name>, RULE=<name>, or GOLANGCI_LINT_BASELINE_SCOPE_PATTERN\n",
 		)
+
 		return 1
 	}
 
@@ -238,35 +240,21 @@ func updateGolangciBaselineScope(collector *baselineCollector, mode string) int 
 // because the scoped write only adds the declared slice and leaves every other
 // linter's rows untouched.
 func autoBaselineGolangciScope(collector *baselineCollector, directive noticeDirective) int {
-	scopePattern := lint.GolangciScopePattern(
-		os.Getenv("GOLANGCI_LINT_BASELINE_SCOPE_PATTERN"),
-		os.Getenv("RULE"),
-		os.Getenv("LINTER"),
+	component, code := execution.New(
+		loggedGitOutput,
+		runLintTools,
+		runStaticcheckBin,
+		captureNoticeGolangciFindings,
+		captureNoticeStaticcheckFindings,
+		writeManifest,
+	).PlanGolangciDefault(
+		directive.gate,
+		directive.rule,
+		directive.introduced,
+		golangciExcludePattern(),
 	)
-	if scopePattern == "" {
-		writeStdout(
-			"auto-baseline: missing scope; set LINTER, RULE, or GOLANGCI_LINT_BASELINE_SCOPE_PATTERN\n",
-		)
-		return 1
-	}
-
-	captured := &baselineCollector{}
-	if code := writeGolangciScopeBaseline(
-		captured,
-		string(modeSync),
-		scopePattern,
-		captureNoticeGolangciFindings,
-	); code != 0 {
+	if code != 0 {
 		return code
-	}
-
-	component := captured.components[0]
-	if err := restrictNoticeFindings(
-		component.FindingsFile,
-		directive,
-		captureNoticeGolangciFindings,
-	); err != nil {
-		return statusFromError(err)
 	}
 
 	collector.add(component)
@@ -440,46 +428,24 @@ func updateStaticcheckBaseline(collector *baselineCollector, mode string) int {
 // The notice pass runs this update without the baseline token. The scope limits
 // the write to the rows that match STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN.
 func autoBaselineStaticcheckScope(collector *baselineCollector, directive noticeDirective) int {
-	scopePattern := os.Getenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN")
-	if scopePattern == "" {
-		writeStdout("auto-baseline: missing scope; set STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN\n")
-		return 1
-	}
-
-	if err := ensureMakeDir(); err != nil {
-		return statusFromError(err)
-	}
-
-	findingsPath := makeDir + "/staticcheck-extra-scope-baseline.out"
-	rawPath := makeDir + "/staticcheck-extra-scope-baseline.raw.out"
-	if code := runStaticcheckBin(); code != 0 {
+	component, code := execution.New(
+		loggedGitOutput,
+		runLintTools,
+		runStaticcheckBin,
+		captureNoticeGolangciFindings,
+		captureNoticeStaticcheckFindings,
+		writeManifest,
+	).PlanStaticcheckDefault(
+		directive.gate,
+		directive.rule,
+		directive.introduced,
+		staticcheckExcludePattern(),
+	)
+	if code != 0 {
 		return code
 	}
 
-	if err := captureNoticeStaticcheckFindings(rawPath, findingsPath); err != nil {
-		return statusFromError(err)
-	}
-
-	if err := restrictNoticeFindings(
-		findingsPath,
-		directive,
-		captureNoticeStaticcheckFindings,
-	); err != nil {
-		return statusFromError(err)
-	}
-
-	collector.add(baseline.Component{
-		Title: "staticcheck-extra",
-		Label: "staticcheck-extra",
-		BaselineFile: lintEnvDefault(
-			"STATICCHECK_EXTRA_BASELINE",
-			".staticcheck-extra-baseline.txt",
-		),
-		FindingsFile:   findingsPath,
-		Mode:           string(modeSync),
-		ExcludePattern: staticcheckExcludePattern(),
-		ScopePattern:   scopePattern,
-	})
+	collector.add(component)
 
 	return 0
 }

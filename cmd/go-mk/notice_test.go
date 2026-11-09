@@ -6,12 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
+
+	"goodkind.io/go-makefile/internal/notice/execution"
 )
 
 const testDirective = "INTRODUCED=2026-05-25T19:38:46-07:00 GATE=golangci LINTER=revive RULE=file-length-limit"
-
-var testIntroducedTime = time.Date(2026, 5, 25, 19, 38, 46, 0, time.FixedZone("PDT", -7*60*60))
 
 func TestRunNoticeRecordsDirectiveAsAppliedForFreshRepo(t *testing.T) {
 	root := t.TempDir()
@@ -198,54 +197,12 @@ func TestRunNoticeIgnoresEmptyBaselineFilesWhenHistoryIsUnavailable(t *testing.T
 	assertFileText(t, ".golangci-lint-baseline.txt", "")
 }
 
-func TestRunNoticeAutoBaselinesWhenAdoptionIsBeforeNotice(t *testing.T) {
-	root := t.TempDir()
-	chdir(t, root)
-	clearBaselineEnv(t)
-	stubNoticeAdoptionTime(t, testIntroducedTime.Add(-time.Hour), true)
-	baselineCalls := recordNoticeBaselineCalls(t)
-
-	noticesPath := filepath.Join(root, "notices.txt")
-	notices := "1\t" + testDirective + "\tEnabled historical rule\n"
-	if err := os.WriteFile(noticesPath, []byte(notices), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("_GO_MK_NOTICES_FILE", noticesPath)
-	t.Setenv("GO_MK_APPLIED_NOTICES", ".go-mk-applied-notices")
-
-	var status int
-	stderr := captureStderr(
-		t,
-		func() {
-			status = runNotice()
-		},
-	)
-	if status != 0 {
-		t.Fatalf("runNotice status = %d, want 0", status)
-	}
-
-	if len(*baselineCalls) != 1 {
-		t.Fatalf("baseline call count = %d, want 1", len(*baselineCalls))
-	}
-
-	if (*baselineCalls)[0] != "auto-baseline-scope" {
-		t.Fatalf("baseline calls = %#v, want auto-baseline-scope", *baselineCalls)
-	}
-
-	if !strings.Contains(stderr, "auto-baselining existing findings") {
-		t.Fatalf("stderr = %q, want auto-baseline output", stderr)
-	}
-
-	assertNoticeAppliedFile(t, ".go-mk-applied-notices", "1\n")
-}
-
 func TestAnyConfiguredBaselineFileHasContentDetectsDefaultBaseline(t *testing.T) {
 	root := t.TempDir()
 	chdir(t, root)
 	clearBaselineEnv(t)
 
-	if anyConfiguredBaselineFileHasContent() {
+	if execution.BaselinesHaveContent(configuredBaselineFiles()) {
 		t.Fatal("anyConfiguredBaselineFileHasContent = true before any baseline exists")
 	}
 
@@ -253,7 +210,7 @@ func TestAnyConfiguredBaselineFileHasContentDetectsDefaultBaseline(t *testing.T)
 		t.Fatal(err)
 	}
 
-	if anyConfiguredBaselineFileHasContent() {
+	if execution.BaselinesHaveContent(configuredBaselineFiles()) {
 		t.Fatal("anyConfiguredBaselineFileHasContent = true after empty baseline exists")
 	}
 
@@ -265,7 +222,7 @@ func TestAnyConfiguredBaselineFileHasContentDetectsDefaultBaseline(t *testing.T)
 		t.Fatal(err)
 	}
 
-	if !anyConfiguredBaselineFileHasContent() {
+	if !execution.BaselinesHaveContent(configuredBaselineFiles()) {
 		t.Fatal("anyConfiguredBaselineFileHasContent = false after default baseline has content")
 	}
 }
@@ -278,7 +235,7 @@ func TestAnyConfiguredBaselineFileHasContentUsesCustomBaselinePaths(t *testing.T
 	t.Setenv("DEADCODE_BASELINE", filepath.Join("custom", "deadcode.txt"))
 	t.Setenv("STATICCHECK_EXTRA_BASELINE", filepath.Join("custom", "staticcheck.txt"))
 
-	if anyConfiguredBaselineFileHasContent() {
+	if execution.BaselinesHaveContent(configuredBaselineFiles()) {
 		t.Fatal("anyConfiguredBaselineFileHasContent = true before custom baselines exist")
 	}
 
@@ -294,7 +251,7 @@ func TestAnyConfiguredBaselineFileHasContentUsesCustomBaselinePaths(t *testing.T
 		t.Fatal(err)
 	}
 
-	if !anyConfiguredBaselineFileHasContent() {
+	if !execution.BaselinesHaveContent(configuredBaselineFiles()) {
 		t.Fatal("anyConfiguredBaselineFileHasContent = false after custom baseline has content")
 	}
 }
@@ -329,44 +286,9 @@ func TestAnyConfiguredBaselineFileHasContentTreatsStatErrorsAsExisting(t *testin
 
 	t.Setenv("GOLANGCI_LINT_BASELINE", baselinePath)
 
-	if !anyConfiguredBaselineFileHasContent() {
+	if !execution.BaselinesHaveContent(configuredBaselineFiles()) {
 		t.Fatal("anyConfiguredBaselineFileHasContent = false for unreadable baseline path")
 	}
-}
-
-func stubNoticeAdoptionTime(t *testing.T, adoptionTime time.Time, ok bool) {
-	t.Helper()
-	previous := noticeAdoptionTimeFunc
-	noticeAdoptionTimeFunc = func() (time.Time, bool) {
-		return adoptionTime, ok
-	}
-	t.Cleanup(func() {
-		noticeAdoptionTimeFunc = previous
-	})
-}
-
-func recordNoticeBaselineCalls(t *testing.T) *[]string {
-	t.Helper()
-	calls := []string{}
-	previous := runNoticeBaselineFunc
-	runNoticeBaselineFunc = func(args []string, _ noticeDirective) int {
-		if os.Getenv("LINTER") != "revive" {
-			t.Fatalf("LINTER = %q, want revive", os.Getenv("LINTER"))
-		}
-
-		if os.Getenv("RULE") != "file-length-limit" {
-			t.Fatalf("RULE = %q, want file-length-limit", os.Getenv("RULE"))
-		}
-
-		calls = append(calls, strings.Join(args, " "))
-
-		return 0
-	}
-	t.Cleanup(func() {
-		runNoticeBaselineFunc = previous
-	})
-
-	return &calls
 }
 
 func assertNoticeAppliedFile(t *testing.T, filePath string, expected string) {

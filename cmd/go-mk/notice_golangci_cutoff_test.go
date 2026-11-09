@@ -27,6 +27,12 @@ func TestGolangciNoticeUsesOnlyValidHistoricalFindings(t *testing.T) {
 			func(t *testing.T) {
 				consumerDir := newConsumerRepository(t, beforeNoticeDate)
 				writeConsumerFile(t, consumerDir, appliedNoticeFile, "")
+				writeConsumerFile(
+					t,
+					consumerDir,
+					"widget/older.go",
+					"package widget\n"+strings.Repeat("// Existing source line.\n", 1001),
+				)
 				if scenario.historical {
 					writeConsumerFile(
 						t,
@@ -154,7 +160,10 @@ func TestGolangciNoticeUsesOnlyValidHistoricalFindings(t *testing.T) {
 					t,
 					consumerDir,
 					".golangci-lint-baseline.txt",
-				); strings.Contains(baseline, "later.go") {
+				); strings.Contains(
+					baseline,
+					"later.go",
+				) || !strings.Contains(baseline, "older.go") {
 					t.Fatalf(
 						"notice accepted a file-length finding from after its effective date:\n%s",
 						baseline,

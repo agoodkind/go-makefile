@@ -1,6 +1,8 @@
 package notice_test
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +11,15 @@ import (
 
 	"goodkind.io/go-makefile/internal/notice"
 )
+
+func TestAdoptionPropagatesCallerCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	adopted, found, err := notice.Adoption(ctx, t.TempDir())
+	if !errors.Is(err, context.Canceled) || found || !adopted.IsZero() {
+		t.Fatalf("canceled adoption = (%s, %t, %v)", adopted, found, err)
+	}
+}
 
 func TestHistoricalCheckoutInitializesRecordedSubmodule(t *testing.T) {
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
