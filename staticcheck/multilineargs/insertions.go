@@ -2,6 +2,7 @@ package multilineargs
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/format"
@@ -29,6 +30,8 @@ type layoutEdit struct {
 	end   int
 	text  string
 }
+
+var errOverlappingEdits = errors.New("overlapping source layout edits")
 
 type layoutPlanner struct {
 	file    *ast.File
@@ -67,11 +70,13 @@ func (planner *layoutPlanner) call(call *ast.CallExpr) bool {
 		compact, err := compactExpression(planner.fragment(call))
 		if err != nil {
 			planner.err = err
+
 			return false
 		}
 
 		if planner.callFitsLine(call, compact) {
 			planner.replace(call.Pos(), call.End(), compact)
+
 			return false
 		}
 	}
@@ -91,7 +96,7 @@ func (planner *layoutPlanner) call(call *ast.CallExpr) bool {
 	return true
 }
 
-// Include the closing condition or other text after a call when deciding whether it fits.
+// Include text after a call when checking its line width.
 func (planner *layoutPlanner) callFitsLine(call *ast.CallExpr, content string) bool {
 	suffix := planner.source[planner.tokens.Offset(call.End()):]
 	if end := bytes.IndexByte(suffix, '\n'); end >= 0 {
@@ -267,7 +272,7 @@ func (planner *layoutPlanner) literal(literal *ast.CompositeLit) {
 	planner.expressions(literal.Lbrace, literal.Rbrace, literal.Elts, token.NoPos)
 }
 
-// A multiline value must reserve the padding gofmt would add if that value became compact.
+// Reserve the padding gofmt adds when a multiline value becomes compact.
 func (planner *layoutPlanner) reserveLiteralColumns(literal *ast.CompositeLit) {
 	longest := 0
 
@@ -304,6 +309,7 @@ func (planner *layoutPlanner) fields(fields *ast.FieldList) {
 	for _, field := range fields.List {
 		if len(field.Names) == 0 {
 			planner.newline(field.Type.Pos(), indent+indentText)
+
 			continue
 		}
 
@@ -432,6 +438,7 @@ func (planner *layoutPlanner) replace(start, end token.Pos, text string) {
 
 	if left == right {
 		planner.insert(start, text)
+
 		return
 	}
 
@@ -491,6 +498,7 @@ func (planner *layoutPlanner) projectedPrefix(position token.Pos) string {
 	result, err := applyLayoutEdits(planner.source[start:offset], edits)
 	if err != nil {
 		planner.err = err
+
 		return ""
 	}
 
@@ -503,6 +511,7 @@ func (planner *layoutPlanner) column(position token.Pos) int {
 
 func (planner *layoutPlanner) indent(position token.Pos) string {
 	prefix := planner.projectedPrefix(position)
+
 	return prefix[:len(prefix)-len(strings.TrimLeft(prefix, " \t"))]
 }
 
@@ -536,7 +545,7 @@ func applyLayoutEdits(source []byte, edits []layoutEdit) ([]byte, error) {
 
 	for _, edit := range edits {
 		if edit.start < previous {
-			return nil, fmt.Errorf("overlapping source layout edits at byte %d", edit.start)
+			return nil, fmt.Errorf("%w at byte %d", errOverlappingEdits, edit.start)
 		}
 
 		output = append(output, source[previous:edit.start]...)

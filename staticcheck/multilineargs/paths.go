@@ -21,10 +21,23 @@ const (
 	currentDirectory      = "."
 )
 
-// FormatPaths formats Go calls in files or directory trees without loading packages or checking types.
+var (
+	errMissingPaths = errors.New("call formatting requires at least one source path")
+	errEmptyPath    = errors.New("call formatting requires a nonempty source path")
+	errInvalidPath  = errors.New("call formatting requires a Go file or directory")
+)
+
+// FormatPaths formats Go lists in the selected files or directory trees.
+//
+// It parses source without loading packages or checking types.
+// Generated files remain unchanged.
+//
+// Format a selected source file with:
+//
+//	FormatPaths([]string{"example.go"})
 func FormatPaths(paths []string) error {
 	if len(paths) == 0 {
-		return errors.New("call formatting requires at least one source path")
+		return errMissingPaths
 	}
 
 	workingDirectory, err := os.Getwd()
@@ -43,7 +56,7 @@ func FormatPaths(paths []string) error {
 
 func formatInput(path, workingDirectory string) error {
 	if path == "" {
-		return errors.New("call formatting requires a nonempty source path")
+		return errEmptyPath
 	}
 
 	if path == recursivePathWildcard {
@@ -70,7 +83,7 @@ func formatInput(path, workingDirectory string) error {
 	}
 
 	if filepath.Ext(path) != goFileExtension {
-		return fmt.Errorf("call formatting requires a Go file or directory: %s", path)
+		return fmt.Errorf("%w: %s", errInvalidPath, path)
 	}
 
 	return formatFile(path)
@@ -125,7 +138,14 @@ func formatFile(path string) error {
 		return nil
 	}
 
-	if err := os.WriteFile(path, formatted, info.Mode().Perm()); err != nil {
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return fmt.Errorf("open source directory %s: %w", filepath.Dir(path), err)
+	}
+
+	defer func() { _ = root.Close() }()
+
+	if err := root.WriteFile(filepath.Base(path), formatted, info.Mode().Perm()); err != nil {
 		return fmt.Errorf("write source file %s: %w", path, err)
 	}
 

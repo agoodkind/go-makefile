@@ -3,6 +3,7 @@ package multilineargs
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/format"
@@ -19,7 +20,9 @@ const (
 	fixMessage        = "Apply readable Go list layout"
 )
 
-// Analyzer checks compact calls and wrapped list layout in production code and tests.
+var errLayoutConvergence = errors.New("source layout did not converge")
+
+// Analyzer checks compact calls and wrapped lists in production code and tests.
 var Analyzer = &analysis.Analyzer{
 	Name: analyzerName,
 	Doc:  "keeps short simple calls compact and places wrapped list items on separate lines",
@@ -133,5 +136,5 @@ func formatCallArguments(file *ast.File, tokenFile *token.File, source []byte) (
 		tokenFile = files.File(file.Pos())
 	}
 
-	return nil, fmt.Errorf("source layout did not converge after %d rounds", maximumLayoutRounds)
+	return nil, fmt.Errorf("%w after %d rounds", errLayoutConvergence, maximumLayoutRounds)
 }
