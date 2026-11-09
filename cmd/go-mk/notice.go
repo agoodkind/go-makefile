@@ -9,13 +9,14 @@
 package main
 
 import (
-	"bufio"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"goodkind.io/go-makefile/internal/notice"
 )
 
 // noticeFields holds the parsed columns of one notices.txt record, mirroring the
@@ -41,12 +42,6 @@ var (
 	noticeAdoptionTimeFunc = detectNoticeAdoptionTime
 	runNoticeBaselineFunc  = runBaselineForNotice
 )
-
-var noticeAdoptionSentinelPaths = []string{
-	"bootstrap.mk",
-	"go.mk",
-	".go-mk-applied-notices",
-}
 
 // runNotice is the notice subcommand, mirroring scripts/go-mk-notice.sh. It
 // reads the notices file, rolls out the auto-baseline for any unapplied
@@ -192,67 +187,7 @@ func baselineFileHasContent(path string) bool {
 }
 
 func detectNoticeAdoptionTime() (time.Time, bool) {
-	// A shallow clone shows every file as added in its one commit, and the
-	// adoption date would be the date of that commit.
-	shallow, shallowErr := loggedGitOutput(
-		"notice git shallow",
-		"rev-parse",
-		"--is-shallow-repository",
-	)
-	if shallowErr == nil && strings.TrimSpace(shallow) == "true" {
-		return time.Time{}, false
-	}
-
-	earliest := time.Time{}
-	found := false
-
-	for _, sentinelPath := range noticeAdoptionSentinelPaths {
-		added, ok := sentinelAddTime(sentinelPath)
-		if !ok {
-			continue
-		}
-
-		if !found || added.Before(earliest) {
-			earliest = added
-			found = true
-		}
-	}
-
-	return earliest, found
-}
-
-// --follow accepts one path per query and depends on Git rename detection.
-func sentinelAddTime(sentinelPath string) (time.Time, bool) {
-	output, err := loggedGitOutput(
-		"notice git adoption",
-		"log",
-		"--follow",
-		"--diff-filter=A",
-		"--format=%cI",
-		"--",
-		sentinelPath,
-	)
-	if err != nil {
-		return time.Time{}, false
-	}
-
-	added := time.Time{}
-	found := false
-
-	scanner := bufio.NewScanner(strings.NewReader(output))
-	for scanner.Scan() {
-		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(scanner.Text()))
-		if err != nil {
-			continue
-		}
-
-		if !found || parsed.Before(added) {
-			added = parsed
-			found = true
-		}
-	}
-
-	return added, found
+	return notice.Adoption(".")
 }
 
 // readNoticeRecords reads the notices file into records, skipping blank lines
@@ -343,6 +278,7 @@ func recordFreshNoticeApplied(record noticeFields, appliedFile string, applied m
 		writeStderr(
 			"go-makefile notice #" + record.id + ": could not record applied notice in " + appliedFile + "; will retry on the next run\n",
 		)
+
 		return
 	}
 
@@ -369,6 +305,7 @@ func runNoticeAutoBaseline(
 		writeStderr(
 			"go-makefile notice #" + record.id + ": unsupported auto-baseline gate '" + directive.gate + "'; skipping\n",
 		)
+
 		return
 	}
 
@@ -394,6 +331,7 @@ func runNoticeAutoBaseline(
 		writeStderr(
 			"go-makefile notice #" + record.id + ": auto-baseline failed; run it manually with the scoped baseline target\n",
 		)
+
 		return
 	}
 
@@ -401,6 +339,7 @@ func runNoticeAutoBaseline(
 		writeStderr(
 			"go-makefile notice #" + record.id + ": auto-baseline failed; run it manually with the scoped baseline target\n",
 		)
+
 		return
 	}
 
@@ -433,6 +372,7 @@ func runNoticeStaticcheckAutoBaseline(
 		writeStderr(
 			"go-makefile notice #" + record.id + ": auto-baseline failed; it runs again on the next build\n",
 		)
+
 		return
 	}
 
@@ -440,6 +380,7 @@ func runNoticeStaticcheckAutoBaseline(
 		writeStderr(
 			"go-makefile notice #" + record.id + ": could not record applied notice in " + appliedFile + "; the auto-baseline runs again on the next build\n",
 		)
+
 		return
 	}
 
