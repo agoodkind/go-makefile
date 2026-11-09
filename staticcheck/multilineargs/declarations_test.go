@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"goodkind.io/go-makefile/staticcheck/multilineargs"
@@ -52,5 +53,40 @@ func main() { fmt.Println(errRepositoryCacheFull); fmt.Println(errRepositoryShal
 	const expected = "repository Git object cache exceeds its disk byte limit\nrepository Git server must support bounded shallow acquisition\n"
 	if err != nil || string(output) != expected {
 		t.Fatalf("formatted program output = %q, error = %v", output, err)
+	}
+}
+
+func TestDeclarationCommentsKeepShortCallsCompact(t *testing.T) {
+	const source = `package widget
+import "errors"
+var (
+first = /* retain the first initializer comment */ errors.New("short")
+second = errors.New("a call that fits beside the existing declaration prefix")
+)
+`
+	initial, err := format.Source([]byte(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(t.TempDir(), "widget.go")
+	if err := os.WriteFile(path, initial, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := multilineargs.FormatPaths([]string{path}); err != nil {
+		t.Fatal(err)
+	}
+
+	formatted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(
+		string(formatted),
+		`errors.New("a call that fits beside the existing declaration prefix")`,
+	) {
+		t.Fatalf("an initializer comment expanded another call:\n%s", formatted)
 	}
 }

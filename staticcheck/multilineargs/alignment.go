@@ -3,6 +3,7 @@ package multilineargs
 import (
 	"bytes"
 	"go/ast"
+	"go/scanner"
 	"go/token"
 )
 
@@ -32,7 +33,7 @@ func (planner *layoutPlanner) reserveDeclarationGroup(specifications []ast.Spec)
 	for _, specification := range specifications {
 		value, valid := specification.(*ast.ValueSpec)
 		if valid && len(value.Values) > 0 {
-			column = max(column, planner.column(value.Values[0].Pos()))
+			column = max(column, planner.declarationColumn(value))
 		}
 	}
 
@@ -48,6 +49,29 @@ func (planner *layoutPlanner) reserveDeclarationGroup(specifications []ast.Spec)
 			if bytes.IndexByte(prefix, '\n') < 0 {
 				planner.reserveColumns(expression, column+displayWidth(string(prefix)))
 			}
+		}
+	}
+}
+
+// Exclude initializer comments from the padding shared by sibling values.
+func (planner *layoutPlanner) declarationColumn(value *ast.ValueSpec) int {
+	start := planner.tokens.Offset(value.Pos())
+	end := planner.tokens.Offset(value.Values[0].Pos())
+	prefix := planner.source[start:end]
+	file := token.NewFileSet().AddFile(compactFilename, -1, len(prefix))
+	var lexer scanner.Scanner
+	lexer.Init(file, prefix, nil, 0)
+	column := 0
+
+	for {
+		position, kind, _ := lexer.Scan()
+		if kind == token.EOF {
+			return column
+		}
+
+		if kind == token.ASSIGN {
+			assignment := planner.tokens.Pos(start + file.Offset(position))
+			column = planner.column(assignment) + len("= ")
 		}
 	}
 }
