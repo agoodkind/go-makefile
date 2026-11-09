@@ -2,6 +2,7 @@ package main_test
 
 import (
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,7 @@ func TestCommandEntry(t *testing.T) {
 	t.Parallel()
 
 	binary := filepath.Join(t.TempDir(), "staticcheck-extra")
-	build := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".")
+	build := exec.CommandContext(t.Context(), "go", "build", "-trimpath", "-o", binary, ".")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build analyzer: %v\n%s", err, output)
 	}
@@ -82,6 +83,11 @@ func main() { _ = run() }`,
 func main() { flag.Parse() }`,
 			reject: true,
 		},
+		"standard": {
+			source: `import "fmt"
+func main() { fmt.Println("command implementation") }`,
+			reject: true,
+		},
 		"setup": {
 			source: `import("corp/cli";"os")
 func main() { option := "value"; os.Exit(cli.Generic(len(option))) }`,
@@ -131,6 +137,7 @@ func init() { for {} }`,
 
 	check := exec.CommandContext(t.Context(), binary, "-commandentry", "./...")
 	check.Dir = fixture
+	check.Env = append(os.Environ(), "GOROOT=")
 	output, err := check.CombinedOutput()
 	status, ok := errors.AsType[*exec.ExitError](err)
 	if !ok || status.ExitCode() != 3 {
