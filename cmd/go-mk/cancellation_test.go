@@ -15,6 +15,8 @@ import (
 func TestNoticeHistoryCancelsRunningPreparation(t *testing.T) {
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GOLANGCI_LINT", "")
+	t.Setenv("STATICCHECK_EXTRA_BIN", "")
 	makefile, err := os.ReadFile(filepath.Join("testdata", "adoption", "cancellation.mk"))
 	if err != nil {
 		t.Fatal(err)
