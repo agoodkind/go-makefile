@@ -294,11 +294,14 @@ func (planner *layoutPlanner) reserveLiteralColumns(literal *ast.CompositeLit) {
 					}
 
 					prefix := planner.source[start:planner.tokens.Offset(node.Pos())]
-					if bytes.ContainsRune(prefix, '\n') {
+					if bytes.IndexByte(prefix, '\n') >= 0 {
 						return false
 					}
 
-					planner.columns[node.Pos()] = column + displayWidth(string(prefix))
+					planner.columns[node.Pos()] = max(
+						planner.columns[node.Pos()],
+						column+displayWidth(string(prefix)),
+					)
 
 					return true
 				},
