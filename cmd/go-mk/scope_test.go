@@ -82,4 +82,16 @@ Stream: streamRequested || strings.Contains(contentType, "text/event-stream"),
 	) {
 		t.Fatalf("the scoped capture executed an unrelated analyzer:\n%s", raw)
 	}
+
+	arguments[len(arguments)-1] = "STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN=ordinary_rule:"
+	output, err = runConsumerMake(consumer, arguments...)
+	if err != nil {
+		t.Fatalf("a diagnostic prefix became an analyzer flag: %v\n%s", err, output)
+	}
+
+	raw := readConsumerFile(t, consumer, ".make/staticcheck-extra.raw.out")
+	if !strings.Contains(raw, "doc_structure:") ||
+		!strings.Contains(raw, "Keep short simple calls compact") {
+		t.Fatalf("a diagnostic prefix changed the configured analyzer set:\n%s", raw)
+	}
 }

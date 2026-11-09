@@ -26,20 +26,27 @@ import (
 
 // StaticcheckFlagsText combines the configured production and test flags.
 //
-// Both settings contribute to the analyzer flags.
+// An exact scope selects its enabled configured analyzer. Other scopes
+// preserve the combined settings.
 //
 // For example, test flags follow production flags:
 //
 //	STATICCHECK_EXTRA_FLAGS="-first" STATICCHECK_EXTRA_TEST_FLAGS="-second"
 func StaticcheckFlagsText() string {
-	scope := os.Getenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN")
-	if analyzer, exact := strings.CutSuffix(scope, ":"); exact && token.IsIdentifier(analyzer) {
-		return "-" + analyzer
-	}
-
-	return strings.TrimSpace(
+	configured := strings.TrimSpace(
 		os.Getenv("STATICCHECK_EXTRA_FLAGS") + " " + os.Getenv("STATICCHECK_EXTRA_TEST_FLAGS"),
 	)
+	scope := os.Getenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN")
+	if analyzer, exact := strings.CutSuffix(scope, ":"); exact && token.IsIdentifier(analyzer) {
+		for _, word := range strings.Fields(configured) {
+			name, value, flag := parseStaticcheckFlagWord(word)
+			if flag && name == analyzer && value != "false" && value != "0" {
+				return "-" + analyzer
+			}
+		}
+	}
+
+	return configured
 }
 
 // ExcludePattern joins the default and extra exclude path patterns into a
