@@ -3,21 +3,17 @@ package main
 import (
 	"fmt"
 	"log/slog"
-	"os/exec"
-	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
 
 	"goodkind.io/go-makefile/internal/findings"
+	"goodkind.io/go-makefile/internal/notice"
 )
 
-// runStaticcheckExtra applies notice 2 during the analysis of one platform: the
-// host, or the first GO_MK_PLATFORMS target. That analysis skips each test file
-// with a build constraint for another platform. addOtherPlatformFindings
-// analyzes only the packages that contain such files, and adds only the
-// findings in those files.
+// addOtherPlatformFindings includes findings in source files and tests that
+// build only for another declared platform.
 func addOtherPlatformFindings(findingsPath string) error {
 	current := currentPlatform()
 	targets := otherNoticePlatforms(current)
@@ -159,55 +155,7 @@ func otherNoticePlatforms(current platformTarget) []platformTarget {
 	return targets
 }
 
-// testFilesFor maps each test file that the platform builds to its package
-// directory. staticcheckCaptureFindings writes each finding with a file path
-// relative to lintRoot, and the keys and values use that form.
+// testFilesFor includes source files and tests selected by the platform.
 func testFilesFor(platform platformTarget) (map[string]string, error) {
-	slog.Info("notice list test files", slog.String("platform", platform.label()))
-	command := exec.Command(
-		"go",
-		"list",
-		"-e",
-		"-f",
-		`{{$dir := .Dir}}{{range .TestGoFiles}}{{$dir}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$dir}}/{{.}}{{"\n"}}{{end}}`,
-		"./...",
-	)
-	saved := activePlatform
-	activePlatform = platform
-	command.Env = lintEnv()
-	activePlatform = saved
-	output, err := command.Output()
-	if err != nil {
-		return nil, err
-	}
-
-	// go list and lintRoot can return different paths for one directory when
-	// the path contains a symbolic link, as with /var and /private/var on macOS.
-	root, err := filepath.EvalSymlinks(lintRoot())
-	if err != nil {
-		return nil, err
-	}
-
-	files := make(map[string]string)
-
-	for _, listed := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		if listed == "" {
-			continue
-		}
-
-		resolved, err := filepath.EvalSymlinks(listed)
-		if err != nil {
-			continue
-		}
-
-		relative, err := filepath.Rel(root, resolved)
-		if err != nil {
-			continue
-		}
-
-		file := filepath.ToSlash(relative)
-		files[file] = path.Dir(file)
-	}
-
-	return files, nil
+	return notice.Files(lintRoot(), platform.goos, platform.goarch, hostLintEnv())
 }

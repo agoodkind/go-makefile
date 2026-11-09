@@ -66,7 +66,7 @@ func NormalizePath(line, pwd, cwd string) string {
 //
 // ---- Key ----
 func Key(line, pwd, cwd string) string {
-	out := NormalizePath(line, pwd, cwd)
+	out := ErrorExpressionKey(NormalizePath(line, pwd, cwd))
 	location := locationPattern.FindStringIndex(out)
 	if location == nil {
 		return out

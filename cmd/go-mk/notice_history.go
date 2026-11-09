@@ -12,6 +12,7 @@ import (
 
 	"goodkind.io/go-makefile/internal/baseline"
 	"goodkind.io/go-makefile/internal/findings"
+	"goodkind.io/go-makefile/internal/notice"
 )
 
 func noticeFindingIdentity(
@@ -20,11 +21,7 @@ func noticeFindingIdentity(
 	sources noticeSources,
 	directive noticeDirective,
 ) (string, error) {
-	if directive.gate == "golangci" && directive.rule == "file-length-limit" {
-		return baseline.Key(finding), nil
-	}
-
-	return sources.identity(finding, root)
+	return notice.Identity(finding, root, directive.gate, directive.rule, sources.identity)
 }
 
 func captureNoticeStaticcheckFindings(rawPath, findingsPath string) error {
@@ -376,11 +373,5 @@ func noticeHistoryRenames(revision string) (map[string]string, error) {
 }
 
 func noticeHistoryGit(directory string, args ...string) error {
-	slog.Info("notice history git", slog.String("operation", args[0]))
-	command := exec.Command("git", args...)
-	command.Dir = directory
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
-
-	return command.Run()
+	return notice.HistoryGit(directory, args)
 }

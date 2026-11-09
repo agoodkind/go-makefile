@@ -285,7 +285,27 @@ func (planner *layoutPlanner) reserveLiteralColumns(literal *ast.CompositeLit) {
 	column := displayWidth(planner.indent(literal.Lbrace)) + tabWidth + longest + len(": ")
 	for _, element := range literal.Elts {
 		if field, ok := element.(*ast.KeyValueExpr); ok {
-			planner.columns[field.Value.Pos()] = column
+			start := planner.tokens.Offset(field.Value.Pos())
+			ast.Inspect(
+				field.Value,
+				func(node ast.Node) bool {
+					if node == nil {
+						return false
+					}
+
+					prefix := planner.source[start:planner.tokens.Offset(node.Pos())]
+					if bytes.IndexByte(prefix, '\n') >= 0 {
+						return false
+					}
+
+					planner.columns[node.Pos()] = max(
+						planner.columns[node.Pos()],
+						column+displayWidth(string(prefix)),
+					)
+
+					return true
+				},
+			)
 		}
 	}
 }
