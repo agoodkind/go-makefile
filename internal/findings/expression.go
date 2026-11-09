@@ -2,6 +2,7 @@ package findings
 
 import (
 	"bytes"
+	"go/ast"
 	"go/format"
 	"go/parser"
 	"go/token"
@@ -38,10 +39,56 @@ func ErrorExpressionKey(diagnostic string) string {
 		return diagnostic
 	}
 
+	ast.Inspect(
+		parsed,
+		func(node ast.Node) bool {
+			call, valid := node.(*ast.CallExpr)
+			if !valid {
+				return true
+			}
+
+			for index, argument := range call.Args {
+				if value, literal := stringLiteral(argument); literal {
+					call.Args[index] = &ast.BasicLit{
+						Kind:  token.STRING,
+						Value: strconv.Quote(value),
+					}
+				}
+			}
+
+			return true
+		},
+	)
 	var source bytes.Buffer
 	if err := format.Node(&source, token.NewFileSet(), parsed); err != nil {
 		return diagnostic
 	}
 
 	return prefix + errorExpressionMarker + strconv.Quote(source.String()) + " (err113)"
+}
+
+func stringLiteral(expression ast.Expr) (string, bool) {
+	switch value := expression.(type) {
+	case *ast.BasicLit:
+		if value.Kind != token.STRING {
+			return "", false
+		}
+
+		text, err := strconv.Unquote(value.Value)
+
+		return text, err == nil
+	case *ast.ParenExpr:
+		return stringLiteral(value.X)
+	case *ast.BinaryExpr:
+		if value.Op != token.ADD {
+			return "", false
+		}
+
+		left, leftLiteral := stringLiteral(value.X)
+		right, rightLiteral := stringLiteral(value.Y)
+
+		return left + right, leftLiteral && rightLiteral
+	default:
+		return "", false
+	}
 }
