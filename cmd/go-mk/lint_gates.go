@@ -6,7 +6,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -15,8 +14,8 @@ import (
 	"strings"
 
 	"goodkind.io/go-makefile/internal/findings"
+	formatting "goodkind.io/go-makefile/internal/format"
 	"goodkind.io/go-makefile/internal/lint"
-	"goodkind.io/go-makefile/internal/report"
 )
 
 type captureMode int
@@ -53,30 +52,18 @@ func golangciExcludePattern() string {
 // number of out-of-tree findings dropped (see extractFindings), mirroring
 // capture_golangci_findings.
 func captureGolangciFindings(rawPath, findingsPath string) (int, int, error) {
-	binary, args, err := golangciCommand("run")
-	if err != nil {
-		return 0, 0, err
-	}
-
-	status, err := captureCommand(binary, args, rawPath)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	extracted, dropped, err := extractFindings(
+	return formatting.CaptureGolangci(
 		rawPath,
-		goFindingPattern.String(),
-		golangciExcludePattern(),
+		findingsPath,
+		goFindingPattern,
+		golangciCommand,
+		captureCommand,
+		extractFindings,
+		golangciExcludePattern,
+		writeFindingsFile,
+		staticcheckResolveBin,
+		staticcheckSelectedBin,
 	)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	if writeErr := writeFindingsFile(findingsPath, extracted); writeErr != nil {
-		return 0, 0, writeErr
-	}
-
-	return status, dropped, nil
 }
 
 // runLintTools installs golangci-lint, gofumpt, and goimports, mirroring
@@ -194,6 +181,7 @@ func runLintGolangciScope() int {
 		writeStdout(
 			"lint-golangci-scope: set LINTER=<name>, RULE=<name>, or GOLANGCI_LINT_BASELINE_SCOPE_PATTERN\n",
 		)
+
 		return 2
 	}
 
@@ -336,96 +324,23 @@ func scopeLines(lines []string, scopePattern string) []string {
 	return kept
 }
 
-// runLintFormat runs the formatter diff gate, mirroring run_lint_format. It
-// runs golangci-lint fmt --diff and fails when the diff is non-empty or the
-// tool exits non-zero.
+// runLintFormat delegates the complete formatter comparison.
 func runLintFormat() int {
-	if err := ensureMakeDir(); err != nil {
-		return statusFromError(err)
-	}
-
-	if err := ensureLintTools(); err != nil {
-		return statusFromError(err)
-	}
-
-	outputPath := filepath.Join(makeDir, "lint-format.out")
-	binary, args, fmtErr := golangciFmtCommand()
-	if errors.Is(fmtErr, errNoGoFiles) {
-		if gateCollecting {
-			recordGateMarker(report.GateMarker{
-				Name:   "lint-format",
-				Passed: true,
-			})
-			return 0
-		}
-
-		writeStdout("lint-format: OK\n")
-		writeStdout("  No Go source files in this module.\n")
-
-		return 0
-	}
-
-	if fmtErr != nil {
-		return statusFromError(fmtErr)
-	}
-
-	withDiff := []string{args[0], "--diff"}
-	withDiff = append(withDiff, args[1:]...)
-	status, err := captureCommand(binary, withDiff, outputPath)
-	if err != nil {
-		return statusFromError(err)
-	}
-
-	output, err := readFileContent(outputPath)
-	if err != nil {
-		return statusFromError(err)
-	}
-
-	if output != "" {
-		recordFailedGate("lint-format")
-		if gateCollecting {
-			rest := append(
-				[]string{"golangci-lint formatters need to update:"},
-				splitOutputLines(output)...,
-			)
-			rest = append(rest, "run make fmt")
-			recordGateToolFailure(rest)
-
-			return 1
-		}
-
-		writeStdout("golangci-lint formatters need to update:\n")
-		writeStdout(output)
-		if !strings.HasSuffix(output, "\n") {
-			writeStdout("\n")
-		}
-
-		writeStdout("run make fmt\n")
-
-		return 1
-	}
-
-	if status != 0 {
-		recordFailedGate("lint-format")
-		if gateCollecting {
-			recordGateToolFailure([]string{"Exit status: " + strconv.Itoa(status)})
-			return status
-		}
-
-		writeStdout("lint-format: FAILED\n")
-		writeStdout("  Exit status: " + strconv.Itoa(status) + "\n")
-
-		return status
-	}
-
-	if gateCollecting {
-		recordGateMarker(report.GateMarker{
-			Name:   "lint-format",
-			Passed: true,
-		})
-	}
-
-	return 0
+	return formatting.RunGate(
+		makeDir,
+		ensureMakeDir,
+		ensureLintTools,
+		golangciFmtCommand,
+		staticcheckResolveBin,
+		staticcheckSelectedBin,
+		captureCommand,
+		gateCollecting,
+		recordGateMarker,
+		recordFailedGate,
+		recordGateToolFailure,
+		writeStdout,
+		statusFromError,
+	)
 }
 
 // captureGocycloFindings runs gocyclo, transforms its output, normalizes,
