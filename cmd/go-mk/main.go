@@ -38,6 +38,7 @@ func main() {
 	if capabilityProbe() {
 		os.Exit(run())
 	}
+
 	setupLogging()
 	slog.Debug("go-mk invoked")
 	os.Exit(run())
@@ -50,26 +51,32 @@ func capabilityProbe() bool {
 func runWriteBatch(args []string) error {
 	manifestPath := "-"
 	emitJSON := false
+
 	for index := 0; index < len(args); index++ {
 		argument := args[index]
 		if argument == "--json" {
 			emitJSON = true
 			continue
 		}
+
 		if argument == "--manifest" {
 			if index+1 >= len(args) {
 				return errMissingManifestPath
 			}
+
 			index++
 			manifestPath = args[index]
 			continue
 		}
+
 		return &unknownOptionError{option: argument}
 	}
+
 	manifest, err := loadManifest(manifestPath)
 	if err != nil {
 		return err
 	}
+
 	return writeManifest(manifest, emitJSON)
 }
 
@@ -96,24 +103,31 @@ func writeManifest(manifest baseline.Manifest, emitJSON bool) error {
 		if planErr != nil {
 			return planErr
 		}
+
 		if writeErr := writeFileAtomic(planned.Path, planned.Contents); writeErr != nil {
 			return writeErr
 		}
+
 		statistics = append(statistics, planned.Stats)
 	}
 
 	if len(statistics) == 0 {
 		return nil
 	}
+
 	if emitJSON {
 		rendered, jsonErr := baseline.RenderJSON(statistics)
 		if jsonErr != nil {
 			return jsonErr
 		}
+
 		writeStdout(rendered)
+
 		return nil
 	}
+
 	writeStdout(baseline.RenderText(statistics))
+
 	return nil
 }
 
@@ -152,15 +166,19 @@ func runFindings(args []string) error {
 	if err != nil {
 		return err
 	}
+
 	lines, err := readLines(os.Stdin)
 	if err != nil {
 		return err
 	}
+
 	output, err := transformFindings(options, lines)
 	if err != nil {
 		return err
 	}
+
 	writeStdout(output)
+
 	return nil
 }
 
@@ -179,23 +197,28 @@ func parseFindingsOptions(args []string) (findingsOptions, error) {
 		"--keyfile":   &options.keyFile,
 		"--rangefile": &options.rangeFile,
 	}
+
 	for index := 0; index < len(args); index++ {
 		argument := args[index]
 		target, ok := targets[argument]
 		if !ok {
 			return findingsOptions{}, &unknownOptionError{option: argument}
 		}
+
 		if index+1 >= len(args) {
 			return findingsOptions{}, &missingValueError{option: argument}
 		}
+
 		index++
 		*target = args[index]
 	}
+
 	if actionValue == "" {
 		options.action = actionNormalize
 	} else {
 		options.action = findingsAction(actionValue)
 	}
+
 	return options, nil
 }
 
@@ -205,13 +228,23 @@ func parseFindingsOptions(args []string) (findingsOptions, error) {
 func transformFindings(options findingsOptions, lines []string) (string, error) {
 	switch options.action {
 	case actionNormalize:
-		return joinLines(mapLines(lines, func(line string) string {
-			return findings.NormalizePath(line, options.pwd, options.cwd)
-		})), nil
+		return joinLines(
+			mapLines(
+				lines,
+				func(line string) string {
+					return findings.NormalizePath(line, options.pwd, options.cwd)
+				},
+			),
+		), nil
 	case actionKey:
-		return joinLines(mapLines(lines, func(line string) string {
-			return findings.Key(line, options.pwd, options.cwd)
-		})), nil
+		return joinLines(
+			mapLines(
+				lines,
+				func(line string) string {
+					return findings.Key(line, options.pwd, options.cwd)
+				},
+			),
+		), nil
 	case actionBaseline:
 		return renderBaseline(options, lines), nil
 	case actionMap:
@@ -219,6 +252,7 @@ func transformFindings(options findingsOptions, lines []string) (string, error) 
 		if err != nil {
 			return "", err
 		}
+
 		return joinLines(findings.Map(lines, saved, options.pwd, options.cwd)), nil
 	case actionPrint:
 		return renderPrint(options, lines), nil
@@ -229,6 +263,7 @@ func transformFindings(options findingsOptions, lines []string) (string, error) 
 		if err != nil {
 			return "", err
 		}
+
 		return joinLines(findings.LineFilter(lines, ranges)), nil
 	default:
 		return "", &unknownActionError{action: string(options.action)}
@@ -244,8 +279,10 @@ func renderBaseline(options findingsOptions, lines []string) string {
 		if !ok {
 			continue
 		}
+
 		kept = append(kept, payload)
 	}
+
 	return joinLines(kept)
 }
 
@@ -253,9 +290,11 @@ func renderBaseline(options findingsOptions, lines []string) string {
 // with its trailing newline, and concatenates the results.
 func renderPrint(options findingsOptions, lines []string) string {
 	var builder strings.Builder
+
 	for _, line := range lines {
 		builder.WriteString(findings.Print(line, options.pwd, options.cwd))
 	}
+
 	return builder.String()
 }
 
@@ -266,6 +305,7 @@ func renderRanges(ranges []findings.Range) string {
 	for _, span := range ranges {
 		rows = append(rows, span.File+"\t"+strconv.Itoa(span.Start)+"\t"+strconv.Itoa(span.End))
 	}
+
 	return joinLines(rows)
 }
 
@@ -276,19 +316,23 @@ func loadKeySet(path string) (map[string]struct{}, error) {
 	if path == "" {
 		return nil, errMissingKeyFile
 	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
+
 	defer func() { _ = file.Close() }()
 	lines, err := readLines(file)
 	if err != nil {
 		return nil, err
 	}
+
 	keys := make(map[string]struct{}, len(lines))
 	for _, line := range lines {
 		keys[line] = struct{}{}
 	}
+
 	return keys, nil
 }
 
@@ -299,25 +343,30 @@ func loadRanges(path string) ([]findings.Range, error) {
 	if path == "" {
 		return nil, errMissingRangeFile
 	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
+
 	defer func() { _ = file.Close() }()
 	lines, err := readLines(file)
 	if err != nil {
 		return nil, err
 	}
+
 	ranges := make([]findings.Range, 0, len(lines))
 	for _, line := range lines {
 		fields := strings.Split(line, "\t")
 		if len(fields) < 3 {
 			continue
 		}
+
 		start, _ := strconv.Atoi(fields[1])
 		end, _ := strconv.Atoi(fields[2])
 		ranges = append(ranges, findings.Range{File: fields[0], Start: start, End: end})
 	}
+
 	return ranges, nil
 }
 
@@ -329,13 +378,16 @@ func loadManifest(path string) (baseline.Manifest, error) {
 	} else {
 		data, err = os.ReadFile(path)
 	}
+
 	if err != nil {
 		return baseline.Manifest{}, err
 	}
+
 	var manifest baseline.Manifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return baseline.Manifest{}, err
 	}
+
 	return manifest, nil
 }
 
@@ -345,12 +397,15 @@ func readLines(reader io.Reader) ([]string, error) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	lines := make([]string, 0)
+
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
+
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
+
 	return lines, nil
 }
 
@@ -360,6 +415,7 @@ func mapLines(lines []string, transform func(string) string) []string {
 	for index, line := range lines {
 		out[index] = transform(line)
 	}
+
 	return out
 }
 
@@ -370,6 +426,7 @@ func joinLines(lines []string) string {
 	if len(lines) == 0 {
 		return ""
 	}
+
 	return strings.Join(lines, "\n") + "\n"
 }
 
@@ -386,10 +443,12 @@ func writeFileAtomic(path, contents string) error {
 			return err
 		}
 	}
+
 	temporary := path + ".tmp"
 	if err := os.WriteFile(temporary, []byte(contents), 0o644); err != nil {
 		return err
 	}
+
 	return os.Rename(temporary, path)
 }
 
@@ -428,6 +487,7 @@ func runLintConcurrency(args []string) error {
 		if !options.cpuSet {
 			cpu = 1
 		}
+
 		concurrency = capture.ResolveConcurrency(cpu, options.load)
 	} else {
 		concurrency = capture.HostConcurrency()
@@ -437,6 +497,7 @@ func runLintConcurrency(args []string) error {
 	if goflags == "" {
 		goflags = os.Getenv("GOFLAGS")
 	}
+
 	rewritten := capture.LintGOFLAGS(goflags, concurrency)
 
 	writeStdout("concurrency: " + strconv.Itoa(concurrency) + "\n")
@@ -445,16 +506,20 @@ func runLintConcurrency(args []string) error {
 	if options.probeName == "" {
 		return nil
 	}
+
 	outputPath := options.probeOutput
 	if outputPath == "" {
 		return errMissingProbeOutput
 	}
+
 	result, runErr := capture.Run(options.probeName, options.probeArgs, os.Environ(), outputPath)
 	if runErr != nil {
 		return runErr
 	}
+
 	writeStdout("probe-status: " + strconv.Itoa(result.Status) + "\n")
 	writeStdout("probe-output: " + result.OutputPath + "\n")
+
 	return nil
 }
 
@@ -464,17 +529,20 @@ func runLintConcurrency(args []string) error {
 // accumulate into the probe argv.
 func parseLintConcurrencyOptions(args []string) (lintConcurrencyOptions, error) {
 	options := lintConcurrencyOptions{}
+
 	for index := 0; index < len(args); index++ {
 		argument := args[index]
 		if index+1 >= len(args) {
 			return lintConcurrencyOptions{}, &missingValueError{option: argument}
 		}
+
 		index++
 		value := args[index]
 		if assignErr := assignLintConcurrencyFlag(&options, argument, value); assignErr != nil {
 			return lintConcurrencyOptions{}, assignErr
 		}
 	}
+
 	return options, nil
 }
 
@@ -487,36 +555,46 @@ func assignLintConcurrencyFlag(options *lintConcurrencyOptions, argument, value 
 		options.goflags = value
 		return nil
 	}
+
 	if argument == "--cpu" {
 		parsed, convErr := strconv.Atoi(value)
 		if convErr != nil {
 			return &invalidValueError{option: argument, value: value}
 		}
+
 		options.cpu = parsed
 		options.cpuSet = true
+
 		return nil
 	}
+
 	if argument == "--load" {
 		parsed, convErr := strconv.ParseFloat(value, 64)
 		if convErr != nil {
 			return &invalidValueError{option: argument, value: value}
 		}
+
 		options.load = parsed
 		options.loadSet = true
+
 		return nil
 	}
+
 	if argument == "--probe" {
 		options.probeName = value
 		return nil
 	}
+
 	if argument == "--probe-arg" {
 		options.probeArgs = append(options.probeArgs, value)
 		return nil
 	}
+
 	if argument == "--probe-out" {
 		options.probeOutput = value
 		return nil
 	}
+
 	return &unknownOptionError{option: argument}
 }
 
@@ -550,6 +628,7 @@ func runGate(args []string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+
 	baselineFindings, err := readFindingsFile(options.baselinePath)
 	if err != nil {
 		return false, err
@@ -567,6 +646,7 @@ func runGate(args []string) (bool, error) {
 	for _, line := range lintgate.Render(result) {
 		writeStdout(line + "\n")
 	}
+
 	return result.Passed, nil
 }
 
@@ -584,38 +664,48 @@ func parseGateOptions(args []string) (gateOptions, error) {
 		"--exclude":     &excludePattern,
 		"--scope":       &scopePattern,
 	}
+
 	for index := 0; index < len(args); index++ {
 		argument := args[index]
 		target, ok := stringTargets[argument]
 		if !ok {
 			return gateOptions{}, &unknownOptionError{option: argument}
 		}
+
 		if index+1 >= len(args) {
 			return gateOptions{}, &missingValueError{option: argument}
 		}
+
 		index++
 		*target = args[index]
 	}
+
 	if options.findingsPath == "" {
 		return gateOptions{}, errMissingFindingsPath
 	}
+
 	if options.baselinePath == "" {
 		return gateOptions{}, errMissingBaselinePath
 	}
+
 	if excludePattern != "" {
 		compiled, compileErr := regexp.Compile(excludePattern)
 		if compileErr != nil {
 			return gateOptions{}, &invalidValueError{option: "--exclude", value: excludePattern}
 		}
+
 		options.exclude = compiled
 	}
+
 	if scopePattern != "" {
 		compiled, compileErr := regexp.Compile(scopePattern)
 		if compileErr != nil {
 			return gateOptions{}, &invalidValueError{option: "--scope", value: scopePattern}
 		}
+
 		options.scope = compiled
 	}
+
 	return options, nil
 }
 
@@ -627,7 +717,9 @@ func readFindingsFile(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	defer func() { _ = file.Close() }()
+
 	return readLines(file)
 }
 

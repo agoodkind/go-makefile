@@ -39,7 +39,11 @@ var _ = Meta{}.IsLivetrackMeta()
 	a := newRTASyntheticMarkerCallAnalyzer()
 	diags := runAnalyzerOnSource(t, a, "registry.go", source)
 	if len(diags) != 0 {
-		t.Fatalf("expected no diagnostics without confessional comment, got %d: %v", len(diags), diags)
+		t.Fatalf(
+			"expected no diagnostics without confessional comment, got %d: %v",
+			len(diags),
+			diags,
+		)
 	}
 }
 

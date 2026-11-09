@@ -30,6 +30,7 @@ func assertNeutral(t *testing.T, text string) {
 		"weaken",
 	}
 	lowered := strings.ToLower(text)
+
 	for _, token := range forbidden {
 		if strings.Contains(lowered, token) {
 			t.Errorf("neutral output contains forbidden token %q in:\n%s", token, text)
@@ -49,9 +50,13 @@ func TestEvaluate(t *testing.T) {
 		wantGoneCount   int
 	}{
 		{
-			name:            "clean pass when current keys are a subset of baseline",
-			current:         []string{"a.go:1:1: issue one", "b.go:2:2: issue two"},
-			baseline:        []string{"a.go:1:1: issue one", "b.go:2:2: issue two", "c.go:3:3: issue three"},
+			name:    "clean pass when current keys are a subset of baseline",
+			current: []string{"a.go:1:1: issue one", "b.go:2:2: issue two"},
+			baseline: []string{
+				"a.go:1:1: issue one",
+				"b.go:2:2: issue two",
+				"c.go:3:3: issue three",
+			},
 			wantPassed:      true,
 			wantNewFindings: []string{},
 			wantGoneCount:   1,
@@ -101,25 +106,34 @@ func TestEvaluate(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			result := lintgate.Evaluate(
-				"smoke-gate",
-				testCase.current,
-				testCase.baseline,
-				testCase.excludeRegexp,
-				testCase.scopeRegexp,
-				"Run the baseline refresh and re-run the gate.",
-			)
-			if result.Passed != testCase.wantPassed {
-				t.Errorf("Passed = %v, want %v", result.Passed, testCase.wantPassed)
-			}
-			if !equalLines(result.NewFindings, testCase.wantNewFindings) {
-				t.Errorf("NewFindings = %#v, want %#v", result.NewFindings, testCase.wantNewFindings)
-			}
-			if result.GoneCount != testCase.wantGoneCount {
-				t.Errorf("GoneCount = %d, want %d", result.GoneCount, testCase.wantGoneCount)
-			}
-		})
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				result := lintgate.Evaluate(
+					"smoke-gate",
+					testCase.current,
+					testCase.baseline,
+					testCase.excludeRegexp,
+					testCase.scopeRegexp,
+					"Run the baseline refresh and re-run the gate.",
+				)
+				if result.Passed != testCase.wantPassed {
+					t.Errorf("Passed = %v, want %v", result.Passed, testCase.wantPassed)
+				}
+
+				if !equalLines(result.NewFindings, testCase.wantNewFindings) {
+					t.Errorf(
+						"NewFindings = %#v, want %#v",
+						result.NewFindings,
+						testCase.wantNewFindings,
+					)
+				}
+
+				if result.GoneCount != testCase.wantGoneCount {
+					t.Errorf("GoneCount = %d, want %d", result.GoneCount, testCase.wantGoneCount)
+				}
+			},
+		)
 	}
 }
 
@@ -136,9 +150,11 @@ func TestRenderNeutral(t *testing.T) {
 	if !strings.Contains(failedText, "smoke-gate: FAILED") {
 		t.Errorf("FAILED render missing header in:\n%s", failedText)
 	}
+
 	if !strings.Contains(failedText, "New findings: 1") {
 		t.Errorf("FAILED render missing new-findings count in:\n%s", failedText)
 	}
+
 	assertNeutral(t, failedText)
 
 	ok := lintgate.Evaluate(
@@ -153,9 +169,11 @@ func TestRenderNeutral(t *testing.T) {
 	if !strings.Contains(okText, "smoke-gate: OK") {
 		t.Errorf("OK render missing header in:\n%s", okText)
 	}
+
 	if !strings.Contains(okText, "Saved findings now fixed: 1") {
 		t.Errorf("OK render missing saved-findings line in:\n%s", okText)
 	}
+
 	assertNeutral(t, okText)
 }
 
@@ -165,10 +183,12 @@ func equalLines(got, want []string) bool {
 	if len(got) != len(want) {
 		return false
 	}
+
 	for index := range got {
 		if got[index] != want[index] {
 			return false
 		}
 	}
+
 	return true
 }

@@ -61,7 +61,11 @@ func (c *wsConnCloser) Close(reason string) error {
 	a := newLifecycleSilentCloseErrAnalyzer()
 	diags := runAnalyzerOnSource(t, a, "ws.go", source)
 	if len(diags) != 0 {
-		t.Fatalf("expected no diagnostics when the closer has a non-nil error return path, got %d: %v", len(diags), diags)
+		t.Fatalf(
+			"expected no diagnostics when the closer has a non-nil error return path, got %d: %v",
+			len(diags),
+			diags,
+		)
 	}
 }
 

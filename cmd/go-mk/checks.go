@@ -81,6 +81,7 @@ func runOneGate(gateName string, runner func() int) (report.StepResult, int) {
 	collectedGateOutcome = gateOutcome{}
 	status := runner()
 	outcome := collectedGateOutcome
+
 	return gateStep(gateName, outcome.marker, outcome.found, status, outcome.rest), status
 }
 
@@ -95,6 +96,7 @@ func buildCheckChecks(govulncheck check) []check {
 	checks = append(checks, check{name: "go-version", run: runGoVersionStep})
 	checks = append(checks, check{name: "cgo-stub", run: runCgoStubCheckStep})
 	checks = append(checks, check{name: "platform-stub", run: runPlatformStubCheckStep})
+
 	return checks
 }
 
@@ -105,10 +107,12 @@ func vetChecks() []check {
 	if len(targets) == 0 {
 		return []check{{name: "vet", run: runVetStep}}
 	}
+
 	checks := make([]check, 0, len(targets))
 	for _, target := range targets {
 		checks = append(checks, platformStepCheck("vet", runVetStep, target))
 	}
+
 	return checks
 }
 
@@ -120,26 +124,42 @@ func gateChecks() []check {
 	runners := gateRunners()
 	gateList := splitWords(lintEnvDefault("LINT_GATES", defaultLintGates))
 	targets := platformMatrix()
+
 	checks := make([]check, 0, len(gateList))
 	for _, gateName := range gateList {
 		name := gateName
 		runner, ok := runners[name]
 		if !ok {
-			checks = append(checks, check{name: name, run: func() (report.StepResult, int) {
-				return unknownGateStep(name), 1
-			}})
+			checks = append(
+				checks,
+				check{
+					name: name,
+					run: func() (report.StepResult, int) {
+						return unknownGateStep(name), 1
+					},
+				},
+			)
 			continue
 		}
+
 		if len(targets) == 0 {
-			checks = append(checks, check{name: name, run: func() (report.StepResult, int) {
-				return runOneGate(name, runner)
-			}})
+			checks = append(
+				checks,
+				check{
+					name: name,
+					run: func() (report.StepResult, int) {
+						return runOneGate(name, runner)
+					},
+				},
+			)
 			continue
 		}
+
 		for _, target := range targets {
 			checks = append(checks, platformGateCheck(name, runner, target))
 		}
 	}
+
 	return checks
 }
 
@@ -148,27 +168,41 @@ func gateChecks() []check {
 // gate per target.
 func platformGateCheck(gateName string, runner func() int, target platformTarget) check {
 	displayName := gateName + " (" + target.label() + ")"
-	return check{name: displayName, run: func() (report.StepResult, int) {
-		activePlatform = target
-		result, code := runOneGate(gateName, runner)
-		activePlatform = platformTarget{}
-		result.Name = displayName
-		return result, code
-	}}
+
+	return check{
+		name: displayName,
+		run: func() (report.StepResult, int) {
+			activePlatform = target
+			result, code := runOneGate(gateName, runner)
+			activePlatform = platformTarget{}
+			result.Name = displayName
+
+			return result, code
+		},
+	}
 }
 
 // platformStepCheck builds a captured-step check (vet, and other StepResult
 // runners) that forces the target platform for its pass and labels the step with
 // the platform.
-func platformStepCheck(stepName string, runner func() (report.StepResult, int), target platformTarget) check {
+func platformStepCheck(
+	stepName string,
+	runner func() (report.StepResult, int),
+	target platformTarget,
+) check {
 	displayName := stepName + " (" + target.label() + ")"
-	return check{name: displayName, run: func() (report.StepResult, int) {
-		activePlatform = target
-		result, code := runner()
-		activePlatform = platformTarget{}
-		result.Name = displayName
-		return result, code
-	}}
+
+	return check{
+		name: displayName,
+		run: func() (report.StepResult, int) {
+			activePlatform = target
+			result, code := runner()
+			activePlatform = platformTarget{}
+			result.Name = displayName
+
+			return result, code
+		},
+	}
 }
 
 // checkNameWidth returns the status-table column width for the given checks, so
@@ -178,6 +212,7 @@ func checkNameWidth(checks []check) int {
 	for index, current := range checks {
 		steps[index] = report.StepResult{Name: current.name}
 	}
+
 	return report.NameWidth(steps)
 }
 
@@ -186,13 +221,16 @@ func checkNameWidth(checks []check) int {
 // failed). onDone must not be nil.
 func executeChecks(checks []check, onDone func(int, report.StepResult)) int {
 	status := 0
+
 	for index, current := range checks {
 		result, code := current.run()
 		if code != 0 {
 			status = code
 		}
+
 		onDone(index, result)
 	}
+
 	return status
 }
 
@@ -206,25 +244,38 @@ func prepareChecks(includeGovulncheck bool) error {
 	if err := ensureMakeDir(); err != nil {
 		return err
 	}
+
 	clearFailedGateFile()
 	if err := runLintTools(); err != nil {
 		return err
 	}
-	if err := installGoTool(lintEnvDefault("GOCYCLO_INSTALL", "github.com/fzipp/gocyclo/cmd/gocyclo@latest")); err != nil {
+
+	if err := installGoTool(
+		lintEnvDefault("GOCYCLO_INSTALL", "github.com/fzipp/gocyclo/cmd/gocyclo@latest"),
+	); err != nil {
 		return err
 	}
-	if err := installGoTool(lintEnvDefault("DEADCODE_INSTALL", "golang.org/x/tools/cmd/deadcode@latest")); err != nil {
+
+	if err := installGoTool(
+		lintEnvDefault("DEADCODE_INSTALL", "golang.org/x/tools/cmd/deadcode@latest"),
+	); err != nil {
 		return err
 	}
+
 	if status := runStaticcheckBin(); status != 0 {
 		return errStaticcheckPrepare
 	}
+
 	if includeGovulncheck {
-		if err := installGoTool(lintEnvDefault("GOVULNCHECK_INSTALL", defaultGovulncheckInstall)); err != nil {
+		if err := installGoTool(
+			lintEnvDefault("GOVULNCHECK_INSTALL", defaultGovulncheckInstall),
+		); err != nil {
 			return err
 		}
 	}
+
 	checksToolsPrepared = true
+
 	return nil
 }
 
@@ -237,6 +288,7 @@ func runChecks(title string, checks []check) int {
 	if term.IsTerminal(int(os.Stdout.Fd())) {
 		return runChecksTUI(title, checks)
 	}
+
 	return runChecksStream(title, checks)
 }
 
@@ -247,14 +299,20 @@ func runChecksStream(title string, checks []check) int {
 	writeStdout(title + "\n\n")
 	width := checkNameWidth(checks)
 	results := make([]report.StepResult, len(checks))
-	status := executeChecks(checks, func(index int, result report.StepResult) {
-		results[index] = result
-		writeStdout(report.StepRow(width, result) + "\n")
-	})
+
+	status := executeChecks(
+		checks,
+		func(index int, result report.StepResult) {
+			results[index] = result
+			writeStdout(report.StepRow(width, result) + "\n")
+		},
+	)
 	for _, result := range results {
 		writeStdout(report.FindingsBlock(result))
 	}
+
 	writeStdout(report.Footer(failedStepNames(results), advisoryStepCount(results)))
+
 	return status
 }
 
@@ -267,15 +325,18 @@ func failedStepNames(results []report.StepResult) []string {
 			failed = append(failed, result.Name)
 		}
 	}
+
 	return failed
 }
 
 func advisoryStepCount(results []report.StepResult) int {
 	count := 0
+
 	for _, result := range results {
 		if result.Status == report.StatusAdvisory {
 			count++
 		}
 	}
+
 	return count
 }

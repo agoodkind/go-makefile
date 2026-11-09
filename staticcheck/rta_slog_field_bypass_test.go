@@ -97,7 +97,11 @@ func startup(ctx context.Context) {
 	a := newRTASlogFieldBypassAnalyzer()
 	diags := runAnalyzerOnSource(t, a, "supervisor.go", source)
 	if len(diags) != 0 {
-		t.Fatalf("expected no diagnostics when value has a real consumer, got %d: %v", len(diags), diags)
+		t.Fatalf(
+			"expected no diagnostics when value has a real consumer, got %d: %v",
+			len(diags),
+			diags,
+		)
 	}
 }
 
@@ -130,7 +134,11 @@ func startup(ctx context.Context) {
 	a := newRTASlogFieldBypassAnalyzer()
 	diags := runAnalyzerOnSource(t, a, "supervisor.go", source)
 	if len(diags) != 0 {
-		t.Fatalf("expected no diagnostics when marker body is non-empty, got %d: %v", len(diags), diags)
+		t.Fatalf(
+			"expected no diagnostics when marker body is non-empty, got %d: %v",
+			len(diags),
+			diags,
+		)
 	}
 }
 
@@ -247,6 +255,7 @@ func startup(ctx context.Context) {
 	if err := a.Flags.Set("marker_methods", "ItIsAMarker"); err != nil {
 		t.Fatalf("a.Flags.Set returned error: %v", err)
 	}
+
 	diags := runAnalyzerOnSource(t, a, "supervisor.go", source)
 	wantOnce(t, diags, "[RTA004]", "ItIsAMarker")
 }
@@ -279,7 +288,11 @@ func startup(ctx context.Context) {
 	a := newRTASlogFieldBypassAnalyzer()
 	diags := runAnalyzerOnSource(t, a, "supervisor.go", source)
 	if len(diags) != 0 {
-		t.Fatalf("expected no diagnostics when marker method has a parameter, got %d: %v", len(diags), diags)
+		t.Fatalf(
+			"expected no diagnostics when marker method has a parameter, got %d: %v",
+			len(diags),
+			diags,
+		)
 	}
 }
 
@@ -316,6 +329,10 @@ func (h *holder) startup(ctx context.Context) {
 	a := newRTASlogFieldBypassAnalyzer()
 	diags := runAnalyzerOnSource(t, a, "supervisor.go", source)
 	if len(diags) != 0 {
-		t.Fatalf("expected no diagnostics when value flows to a struct field, got %d: %v", len(diags), diags)
+		t.Fatalf(
+			"expected no diagnostics when value flows to a struct field, got %d: %v",
+			len(diags),
+			diags,
+		)
 	}
 }

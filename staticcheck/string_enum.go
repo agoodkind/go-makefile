@@ -58,61 +58,80 @@ func runStringSwitchShouldBeEnum(pass *analysis.Pass) (any, error) {
 	if isStaticcheckPackage(pass) {
 		return nil, nil
 	}
+
 	for _, file := range pass.Files {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		inspectStringSwitches(pass, file)
 	}
+
 	return nil, nil
 }
 
 func inspectStringSwitches(pass *analysis.Pass, file *ast.File) {
-	ast.Inspect(file, func(n ast.Node) bool {
-		sw, ok := n.(*ast.SwitchStmt)
-		if !ok {
+	ast.Inspect(
+		file,
+		func(n ast.Node) bool {
+			sw, ok := n.(*ast.SwitchStmt)
+			if !ok {
+				return true
+			}
+
+			reportBareStringSwitch(pass, file, sw)
+
 			return true
-		}
-		reportBareStringSwitch(pass, file, sw)
-		return true
-	})
+		},
+	)
 }
 
 func reportBareStringSwitch(pass *analysis.Pass, file *ast.File, sw *ast.SwitchStmt) {
 	if !switchHasBareStringTag(pass, sw) {
 		return
 	}
+
 	stringLitCases, otherCases := countStringSwitchCases(sw)
 	if stringLitCases < 2 || otherCases > 0 {
 		return
 	}
-	reportAtf(pass, file, sw.Pos(),
+
+	reportAtf(
+		pass,
+		file,
+		sw.Pos(),
 		"switch on bare string with %d string-literal cases; declare a named enum type and switch on its constants",
-		stringLitCases)
+		stringLitCases,
+	)
 }
 
 func switchHasBareStringTag(pass *analysis.Pass, sw *ast.SwitchStmt) bool {
 	if sw == nil || sw.Tag == nil || sw.Body == nil {
 		return false
 	}
+
 	tagType := pass.TypesInfo.TypeOf(sw.Tag)
 	if tagType == nil {
 		return false
 	}
+
 	// Only flag bare `string`. A named string type (type Role string)
 	// is already the enum shape we want.
 	basic, ok := tagType.(*types.Basic)
+
 	return ok && basic.Kind() == types.String
 }
 
 func countStringSwitchCases(sw *ast.SwitchStmt) (int, int) {
 	stringLitCases := 0
 	otherCases := 0
+
 	for _, stmt := range sw.Body.List {
 		cc, ok := stmt.(*ast.CaseClause)
 		if !ok || cc.List == nil {
 			continue
 		}
+
 		for _, expr := range cc.List {
 			if lit, ok := expr.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 				stringLitCases++
@@ -121,5 +140,6 @@ func countStringSwitchCases(sw *ast.SwitchStmt) (int, int) {
 			}
 		}
 	}
+
 	return stringLitCases, otherCases
 }

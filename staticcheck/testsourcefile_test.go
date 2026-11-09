@@ -11,5 +11,10 @@ import (
 func TestTestSourceFile(t *testing.T) {
 	t.Parallel()
 
-	analysistest.Run(t, testHabitModule("testsourcefile"), staticcheck.TestSourceFileAnalyzer, "./...")
+	analysistest.Run(
+		t,
+		testHabitModule("testsourcefile"),
+		staticcheck.TestSourceFileAnalyzer,
+		"./...",
+	)
 }

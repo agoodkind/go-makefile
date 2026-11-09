@@ -35,28 +35,44 @@ func TestCheckDirtyBuildIsNeverUpdatable(t *testing.T) {
 	stateDir := t.TempDir()
 
 	cleanConfig := baseConfig
-	cleanResult, err := Check(context.Background(), Options{
-		Config:    cleanConfig,
-		StatePath: filepath.Join(stateDir, "clean.json"),
-	})
+	cleanResult, err := Check(
+		context.Background(),
+		Options{
+			Config:    cleanConfig,
+			StatePath: filepath.Join(stateDir, "clean.json"),
+		},
+	)
 	if err != nil {
 		t.Fatalf("clean check: %v", err)
 	}
+
 	if !cleanResult.UpdateAvailable || cleanResult.DevBuild {
-		t.Fatalf("clean build UpdateAvailable=%v DevBuild=%v, want true/false", cleanResult.UpdateAvailable, cleanResult.DevBuild)
+		t.Fatalf(
+			"clean build UpdateAvailable=%v DevBuild=%v, want true/false",
+			cleanResult.UpdateAvailable,
+			cleanResult.DevBuild,
+		)
 	}
 
 	dirtyConfig := baseConfig
 	dirtyConfig.CurrentDirty = true
-	dirtyResult, err := Check(context.Background(), Options{
-		Config:    dirtyConfig,
-		StatePath: filepath.Join(stateDir, "dirty.json"),
-	})
+	dirtyResult, err := Check(
+		context.Background(),
+		Options{
+			Config:    dirtyConfig,
+			StatePath: filepath.Join(stateDir, "dirty.json"),
+		},
+	)
 	if err != nil {
 		t.Fatalf("dirty check: %v", err)
 	}
+
 	if dirtyResult.UpdateAvailable || !dirtyResult.DevBuild {
-		t.Fatalf("dirty build UpdateAvailable=%v DevBuild=%v, want false/true", dirtyResult.UpdateAvailable, dirtyResult.DevBuild)
+		t.Fatalf(
+			"dirty build UpdateAvailable=%v DevBuild=%v, want false/true",
+			dirtyResult.UpdateAvailable,
+			dirtyResult.DevBuild,
+		)
 	}
 }
 
@@ -92,29 +108,39 @@ func TestApplyDirtyBuildInstallsNothing(t *testing.T) {
 	}
 
 	stateDir := t.TempDir()
-	result, err := Apply(context.Background(), Options{
-		Config: Config{
-			Repo:             "agoodkind/demo",
-			Binary:           "demo",
-			CurrentVersion:   "202601010000-1-0000000",
-			CurrentCommit:    "0000000",
-			CurrentBuildHash: "abcdef012345",
-			CurrentDirty:     true,
-			ValidateArgs:     []string{"version"},
-			ValidateMatch:    "demo",
+	result, err := Apply(
+		context.Background(),
+		Options{
+			Config: Config{
+				Repo:             "agoodkind/demo",
+				Binary:           "demo",
+				CurrentVersion:   "202601010000-1-0000000",
+				CurrentCommit:    "0000000",
+				CurrentBuildHash: "abcdef012345",
+				CurrentDirty:     true,
+				ValidateArgs:     []string{"version"},
+				ValidateMatch:    "demo",
+			},
+			StatePath: filepath.Join(stateDir, "state.json"),
+			CacheDir:  filepath.Join(stateDir, "cache"),
 		},
-		StatePath: filepath.Join(stateDir, "state.json"),
-		CacheDir:  filepath.Join(stateDir, "cache"),
-	})
+	)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
+
 	if result.Applied || result.UpdateAvailable {
-		t.Fatalf("dirty build Applied=%v UpdateAvailable=%v, want false/false", result.Applied, result.UpdateAvailable)
+		t.Fatalf(
+			"dirty build Applied=%v UpdateAvailable=%v, want false/false",
+			result.Applied,
+			result.UpdateAvailable,
+		)
 	}
+
 	if downloadCalled {
 		t.Fatal("dirty build downloaded an asset")
 	}
+
 	if replaceCalled {
 		t.Fatal("dirty build replaced the binary")
 	}

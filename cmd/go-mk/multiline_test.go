@@ -42,7 +42,15 @@ func TestNoticeBaselinesMultilineGolangciDiagnostics(t *testing.T) {
 
 	writeConsumerFile(t, consumer, "widget/range_test.go", multilineLoopSource)
 	runConsumerGit(t, consumer, beforeNoticeDate, "add", ".")
-	runConsumerGit(t, consumer, beforeNoticeDate, "commit", "--quiet", "--message", "Add historical integer loop")
+	runConsumerGit(
+		t,
+		consumer,
+		beforeNoticeDate,
+		"commit",
+		"--quiet",
+		"--message",
+		"Add historical integer loop",
+	)
 
 	const configuration = "version: \"2\"\nrun:\n  relative-path-mode: wd\n" +
 		"linters:\n  default: none\n  enable: [intrange]\n"
@@ -121,7 +129,11 @@ func TestNoticeBaselinesMultilineGolangciDiagnostics(t *testing.T) {
 		t.Fatalf("gate accepted the later multiline finding: %v\n%s", gateError, gateOutput)
 	}
 
-	if current := readConsumerFile(t, consumer, ".golangci-lint-baseline.txt"); current != baseline {
+	if current := readConsumerFile(
+		t,
+		consumer,
+		".golangci-lint-baseline.txt",
+	); current != baseline {
 		t.Fatalf("gate changed the historical baseline:\n%s", current)
 	}
 }
@@ -145,7 +157,15 @@ func TestNoticeExcludesSourceLinesFromBaseline(t *testing.T) {
 
 	writeConsumerFile(t, consumer, "widget/helper.go", excerptSource)
 	runConsumerGit(t, consumer, beforeNoticeDate, "add", ".")
-	runConsumerGit(t, consumer, beforeNoticeDate, "commit", "--quiet", "--message", "Add historical unused helper")
+	runConsumerGit(
+		t,
+		consumer,
+		beforeNoticeDate,
+		"commit",
+		"--quiet",
+		"--message",
+		"Add historical unused helper",
+	)
 
 	const configuration = "version: \"2\"\nrun:\n  relative-path-mode: wd\n" +
 		"linters:\n  default: none\n  enable: [unused]\n"
@@ -192,6 +212,7 @@ func TestNoticeExcludesSourceLinesFromBaseline(t *testing.T) {
 		if strings.HasPrefix(line, "widget/helper.go:3:") && strings.Contains(line, "(unused)") {
 			located = true
 		}
+
 		if strings.HasPrefix(line, "widget/helper.go:4:") && strings.Contains(line, "(unused)") {
 			mapped = true
 		}
@@ -249,7 +270,8 @@ func TestNoticeRejectsMappedCompileError(t *testing.T) {
 		t.Fatalf("notice accepted the source-mapped compiler error:\n%s", output)
 	}
 
-	if !strings.Contains(raw, "input.proto:7") || !strings.Contains(raw, "undefined: missingMappedValue") {
+	if !strings.Contains(raw, "input.proto:7") ||
+		!strings.Contains(raw, "undefined: missingMappedValue") {
 		t.Fatalf("linter omitted the source-mapped compiler error:\n%s", raw)
 	}
 

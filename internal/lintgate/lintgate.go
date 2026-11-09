@@ -61,8 +61,10 @@ type GateResult struct {
 // ---- Evaluate ----
 func Evaluate(
 	gateName string,
-	currentFindings, baselineFindings []string,
-	excludeRegexp, scopeRegexp *regexp.Regexp,
+	currentFindings []string,
+	baselineFindings []string,
+	excludeRegexp *regexp.Regexp,
+	scopeRegexp *regexp.Regexp,
 	remediation string,
 ) GateResult {
 	current := applyFilters(currentFindings, excludeRegexp, scopeRegexp)
@@ -93,11 +95,14 @@ func applyFilters(lines []string, excludeRegexp, scopeRegexp *regexp.Regexp) []s
 		if excludeRegexp != nil && excludeRegexp.MatchString(line) {
 			continue
 		}
+
 		if scopeRegexp != nil && !scopeRegexp.MatchString(line) {
 			continue
 		}
+
 		kept = append(kept, line)
 	}
+
 	return kept
 }
 
@@ -110,6 +115,7 @@ func keySet(lines []string) map[string]struct{} {
 	for _, line := range lines {
 		keys[findings.Key(line, "", "")] = struct{}{}
 	}
+
 	return keys
 }
 
@@ -120,18 +126,22 @@ func keySet(lines []string) map[string]struct{} {
 // go_mk_map_keys_to_findings, where the mapped output is sorted-unique by key.
 func mapNewFindings(current []string, baselineKeys map[string]struct{}) []string {
 	newFindings := make([]string, 0, len(current))
+
 	seen := make(map[string]struct{}, len(current))
 	for _, line := range current {
 		key := findings.Key(line, "", "")
 		if _, inBaseline := baselineKeys[key]; inBaseline {
 			continue
 		}
+
 		if _, already := seen[key]; already {
 			continue
 		}
+
 		seen[key] = struct{}{}
 		newFindings = append(newFindings, line)
 	}
+
 	return newFindings
 }
 
@@ -145,9 +155,12 @@ func countGoneKeys(currentKeys, baselineKeys map[string]struct{}) int {
 		if _, inCurrent := currentKeys[key]; inCurrent {
 			continue
 		}
+
 		gone = append(gone, key)
 	}
+
 	sort.Strings(gone)
+
 	return len(gone)
 }
 
@@ -165,6 +178,7 @@ func Render(result GateResult) []string {
 	if !result.Passed {
 		return renderFailed(result)
 	}
+
 	return renderPassed(result)
 }
 
@@ -177,11 +191,14 @@ func renderFailed(result GateResult) []string {
 	lines = append(lines, "  New findings: "+strconv.Itoa(len(result.NewFindings)))
 	lines = append(lines, "")
 	lines = append(lines, "Findings:")
+
 	for _, finding := range result.NewFindings {
 		lines = append(lines, printedLines(finding)...)
 	}
+
 	lines = append(lines, "")
 	lines = append(lines, "  "+result.Remediation)
+
 	return lines
 }
 
@@ -194,6 +211,7 @@ func renderPassed(result GateResult) []string {
 	if result.GoneCount > 0 && !result.SuppressFixedCount {
 		lines = append(lines, "  Saved findings now fixed: "+strconv.Itoa(result.GoneCount))
 	}
+
 	return lines
 }
 
@@ -203,6 +221,7 @@ func renderPassed(result GateResult) []string {
 func printedLines(finding string) []string {
 	rendered := findings.Print(finding, "", "")
 	split := splitLines(rendered)
+
 	return split
 }
 
@@ -211,14 +230,17 @@ func printedLines(finding string) []string {
 func splitLines(text string) []string {
 	out := make([]string, 0, 2)
 	start := 0
+
 	for index := 0; index < len(text); index++ {
 		if text[index] == '\n' {
 			out = append(out, text[start:index])
 			start = index + 1
 		}
 	}
+
 	if start < len(text) {
 		out = append(out, text[start:])
 	}
+
 	return out
 }

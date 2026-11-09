@@ -13,21 +13,63 @@ func TestNoticeUsesTheOriginalAdoptionDateAfterAModuleMove(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repositoryDir, "gateway"), 0o755); err != nil {
 		t.Fatalf("create gateway: %v", err)
 	}
-	runConsumerGit(t, repositoryDir, afterNoticeDate, append([]string{"mv"}, append(moduleEntries, "gateway")...)...)
-	runConsumerGit(t, repositoryDir, afterNoticeDate, "commit", "--quiet", "--message", "move the module into gateway")
-	if err := os.Rename(filepath.Join(repositoryDir, ".make"), filepath.Join(repositoryDir, "gateway", ".make")); err != nil {
+
+	runConsumerGit(
+		t,
+		repositoryDir,
+		afterNoticeDate,
+		append([]string{"mv"}, append(moduleEntries, "gateway")...)...,
+	)
+	runConsumerGit(
+		t,
+		repositoryDir,
+		afterNoticeDate,
+		"commit",
+		"--quiet",
+		"--message",
+		"move the module into gateway",
+	)
+	if err := os.Rename(
+		filepath.Join(repositoryDir, ".make"),
+		filepath.Join(repositoryDir, "gateway", ".make"),
+	); err != nil {
 		t.Fatalf("move .make: %v", err)
 	}
+
 	moduleDir := filepath.Join(repositoryDir, "gateway")
-	writeConsumerFile(t, moduleDir, "go.mod", "module example.com/consumer\n\ngo 1.26\n"+strings.Repeat("// Updated module metadata.\n", 40))
+	writeConsumerFile(
+		t,
+		moduleDir,
+		"go.mod",
+		"module example.com/consumer\n\ngo 1.26\n"+strings.Repeat(
+			"// Updated module metadata.\n",
+			40,
+		),
+	)
 	runConsumerGit(t, repositoryDir, afterNoticeDate, "add", "gateway/go.mod")
-	runConsumerGit(t, repositoryDir, afterNoticeDate, "commit", "--quiet", "--message", "Update module metadata after the move")
+	runConsumerGit(
+		t,
+		repositoryDir,
+		afterNoticeDate,
+		"commit",
+		"--quiet",
+		"--message",
+		"Update module metadata after the move",
+	)
 
 	output, err := runConsumerMake(moduleDir, "staticcheck-extra", testAnalyzerFlags)
 	if err != nil {
-		t.Fatalf("gate failed in a consumer that adopted go-makefile before the notice: %v\n%s", err, output)
+		t.Fatalf(
+			"gate failed in a consumer that adopted go-makefile before the notice: %v\n%s",
+			err,
+			output,
+		)
 	}
-	if baseline := readConsumerFile(t, moduleDir, baselineFileName); !strings.Contains(baseline, olderTestFinding) {
+
+	if baseline := readConsumerFile(t, moduleDir, baselineFileName); !strings.Contains(
+		baseline,
+		olderTestFinding,
+	) {
 		t.Fatalf("notice output lacks %s:\n%s", olderTestFinding, baseline)
 	}
 }

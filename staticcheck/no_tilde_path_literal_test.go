@@ -21,7 +21,12 @@ func Path() string {
 	return "~"
 }
 `
-	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service.go", source)
+	diags := runNoTildePathLiteralAnalyzerOnSource(
+		t,
+		"example.com/app/internal/service",
+		"service.go",
+		source,
+	)
 	wantNoDiagnostics(t, diags)
 }
 
@@ -34,7 +39,12 @@ func ConfigPath() string {
 	return "~/.config/app"
 }
 `
-	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service.go", source)
+	diags := runNoTildePathLiteralAnalyzerOnSource(
+		t,
+		"example.com/app/internal/service",
+		"service.go",
+		source,
+	)
 	wantNoDiagnostics(t, diags)
 }
 
@@ -49,7 +59,12 @@ func Load() {
 	_, _ = os.Open("~/.config/app")
 }
 `
-	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service.go", source)
+	diags := runNoTildePathLiteralAnalyzerOnSource(
+		t,
+		"example.com/app/internal/service",
+		"service.go",
+		source,
+	)
 	wantOnce(t, diags, `hardcoded home directory "~/.config/app"`)
 }
 
@@ -64,7 +79,12 @@ func Build() string {
 	return filepath.Join("~", "config")
 }
 `
-	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service.go", source)
+	diags := runNoTildePathLiteralAnalyzerOnSource(
+		t,
+		"example.com/app/internal/service",
+		"service.go",
+		source,
+	)
 	wantOnce(t, diags, `hardcoded home directory "~"`)
 }
 
@@ -80,7 +100,12 @@ func Load() {
 	_, _ = os.Open(home)
 }
 `
-	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service.go", source)
+	diags := runNoTildePathLiteralAnalyzerOnSource(
+		t,
+		"example.com/app/internal/service",
+		"service.go",
+		source,
+	)
 	wantOnce(t, diags, `hardcoded home directory "~/.config/app"`)
 }
 
@@ -94,7 +119,12 @@ func Describe() string {
 	return "configured at " + label
 }
 `
-	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service.go", source)
+	diags := runNoTildePathLiteralAnalyzerOnSource(
+		t,
+		"example.com/app/internal/service",
+		"service.go",
+		source,
+	)
 	wantNoDiagnostics(t, diags)
 }
 
@@ -109,7 +139,12 @@ func Token() {
 	_, _ = os.Open("a~b")
 }
 `
-	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service.go", source)
+	diags := runNoTildePathLiteralAnalyzerOnSource(
+		t,
+		"example.com/app/internal/service",
+		"service.go",
+		source,
+	)
 	wantNoDiagnostics(t, diags)
 }
 
@@ -124,7 +159,12 @@ func Load() {
 	_, _ = os.Open("~/.config/app")
 }
 `
-	diags := runNoTildePathLiteralAnalyzerOnSource(t, "example.com/app/internal/service", "service_test.go", source)
+	diags := runNoTildePathLiteralAnalyzerOnSource(
+		t,
+		"example.com/app/internal/service",
+		"service_test.go",
+		source,
+	)
 	wantNoDiagnostics(t, diags)
 }
 
@@ -168,5 +208,6 @@ func runNoTildePathLiteralAnalyzerOnSource(
 	if _, err := NoTildePathLiteralAnalyzer.Run(pass); err != nil {
 		t.Fatalf("NoTildePathLiteralAnalyzer.Run: %v", err)
 	}
+
 	return diags
 }

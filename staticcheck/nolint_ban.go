@@ -23,13 +23,20 @@ func runNolintBan(pass *analysis.Pass) (any, error) {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		for _, group := range file.Comments {
 			for _, c := range group.List {
 				if strings.Contains(c.Text, "//nolint") {
-					reportAtf(pass, file, c.Pos(), "nolint comment suppresses linter findings inline; remove it and fix the underlying finding")
+					reportAtf(
+						pass,
+						file,
+						c.Pos(),
+						"nolint comment suppresses linter findings inline; remove it and fix the underlying finding",
+					)
 				}
 			}
 		}
 	}
+
 	return nil, nil
 }

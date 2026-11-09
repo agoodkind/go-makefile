@@ -117,19 +117,22 @@ func TestCIBuildProofRejectsInvalidClaimsAndSignatures(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			signingKey := testRSAKey(t)
-			token := signedTestOIDCToken(t, signingKey, testKeyID, testCase.claims)
-			verifyKey := testCase.verifyKey(t, signingKey)
-			jwks := oidcJWKS{Keys: []oidcJWK{testJWK(verifyKey, testKeyID)}}
-			server := testOIDCServer(t, token, jwks)
-			defer server.Close()
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				signingKey := testRSAKey(t)
+				token := signedTestOIDCToken(t, signingKey, testKeyID, testCase.claims)
+				verifyKey := testCase.verifyKey(t, signingKey)
+				jwks := oidcJWKS{Keys: []oidcJWK{testJWK(verifyKey, testKeyID)}}
+				server := testOIDCServer(t, token, jwks)
+				defer server.Close()
 
-			client := testCIProofClient(server, now)
-			if client.valid(testCIProofEnv(server)) {
-				t.Fatalf("%s was accepted", testCase.name)
-			}
-		})
+				client := testCIProofClient(server, now)
+				if client.valid(testCIProofEnv(server)) {
+					t.Fatalf("%s was accepted", testCase.name)
+				}
+			},
+		)
 	}
 }
 
@@ -164,27 +167,38 @@ func testCIProofClient(server *httptest.Server, now time.Time) ciProofClient {
 
 func testOIDCServer(t *testing.T, token string, jwks oidcJWKS) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/token" {
-			if request.Header.Get("Authorization") != "Bearer request-token" {
-				t.Fatalf("Authorization = %q", request.Header.Get("Authorization"))
+
+	return httptest.NewServer(
+		http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.URL.Path == "/token" {
+				if request.Header.Get("Authorization") != "Bearer request-token" {
+					t.Fatalf("Authorization = %q", request.Header.Get("Authorization"))
+				}
+
+				if request.URL.Query().Get("audience") != ciBuildAudience {
+					t.Fatalf("audience = %q", request.URL.Query().Get("audience"))
+				}
+
+				if err := json.NewEncoder(writer).Encode(oidcTokenResponse{
+					Value: token,
+				}); err != nil {
+					t.Fatalf("write token response: %v", err)
+				}
+
+				return
 			}
-			if request.URL.Query().Get("audience") != ciBuildAudience {
-				t.Fatalf("audience = %q", request.URL.Query().Get("audience"))
+
+			if request.URL.Path == "/jwks" {
+				if err := json.NewEncoder(writer).Encode(jwks); err != nil {
+					t.Fatalf("write jwks response: %v", err)
+				}
+
+				return
 			}
-			if err := json.NewEncoder(writer).Encode(oidcTokenResponse{Value: token}); err != nil {
-				t.Fatalf("write token response: %v", err)
-			}
-			return
-		}
-		if request.URL.Path == "/jwks" {
-			if err := json.NewEncoder(writer).Encode(jwks); err != nil {
-				t.Fatalf("write jwks response: %v", err)
-			}
-			return
-		}
-		http.NotFound(writer, request)
-	}))
+
+			http.NotFound(writer, request)
+		}),
+	)
 }
 
 func defaultTestClaims(now time.Time) testOIDCClaims {
@@ -211,10 +225,12 @@ func signedTestOIDCToken(
 	if err != nil {
 		t.Fatalf("marshal header: %v", err)
 	}
+
 	claimsBytes, err := json.Marshal(claims)
 	if err != nil {
 		t.Fatalf("marshal claims: %v", err)
 	}
+
 	headerPart := base64.RawURLEncoding.EncodeToString(headerBytes)
 	claimsPart := base64.RawURLEncoding.EncodeToString(claimsBytes)
 	signedPart := headerPart + "." + claimsPart
@@ -223,12 +239,15 @@ func signedTestOIDCToken(
 	if err != nil {
 		t.Fatalf("sign token: %v", err)
 	}
+
 	signaturePart := base64.RawURLEncoding.EncodeToString(signature)
+
 	return strings.Join([]string{headerPart, claimsPart, signaturePart}, ".")
 }
 
 func testJWK(key *rsa.PrivateKey, keyID string) oidcJWK {
 	exponent := big.NewInt(int64(key.PublicKey.E)).Bytes()
+
 	return oidcJWK{
 		KeyType:   "RSA",
 		KeyID:     keyID,
@@ -245,6 +264,7 @@ func testRSAKey(t *testing.T) *rsa.PrivateKey {
 	if err != nil {
 		t.Fatalf("generate RSA key: %v", err)
 	}
+
 	return key
 }
 

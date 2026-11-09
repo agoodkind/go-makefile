@@ -59,14 +59,17 @@ func runTestSourceFile(pass *analysis.Pass) (any, error) {
 				body = function.Body
 			}
 
-			ast.Inspect(declaration, func(node ast.Node) bool {
-				call, ok := node.(*ast.CallExpr)
-				if ok {
-					reportConstantFileRead(pass, file, body, call)
-				}
+			ast.Inspect(
+				declaration,
+				func(node ast.Node) bool {
+					call, ok := node.(*ast.CallExpr)
+					if ok {
+						reportConstantFileRead(pass, file, body, call)
+					}
 
-				return true
-			})
+					return true
+				},
+			)
 		}
 	}
 
@@ -83,30 +86,34 @@ func readIsProductionInput(pass *analysis.Pass, body *ast.BlockStmt, read *ast.C
 	}
 
 	tainted := make(map[types.Object]bool)
+
 	for changed := true; changed; {
 		changed = propagateReadInputs(pass, body, read, tainted)
 	}
 
 	passed := false
 
-	ast.Inspect(body, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok || call == read || passed {
-			return !passed
-		}
-
-		if !receivesInput(pass, call) {
-			return true
-		}
-
-		for _, argument := range call.Args {
-			if usesReadInput(pass, argument, read, tainted) {
-				passed = true
+	ast.Inspect(
+		body,
+		func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok || call == read || passed {
+				return !passed
 			}
-		}
 
-		return !passed
-	})
+			if !receivesInput(pass, call) {
+				return true
+			}
+
+			for _, argument := range call.Args {
+				if usesReadInput(pass, argument, read, tainted) {
+					passed = true
+				}
+			}
+
+			return !passed
+		},
+	)
 
 	return passed
 }
@@ -119,17 +126,22 @@ func usesReadInput(
 ) bool {
 	found := false
 
-	ast.Inspect(expression, func(node ast.Node) bool {
-		if node == read {
-			found = true
-		}
+	ast.Inspect(
+		expression,
+		func(node ast.Node) bool {
+			if node == read {
+				found = true
+			}
 
-		if identifier, ok := node.(*ast.Ident); ok && tainted[pass.TypesInfo.ObjectOf(identifier)] {
-			found = true
-		}
+			if identifier, ok := node.(*ast.Ident); ok && tainted[pass.TypesInfo.ObjectOf(
+				identifier,
+			)] {
+				found = true
+			}
 
-		return !found
-	})
+			return !found
+		},
+	)
 
 	return found
 }
@@ -142,38 +154,41 @@ func propagateReadInputs(
 ) bool {
 	changed := false
 
-	ast.Inspect(body, func(node ast.Node) bool {
-		assignment, ok := node.(*ast.AssignStmt)
-		if !ok {
+	ast.Inspect(
+		body,
+		func(node ast.Node) bool {
+			assignment, ok := node.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+
+			for index, left := range assignment.Lhs {
+				right := assignment.Rhs[0]
+				if len(assignment.Rhs) == len(assignment.Lhs) {
+					right = assignment.Rhs[index]
+				}
+
+				if !usesReadInput(pass, right, read, tainted) {
+					continue
+				}
+
+				identifier, ok := left.(*ast.Ident)
+				if !ok || identifier.Name == "_" {
+					continue
+				}
+
+				object := pass.TypesInfo.ObjectOf(identifier)
+				if object == nil || tainted[object] || isErrorType(object.Type()) {
+					continue
+				}
+
+				tainted[object] = true
+				changed = true
+			}
+
 			return true
-		}
-
-		for index, left := range assignment.Lhs {
-			right := assignment.Rhs[0]
-			if len(assignment.Rhs) == len(assignment.Lhs) {
-				right = assignment.Rhs[index]
-			}
-
-			if !usesReadInput(pass, right, read, tainted) {
-				continue
-			}
-
-			identifier, ok := left.(*ast.Ident)
-			if !ok || identifier.Name == "_" {
-				continue
-			}
-
-			object := pass.TypesInfo.ObjectOf(identifier)
-			if object == nil || tainted[object] || isErrorType(object.Type()) {
-				continue
-			}
-
-			tainted[object] = true
-			changed = true
-		}
-
-		return true
-	})
+		},
+	)
 
 	return changed
 }
@@ -188,13 +203,21 @@ func receivesInput(pass *analysis.Pass, call *ast.CallExpr) bool {
 		return true
 	}
 
-	return sameModulePackage(pass, function.Pkg().Path()) && !isTestFile(fileName(pass, function.Pos()))
+	return sameModulePackage(pass, function.Pkg().Path()) &&
+		!isTestFile(fileName(pass, function.Pos()))
 }
 
-func reportConstantFileRead(pass *analysis.Pass, file *ast.File, body *ast.BlockStmt, call *ast.CallExpr) {
+func reportConstantFileRead(
+	pass *analysis.Pass,
+	file *ast.File,
+	body *ast.BlockStmt,
+	call *ast.CallExpr,
+) {
 	if isSourceParserCall(pass, call) {
 		reportAtf(
-			pass, file, call.Pos(),
+			pass,
+			file,
+			call.Pos(),
 			"This test parses Go source with go/parser. A test must assert on behavior and not on "+
 				"the text of a source file. Run the code and assert on its outcome.",
 		)
@@ -212,7 +235,9 @@ func reportConstantFileRead(pass *analysis.Pass, file *ast.File, body *ast.Block
 
 	if joinHasParentElement(pass, call.Args[0]) {
 		reportAtf(
-			pass, file, call.Pos(),
+			pass,
+			file,
+			call.Pos(),
 			"This test reads a file through a parent directory path. A test must assert on "+
 				"behavior and not on the text of a source, template, or configuration file. Run the "+
 				"code that uses the file and assert on its outcome, or move the test input under "+
@@ -228,7 +253,9 @@ func reportConstantFileRead(pass *analysis.Pass, file *ast.File, body *ast.Block
 	}
 
 	reportAtf(
-		pass, file, call.Pos(),
+		pass,
+		file,
+		call.Pos(),
 		"This test reads the file at the constant path %q. A test must assert on behavior and "+
 			"not on the text of a source, template, or configuration file. Run the code that uses "+
 			"the file and assert on its outcome, or move the test input under testdata.",
@@ -395,7 +422,9 @@ func reportEmbedGroup(
 		}
 
 		reportAtf(
-			pass, file, spec.Names[0].Pos(),
+			pass,
+			file,
+			spec.Names[0].Pos(),
 			"This test embeds the file pattern %q. A test must assert on behavior and not on the "+
 				"text of a source, template, or configuration file. Run the code that uses the file "+
 				"and assert on its outcome, or move the test input under testdata.",

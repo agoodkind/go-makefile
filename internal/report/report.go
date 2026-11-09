@@ -77,12 +77,14 @@ func Render(rep Report) string {
 
 	failedNames := make([]string, 0, len(rep.Steps))
 	advisoryCount := 0
+
 	for _, step := range rep.Steps {
 		builder.WriteString(StepRow(nameWidth, step))
 		builder.WriteString("\n")
 		if step.failed() {
 			failedNames = append(failedNames, step.Name)
 		}
+
 		if step.Status == StatusAdvisory {
 			advisoryCount++
 		}
@@ -93,6 +95,7 @@ func Render(rep Report) string {
 	}
 
 	builder.WriteString(Footer(failedNames, advisoryCount))
+
 	return builder.String()
 }
 
@@ -101,11 +104,13 @@ func Render(rep Report) string {
 // streamed row aligns with the last.
 func NameWidth(steps []StepResult) int {
 	width := 0
+
 	for _, step := range steps {
 		if len(step.Name) > width {
 			width = len(step.Name)
 		}
 	}
+
 	return width
 }
 
@@ -130,20 +135,24 @@ func FindingsBlock(step StepResult) string {
 	if !step.showsFindings() || len(step.Findings) == 0 {
 		return ""
 	}
+
 	var builder strings.Builder
 	builder.WriteString("\n  ")
 	builder.WriteString(step.Name)
 	builder.WriteString("\n")
+
 	for _, line := range step.Findings {
 		builder.WriteString("  ")
 		builder.WriteString(line)
 		builder.WriteString("\n")
 	}
+
 	if step.Remediation != "" {
 		builder.WriteString("    Fix: ")
 		builder.WriteString(step.Remediation)
 		builder.WriteString("\n")
 	}
+
 	return builder.String()
 }
 
@@ -154,10 +163,16 @@ func Footer(failedNames []string, advisoryCount int) string {
 		if advisoryCount > 0 {
 			return "\n  All blocking checks passed.\n"
 		}
+
 		return "\n  All checks passed.\n"
 	}
-	return fmt.Sprintf("\n  %d check%s failed: %s\n",
-		len(failedNames), plural(len(failedNames)), strings.Join(failedNames, ", "))
+
+	return fmt.Sprintf(
+		"\n  %d check%s failed: %s\n",
+		len(failedNames),
+		plural(len(failedNames)),
+		strings.Join(failedNames, ", "),
+	)
 }
 
 // StatusLabel renders one step's status cell and optional parenthetical note.
@@ -166,14 +181,18 @@ func StatusLabel(step StepResult) string {
 		if step.Note == "" {
 			return "ADVISORY"
 		}
+
 		return "ADVISORY  (" + step.Note + ")"
 	}
+
 	if step.Status == StatusOK {
 		return "ok"
 	}
+
 	if step.Note == "" {
 		return "FAILED"
 	}
+
 	return "FAILED  (" + step.Note + ")"
 }
 
@@ -182,5 +201,6 @@ func plural(count int) string {
 	if count == 1 {
 		return ""
 	}
+
 	return "s"
 }

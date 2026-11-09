@@ -93,8 +93,12 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	if options.removeWork {
 		defer func() {
 			if removeErr := os.RemoveAll(options.workDir); removeErr != nil {
-				slog.WarnContext(ctx, "consumer-check could not remove its scratch directory",
-					slog.String("path", options.workDir), slog.String("err", removeErr.Error()))
+				slog.WarnContext(
+					ctx,
+					"consumer-check could not remove its scratch directory",
+					slog.String("path", options.workDir),
+					slog.String("err", removeErr.Error()),
+				)
 			}
 		}()
 	} else {
@@ -115,11 +119,15 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 			reportOne(stdout, result)
 			results = append(results, result)
 		}
-		comparisons = append(comparisons, comparison{
-			consumer: filepath.Base(consumer),
-			results:  results,
-			agree:    resultsAgree(results),
-		})
+
+		comparisons = append(
+			comparisons,
+			comparison{
+				consumer: filepath.Base(consumer),
+				results:  results,
+				agree:    resultsAgree(results),
+			},
+		)
 	}
 
 	return reportSummary(stdout, comparisons)
@@ -131,14 +139,21 @@ func parseOptions(args []string, stderr io.Writer) (checkOptions, error) {
 
 	var (
 		engineRepo = set.String("engine", ".", "go-makefile repository to export revisions from")
-		revisions  = set.String("revisions", "", "comma-separated revisions to compare, for example origin/main,HEAD")
-		target     = set.String("target", defaultTarget, "make target to run in each consumer")
-		timeout    = set.Duration("timeout", defaultTimeout, "per-build timeout")
-		workDir    = set.String("work", "", "scratch directory (a temporary one is used when empty)")
-		keepWork   = set.Bool("keep", false, "keep the scratch directory after the run")
-		depth      = set.Int("depth", 1, "clone depth; 0 clones full history")
-		inPlace    = set.Bool("in-place", false,
-			"build in the given path instead of cloning, which writes to that checkout")
+		revisions  = set.String(
+			"revisions",
+			"",
+			"comma-separated revisions to compare, for example origin/main,HEAD",
+		)
+		target   = set.String("target", defaultTarget, "make target to run in each consumer")
+		timeout  = set.Duration("timeout", defaultTimeout, "per-build timeout")
+		workDir  = set.String("work", "", "scratch directory (a temporary one is used when empty)")
+		keepWork = set.Bool("keep", false, "keep the scratch directory after the run")
+		depth    = set.Int("depth", 1, "clone depth; 0 clones full history")
+		inPlace  = set.Bool(
+			"in-place",
+			false,
+			"build in the given path instead of cloning, which writes to that checkout",
+		)
 	)
 	if err := set.Parse(args); err != nil {
 		return checkOptions{}, err
@@ -153,10 +168,15 @@ func parseOptions(args []string, stderr io.Writer) (checkOptions, error) {
 	for _, consumer := range consumers {
 		absolute, err := filepath.Abs(consumer)
 		if err != nil {
-			slog.Error("consumer-check could not resolve a consumer path",
-				slog.String("path", consumer), slog.String("err", err.Error()))
+			slog.Error(
+				"consumer-check could not resolve a consumer path",
+				slog.String("path", consumer),
+				slog.String("err", err.Error()),
+			)
+
 			return checkOptions{}, fmt.Errorf("resolve %s: %w", consumer, err)
 		}
+
 		resolved = append(resolved, absolute)
 	}
 
@@ -167,8 +187,12 @@ func parseOptions(args []string, stderr io.Writer) (checkOptions, error) {
 
 	engineAbsolute, err := filepath.Abs(*engineRepo)
 	if err != nil {
-		slog.Error("consumer-check could not resolve the engine repository",
-			slog.String("path", *engineRepo), slog.String("err", err.Error()))
+		slog.Error(
+			"consumer-check could not resolve the engine repository",
+			slog.String("path", *engineRepo),
+			slog.String("err", err.Error()),
+		)
+
 		return checkOptions{}, fmt.Errorf("resolve engine repo: %w", err)
 	}
 
@@ -180,17 +204,26 @@ func parseOptions(args []string, stderr io.Writer) (checkOptions, error) {
 	if work == "" {
 		created, mkErr := os.MkdirTemp("", "consumer-check-")
 		if mkErr != nil {
-			slog.Error("consumer-check could not create a scratch directory",
-				slog.String("err", mkErr.Error()))
+			slog.Error(
+				"consumer-check could not create a scratch directory",
+				slog.String("err", mkErr.Error()),
+			)
+
 			return checkOptions{}, fmt.Errorf("create scratch directory: %w", mkErr)
 		}
+
 		work = created
 		removeWork = !*keepWork
 	}
+
 	workAbsolute, err := filepath.Abs(work)
 	if err != nil {
-		slog.Error("consumer-check could not resolve the scratch directory",
-			slog.String("path", work), slog.String("err", err.Error()))
+		slog.Error(
+			"consumer-check could not resolve the scratch directory",
+			slog.String("path", work),
+			slog.String("err", err.Error()),
+		)
+
 		return checkOptions{}, fmt.Errorf("resolve scratch directory: %w", err)
 	}
 
@@ -209,6 +242,7 @@ func parseOptions(args []string, stderr io.Writer) (checkOptions, error) {
 
 func splitList(text string) []string {
 	parts := strings.Split(text, ",")
+
 	out := make([]string, 0, len(parts))
 	for _, part := range parts {
 		trimmed := strings.TrimSpace(part)
@@ -216,6 +250,7 @@ func splitList(text string) []string {
 			out = append(out, trimmed)
 		}
 	}
+
 	return out
 }
 
@@ -234,33 +269,60 @@ func exportRevisions(ctx context.Context, options checkOptions) (map[string]stri
 		name := fmt.Sprintf("%02d-%s", index, sanitize(revision))
 		destination := filepath.Join(options.workDir, "engine", name)
 		if err := os.RemoveAll(destination); err != nil {
-			slog.ErrorContext(ctx, "consumer-check could not clear an export directory",
-				slog.String("path", destination), slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"consumer-check could not clear an export directory",
+				slog.String("path", destination),
+				slog.String("err", err.Error()),
+			)
+
 			return nil, fmt.Errorf("clear %s: %w", destination, err)
 		}
+
 		if err := os.MkdirAll(destination, 0o755); err != nil {
-			slog.ErrorContext(ctx, "consumer-check could not create an export directory",
-				slog.String("path", destination), slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"consumer-check could not create an export directory",
+				slog.String("path", destination),
+				slog.String("err", err.Error()),
+			)
+
 			return nil, fmt.Errorf("create %s: %w", destination, err)
 		}
+
 		if err := exportTree(ctx, options.engineRepo, revision, destination); err != nil {
-			slog.ErrorContext(ctx, "consumer-check could not export a revision",
-				slog.String("revision", revision), slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"consumer-check could not export a revision",
+				slog.String("revision", revision),
+				slog.String("err", err.Error()),
+			)
+
 			return nil, fmt.Errorf("export %s: %w", revision, err)
 		}
+
 		exports[revision] = destination
 	}
-	slog.InfoContext(ctx, "consumer-check exported revisions",
+
+	slog.InfoContext(
+		ctx,
+		"consumer-check exported revisions",
 		slog.Int("count", len(exports)),
-		slog.String("engine_repo", options.engineRepo))
+		slog.String("engine_repo", options.engineRepo),
+	)
+
 	return exports, nil
 }
 
 // exportTree writes one revision's tree into destination. It is a process
 // boundary: git streams the archive into tar.
 func exportTree(ctx context.Context, repo string, revision string, destination string) error {
-	slog.InfoContext(ctx, "consumer-check exporting revision",
-		slog.String("revision", revision), slog.String("destination", destination))
+	slog.InfoContext(
+		ctx,
+		"consumer-check exporting revision",
+		slog.String("revision", revision),
+		slog.String("destination", destination),
+	)
 	archive := exec.CommandContext(ctx, "git", "-C", repo, "archive", revision)
 	extract := exec.CommandContext(ctx, "tar", "-x", "-C", destination)
 
@@ -268,24 +330,35 @@ func exportTree(ctx context.Context, repo string, revision string, destination s
 	if err != nil {
 		return err
 	}
+
 	extract.Stdin = pipe
 
 	if err := archive.Start(); err != nil {
 		return err
 	}
+
 	if err := extract.Start(); err != nil {
 		return err
 	}
+
 	if err := archive.Wait(); err != nil {
 		return err
 	}
+
 	return extract.Wait()
 }
 
 // buildOne clones the consumer and runs the target against one revision. The
 // clone keeps .git, because several consumers run git during their own build
 // for version stamping or submodule content.
-func buildOne(ctx context.Context, options checkOptions, consumer string, revision string, index int, engine string) buildResult {
+func buildOne(
+	ctx context.Context,
+	options checkOptions,
+	consumer string,
+	revision string,
+	index int,
+	engine string,
+) buildResult {
 	name := filepath.Base(consumer)
 	result := buildResult{consumer: name, revision: revision}
 	// The revision's position joins its sanitized text for the same reason the
@@ -308,6 +381,7 @@ func buildOne(ctx context.Context, options checkOptions, consumer string, revisi
 			result.skipped = err.Error()
 			return result
 		}
+
 		buildDir = filepath.Join(clone, subPath)
 	}
 
@@ -317,6 +391,7 @@ func buildOne(ctx context.Context, options checkOptions, consumer string, revisi
 		result.skipped = fmt.Sprintf("create log: %v", err)
 		return result
 	}
+
 	defer func() { _ = logFile.Close() }()
 	result.logPath = logPath
 
@@ -334,11 +409,15 @@ func buildOne(ctx context.Context, options checkOptions, consumer string, revisi
 	result.elapsed = time.Since(start)
 	result.exitCode = exitCodeOf(runErr)
 
-	slog.InfoContext(ctx, "consumer-check built consumer",
+	slog.InfoContext(
+		ctx,
+		"consumer-check built consumer",
 		slog.String("consumer", name),
 		slog.String("revision", revision),
 		slog.Int("exit_code", result.exitCode),
-		slog.Duration("elapsed", result.elapsed))
+		slog.Duration("elapsed", result.elapsed),
+	)
+
 	return result
 }
 
@@ -349,16 +428,28 @@ func buildOne(ctx context.Context, options checkOptions, consumer string, revisi
 func repositoryRoot(ctx context.Context, consumer string) (string, string, error) {
 	top, topErr := gitOutput(ctx, consumer, "rev-parse", "--show-toplevel")
 	if topErr != nil {
-		slog.ErrorContext(ctx, "consumer-check could not resolve a repository root",
-			slog.String("consumer", consumer), slog.String("err", topErr.Error()))
+		slog.ErrorContext(
+			ctx,
+			"consumer-check could not resolve a repository root",
+			slog.String("consumer", consumer),
+			slog.String("err", topErr.Error()),
+		)
+
 		return "", "", fmt.Errorf("repository root for %s: %w", consumer, topErr)
 	}
+
 	prefix, prefixErr := gitOutput(ctx, consumer, "rev-parse", "--show-prefix")
 	if prefixErr != nil {
-		slog.ErrorContext(ctx, "consumer-check could not resolve a repository prefix",
-			slog.String("consumer", consumer), slog.String("err", prefixErr.Error()))
+		slog.ErrorContext(
+			ctx,
+			"consumer-check could not resolve a repository prefix",
+			slog.String("consumer", consumer),
+			slog.String("err", prefixErr.Error()),
+		)
+
 		return "", "", fmt.Errorf("repository prefix for %s: %w", consumer, prefixErr)
 	}
+
 	return top, filepath.FromSlash(strings.TrimSuffix(prefix, "/")), nil
 }
 
@@ -368,12 +459,17 @@ func gitOutput(ctx context.Context, dir string, args ...string) (string, error) 
 	command := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	output, err := command.Output()
 	if err != nil {
-		slog.ErrorContext(ctx, "consumer-check git query failed",
+		slog.ErrorContext(
+			ctx,
+			"consumer-check git query failed",
 			slog.String("dir", dir),
 			slog.String("args", strings.Join(args, " ")),
-			slog.String("err", err.Error()))
+			slog.String("err", err.Error()),
+		)
+
 		return "", err
 	}
+
 	return strings.TrimSpace(string(output)), nil
 }
 
@@ -394,16 +490,22 @@ func prepareClone(ctx context.Context, source string, destination string, depth 
 	} else {
 		args = append(args, "--local", "--no-hardlinks")
 	}
+
 	args = append(args, origin, destination)
 
 	command := exec.CommandContext(ctx, "git", args...)
 	if output, err := command.CombinedOutput(); err != nil {
-		slog.ErrorContext(ctx, "consumer-check clone failed",
+		slog.ErrorContext(
+			ctx,
+			"consumer-check clone failed",
 			slog.String("source", source),
 			slog.String("output", strings.TrimSpace(string(output))),
-			slog.String("err", err.Error()))
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("clone %s: %w: %s", source, err, strings.TrimSpace(string(output)))
 	}
+
 	return nil
 }
 
@@ -411,23 +513,28 @@ func prepareClone(ctx context.Context, source string, destination string, depth 
 // consumer resolves its own settings rather than inheriting this process's.
 func buildEnvironment(engine string) []string {
 	inherited := []string{"MAKEFLAGS", "MFLAGS", "MAKELEVEL", "GO_MK_", "GOLANGCI_"}
+
 	environment := make([]string, 0, len(os.Environ())+1)
 	for _, entry := range os.Environ() {
 		name, _, found := strings.Cut(entry, "=")
 		if !found {
 			continue
 		}
+
 		skip := false
+
 		for _, prefix := range inherited {
 			if strings.HasPrefix(name, prefix) {
 				skip = true
 				break
 			}
 		}
+
 		if !skip {
 			environment = append(environment, entry)
 		}
 	}
+
 	return append(environment, "GO_MK_DEV_DIR="+engine)
 }
 
@@ -435,10 +542,12 @@ func exitCodeOf(err error) int {
 	if err == nil {
 		return 0
 	}
+
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		return exitErr.ExitCode()
 	}
+
 	return -1
 }
 
@@ -446,6 +555,7 @@ func resultsAgree(results []buildResult) bool {
 	if len(results) == 0 {
 		return true
 	}
+
 	// A consumer skipped on every revision was never measured, which is not the
 	// same as measuring two different outcomes. It is reported as unmeasured.
 	first := results[0]
@@ -453,10 +563,12 @@ func resultsAgree(results []buildResult) bool {
 		if (result.skipped != "") != (first.skipped != "") {
 			return false
 		}
+
 		if result.skipped == "" && result.exitCode != first.exitCode {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -467,31 +579,50 @@ func wasMeasured(results []buildResult) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
 func sanitize(text string) string {
-	return strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-			return r
-		default:
-			return '-'
-		}
-	}, text)
+	return strings.Map(
+		func(r rune) rune {
+			switch {
+			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+				return r
+			default:
+				return '-'
+			}
+		},
+		text,
+	)
 }
 
 func reportOne(stdout io.Writer, result buildResult) {
 	if result.skipped != "" {
-		fmt.Fprintf(stdout, "%-22s %-16s SKIP  %s\n", result.consumer, result.revision, result.skipped)
+		fmt.Fprintf(
+			stdout,
+			"%-22s %-16s SKIP  %s\n",
+			result.consumer,
+			result.revision,
+			result.skipped,
+		)
 		return
 	}
+
 	status := "ok"
 	if result.exitCode != 0 {
 		status = fmt.Sprintf("exit %d", result.exitCode)
 	}
-	fmt.Fprintf(stdout, "%-22s %-16s %-8s %6.1fs  %s\n",
-		result.consumer, result.revision, status, result.elapsed.Seconds(), result.logPath)
+
+	fmt.Fprintf(
+		stdout,
+		"%-22s %-16s %-8s %6.1fs  %s\n",
+		result.consumer,
+		result.revision,
+		status,
+		result.elapsed.Seconds(),
+		result.logPath,
+	)
 }
 
 // reportSummary prints the exit code and wall time per revision, and marks the
@@ -502,13 +633,17 @@ func reportOne(stdout io.Writer, result buildResult) {
 // those apart. Read the logs to decide which happened; the paths are printed
 // above for that reason.
 func reportSummary(stdout io.Writer, comparisons []comparison) int {
-	sort.Slice(comparisons, func(i int, j int) bool {
-		return comparisons[i].consumer < comparisons[j].consumer
-	})
+	sort.Slice(
+		comparisons,
+		func(i int, j int) bool {
+			return comparisons[i].consumer < comparisons[j].consumer
+		},
+	)
 
 	disagreements := 0
 	unmeasured := 0
 	fmt.Fprintf(stdout, "\n%-22s %-10s %s\n", "consumer", "exit code", "per revision")
+
 	for _, item := range comparisons {
 		verdict := "same"
 		switch {
@@ -519,31 +654,58 @@ func reportSummary(stdout io.Writer, comparisons []comparison) int {
 			verdict = "DIFFERS"
 			disagreements++
 		}
+
 		parts := make([]string, 0, len(item.results))
 		for _, result := range item.results {
 			if result.skipped != "" {
 				parts = append(parts, result.revision+"=skipped")
 				continue
 			}
-			parts = append(parts, fmt.Sprintf("%s=exit%d/%.0fs",
-				result.revision, result.exitCode, result.elapsed.Seconds()))
+
+			parts = append(
+				parts,
+				fmt.Sprintf(
+					"%s=exit%d/%.0fs",
+					result.revision,
+					result.exitCode,
+					result.elapsed.Seconds(),
+				),
+			)
 		}
+
 		fmt.Fprintf(stdout, "%-22s %-10s %s\n", item.consumer, verdict, strings.Join(parts, "  "))
 	}
 
-	fmt.Fprintf(stdout, "\nRead the logs above before drawing a conclusion. "+
-		"A non-zero exit is as likely to be the consumer's own findings as a broken pipeline.\n")
+	fmt.Fprintf(
+		stdout,
+		"\nRead the logs above before drawing a conclusion. "+
+			"A non-zero exit is as likely to be the consumer's own findings as a broken pipeline.\n",
+	)
 
 	if unmeasured > 0 {
-		fmt.Fprintf(stdout, "%d consumer(s) were never measured; see the skip reason above\n", unmeasured)
+		fmt.Fprintf(
+			stdout,
+			"%d consumer(s) were never measured; see the skip reason above\n",
+			unmeasured,
+		)
 	}
+
 	if disagreements > 0 {
-		fmt.Fprintf(stdout, "%d consumer(s) exited differently across the revisions\n", disagreements)
-		slog.Error("consumer-check found differing exit codes",
+		fmt.Fprintf(
+			stdout,
+			"%d consumer(s) exited differently across the revisions\n",
+			disagreements,
+		)
+		slog.Error(
+			"consumer-check found differing exit codes",
 			slog.Int("count", disagreements),
-			slog.String("err", errConsumersDisagree.Error()))
+			slog.String("err", errConsumersDisagree.Error()),
+		)
+
 		return exitDisagree
 	}
+
 	fmt.Fprintf(stdout, "every consumer exited the same on both revisions\n")
+
 	return 0
 }

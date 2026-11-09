@@ -53,8 +53,8 @@ import (
 //     a composite-literal wrapper. This avoids false positives on
 //     legitimate structured logs where the value happens to be a
 //     marker-bearing type used as real telemetry.
-//   - The detector does not fire on calls to slog.LogAttrs or on
-//     slog.With. The bypass shape we have observed in clyde adopters
+//   - The detector does not fire on calls to [slog.LogAttrs] or on
+//     [slog.With]. The bypass shape we have observed in clyde adopters
 //     uses positional key-value pairs.
 //   - The detector requires the marker method to have an empty body
 //     (no statements). A marker method with even a stray return
@@ -69,8 +69,12 @@ func newRTASlogFieldBypassAnalyzer() *analysis.Analyzer {
 		Doc:  "rejects slog calls whose value-position attribute boxes a marker-typed struct only to keep its method reachable for deadcode",
 		Run:  runRTASlogFieldBypass,
 	}
-	a.Flags.String("marker_methods", defaultRTASlogMarkerMethodList,
-		"comma-separated method names that identify a deadcode marker type when present as an empty no-arg no-return method")
+	a.Flags.String(
+		"marker_methods",
+		defaultRTASlogMarkerMethodList,
+		"comma-separated method names that identify a deadcode marker type when present as an empty no-arg no-return method",
+	)
+
 	return a
 }
 
@@ -92,13 +96,16 @@ func runRTASlogFieldBypass(pass *analysis.Pass) (any, error) {
 	if len(markers) == 0 {
 		markers = map[string]struct{}{"IsLivetrackMeta": {}}
 	}
+
 	emptyMethods := collectEmptyMarkerMethods(pass.Files, markers)
 	for _, file := range pass.Files {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		checkRTASlogFieldBypassInFile(pass, file, markers, emptyMethods)
 	}
+
 	return nil, nil
 }
 
@@ -115,33 +122,44 @@ type rtaSlogMarkerKey struct {
 	methodName   string
 }
 
-func collectEmptyMarkerMethods(files []*ast.File, markers map[string]struct{}) map[rtaSlogMarkerKey]struct{} {
+func collectEmptyMarkerMethods(
+	files []*ast.File,
+	markers map[string]struct{},
+) map[rtaSlogMarkerKey]struct{} {
 	out := map[rtaSlogMarkerKey]struct{}{}
+
 	for _, file := range files {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok {
 				continue
 			}
+
 			if fn.Recv == nil || fn.Name == nil {
 				continue
 			}
+
 			if _, accepted := markers[fn.Name.Name]; !accepted {
 				continue
 			}
+
 			if !funcDeclIsNoArgsNoReturns(fn) {
 				continue
 			}
+
 			if !funcDeclBodyIsEmpty(fn) {
 				continue
 			}
+
 			recv := receiverTypeNameFromFuncDecl(fn)
 			if recv == "" {
 				continue
 			}
+
 			out[rtaSlogMarkerKey{recvTypeName: recv, methodName: fn.Name.Name}] = struct{}{}
 		}
 	}
+
 	return out
 }
 
@@ -149,12 +167,15 @@ func funcDeclIsNoArgsNoReturns(fn *ast.FuncDecl) bool {
 	if fn.Type == nil {
 		return false
 	}
+
 	if fn.Type.Params != nil && len(fn.Type.Params.List) > 0 {
 		return false
 	}
+
 	if fn.Type.Results != nil && len(fn.Type.Results.List) > 0 {
 		return false
 	}
+
 	return true
 }
 
@@ -162,6 +183,7 @@ func funcDeclBodyIsEmpty(fn *ast.FuncDecl) bool {
 	if fn.Body == nil {
 		return false
 	}
+
 	return len(fn.Body.List) == 0
 }
 
@@ -174,59 +196,98 @@ func receiverTypeNameFromFuncDecl(fn *ast.FuncDecl) string {
 	if fn.Recv == nil || len(fn.Recv.List) == 0 {
 		return ""
 	}
+
 	expr := fn.Recv.List[0].Type
 	if star, ok := expr.(*ast.StarExpr); ok {
 		expr = star.X
 	}
+
 	if idx, ok := expr.(*ast.IndexExpr); ok {
 		expr = idx.X
 	}
+
 	if idx, ok := expr.(*ast.IndexListExpr); ok {
 		expr = idx.X
 	}
+
 	ident, ok := expr.(*ast.Ident)
 	if !ok {
 		return ""
 	}
+
 	return ident.Name
 }
 
-func checkRTASlogFieldBypassInFile(pass *analysis.Pass, file *ast.File, markers map[string]struct{}, emptyMethods map[rtaSlogMarkerKey]struct{}) {
+func checkRTASlogFieldBypassInFile(
+	pass *analysis.Pass,
+	file *ast.File,
+	markers map[string]struct{},
+	emptyMethods map[rtaSlogMarkerKey]struct{},
+) {
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Body == nil {
 			continue
 		}
+
 		checkRTASlogFieldBypassInFunc(pass, file, fn, markers, emptyMethods)
 	}
 }
 
-func checkRTASlogFieldBypassInFunc(pass *analysis.Pass, file *ast.File, fn *ast.FuncDecl, markers map[string]struct{}, emptyMethods map[rtaSlogMarkerKey]struct{}) {
-	ast.Inspect(fn.Body, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		if !isTrackedSlogCall(call) {
-			return true
-		}
-		valueArgs := slogValueArgPositions(call)
-		for _, idx := range valueArgs {
-			arg := call.Args[idx]
-			markerName, recvType, isMarker := classifyMarkerValue(pass, arg, markers, emptyMethods)
-			if !isMarker {
-				continue
+func checkRTASlogFieldBypassInFunc(
+	pass *analysis.Pass,
+	file *ast.File,
+	fn *ast.FuncDecl,
+	markers map[string]struct{},
+	emptyMethods map[rtaSlogMarkerKey]struct{},
+) {
+	ast.Inspect(
+		fn.Body,
+		func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
 			}
-			if !isInlineOrLocallyScopedValue(fn.Body, arg) {
-				continue
+
+			if !isTrackedSlogCall(call) {
+				return true
 			}
-			fieldKey := slogFieldKeyForValue(call, idx)
-			reportAtf(pass, file, arg.Pos(),
-				"[RTA004] slog field %q boxes a marker-typed value of %q (carries empty method %q) and the value has no non-slog consumer; this is a deadcode RTA bypass. Drop the field, or route the value through a real consumer if it is genuinely load-bearing",
-				fieldKey, formatType(recvType), markerName)
-		}
-		return true
-	})
+
+			valueArgs := slogValueArgPositions(call)
+			for _, idx := range valueArgs {
+				arg := call.Args[idx]
+				markerName, recvType, isMarker := classifyMarkerValue(
+					pass,
+					arg,
+					markers,
+					emptyMethods,
+				)
+				if !isMarker {
+					continue
+				}
+
+				if !isInlineOrLocallyScopedValue(fn.Body, arg) {
+					continue
+				}
+
+				fieldKey := slogFieldKeyForValue(call, idx)
+				reportAtf(
+					pass,
+					file,
+					arg.Pos(),
+					"[RTA004] slog field %q boxes a marker-typed value of %q (carries "+
+						"empty method %q) and the value has no non-slog consumer; this is a "+
+						"deadcode RTA bypass. Drop the field, or route the value through a "+
+						"real consumer if it is genuinely load-bearing",
+					fieldKey,
+					formatType(recvType),
+					markerName,
+				)
+			}
+
+			return true
+		},
+	)
 }
 
 // isTrackedSlogCall returns true when the call is one of the
@@ -239,12 +300,15 @@ func isTrackedSlogCall(call *ast.CallExpr) bool {
 	if !ok {
 		return false
 	}
+
 	if _, tracked := rtaSlogTrackedFuncs[name]; !tracked {
 		return false
 	}
+
 	if receiver == "slog" {
 		return true
 	}
+
 	return isLikelyLoggerReceiver(receiver)
 }
 
@@ -258,17 +322,22 @@ func slogValueArgPositions(call *ast.CallExpr) []int {
 	if !ok {
 		return nil
 	}
+
 	messageIndex := 0
 	if strings.HasSuffix(name, "Context") {
 		messageIndex = 1
 	}
+
 	if len(call.Args) <= messageIndex+1 {
 		return nil
 	}
+
 	var out []int
+
 	for i := messageIndex + 2; i < len(call.Args); i += 2 {
 		out = append(out, i)
 	}
+
 	return out
 }
 
@@ -280,10 +349,12 @@ func slogFieldKeyForValue(call *ast.CallExpr, valueIdx int) string {
 	if valueIdx == 0 {
 		return "(unknown key)"
 	}
+
 	keyExpr := call.Args[valueIdx-1]
 	if value, ok := stringLiteral(keyExpr); ok {
 		return value
 	}
+
 	return "(non-literal key)"
 }
 
@@ -294,31 +365,43 @@ func slogFieldKeyForValue(call *ast.CallExpr, valueIdx int) string {
 // to be empty. Returns isMarker=false otherwise. Pointer wrappers
 // around struct types are looked through so `&Meta{}` is treated
 // the same as `Meta{}`.
-func classifyMarkerValue(pass *analysis.Pass, expr ast.Expr, markers map[string]struct{}, emptyMethods map[rtaSlogMarkerKey]struct{}) (markerName string, recvType types.Type, isMarker bool) {
+func classifyMarkerValue(
+	pass *analysis.Pass,
+	expr ast.Expr,
+	markers map[string]struct{},
+	emptyMethods map[rtaSlogMarkerKey]struct{},
+) (markerName string, recvType types.Type, isMarker bool) {
 	if pass.TypesInfo == nil {
 		return "", nil, false
 	}
+
 	staticType := pass.TypesInfo.TypeOf(expr)
 	if staticType == nil {
 		return "", nil, false
 	}
+
 	named, structType := unwrapToStruct(staticType)
 	if structType == nil || named == nil {
 		return "", nil, false
 	}
+
 	for method := range named.Methods() {
 		if _, accepted := markers[method.Name()]; !accepted {
 			continue
 		}
+
 		if !signatureIsNoArgsNoReturns(method.Type()) {
 			continue
 		}
+
 		key := rtaSlogMarkerKey{recvTypeName: named.Obj().Name(), methodName: method.Name()}
 		if _, ok := emptyMethods[key]; !ok {
 			continue
 		}
+
 		return method.Name(), staticType, true
 	}
+
 	return "", nil, false
 }
 
@@ -331,14 +414,17 @@ func unwrapToStruct(t types.Type) (*types.Named, *types.Struct) {
 	if ptr, ok := t.(*types.Pointer); ok {
 		t = ptr.Elem()
 	}
-	named, ok := t.(*types.Named)
-	if !ok {
+
+	named, valid := t.(*types.Named)
+	if !valid {
 		return nil, nil
 	}
-	structType, ok := named.Underlying().(*types.Struct)
-	if !ok {
+
+	structType, valid := named.Underlying().(*types.Struct)
+	if !valid {
 		return nil, nil
 	}
+
 	return named, structType
 }
 
@@ -347,6 +433,7 @@ func signatureIsNoArgsNoReturns(t types.Type) bool {
 	if !ok {
 		return false
 	}
+
 	return sig.Params().Len() == 0 && sig.Results().Len() == 0
 }
 
@@ -364,13 +451,16 @@ func isInlineOrLocallyScopedValue(fnBody *ast.BlockStmt, expr ast.Expr) bool {
 	if isCompositeOrAddrOfComposite(expr) {
 		return true
 	}
+
 	ident, ok := expr.(*ast.Ident)
 	if !ok {
 		return false
 	}
+
 	if ident.Name == "_" {
 		return false
 	}
+
 	return localVarHasNoOtherConsumer(fnBody, ident)
 }
 
@@ -378,13 +468,16 @@ func isCompositeOrAddrOfComposite(expr ast.Expr) bool {
 	if _, ok := expr.(*ast.CompositeLit); ok {
 		return true
 	}
+
 	unary, ok := expr.(*ast.UnaryExpr)
 	if !ok {
 		return false
 	}
+
 	if _, ok := unary.X.(*ast.CompositeLit); ok {
 		return true
 	}
+
 	return false
 }
 
@@ -398,23 +491,32 @@ func isCompositeOrAddrOfComposite(expr ast.Expr) bool {
 func localVarHasNoOtherConsumer(fnBody *ast.BlockStmt, target *ast.Ident) bool {
 	parents := buildParentMap(fnBody)
 	otherConsumer := false
-	ast.Inspect(fnBody, func(node ast.Node) bool {
-		ident, ok := node.(*ast.Ident)
-		if !ok || ident.Name != target.Name {
+	ast.Inspect(
+		fnBody,
+		func(node ast.Node) bool {
+			ident, ok := node.(*ast.Ident)
+			if !ok || ident.Name != target.Name {
+				return true
+			}
+
+			if isDeclarationFromCompositeLit(ident, parents) {
+				return true
+			}
+
+			if isInsideTrackedSlogCallArgs(ident, parents) {
+				return true
+			}
+
+			if isOwnIdentInDecl(ident, parents) {
+				return true
+			}
+
+			otherConsumer = true
+
 			return true
-		}
-		if isDeclarationFromCompositeLit(ident, parents) {
-			return true
-		}
-		if isInsideTrackedSlogCallArgs(ident, parents) {
-			return true
-		}
-		if isOwnIdentInDecl(ident, parents) {
-			return true
-		}
-		otherConsumer = true
-		return true
-	})
+		},
+	)
+
 	return !otherConsumer
 }
 
@@ -429,12 +531,15 @@ func isDeclarationFromCompositeLit(ident *ast.Ident, parents map[ast.Node]ast.No
 	if !ok {
 		return false
 	}
+
 	if len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
 		return false
 	}
+
 	if assign.Lhs[0] != ident {
 		return false
 	}
+
 	return isCompositeOrAddrOfComposite(assign.Rhs[0])
 }
 
@@ -450,6 +555,7 @@ func isOwnIdentInDecl(ident *ast.Ident, parents map[ast.Node]ast.Node) bool {
 	case *ast.ValueSpec:
 		return slices.Contains(p.Names, ident)
 	}
+
 	return false
 }
 
@@ -460,20 +566,25 @@ func isOwnIdentInDecl(ident *ast.Ident, parents map[ast.Node]ast.Node) bool {
 // flowing into the slog field, not into a separate consumer.
 func isInsideTrackedSlogCallArgs(ident *ast.Ident, parents map[ast.Node]ast.Node) bool {
 	var node ast.Node = ident
+
 	for {
 		parent, ok := parents[node]
 		if !ok || parent == nil {
 			return false
 		}
+
 		if call, isCall := parent.(*ast.CallExpr); isCall {
 			if call.Fun == node {
 				return false
 			}
+
 			if isTrackedSlogCall(call) {
 				return true
 			}
+
 			return false
 		}
+
 		node = parent
 	}
 }

@@ -30,27 +30,41 @@ func runGrpcHandlerWithoutPeerEnrichment(pass *analysis.Pass) (any, error) {
 	if !packageImports(pass, "google.golang.org/grpc") {
 		return nil, nil
 	}
+
 	for _, file := range pass.Files {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil || fn.Recv == nil {
 				continue
 			}
+
 			if !isLikelyGrpcServerMethod(fn) {
 				continue
 			}
+
 			if funcReferencesPeerHelper(fn.Body) {
 				continue
 			}
+
 			if !funcContainsAnySlogCall(fn.Body) {
 				continue
 			}
-			reportAtf(pass, file, fn.Pos(), "gRPC handler %s logs without enriching context with peer info; call peer.FromContext or metadata.FromIncomingContext", fn.Name.Name)
+
+			reportAtf(
+				pass,
+				file,
+				fn.Pos(),
+				"gRPC handler %s logs without enriching context with peer info; call "+
+					"peer.FromContext or metadata.FromIncomingContext",
+				fn.Name.Name,
+			)
 		}
 	}
+
 	return nil, nil
 }
 
@@ -58,28 +72,35 @@ func isLikelyGrpcServerMethod(fn *ast.FuncDecl) bool {
 	if fn.Recv == nil || len(fn.Recv.List) == 0 {
 		return false
 	}
+
 	recvName := receiverTypeName(fn.Recv.List[0])
 	if !strings.HasSuffix(recvName, "Server") && !strings.HasSuffix(recvName, "Service") {
 		return false
 	}
+
 	if fn.Type.Params == nil || len(fn.Type.Params.List) < 2 {
 		return false
 	}
+
 	first := fn.Type.Params.List[0]
-	sel, ok := first.Type.(*ast.SelectorExpr)
-	if !ok {
+	sel, valid := first.Type.(*ast.SelectorExpr)
+	if !valid {
 		return false
 	}
-	x, ok := sel.X.(*ast.Ident)
-	if !ok {
+
+	x, valid := sel.X.(*ast.Ident)
+	if !valid {
 		return false
 	}
+
 	if x.Name != "context" || sel.Sel.Name != "Context" {
 		return false
 	}
+
 	if fn.Type.Results == nil || len(fn.Type.Results.List) < 2 {
 		return false
 	}
+
 	return true
 }
 
@@ -88,10 +109,12 @@ func receiverTypeName(field *ast.Field) string {
 	if star, ok := t.(*ast.StarExpr); ok {
 		t = star.X
 	}
+
 	id, ok := t.(*ast.Ident)
 	if !ok {
 		return ""
 	}
+
 	return id.Name
 }
 
@@ -99,29 +122,38 @@ func funcReferencesPeerHelper(body *ast.BlockStmt) bool {
 	if body == nil {
 		return false
 	}
+
 	found := false
-	ast.Inspect(body, func(node ast.Node) bool {
-		if found {
-			return false
-		}
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		recv, name, ok := selectorName(call.Fun)
-		if !ok {
-			return true
-		}
-		switch {
-		case recv == "peer" && name == "FromContext":
-			found = true
-		case recv == "metadata" && (name == "FromIncomingContext" || name == "FromOutgoingContext"):
-			found = true
-		case recv == "grpc" && name == "GetPeerCertificates":
-			found = true
-		}
-		return !found
-	})
+	ast.Inspect(
+		body,
+		func(node ast.Node) bool {
+			if found {
+				return false
+			}
+
+			call, valid := node.(*ast.CallExpr)
+			if !valid {
+				return true
+			}
+
+			recv, name, valid := selectorName(call.Fun)
+			if !valid {
+				return true
+			}
+
+			switch {
+			case recv == "peer" && name == "FromContext":
+				found = true
+			case recv == "metadata" && (name == "FromIncomingContext" || name == "FromOutgoingContext"):
+				found = true
+			case recv == "grpc" && name == "GetPeerCertificates":
+				found = true
+			}
+
+			return !found
+		},
+	)
+
 	return found
 }
 
@@ -129,21 +161,29 @@ func funcContainsAnySlogCall(body *ast.BlockStmt) bool {
 	if body == nil {
 		return false
 	}
+
 	found := false
-	ast.Inspect(body, func(node ast.Node) bool {
-		if found {
-			return false
-		}
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
+	ast.Inspect(
+		body,
+		func(node ast.Node) bool {
+			if found {
+				return false
+			}
+
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+
+			if isAnyLevelSlogCall(call) {
+				found = true
+				return false
+			}
+
 			return true
-		}
-		if isAnyLevelSlogCall(call) {
-			found = true
-			return false
-		}
-		return true
-	})
+		},
+	)
+
 	return found
 }
 
@@ -173,19 +213,55 @@ var SensitiveFieldInLogAnalyzer = &analysis.Analyzer{
 // need to invent a name that does not contain any sensitive token
 // substring, which is itself suspicious in code review.
 var sensitiveKeyPrefixes = []string{
-	"password", "passwd", "pwd", "pass",
-	"secret", "secrets",
-	"token", "tokens", "access_token", "refresh_token", "id_token",
-	"apikey", "api_key", "api-key",
-	"private_key", "privatekey", "private-key",
-	"key_pem", "keypem", "pem",
-	"bearer", "auth", "authorization", "authn", "authentication",
-	"credential", "credentials", "cred", "creds",
-	"jwt", "session", "session_id", "cookie", "csrf",
-	"oauth", "client_secret", "clientsecret",
-	"signature", "signing_key", "hmac",
-	"ssh_key", "sshkey", "private", "privkey",
-	"otp", "mfa", "totp", "passcode", "pin",
+	"password",
+	"passwd",
+	"pwd",
+	"pass",
+	"secret",
+	"secrets",
+	"token",
+	"tokens",
+	"access_token",
+	"refresh_token",
+	"id_token",
+	"apikey",
+	"api_key",
+	"api-key",
+	"private_key",
+	"privatekey",
+	"private-key",
+	"key_pem",
+	"keypem",
+	"pem",
+	"bearer",
+	"auth",
+	"authorization",
+	"authn",
+	"authentication",
+	"credential",
+	"credentials",
+	"cred",
+	"creds",
+	"jwt",
+	"session",
+	"session_id",
+	"cookie",
+	"csrf",
+	"oauth",
+	"client_secret",
+	"clientsecret",
+	"signature",
+	"signing_key",
+	"hmac",
+	"ssh_key",
+	"sshkey",
+	"private",
+	"privkey",
+	"otp",
+	"mfa",
+	"totp",
+	"passcode",
+	"pin",
 }
 
 func runSensitiveFieldInLog(pass *analysis.Pass) (any, error) {
@@ -193,27 +269,42 @@ func runSensitiveFieldInLog(pass *analysis.Pass) (any, error) {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
-		ast.Inspect(file, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok || !isAnyLevelSlogCall(call) {
-				return true
-			}
-			for _, arg := range call.Args {
-				lit, ok := stringLiteral(arg)
-				if !ok {
-					continue
+
+		ast.Inspect(
+			file,
+			func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok || !isAnyLevelSlogCall(call) {
+					return true
 				}
-				lower := strings.ToLower(lit)
-				for _, prefix := range sensitiveKeyPrefixes {
-					if strings.Contains(lower, prefix) {
-						reportAtf(pass, file, arg.Pos(), "slog key %q looks sensitive; redact or log a summary", lit)
-						break
+
+				for _, arg := range call.Args {
+					lit, ok := stringLiteral(arg)
+					if !ok {
+						continue
+					}
+
+					lower := strings.ToLower(lit)
+
+					for _, prefix := range sensitiveKeyPrefixes {
+						if strings.Contains(lower, prefix) {
+							reportAtf(
+								pass,
+								file,
+								arg.Pos(),
+								"slog key %q looks sensitive; redact or log a summary",
+								lit,
+							)
+							break
+						}
 					}
 				}
-			}
-			return true
-		})
+
+				return true
+			},
+		)
 	}
+
 	return nil, nil
 }
 
@@ -221,10 +312,12 @@ func packageImports(pass *analysis.Pass, importPath string) bool {
 	if pass.Pkg == nil {
 		return false
 	}
+
 	for _, imp := range pass.Pkg.Imports() {
 		if imp.Path() == importPath || strings.HasPrefix(imp.Path(), importPath+"/") {
 			return true
 		}
 	}
+
 	return false
 }

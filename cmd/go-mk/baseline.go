@@ -8,10 +8,11 @@
 package main
 
 import (
+	"os"
+
 	"goodkind.io/go-makefile/internal/baseline"
 	"goodkind.io/go-makefile/internal/gate"
 	"goodkind.io/go-makefile/internal/lint"
-	"os"
 )
 
 // baselineMode is the named enum of baseline update modes, mirroring the shell
@@ -69,6 +70,7 @@ func runBaselineForNotice(args []string, directive noticeDirective) int {
 	if !ok {
 		return 2
 	}
+
 	component := componentAll
 	if len(args) > 0 && args[0] != "" {
 		component = baselineComponent(args[0])
@@ -106,6 +108,7 @@ func runBaselineForNotice(args []string, directive noticeDirective) int {
 		writeStderr("go-mk: " + err.Error() + "\n")
 		updateStatus = carryStatus(updateStatus, 1)
 	}
+
 	return updateStatus
 }
 
@@ -116,6 +119,7 @@ func carryStatus(current, result int) int {
 	if result != 0 {
 		return result
 	}
+
 	return current
 }
 
@@ -128,6 +132,7 @@ func normalizeBaselineMode(raw string) (string, bool) {
 	if mode == "" {
 		mode = string(modeSync)
 	}
+
 	switch baselineMode(mode) {
 	case modeSync, modePruneFixed, modeRemoveFixed, modeAcceptNew:
 		return mode, true
@@ -144,6 +149,7 @@ func flushBaseline(collector *baselineCollector) error {
 	if len(collector.components) == 0 {
 		return nil
 	}
+
 	return writeManifest(baseline.Manifest{Components: collector.components}, false)
 }
 
@@ -159,10 +165,12 @@ func baselineGatePasses() bool {
 	if !gate.ConfirmAccepted(os.Getenv("BASELINE_CONFIRM")) {
 		return false
 	}
+
 	expectedRaw, ok := gateTokenExpected(os.Getenv("BASELINE_TOKEN_CMD"))
 	if !ok {
 		return false
 	}
+
 	return gate.TokensMatch(expectedRaw, os.Getenv("BASELINE_TOKEN"))
 }
 
@@ -173,18 +181,22 @@ func updateGolangciBaseline(collector *baselineCollector, mode string) int {
 	if !baselineGatePasses() {
 		return 0
 	}
+
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+
 	findingsPath := makeDir + "/golangci-lint-baseline.out"
 	rawPath := makeDir + "/golangci-lint-baseline.raw.out"
 	excludePattern := golangciExcludePattern()
 	if err := runLintTools(); err != nil {
 		return statusFromError(err)
 	}
+
 	if err := runCaptureGolangciBaseline([]string{rawPath, findingsPath}); err != nil {
 		return statusFromError(err)
 	}
+
 	collector.add(baseline.Component{
 		Title:          "golangci-lint",
 		Label:          "golangci-lint",
@@ -193,6 +205,7 @@ func updateGolangciBaseline(collector *baselineCollector, mode string) int {
 		Mode:           mode,
 		ExcludePattern: excludePattern,
 	})
+
 	return 0
 }
 
@@ -203,15 +216,20 @@ func updateGolangciBaseline(collector *baselineCollector, mode string) int {
 func updateGolangciBaselineScope(collector *baselineCollector, mode string) int {
 	scopePattern := lint.GolangciScopePattern(
 		os.Getenv("GOLANGCI_LINT_BASELINE_SCOPE_PATTERN"),
-		os.Getenv("RULE"), os.Getenv("LINTER"),
+		os.Getenv("RULE"),
+		os.Getenv("LINTER"),
 	)
 	if scopePattern == "" {
-		writeStdout("golangci-lint scope baseline: set LINTER=<name>, RULE=<name>, or GOLANGCI_LINT_BASELINE_SCOPE_PATTERN\n")
+		writeStdout(
+			"golangci-lint scope baseline: set LINTER=<name>, RULE=<name>, or GOLANGCI_LINT_BASELINE_SCOPE_PATTERN\n",
+		)
 		return 1
 	}
+
 	if !baselineGatePasses() {
 		return 0
 	}
+
 	return writeGolangciScopeBaseline(collector, mode, scopePattern, captureGolangciScopeFindings)
 }
 
@@ -222,21 +240,37 @@ func updateGolangciBaselineScope(collector *baselineCollector, mode string) int 
 func autoBaselineGolangciScope(collector *baselineCollector, directive noticeDirective) int {
 	scopePattern := lint.GolangciScopePattern(
 		os.Getenv("GOLANGCI_LINT_BASELINE_SCOPE_PATTERN"),
-		os.Getenv("RULE"), os.Getenv("LINTER"),
+		os.Getenv("RULE"),
+		os.Getenv("LINTER"),
 	)
 	if scopePattern == "" {
-		writeStdout("auto-baseline: missing scope; set LINTER, RULE, or GOLANGCI_LINT_BASELINE_SCOPE_PATTERN\n")
+		writeStdout(
+			"auto-baseline: missing scope; set LINTER, RULE, or GOLANGCI_LINT_BASELINE_SCOPE_PATTERN\n",
+		)
 		return 1
 	}
+
 	captured := &baselineCollector{}
-	if code := writeGolangciScopeBaseline(captured, string(modeSync), scopePattern, captureNoticeGolangciFindings); code != 0 {
+	if code := writeGolangciScopeBaseline(
+		captured,
+		string(modeSync),
+		scopePattern,
+		captureNoticeGolangciFindings,
+	); code != 0 {
 		return code
 	}
+
 	component := captured.components[0]
-	if err := restrictNoticeFindings(component.FindingsFile, directive, captureNoticeGolangciFindings); err != nil {
+	if err := restrictNoticeFindings(
+		component.FindingsFile,
+		directive,
+		captureNoticeGolangciFindings,
+	); err != nil {
 		return statusFromError(err)
 	}
+
 	collector.add(component)
+
 	return 0
 }
 
@@ -244,19 +278,27 @@ func autoBaselineGolangciScope(collector *baselineCollector, directive noticeDir
 // record carrying the scope pattern, mirroring write_golangci_scope_baseline.
 // The scope pattern reaches baseline.PlanComponent so the scoped rewrite
 // preserves every out-of-scope baseline row byte-for-byte.
-func writeGolangciScopeBaseline(collector *baselineCollector, mode, scopePattern string, capture func(string, string) error) int {
+func writeGolangciScopeBaseline(
+	collector *baselineCollector,
+	mode string,
+	scopePattern string,
+	capture func(string, string) error,
+) int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+
 	findingsPath := makeDir + "/golangci-lint-scope-baseline.out"
 	rawPath := makeDir + "/golangci-lint-scope-baseline.raw.out"
 	excludePattern := golangciExcludePattern()
 	if err := runLintTools(); err != nil {
 		return statusFromError(err)
 	}
+
 	if err := capture(rawPath, findingsPath); err != nil {
 		return statusFromError(err)
 	}
+
 	collector.add(baseline.Component{
 		Title:          "golangci-lint",
 		Label:          "golangci-lint",
@@ -266,6 +308,7 @@ func writeGolangciScopeBaseline(collector *baselineCollector, mode, scopePattern
 		ExcludePattern: excludePattern,
 		ScopePattern:   scopePattern,
 	})
+
 	return 0
 }
 
@@ -275,9 +318,11 @@ func updateGocycloBaseline(collector *baselineCollector, mode string) int {
 	if !baselineGatePasses() {
 		return 0
 	}
+
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+
 	findingsPath := makeDir + "/gocyclo-baseline.out"
 	rawPath := makeDir + "/gocyclo-baseline.raw.out"
 	excludePattern := lint.ExcludePattern(
@@ -287,6 +332,7 @@ func updateGocycloBaseline(collector *baselineCollector, mode string) int {
 	if err := runCaptureGocyclo([]string{rawPath, findingsPath}); err != nil {
 		return statusFromError(err)
 	}
+
 	collector.add(baseline.Component{
 		Title:          "gocyclo",
 		Label:          "gocyclo",
@@ -295,6 +341,7 @@ func updateGocycloBaseline(collector *baselineCollector, mode string) int {
 		Mode:           mode,
 		ExcludePattern: excludePattern,
 	})
+
 	return 0
 }
 
@@ -304,9 +351,11 @@ func updateDeadcodeBaseline(collector *baselineCollector, mode string) int {
 	if !baselineGatePasses() {
 		return 0
 	}
+
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+
 	findingsPath := makeDir + "/deadcode-baseline.out"
 	rawPath := makeDir + "/deadcode-baseline.raw.out"
 	excludePattern := lint.ExcludePattern(
@@ -316,6 +365,7 @@ func updateDeadcodeBaseline(collector *baselineCollector, mode string) int {
 	if err := runCaptureDeadcode([]string{rawPath, findingsPath}); err != nil {
 		return statusFromError(err)
 	}
+
 	collector.add(baseline.Component{
 		Title:          "deadcode",
 		Label:          "deadcode",
@@ -324,6 +374,7 @@ func updateDeadcodeBaseline(collector *baselineCollector, mode string) int {
 		Mode:           mode,
 		ExcludePattern: excludePattern,
 	})
+
 	return 0
 }
 
@@ -335,9 +386,11 @@ func updateStaticcheckBaseline(collector *baselineCollector, mode string) int {
 	if !baselineGatePasses() {
 		return 0
 	}
+
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+
 	findingsPath := makeDir + "/staticcheck-extra.out"
 	rawPath := makeDir + "/staticcheck-extra.raw.out"
 	excludePattern := staticcheckExcludePattern()
@@ -348,27 +401,39 @@ func updateStaticcheckBaseline(collector *baselineCollector, mode string) int {
 	if os.Getenv("STATICCHECK_EXTRA_FLAGS") != "" && scopePattern == "" {
 		switch baselineMode(mode) {
 		case modeSync, modePruneFixed, modeRemoveFixed:
-			writeStdout("staticcheck-extra: refusing " + mode + " baseline update with STATICCHECK_EXTRA_FLAGS but no baseline scope pattern\n")
-			writeStdout("Set STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN to the intended finding regex, or unset STATICCHECK_EXTRA_FLAGS for a full baseline update.\n")
+			writeStdout(
+				"staticcheck-extra: refusing " + mode + " baseline update with STATICCHECK_EXTRA_FLAGS but no baseline scope pattern\n",
+			)
+			writeStdout(
+				"Set STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN to the intended finding regex, or unset STATICCHECK_EXTRA_FLAGS for a full baseline update.\n",
+			)
+
 			return 1
 		case modeAcceptNew:
 		}
 	}
+
 	if code := runStaticcheckBin(); code != 0 {
 		return code
 	}
+
 	if err := staticcheckCaptureFindings(rawPath, findingsPath); err != nil {
 		return statusFromError(err)
 	}
+
 	collector.add(baseline.Component{
-		Title:          "staticcheck-extra",
-		Label:          "staticcheck-extra",
-		BaselineFile:   lintEnvDefault("STATICCHECK_EXTRA_BASELINE", ".staticcheck-extra-baseline.txt"),
+		Title: "staticcheck-extra",
+		Label: "staticcheck-extra",
+		BaselineFile: lintEnvDefault(
+			"STATICCHECK_EXTRA_BASELINE",
+			".staticcheck-extra-baseline.txt",
+		),
 		FindingsFile:   findingsPath,
 		Mode:           mode,
 		ExcludePattern: excludePattern,
 		ScopePattern:   scopePattern,
 	})
+
 	return 0
 }
 
@@ -380,28 +445,41 @@ func autoBaselineStaticcheckScope(collector *baselineCollector, directive notice
 		writeStdout("auto-baseline: missing scope; set STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN\n")
 		return 1
 	}
+
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+
 	findingsPath := makeDir + "/staticcheck-extra-scope-baseline.out"
 	rawPath := makeDir + "/staticcheck-extra-scope-baseline.raw.out"
 	if code := runStaticcheckBin(); code != 0 {
 		return code
 	}
+
 	if err := captureNoticeStaticcheckFindings(rawPath, findingsPath); err != nil {
 		return statusFromError(err)
 	}
-	if err := restrictNoticeFindings(findingsPath, directive, captureNoticeStaticcheckFindings); err != nil {
+
+	if err := restrictNoticeFindings(
+		findingsPath,
+		directive,
+		captureNoticeStaticcheckFindings,
+	); err != nil {
 		return statusFromError(err)
 	}
+
 	collector.add(baseline.Component{
-		Title:          "staticcheck-extra",
-		Label:          "staticcheck-extra",
-		BaselineFile:   lintEnvDefault("STATICCHECK_EXTRA_BASELINE", ".staticcheck-extra-baseline.txt"),
+		Title: "staticcheck-extra",
+		Label: "staticcheck-extra",
+		BaselineFile: lintEnvDefault(
+			"STATICCHECK_EXTRA_BASELINE",
+			".staticcheck-extra-baseline.txt",
+		),
 		FindingsFile:   findingsPath,
 		Mode:           string(modeSync),
 		ExcludePattern: staticcheckExcludePattern(),
 		ScopePattern:   scopePattern,
 	})
+
 	return 0
 }

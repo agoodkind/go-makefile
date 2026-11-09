@@ -38,58 +38,90 @@ func mapLines(lines []string, transform func(string) string) []string {
 	for index, line := range lines {
 		result[index] = transform(line)
 	}
+
 	return result
 }
 
 func TestNormalizePath(t *testing.T) {
 	cases := []prefixCase{
-		{"no prefixes", "", "", []string{
-			"pkg/file.go:10:2: something wrong (linter)",
-			"/work/repo/pkg/file.go:10:2: prefixed by pwd",
-			"/work/repo/sub/pkg/file.go:10:2: prefixed by cwd",
-			"pkg/file.go:10:2: leading dotdot pair",
-			"pkg/file.go:7:1: single dotdot",
-			"a line with no colon at all",
-			"unrelated/path.go:3:4: neither prefix here",
-		}},
-		{"cwd only", "", fixtureCwd, []string{
-			"pkg/file.go:10:2: something wrong (linter)",
-			"/work/repo/pkg/file.go:10:2: prefixed by pwd",
-			"pkg/file.go:10:2: prefixed by cwd",
-			"pkg/file.go:10:2: leading dotdot pair",
-			"pkg/file.go:7:1: single dotdot",
-			"a line with no colon at all",
-			"unrelated/path.go:3:4: neither prefix here",
-		}},
-		{"pwd only", fixturePwd, "", []string{
-			"pkg/file.go:10:2: something wrong (linter)",
-			"pkg/file.go:10:2: prefixed by pwd",
-			"sub/pkg/file.go:10:2: prefixed by cwd",
-			"pkg/file.go:10:2: leading dotdot pair",
-			"pkg/file.go:7:1: single dotdot",
-			"a line with no colon at all",
-			"unrelated/path.go:3:4: neither prefix here",
-		}},
-		{"pwd prefix of cwd, with cwd", pwdPrefixOfCwd, fixtureCwd, []string{
-			"pkg/file.go:10:2: something wrong (linter)",
-			"repo/pkg/file.go:10:2: prefixed by pwd",
-			"repo/sub/pkg/file.go:10:2: prefixed by cwd",
-			"pkg/file.go:10:2: leading dotdot pair",
-			"pkg/file.go:7:1: single dotdot",
-			"a line with no colon at all",
-			"unrelated/path.go:3:4: neither prefix here",
-		}},
+		{
+			"no prefixes",
+			"",
+			"",
+			[]string{
+				"pkg/file.go:10:2: something wrong (linter)",
+				"/work/repo/pkg/file.go:10:2: prefixed by pwd",
+				"/work/repo/sub/pkg/file.go:10:2: prefixed by cwd",
+				"pkg/file.go:10:2: leading dotdot pair",
+				"pkg/file.go:7:1: single dotdot",
+				"a line with no colon at all",
+				"unrelated/path.go:3:4: neither prefix here",
+			},
+		},
+		{
+			"cwd only",
+			"",
+			fixtureCwd,
+			[]string{
+				"pkg/file.go:10:2: something wrong (linter)",
+				"/work/repo/pkg/file.go:10:2: prefixed by pwd",
+				"pkg/file.go:10:2: prefixed by cwd",
+				"pkg/file.go:10:2: leading dotdot pair",
+				"pkg/file.go:7:1: single dotdot",
+				"a line with no colon at all",
+				"unrelated/path.go:3:4: neither prefix here",
+			},
+		},
+		{
+			"pwd only",
+			fixturePwd,
+			"",
+			[]string{
+				"pkg/file.go:10:2: something wrong (linter)",
+				"pkg/file.go:10:2: prefixed by pwd",
+				"sub/pkg/file.go:10:2: prefixed by cwd",
+				"pkg/file.go:10:2: leading dotdot pair",
+				"pkg/file.go:7:1: single dotdot",
+				"a line with no colon at all",
+				"unrelated/path.go:3:4: neither prefix here",
+			},
+		},
+		{
+			"pwd prefix of cwd, with cwd",
+			pwdPrefixOfCwd,
+			fixtureCwd,
+			[]string{
+				"pkg/file.go:10:2: something wrong (linter)",
+				"repo/pkg/file.go:10:2: prefixed by pwd",
+				"repo/sub/pkg/file.go:10:2: prefixed by cwd",
+				"pkg/file.go:10:2: leading dotdot pair",
+				"pkg/file.go:7:1: single dotdot",
+				"a line with no colon at all",
+				"unrelated/path.go:3:4: neither prefix here",
+			},
+		},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			got := mapLines(inputLines, func(line string) string {
-				return findings.NormalizePath(line, testCase.pwd, testCase.cwd)
-			})
-			if !reflect.DeepEqual(got, testCase.want) {
-				t.Errorf("NormalizePath pwd=%q cwd=%q\ngot:  %q\nwant: %q",
-					testCase.pwd, testCase.cwd, got, testCase.want)
-			}
-		})
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				got := mapLines(
+					inputLines,
+					func(line string) string {
+						return findings.NormalizePath(line, testCase.pwd, testCase.cwd)
+					},
+				)
+				if !reflect.DeepEqual(got, testCase.want) {
+					t.Errorf(
+						"NormalizePath pwd=%q cwd=%q\ngot:  %q\nwant: %q",
+						testCase.pwd,
+						testCase.cwd,
+						got,
+						testCase.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -103,9 +135,12 @@ func TestKey(t *testing.T) {
 		"a line with no colon at all",
 		"unrelated/path.go::: neither prefix here",
 	}
-	got := mapLines(inputLines, func(line string) string {
-		return findings.Key(line, fixturePwd, "")
-	})
+	got := mapLines(
+		inputLines,
+		func(line string) string {
+			return findings.Key(line, fixturePwd, "")
+		},
+	)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Key\ngot:  %q\nwant: %q", got, want)
 	}
@@ -120,9 +155,11 @@ func TestPrint(t *testing.T) {
 		"  a line with no colon at all\n" +
 		"  unrelated/path.go:3:4\n    neither prefix here\n"
 	var builder strings.Builder
+
 	for _, line := range inputLines {
 		builder.WriteString(findings.Print(line, fixturePwd, ""))
 	}
+
 	if got := builder.String(); got != want {
 		t.Errorf("Print\ngot:  %q\nwant: %q", got, want)
 	}
@@ -139,31 +176,51 @@ var baselineLines = []string{
 
 func TestBaseline(t *testing.T) {
 	cases := []prefixCase{
-		{"no pwd", "", "", []string{
-			"pkg/file.go:10:2: kept finding",
-			"pkg/other.go:1:1: no marker on this row",
-			"/work/repo/pkg/p.go:5:6: pwd prefixed",
-		}},
-		{"pwd stripped", fixturePwd, "", []string{
-			"pkg/file.go:10:2: kept finding",
-			"pkg/other.go:1:1: no marker on this row",
-			"pkg/p.go:5:6: pwd prefixed",
-		}},
+		{
+			"no pwd",
+			"",
+			"",
+			[]string{
+				"pkg/file.go:10:2: kept finding",
+				"pkg/other.go:1:1: no marker on this row",
+				"/work/repo/pkg/p.go:5:6: pwd prefixed",
+			},
+		},
+		{
+			"pwd stripped",
+			fixturePwd,
+			"",
+			[]string{
+				"pkg/file.go:10:2: kept finding",
+				"pkg/other.go:1:1: no marker on this row",
+				"pkg/p.go:5:6: pwd prefixed",
+			},
+		},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			got := make([]string, 0, len(baselineLines))
-			for _, line := range baselineLines {
-				payload, ok := findings.Baseline(line, "sample", testCase.pwd, testCase.cwd)
-				if !ok {
-					continue
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				got := make([]string, 0, len(baselineLines))
+				for _, line := range baselineLines {
+					payload, ok := findings.Baseline(line, "sample", testCase.pwd, testCase.cwd)
+					if !ok {
+						continue
+					}
+
+					got = append(got, payload)
 				}
-				got = append(got, payload)
-			}
-			if !reflect.DeepEqual(got, testCase.want) {
-				t.Errorf("Baseline pwd=%q\ngot:  %q\nwant: %q", testCase.pwd, got, testCase.want)
-			}
-		})
+
+				if !reflect.DeepEqual(got, testCase.want) {
+					t.Errorf(
+						"Baseline pwd=%q\ngot:  %q\nwant: %q",
+						testCase.pwd,
+						got,
+						testCase.want,
+					)
+				}
+			},
+		)
 	}
 }
 

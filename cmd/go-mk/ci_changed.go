@@ -139,9 +139,13 @@ func runCIChanged() int {
 	outputPath := strings.TrimSpace(os.Getenv("GITHUB_OUTPUT"))
 	repoRoot, rootErr := loggedGitOutput("ci-changed git", "rev-parse", "--show-toplevel")
 	if rootErr != nil {
-		slog.Warn("ci-changed could not resolve repo root; running all gates", slog.String("error", rootErr.Error()))
+		slog.Warn(
+			"ci-changed could not resolve repo root; running all gates",
+			slog.String("error", rootErr.Error()),
+		)
 		return emitChanged(outputPath, writeStdout, true, "git rev-parse failed; running all gates")
 	}
+
 	prefixRaw, _ := loggedGitOutput("ci-changed git", "rev-parse", "--show-prefix")
 	prefix := filepath.ToSlash(prefixRaw)
 
@@ -151,9 +155,12 @@ func runCIChanged() int {
 	}
 
 	config := ciChangedConfig{
-		eventName:      strings.TrimSpace(os.Getenv("GO_MK_EVENT_NAME")),
-		base:           strings.TrimSpace(os.Getenv("GO_MK_DIFF_BASE")),
-		baseIsExact:    strings.EqualFold(strings.TrimSpace(os.Getenv("GO_MK_DIFF_BASE_IS_EXACT")), "true"),
+		eventName: strings.TrimSpace(os.Getenv("GO_MK_EVENT_NAME")),
+		base:      strings.TrimSpace(os.Getenv("GO_MK_DIFF_BASE")),
+		baseIsExact: strings.EqualFold(
+			strings.TrimSpace(os.Getenv("GO_MK_DIFF_BASE_IS_EXACT")),
+			"true",
+		),
 		head:           head,
 		defaultBranch:  strings.TrimSpace(os.Getenv("GO_MK_DEFAULT_BRANCH")),
 		refName:        strings.TrimSpace(os.Getenv("GO_MK_REF_NAME")),
@@ -169,6 +176,7 @@ func runCIChanged() int {
 		submoduleDirs:  func() ([]string, error) { return gitSubmoduleDirs(repoRoot) },
 		stdout:         writeStdout,
 	}
+
 	return runCIChangedWith(config)
 }
 
@@ -178,51 +186,110 @@ func runCIChanged() int {
 // matrix.
 func runCIChangedWith(config ciChangedConfig) int {
 	if config.eventName != "push" {
-		return emitChanged(config.outputPath, config.stdout, true,
-			"event "+config.eventName+" is not push; running all gates")
+		return emitChanged(
+			config.outputPath,
+			config.stdout,
+			true,
+			"event "+config.eventName+" is not push; running all gates",
+		)
 	}
 
 	base := config.base
 	if config.refName != "" && config.refName == config.defaultBranch {
 		if base == "" || base == zeroSHA {
-			return emitChanged(config.outputPath, config.stdout, true,
-				"no base commit (new branch); running all gates")
+			return emitChanged(
+				config.outputPath,
+				config.stdout,
+				true,
+				"no base commit (new branch); running all gates",
+			)
 		}
+
 		if !config.baseIsExact && !config.baseInHistory(base) {
-			return emitChanged(config.outputPath, config.stdout, true,
-				"base commit "+base+" is not an ancestor of head (force push or shallow clone); running all gates")
+			return emitChanged(
+				config.outputPath,
+				config.stdout,
+				true,
+				"base commit "+base+" is not an ancestor of head (force push or shallow clone); running all gates",
+			)
 		}
 	} else {
 		mergeBase, ok := config.mergeBase(config.defaultBranch, config.head)
 		if !ok {
-			return emitChanged(config.outputPath, config.stdout, true,
-				"cannot compute merge-base with "+displayDefaultBranch(config.defaultBranch)+"; running all gates")
+			return emitChanged(
+				config.outputPath,
+				config.stdout,
+				true,
+				"cannot compute merge-base with "+displayDefaultBranch(
+					config.defaultBranch,
+				)+"; running all gates",
+			)
 		}
+
 		base = mergeBase
 	}
+
 	changedPaths, diffErr := config.diffNames(base, config.head)
 	if diffErr != nil {
-		slog.Warn("ci-changed git diff failed; running all gates", slog.String("error", diffErr.Error()))
-		return emitChanged(config.outputPath, config.stdout, true, "git diff failed; running all gates")
+		slog.Warn(
+			"ci-changed git diff failed; running all gates",
+			slog.String("error", diffErr.Error()),
+		)
+		return emitChanged(
+			config.outputPath,
+			config.stdout,
+			true,
+			"git diff failed; running all gates",
+		)
 	}
+
 	if len(changedPaths) == 0 {
-		return emitChanged(config.outputPath, config.stdout, false, "diff is empty; nothing to gate")
+		return emitChanged(
+			config.outputPath,
+			config.stdout,
+			false,
+			"diff is empty; nothing to gate",
+		)
 	}
+
 	generateDirs := generateInputDirs(config.generateInputs)
 	if config.generate != "" && len(generateDirs) == 0 {
-		return emitChanged(config.outputPath, config.stdout, true,
-			"codegen declares no inputs; running all gates")
+		return emitChanged(
+			config.outputPath,
+			config.stdout,
+			true,
+			"codegen declares no inputs; running all gates",
+		)
 	}
+
 	source, listErr := config.sourceFiles()
 	if listErr != nil {
-		slog.Warn("ci-changed go list failed; running all gates", slog.String("error", listErr.Error()))
-		return emitChanged(config.outputPath, config.stdout, true, "go list failed; running all gates")
+		slog.Warn(
+			"ci-changed go list failed; running all gates",
+			slog.String("error", listErr.Error()),
+		)
+		return emitChanged(
+			config.outputPath,
+			config.stdout,
+			true,
+			"go list failed; running all gates",
+		)
 	}
+
 	submodules, subErr := config.submoduleDirs()
 	if subErr != nil {
-		slog.Warn("ci-changed submodule discovery failed; running all gates", slog.String("error", subErr.Error()))
-		return emitChanged(config.outputPath, config.stdout, true, "submodule discovery failed; running all gates")
+		slog.Warn(
+			"ci-changed submodule discovery failed; running all gates",
+			slog.String("error", subErr.Error()),
+		)
+		return emitChanged(
+			config.outputPath,
+			config.stdout,
+			true,
+			"submodule discovery failed; running all gates",
+		)
 	}
+
 	changed, reason := decideChanged(ciChangeInputs{
 		changedPaths:  changedPaths,
 		sourceFiles:   source,
@@ -230,6 +297,7 @@ func runCIChangedWith(config ciChangedConfig) int {
 		workspaceDirs: workspaceTriggerDirs(config.workspaceUse, config.prefix),
 		generateDirs:  generateDirs,
 	})
+
 	return emitChanged(config.outputPath, config.stdout, changed, reason)
 }
 
@@ -246,26 +314,33 @@ func decideChanged(inputs ciChangeInputs) (bool, string) {
 	for _, file := range inputs.sourceFiles {
 		source[file] = struct{}{}
 	}
+
 	for _, path := range inputs.changedPaths {
 		if _, ok := source[path]; ok {
 			return true, "Go build input changed: " + path
 		}
+
 		if hasSourceExtension(path) {
 			return true, "source file changed: " + path
 		}
+
 		if isBuildConfigPath(path) {
 			return true, "build configuration changed: " + path
 		}
+
 		if underAnyDir(path, inputs.submoduleDirs) {
 			return true, "submodule changed: " + path
 		}
+
 		if underAnyDir(path, inputs.workspaceDirs) {
 			return true, "workspace input changed: " + path
 		}
+
 		if underAnyDir(path, inputs.generateDirs) {
 			return true, "declared codegen input changed: " + path
 		}
 	}
+
 	return false, "no Go-relevant changes"
 }
 
@@ -283,9 +358,11 @@ func isBuildConfigPath(path string) bool {
 	if _, ok := buildConfigBasenames[filepath.Base(path)]; ok {
 		return true
 	}
+
 	if strings.HasSuffix(path, ".mk") {
 		return true
 	}
+
 	return strings.HasPrefix(path, ".github/workflows/")
 }
 
@@ -296,10 +373,12 @@ func underAnyDir(path string, dirs []string) bool {
 		if dir == "" {
 			continue
 		}
+
 		if path == dir || strings.HasPrefix(path, dir+"/") {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -310,16 +389,20 @@ func underAnyDir(path string, dirs []string) bool {
 func workspaceTriggerDirs(workspaceUse, prefix string) []string {
 	base := strings.TrimSuffix(prefix, "/")
 	dirs := make([]string, 0)
+
 	for _, field := range strings.Fields(workspaceUse) {
 		if field == "." || field == "" {
 			continue
 		}
+
 		joined := field
 		if base != "" {
 			joined = base + "/" + field
 		}
+
 		dirs = append(dirs, filepath.ToSlash(filepath.Clean(joined)))
 	}
+
 	return dirs
 }
 
@@ -327,6 +410,7 @@ func displayDefaultBranch(defaultBranch string) string {
 	if defaultBranch == "" {
 		return "default branch"
 	}
+
 	return defaultBranch
 }
 
@@ -335,12 +419,15 @@ func displayDefaultBranch(defaultBranch string) string {
 // parser only splits fields, drops ".", and normalizes separators.
 func generateInputDirs(generateInputs string) []string {
 	dirs := make([]string, 0)
+
 	for _, field := range strings.Fields(generateInputs) {
 		if field == "." || field == "" {
 			continue
 		}
+
 		dirs = append(dirs, filepath.ToSlash(filepath.Clean(field)))
 	}
+
 	return dirs
 }
 
@@ -352,25 +439,33 @@ func emitChanged(outputPath string, stdout func(string), changed bool, reason st
 	if changed {
 		value = "true"
 	}
+
 	stdout("ci-changed: " + value + " (" + reason + ")\n")
 	if outputPath != "" {
 		if err := appendOutput(outputPath, "changed", value); err != nil {
 			slog.Warn("ci-changed could not write GITHUB_OUTPUT", slog.String("error", err.Error()))
 		}
 	}
+
 	return 0
 }
 
 // appendOutput appends a key=value line to a GitHub Actions output file. It
 // mutates the filesystem, so it emits a boundary log.
 func appendOutput(path, key, value string) error {
-	slog.Info("ci-changed write github output", slog.String("key", key), slog.String("value", value))
+	slog.Info(
+		"ci-changed write github output",
+		slog.String("key", key),
+		slog.String("value", value),
+	)
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = file.Close() }()
 	_, err = file.WriteString(key + "=" + value + "\n")
+
 	return err
 }
 
@@ -379,7 +474,11 @@ func appendOutput(path, key, value string) error {
 // rewrote history (base no longer reachable from head) or a shallow clone (base
 // absent) makes it false, where the caller fails safe to running every gate.
 func gitIsAncestor(base, head string) bool {
-	slog.Info("ci-changed verify base ancestry", slog.String("base", base), slog.String("head", head))
+	slog.Info(
+		"ci-changed verify base ancestry",
+		slog.String("base", base),
+		slog.String("head", head),
+	)
 	return exec.Command("git", "merge-base", "--is-ancestor", base, head).Run() == nil
 }
 
@@ -387,10 +486,18 @@ func gitIsAncestor(base, head string) bool {
 // head, including renames and deletions. It spawns a process, so it emits a
 // boundary log.
 func gitDiffNames(base, head string) ([]string, error) {
-	out, err := loggedGitOutput("ci-changed git diff", "diff", "--name-only", "--diff-filter=ACMRTD", base, head)
+	out, err := loggedGitOutput(
+		"ci-changed git diff",
+		"diff",
+		"--name-only",
+		"--diff-filter=ACMRTD",
+		base,
+		head,
+	)
 	if err != nil {
 		return nil, err
 	}
+
 	return splitNonEmptyLines(out), nil
 }
 
@@ -402,29 +509,47 @@ func gitMergeBase(defaultBranch, head string) (string, bool) {
 	if defaultBranch == "" {
 		return "", false
 	}
+
 	defaultRef := "origin/" + defaultBranch
 	base, err := loggedGitOutput("ci-changed git merge-base", "merge-base", defaultRef, head)
 	if err == nil && base != "" {
 		return base, true
 	}
-	slog.Warn("ci-changed merge-base failed; fetching default branch and retrying",
+
+	slog.Warn(
+		"ci-changed merge-base failed; fetching default branch and retrying",
 		slog.String("default_ref", defaultRef),
 		slog.String("head", head),
-		slog.String("error", errString(err)))
-	if _, fetchErr := loggedGitOutput("ci-changed git fetch default branch", "fetch", "--no-tags", "origin", defaultBranch); fetchErr != nil {
-		slog.Warn("ci-changed fetch default branch failed",
+		slog.String("error", errString(err)),
+	)
+	if _, fetchErr := loggedGitOutput(
+		"ci-changed git fetch default branch",
+		"fetch",
+		"--no-tags",
+		"origin",
+		defaultBranch,
+	); fetchErr != nil {
+		slog.Warn(
+			"ci-changed fetch default branch failed",
 			slog.String("default_ref", defaultRef),
-			slog.String("error", fetchErr.Error()))
+			slog.String("error", fetchErr.Error()),
+		)
+
 		return "", false
 	}
+
 	base, err = loggedGitOutput("ci-changed git merge-base", "merge-base", defaultRef, head)
 	if err != nil || base == "" {
-		slog.Warn("ci-changed merge-base retry failed",
+		slog.Warn(
+			"ci-changed merge-base retry failed",
 			slog.String("default_ref", defaultRef),
 			slog.String("head", head),
-			slog.String("error", errString(err)))
+			slog.String("error", errString(err)),
+		)
+
 		return "", false
 	}
+
 	return base, true
 }
 
@@ -432,6 +557,7 @@ func errString(err error) string {
 	if err == nil {
 		return ""
 	}
+
 	return err.Error()
 }
 
@@ -445,7 +571,15 @@ func gitSubmoduleDirs(root string) ([]string, error) {
 	if _, err := os.Stat(gitmodules); err != nil {
 		return nil, nil
 	}
-	out, err := loggedGitOutput("ci-changed git submodules", "config", "--file", gitmodules, "--get-regexp", `^submodule\..*\.path$`)
+
+	out, err := loggedGitOutput(
+		"ci-changed git submodules",
+		"config",
+		"--file",
+		gitmodules,
+		"--get-regexp",
+		`^submodule\..*\.path$`,
+	)
 	if err != nil {
 		// git config exits 1 when the regexp matches nothing, which is a normal
 		// empty result, not a failure. Any other exit is a real read error.
@@ -453,15 +587,19 @@ func gitSubmoduleDirs(root string) ([]string, error) {
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			return nil, nil
 		}
+
 		return nil, err
 	}
+
 	dirs := make([]string, 0)
+
 	for _, line := range splitNonEmptyLines(string(out)) {
 		fields := strings.Fields(line)
 		if len(fields) >= 2 {
 			dirs = append(dirs, filepath.ToSlash(fields[len(fields)-1]))
 		}
 	}
+
 	return dirs, nil
 }
 
@@ -475,6 +613,7 @@ func loggedGoListOutput() (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	return string(out), nil
 }
 
@@ -487,16 +626,20 @@ func goListSourceFiles(root string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	decoder := json.NewDecoder(strings.NewReader(out))
 	files := make([]string, 0)
+
 	for decoder.More() {
 		var pkg goListPackage
 		if decodeErr := decoder.Decode(&pkg); decodeErr != nil {
 			return nil, decodeErr
 		}
+
 		if pkg.Standard || pkg.Dir == "" {
 			continue
 		}
+
 		for _, group := range packageFileGroups(pkg) {
 			for _, name := range group {
 				rel, ok := repoRelative(root, filepath.Join(pkg.Dir, name))
@@ -506,6 +649,7 @@ func goListSourceFiles(root string) ([]string, error) {
 			}
 		}
 	}
+
 	return sortedUnique(files), nil
 }
 
@@ -513,10 +657,22 @@ func goListSourceFiles(root string) ([]string, error) {
 // input of one package.
 func packageFileGroups(pkg goListPackage) [][]string {
 	return [][]string{
-		pkg.GoFiles, pkg.CgoFiles, pkg.CFiles, pkg.CXXFiles, pkg.MFiles,
-		pkg.HFiles, pkg.FFiles, pkg.SFiles, pkg.SwigFiles, pkg.SwigCXXFiles,
-		pkg.SysoFiles, pkg.EmbedFiles, pkg.TestGoFiles, pkg.XTestGoFiles,
-		pkg.TestEmbedFiles, pkg.XTestEmbedFiles,
+		pkg.GoFiles,
+		pkg.CgoFiles,
+		pkg.CFiles,
+		pkg.CXXFiles,
+		pkg.MFiles,
+		pkg.HFiles,
+		pkg.FFiles,
+		pkg.SFiles,
+		pkg.SwigFiles,
+		pkg.SwigCXXFiles,
+		pkg.SysoFiles,
+		pkg.EmbedFiles,
+		pkg.TestGoFiles,
+		pkg.XTestGoFiles,
+		pkg.TestEmbedFiles,
+		pkg.XTestEmbedFiles,
 	}
 }
 
@@ -527,21 +683,25 @@ func repoRelative(root, full string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+
 	rel = filepath.ToSlash(rel)
 	if rel == ".." || strings.HasPrefix(rel, "../") {
 		return "", false
 	}
+
 	return rel, true
 }
 
 // splitNonEmptyLines splits text on newlines and drops blank lines.
 func splitNonEmptyLines(text string) []string {
 	lines := make([]string, 0)
+
 	for _, line := range strings.Split(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed != "" {
 			lines = append(lines, trimmed)
 		}
 	}
+
 	return lines
 }

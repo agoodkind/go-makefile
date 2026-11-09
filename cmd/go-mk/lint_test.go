@@ -17,9 +17,15 @@ func TestExtractFindingsDropsOutOfTree(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "cmd"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "cmd", "main.go"), []byte("package main\n"), 0o644); err != nil {
+
+	if err := os.WriteFile(
+		filepath.Join(root, "cmd", "main.go"),
+		[]byte("package main\n"),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
+
 	t.Setenv("_GO_MK_ROOT", root)
 
 	rawPath := filepath.Join(root, "raw.out")
@@ -33,12 +39,15 @@ func TestExtractFindingsDropsOutOfTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if dropped != 1 {
 		t.Errorf("dropped = %d, want 1", dropped)
 	}
+
 	if !slices.Contains(kept, "cmd/main.go:6:11: real local finding (errcheck)") {
 		t.Errorf("local finding missing from kept: %v", kept)
 	}
+
 	for _, line := range kept {
 		if strings.Contains(line, "phantom") {
 			t.Errorf("out-of-tree finding survived: %q", line)
@@ -49,11 +58,13 @@ func TestExtractFindingsDropsOutOfTree(t *testing.T) {
 // envValue returns the value of key in a KEY=VALUE environment slice.
 func envValue(env []string, key string) (string, bool) {
 	prefix := key + "="
+
 	for _, entry := range env {
 		if strings.HasPrefix(entry, prefix) {
 			return entry[len(prefix):], true
 		}
 	}
+
 	return "", false
 }
 
@@ -66,15 +77,18 @@ func TestLintEnvGolangciCacheDefault(t *testing.T) {
 	if !ok {
 		t.Fatal("lintEnv did not set GOLANGCI_LINT_CACHE")
 	}
+
 	// golangci-lint requires an absolute cache path, so the default must be
 	// absolute, not the relative ".make/golangci-cache".
 	if !filepath.IsAbs(got) {
 		t.Errorf("GOLANGCI_LINT_CACHE = %q, want an absolute path", got)
 	}
+
 	want, err := filepath.Abs(filepath.Join(makeDir, "golangci-cache"))
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if got != want {
 		t.Errorf("GOLANGCI_LINT_CACHE = %q, want %q", got, want)
 	}
@@ -108,13 +122,22 @@ func TestToolFailedWithoutFindings(t *testing.T) {
 		{name: "has findings", status: 1, count: 3, dropped: 0, want: false},
 	}
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			got := toolFailedWithoutFindings(testCase.status, testCase.count, testCase.dropped)
-			if got != testCase.want {
-				t.Errorf("toolFailedWithoutFindings(%d, %d, %d) = %v, want %v",
-					testCase.status, testCase.count, testCase.dropped, got, testCase.want)
-			}
-		})
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				got := toolFailedWithoutFindings(testCase.status, testCase.count, testCase.dropped)
+				if got != testCase.want {
+					t.Errorf(
+						"toolFailedWithoutFindings(%d, %d, %d) = %v, want %v",
+						testCase.status,
+						testCase.count,
+						testCase.dropped,
+						got,
+						testCase.want,
+					)
+				}
+			},
+		)
 	}
 }
 

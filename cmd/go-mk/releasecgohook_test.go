@@ -14,6 +14,7 @@ func TestGoMkCgoDepsCgoHookResolvesCompilerEnvironment(t *testing.T) {
 	if err != nil {
 		t.Skip("make not available")
 	}
+
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatalf("repo root: %v", err)
@@ -57,24 +58,28 @@ func TestGoMkCgoDepsCgoHookResolvesCompilerEnvironment(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			workDir := writeCgoHookCompilerFixture(t, repoRoot)
-			cmd := exec.Command(makeBin, "go-mk-cgo-deps", "_GO_MK_PROVISIONED=1")
-			cmd.Dir = workDir
-			cmd.Env = cgoHookCompilerEnv(workDir, testCase.env)
-			if output, err := cmd.CombinedOutput(); err != nil {
-				t.Fatalf("make go-mk-cgo-deps failed: %v\n%s", err, output)
-			}
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				workDir := writeCgoHookCompilerFixture(t, repoRoot)
+				cmd := exec.Command(makeBin, "go-mk-cgo-deps", "_GO_MK_PROVISIONED=1")
+				cmd.Dir = workDir
+				cmd.Env = cgoHookCompilerEnv(workDir, testCase.env)
+				if output, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("make go-mk-cgo-deps failed: %v\n%s", err, output)
+				}
 
-			gotCC := readCgoHookObservedCompiler(t, filepath.Join(workDir, "cc-observed.txt"))
-			if gotCC != testCase.wantCC {
-				t.Fatalf("CC = %q, want %q", gotCC, testCase.wantCC)
-			}
-			gotCXX := readCgoHookObservedCompiler(t, filepath.Join(workDir, "cxx-observed.txt"))
-			if gotCXX != testCase.wantCXX {
-				t.Fatalf("CXX = %q, want %q", gotCXX, testCase.wantCXX)
-			}
-		})
+				gotCC := readCgoHookObservedCompiler(t, filepath.Join(workDir, "cc-observed.txt"))
+				if gotCC != testCase.wantCC {
+					t.Fatalf("CC = %q, want %q", gotCC, testCase.wantCC)
+				}
+
+				gotCXX := readCgoHookObservedCompiler(t, filepath.Join(workDir, "cxx-observed.txt"))
+				if gotCXX != testCase.wantCXX {
+					t.Fatalf("CXX = %q, want %q", gotCXX, testCase.wantCXX)
+				}
+			},
+		)
 	}
 }
 
@@ -86,13 +91,19 @@ func writeCgoHookCompilerFixture(t *testing.T, repoRoot string) string {
 	if err := os.MkdirAll(filepath.Join(workDir, ".make"), 0o755); err != nil {
 		t.Fatalf("mkdir .make: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(workDir, ".make", "golangci.yml"), nil, 0o644); err != nil {
+
+	if err := os.WriteFile(
+		filepath.Join(workDir, ".make", "golangci.yml"),
+		nil,
+		0o644,
+	); err != nil {
 		t.Fatalf("seed golangci.yml: %v", err)
 	}
 
 	ccObservedPath := filepath.Join(workDir, "cc-observed.txt")
 	cxxObservedPath := filepath.Join(workDir, "cxx-observed.txt")
-	makefile := fmt.Sprintf(`GO_MK_DEV_DIR := %s
+	makefile := fmt.Sprintf(
+		`GO_MK_DEV_DIR := %s
 _GO_MK_PROVISIONED := 1
 GO_MK_CGO_DEPS := demolib
 include %s
@@ -100,8 +111,17 @@ include %s
 go-mk-cgo-dep-demolib:
 	@printf '%%s\n' "$$CC" > "%s"
 	@printf '%%s\n' "$$CXX" > "%s"
-`, repoRoot, filepath.Join(repoRoot, "go.mk"), ccObservedPath, cxxObservedPath)
-	if err := os.WriteFile(filepath.Join(workDir, "Makefile"), []byte(makefile), 0o644); err != nil {
+`,
+		repoRoot,
+		filepath.Join(repoRoot, "go.mk"),
+		ccObservedPath,
+		cxxObservedPath,
+	)
+	if err := os.WriteFile(
+		filepath.Join(workDir, "Makefile"),
+		[]byte(makefile),
+		0o644,
+	); err != nil {
 		t.Fatalf("write Makefile: %v", err)
 	}
 
@@ -117,6 +137,7 @@ func cgoHookCompilerEnv(workDir string, compilerEnv []string) []string {
 		"GO_MK_TARGET_GOARCH=arm64",
 		"PATH=" + os.Getenv("PATH"),
 	}
+
 	return append(env, compilerEnv...)
 }
 
@@ -140,6 +161,7 @@ func TestGoMkCgoDepsFoldsIntoBuildPrereqs(t *testing.T) {
 	if err != nil {
 		t.Skip("make not available")
 	}
+
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatalf("repo root: %v", err)
@@ -155,21 +177,29 @@ func TestGoMkCgoDepsFoldsIntoBuildPrereqs(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			workDir := writeCgoPrereqFixture(t, repoRoot, testCase.declareDeps)
-			cmd := exec.Command(makeBin, "-n", "build", "_GO_MK_PROVISIONED=1")
-			cmd.Dir = workDir
-			cmd.Env = cgoHookCompilerEnv(workDir, nil)
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				t.Fatalf("make -n build failed: %v\n%s", err, output)
-			}
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				workDir := writeCgoPrereqFixture(t, repoRoot, testCase.declareDeps)
+				cmd := exec.Command(makeBin, "-n", "build", "_GO_MK_PROVISIONED=1")
+				cmd.Dir = workDir
+				cmd.Env = cgoHookCompilerEnv(workDir, nil)
+				output, err := cmd.CombinedOutput()
+				if err != nil {
+					t.Fatalf("make -n build failed: %v\n%s", err, output)
+				}
 
-			gotProvided := strings.Contains(string(output), "demolib-provisioned")
-			if gotProvided != testCase.wantProvided {
-				t.Fatalf("dry-run mentions demolib recipe = %v, want %v\n%s", gotProvided, testCase.wantProvided, output)
-			}
-		})
+				gotProvided := strings.Contains(string(output), "demolib-provisioned")
+				if gotProvided != testCase.wantProvided {
+					t.Fatalf(
+						"dry-run mentions demolib recipe = %v, want %v\n%s",
+						gotProvided,
+						testCase.wantProvided,
+						output,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -181,7 +211,12 @@ func writeCgoPrereqFixture(t *testing.T, repoRoot string, declareDeps bool) stri
 	if err := os.MkdirAll(filepath.Join(workDir, ".make"), 0o755); err != nil {
 		t.Fatalf("mkdir .make: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(workDir, ".make", "golangci.yml"), nil, 0o644); err != nil {
+
+	if err := os.WriteFile(
+		filepath.Join(workDir, ".make", "golangci.yml"),
+		nil,
+		0o644,
+	); err != nil {
 		t.Fatalf("seed golangci.yml: %v", err)
 	}
 
@@ -191,11 +226,22 @@ func writeCgoPrereqFixture(t *testing.T, repoRoot string, declareDeps bool) stri
 		depsLine = "GO_MK_CGO_DEPS := demolib\n"
 		depTarget = "\ngo-mk-cgo-dep-demolib:\n\t@echo demolib-provisioned\n"
 	}
-	makefile := fmt.Sprintf(`GO_MK_DEV_DIR := %s
+
+	makefile := fmt.Sprintf(
+		`GO_MK_DEV_DIR := %s
 _GO_MK_PROVISIONED := 1
 %sinclude %s
-%s`, repoRoot, depsLine, filepath.Join(repoRoot, "go.mk"), depTarget)
-	if err := os.WriteFile(filepath.Join(workDir, "Makefile"), []byte(makefile), 0o644); err != nil {
+%s`,
+		repoRoot,
+		depsLine,
+		filepath.Join(repoRoot, "go.mk"),
+		depTarget,
+	)
+	if err := os.WriteFile(
+		filepath.Join(workDir, "Makefile"),
+		[]byte(makefile),
+		0o644,
+	); err != nil {
 		t.Fatalf("write Makefile: %v", err)
 	}
 

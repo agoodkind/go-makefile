@@ -44,7 +44,12 @@ func newLifecycleNoopCloserAnalyzer() *analysis.Analyzer {
 		Doc:  "rejects Close(reason string) error bodies that do no real shutdown work",
 		Run:  runLifecycleNoopCloser,
 	}
-	a.Flags.String("allowlist", "", "comma-separated qualified receiver-type names whose empty Close(reason string) error body is intentional")
+	a.Flags.String(
+		"allowlist",
+		"",
+		"comma-separated qualified receiver-type names whose empty Close(reason string) error body is intentional",
+	)
+
 	return a
 }
 
@@ -54,28 +59,38 @@ func runLifecycleNoopCloser(pass *analysis.Pass) (any, error) {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Recv == nil || fn.Body == nil {
 				continue
 			}
+
 			if !isReasonStringCloseSignature(fn) {
 				continue
 			}
+
 			recvType := receiverQualifiedTypeName(pass, fn)
 			if recvType != "" {
 				if _, allow := allowlist[recvType]; allow {
 					continue
 				}
 			}
+
 			if bodyDoesRealShutdown(pass, fn.Body) {
 				continue
 			}
-			reportAtf(pass, file, fn.Pos(),
+
+			reportAtf(
+				pass,
+				file,
+				fn.Pos(),
 				"[LIFECYCLE001] Close(reason string) error on %q has a no-op body; the lifecycle will treat the resource as released without doing anything. Call cancel(), Close(), or Signal() on the underlying resource, or add the receiver type to the allowlist if the no-op is intentional",
-				displayReceiverName(fn, recvType))
+				displayReceiverName(fn, recvType),
+			)
 		}
 	}
+
 	return nil, nil
 }
 
@@ -83,19 +98,24 @@ func isReasonStringCloseSignature(fn *ast.FuncDecl) bool {
 	if fn.Name == nil || fn.Name.Name != "Close" {
 		return false
 	}
+
 	if fn.Type == nil {
 		return false
 	}
+
 	if fn.Type.Params == nil || len(fn.Type.Params.List) != 1 {
 		return false
 	}
+
 	param := fn.Type.Params.List[0]
 	if !exprIsBuiltinIdent(param.Type, "string") {
 		return false
 	}
+
 	if fn.Type.Results == nil || len(fn.Type.Results.List) != 1 {
 		return false
 	}
+
 	return exprIsBuiltinIdent(fn.Type.Results.List[0].Type, "error")
 }
 
@@ -104,6 +124,7 @@ func exprIsBuiltinIdent(expr ast.Expr, name string) bool {
 	if !ok {
 		return false
 	}
+
 	return ident.Name == name
 }
 
@@ -111,17 +132,21 @@ func receiverQualifiedTypeName(pass *analysis.Pass, fn *ast.FuncDecl) string {
 	if fn.Recv == nil || len(fn.Recv.List) == 0 {
 		return ""
 	}
+
 	expr := fn.Recv.List[0].Type
 	if star, ok := expr.(*ast.StarExpr); ok {
 		expr = star.X
 	}
+
 	ident, ok := expr.(*ast.Ident)
 	if !ok {
 		return ""
 	}
+
 	if pass.Pkg == nil {
 		return ident.Name
 	}
+
 	return pass.Pkg.Path() + "." + ident.Name
 }
 
@@ -129,16 +154,20 @@ func displayReceiverName(fn *ast.FuncDecl, qualified string) string {
 	if qualified != "" {
 		return qualified
 	}
+
 	if fn.Recv == nil || len(fn.Recv.List) == 0 {
 		return "(unknown)"
 	}
+
 	expr := fn.Recv.List[0].Type
 	if star, ok := expr.(*ast.StarExpr); ok {
 		expr = star.X
 	}
+
 	if ident, ok := expr.(*ast.Ident); ok {
 		return ident.Name
 	}
+
 	return "(unknown)"
 }
 
@@ -150,27 +179,33 @@ func displayReceiverName(fn *ast.FuncDecl, qualified string) string {
 // targets.
 func bodyDoesRealShutdown(pass *analysis.Pass, body *ast.BlockStmt) bool {
 	hasRealShutdown := false
-	ast.Inspect(body, func(node ast.Node) bool {
-		if hasRealShutdown {
-			return false
-		}
-		switch n := node.(type) {
-		case *ast.SendStmt:
-			hasRealShutdown = true
-			return false
-		case *ast.UnaryExpr:
-			if n.Op.String() == "<-" {
-				hasRealShutdown = true
+	ast.Inspect(
+		body,
+		func(node ast.Node) bool {
+			if hasRealShutdown {
 				return false
 			}
-		case *ast.CallExpr:
-			if callIsRealShutdown(pass, n) {
+
+			switch n := node.(type) {
+			case *ast.SendStmt:
 				hasRealShutdown = true
 				return false
+			case *ast.UnaryExpr:
+				if n.Op.String() == "<-" {
+					hasRealShutdown = true
+					return false
+				}
+			case *ast.CallExpr:
+				if callIsRealShutdown(pass, n) {
+					hasRealShutdown = true
+					return false
+				}
 			}
-		}
-		return true
-	})
+
+			return true
+		},
+	)
+
 	return hasRealShutdown
 }
 
@@ -178,15 +213,19 @@ func callIsRealShutdown(pass *analysis.Pass, call *ast.CallExpr) bool {
 	if isLoggingCall(call) {
 		return false
 	}
+
 	if callIsNamedCancelOrStop(call) {
 		return true
 	}
+
 	if callTargetIsContextCancelFunc(pass, call) {
 		return true
 	}
+
 	if callIsCloserMethod(pass, call) {
 		return true
 	}
+
 	return callIsProcessSignal(pass, call)
 }
 
@@ -195,15 +234,18 @@ func isLoggingCall(call *ast.CallExpr) bool {
 	if !ok {
 		return false
 	}
+
 	if !isLikelyLoggerReceiver(receiver) && receiver != "slog" {
 		return false
 	}
+
 	switch name {
 	case "Debug", "Info", "Warn", "Error",
 		"DebugContext", "InfoContext", "WarnContext", "ErrorContext",
 		"Log", "LogAttrs", "Print", "Printf", "Println":
 		return true
 	}
+
 	return false
 }
 
@@ -214,6 +256,7 @@ func callIsNamedCancelOrStop(call *ast.CallExpr) bool {
 	case *ast.SelectorExpr:
 		return isCancelLikeName(fun.Sel.Name)
 	}
+
 	return false
 }
 
@@ -222,6 +265,7 @@ func isCancelLikeName(name string) bool {
 	case "cancel", "stop", "shutdown", "gracefulstop", "kill", "wait":
 		return true
 	}
+
 	return false
 }
 
@@ -229,18 +273,22 @@ func callTargetIsContextCancelFunc(pass *analysis.Pass, call *ast.CallExpr) bool
 	if pass.TypesInfo == nil {
 		return false
 	}
+
 	t := pass.TypesInfo.TypeOf(call.Fun)
 	if t == nil {
 		return false
 	}
+
 	named, ok := t.(*types.Named)
 	if !ok {
 		return false
 	}
+
 	obj := named.Obj()
 	if obj == nil || obj.Pkg() == nil {
 		return false
 	}
+
 	return obj.Pkg().Path() == "context" && obj.Name() == "CancelFunc"
 }
 
@@ -249,28 +297,36 @@ func callIsCloserMethod(pass *analysis.Pass, call *ast.CallExpr) bool {
 	if !ok {
 		return false
 	}
+
 	if sel.Sel.Name != "Close" {
 		return false
 	}
+
 	if pass.TypesInfo == nil {
 		return false
 	}
+
 	recv := pass.TypesInfo.TypeOf(sel.X)
 	if recv == nil {
 		return false
 	}
-	if isOneOfNamed(recv, []namedRef{
-		{"net", "Conn"},
-		{"os", "File"},
-		{"os", "Process"},
-		{"crypto/tls", "Conn"},
-		{"net/http", "Server"},
-		{"io", "ReadCloser"},
-		{"io", "WriteCloser"},
-		{"io", "Closer"},
-	}) {
+
+	if isOneOfNamed(
+		recv,
+		[]namedRef{
+			{"net", "Conn"},
+			{"os", "File"},
+			{"os", "Process"},
+			{"crypto/tls", "Conn"},
+			{"net/http", "Server"},
+			{"io", "ReadCloser"},
+			{"io", "WriteCloser"},
+			{"io", "Closer"},
+		},
+	) {
 		return true
 	}
+
 	return implementsIOCloser(recv)
 }
 
@@ -288,6 +344,7 @@ func underlyingNamed(t types.Type) (*types.Named, bool) {
 			return named, true
 		}
 	}
+
 	return nil, false
 }
 
@@ -296,15 +353,18 @@ func isOneOfNamed(t types.Type, refs []namedRef) bool {
 	if !ok {
 		return false
 	}
+
 	obj := named.Obj()
 	if obj == nil || obj.Pkg() == nil {
 		return false
 	}
+
 	for _, r := range refs {
 		if obj.Pkg().Path() == r.pkgPath && obj.Name() == r.name {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -315,27 +375,34 @@ func implementsIOCloser(t types.Type) bool {
 		if method == nil {
 			continue
 		}
+
 		fn, ok := method.(*types.Func)
 		if !ok {
 			continue
 		}
+
 		if fn.Name() != "Close" {
 			continue
 		}
+
 		sig, ok := fn.Type().(*types.Signature)
 		if !ok {
 			continue
 		}
+
 		if sig.Params().Len() != 0 {
 			continue
 		}
+
 		if sig.Results().Len() != 1 {
 			continue
 		}
+
 		if isErrorType(sig.Results().At(0).Type()) {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -344,15 +411,19 @@ func callIsProcessSignal(pass *analysis.Pass, call *ast.CallExpr) bool {
 	if !ok {
 		return false
 	}
+
 	if sel.Sel.Name != "Signal" {
 		return false
 	}
+
 	if pass.TypesInfo == nil {
 		return false
 	}
+
 	recv := pass.TypesInfo.TypeOf(sel.X)
 	if recv == nil {
 		return false
 	}
+
 	return isOneOfNamed(recv, []namedRef{{"os", "Process"}})
 }

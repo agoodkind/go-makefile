@@ -37,33 +37,55 @@ type InstallReleaseBinaryResult struct {
 }
 
 // InstallReleaseBinary installs the runtime platform archive for a release.
-func InstallReleaseBinary(ctx context.Context, installOptions InstallReleaseBinaryOptions) (InstallReleaseBinaryResult, error) {
+func InstallReleaseBinary(
+	ctx context.Context,
+	installOptions InstallReleaseBinaryOptions,
+) (InstallReleaseBinaryResult, error) {
 	options := resolveOptions(installOptions.Options)
 	if err := validateInstallReleaseBinaryInput(options.Config, installOptions.BinDir); err != nil {
 		return InstallReleaseBinaryResult{}, err
 	}
-	latest, err := resolveRequestedRelease(ctx, options, installOptions.Version, installOptions.Channel)
+
+	latest, err := resolveRequestedRelease(
+		ctx,
+		options,
+		installOptions.Version,
+		installOptions.Channel,
+	)
 	if err != nil {
 		return InstallReleaseBinaryResult{}, err
 	}
+
 	asset, err := selectArchiveAsset(latest.Assets, options.Config.Binary)
 	if err != nil {
 		return InstallReleaseBinaryResult{}, err
 	}
+
 	if err := os.MkdirAll(options.CacheDir, 0o700); err != nil {
-		options.Log.WarnContext(ctx, "release install cache dir create failed", "path", options.CacheDir, "err", err)
+		options.Log.WarnContext(
+			ctx,
+			"release install cache dir create failed",
+			"path",
+			options.CacheDir,
+			"err",
+			err,
+		)
 		return InstallReleaseBinaryResult{}, fmt.Errorf("create release install cache dir: %w", err)
 	}
+
 	archivePath := filepath.Join(options.CacheDir, filepath.Base(asset.Name))
 	if err := downloadReleaseAsset(ctx, options, asset, archivePath); err != nil {
 		return InstallReleaseBinaryResult{}, err
 	}
+
 	if err := updateVerifyChecksum(ctx, options, latest, asset, archivePath); err != nil {
 		return InstallReleaseBinaryResult{}, err
 	}
+
 	if err := updateVerifyGitHubAttestations(ctx, options, latest, asset, archivePath); err != nil {
 		return InstallReleaseBinaryResult{}, err
 	}
+
 	candidatePath, cleanup, err := updateExtractCandidate(
 		archivePath,
 		options.Config.Binary,
@@ -78,6 +100,7 @@ func InstallReleaseBinary(ctx context.Context, installOptions InstallReleaseBina
 	if err := updateInstallCandidate(candidatePath, installPath); err != nil {
 		return InstallReleaseBinaryResult{}, err
 	}
+
 	return InstallReleaseBinaryResult{
 		Tag:         latest.TagName,
 		AssetName:   asset.Name,
@@ -118,45 +141,72 @@ func InstallReleaseBinaries(
 	if len(installOptions.Options) == 0 {
 		return nil, fmt.Errorf("install options are required")
 	}
+
 	resolvedOptions := make([]Options, 0, len(installOptions.Options))
 	for _, option := range installOptions.Options {
 		option.InstallPath = filepath.Join(installOptions.BinDir, option.Config.Binary)
 		option.DryRun = false
 		resolved := resolveOptions(option)
-		if err := validateInstallReleaseBinaryInput(resolved.Config, installOptions.BinDir); err != nil {
+		if err := validateInstallReleaseBinaryInput(
+			resolved.Config,
+			installOptions.BinDir,
+		); err != nil {
 			return nil, err
 		}
+
 		resolvedOptions = append(resolvedOptions, resolved)
 	}
+
 	binaries := make(map[string]bool, len(resolvedOptions))
 	for _, option := range resolvedOptions {
 		if option.Config.Repo != resolvedOptions[0].Config.Repo {
-			return nil, fmt.Errorf("install set mixes repositories %s and %s", resolvedOptions[0].Config.Repo, option.Config.Repo)
+			return nil, fmt.Errorf(
+				"install set mixes repositories %s and %s",
+				resolvedOptions[0].Config.Repo,
+				option.Config.Repo,
+			)
 		}
+
 		if binaries[option.Config.Binary] {
 			return nil, fmt.Errorf("install set repeats binary %s", option.Config.Binary)
 		}
+
 		binaries[option.Config.Binary] = true
 	}
+
 	for _, symlink := range installOptions.Symlinks {
-		if symlink.Name == "" || filepath.Base(symlink.Name) != symlink.Name || symlink.Target == "" {
-			return nil, fmt.Errorf("install symlink %q to %q must be a plain name with a target", symlink.Name, symlink.Target)
+		if symlink.Name == "" || filepath.Base(symlink.Name) != symlink.Name ||
+			symlink.Target == "" {
+			return nil, fmt.Errorf(
+				"install symlink %q to %q must be a plain name with a target",
+				symlink.Name,
+				symlink.Target,
+			)
 		}
+
 		if binaries[symlink.Name] {
 			return nil, fmt.Errorf("install set repeats name %s", symlink.Name)
 		}
+
 		binaries[symlink.Name] = true
 	}
+
 	var results []InstallReleaseBinaryResult
-	err := updateWithLock(ctx, resolvedOptions[0].StatePath, func() error {
-		installed, installErr := installReleaseSet(ctx, resolvedOptions, installOptions)
-		results = installed
-		return installErr
-	})
+	err := updateWithLock(
+		ctx,
+		resolvedOptions[0].StatePath,
+		func() error {
+			installed, installErr := installReleaseSet(ctx, resolvedOptions, installOptions)
+			results = installed
+
+			return installErr
+		},
+	)
 	if err != nil {
 		resolvedOptions[0].Log.WarnContext(ctx, "release install set failed", "err", err)
 		return nil, err
 	}
+
 	return results, nil
 }
 
@@ -166,52 +216,74 @@ func installReleaseSet(
 	installOptions InstallReleaseBinariesOptions,
 ) ([]InstallReleaseBinaryResult, error) {
 	recoverOptions := append([]Options(nil), options...)
+
 	for _, symlink := range installOptions.Symlinks {
-		recoverOptions = append(recoverOptions, Options{
-			InstallPath: filepath.Join(installOptions.BinDir, symlink.Name),
-			StatePath:   options[0].StatePath,
-		})
+		recoverOptions = append(
+			recoverOptions,
+			Options{
+				InstallPath: filepath.Join(installOptions.BinDir, symlink.Name),
+				StatePath:   options[0].StatePath,
+			},
+		)
 	}
+
 	if err := recoverInterruptedInstall(recoverOptions); err != nil {
 		return nil, err
 	}
-	latest, err := resolveRequestedRelease(ctx, options[0], installOptions.Version, installOptions.Channel)
+
+	latest, err := resolveRequestedRelease(
+		ctx,
+		options[0],
+		installOptions.Version,
+		installOptions.Channel,
+	)
 	if err != nil {
 		return nil, err
 	}
+
 	staged := make([]stagedCandidate, 0, len(options)+len(installOptions.Symlinks))
 	defer func() {
 		for _, candidate := range staged {
 			candidate.cleanup()
 		}
 	}()
+
 	for _, symlink := range installOptions.Symlinks {
 		candidate, err := stageSymlink(installOptions.BinDir, symlink)
 		if err != nil {
 			return nil, err
 		}
+
 		staged = append(staged, candidate)
 	}
+
 	results := make([]InstallReleaseBinaryResult, 0, len(options))
 	for _, option := range options {
 		candidate, err := stageCandidate(ctx, option, latest)
 		if err != nil {
 			return nil, err
 		}
+
 		staged = append(staged, candidate)
 		asset, err := selectArchiveAsset(latest.Assets, option.Config.Binary)
 		if err != nil {
 			return nil, err
 		}
-		results = append(results, InstallReleaseBinaryResult{
-			Tag:         latest.TagName,
-			AssetName:   asset.Name,
-			InstallPath: option.InstallPath,
-		})
+
+		results = append(
+			results,
+			InstallReleaseBinaryResult{
+				Tag:         latest.TagName,
+				AssetName:   asset.Name,
+				InstallPath: option.InstallPath,
+			},
+		)
 	}
+
 	if err := installCandidates(staged, installCommitMarkerPath(options[0])); err != nil {
 		return nil, err
 	}
+
 	return results, nil
 }
 
@@ -222,22 +294,45 @@ func stageSymlink(binDir string, symlink InstallSymlink) (stagedCandidate, error
 	if !filepath.IsAbs(targetPath) {
 		targetPath = filepath.Join(binDir, targetPath)
 	}
+
 	if _, err := os.Stat(targetPath); err != nil {
-		slog.Warn("release install symlink target missing", "name", symlink.Name, "target", symlink.Target, "err", err)
-		return stagedCandidate{}, fmt.Errorf("install symlink %s target %s: %w", symlink.Name, symlink.Target, err)
+		slog.Warn(
+			"release install symlink target missing",
+			"name",
+			symlink.Name,
+			"target",
+			symlink.Target,
+			"err",
+			err,
+		)
+		return stagedCandidate{}, fmt.Errorf(
+			"install symlink %s target %s: %w",
+			symlink.Name,
+			symlink.Target,
+			err,
+		)
 	}
+
 	reserved, err := os.CreateTemp(binDir, "."+symlink.Name+"-candidate-*")
 	if err != nil {
 		slog.Warn("release install symlink candidate reserve failed", "dir", binDir, "err", err)
 		return stagedCandidate{}, fmt.Errorf("reserve symlink candidate: %w", err)
 	}
+
 	candidatePath := reserved.Name()
 	_ = reserved.Close()
 	_ = os.Remove(candidatePath)
 	if err := os.Symlink(symlink.Target, candidatePath); err != nil {
-		slog.Warn("release install symlink candidate create failed", "path", candidatePath, "err", err)
+		slog.Warn(
+			"release install symlink candidate create failed",
+			"path",
+			candidatePath,
+			"err",
+			err,
+		)
 		return stagedCandidate{}, fmt.Errorf("create symlink candidate: %w", err)
 	}
+
 	return stagedCandidate{
 		binary:      symlink.Name,
 		path:        candidatePath,
@@ -246,15 +341,22 @@ func stageSymlink(binDir string, symlink InstallSymlink) (stagedCandidate, error
 	}, nil
 }
 
-func resolveRequestedRelease(ctx context.Context, options Options, version string, channel ReleaseChannel) (release, error) {
+func resolveRequestedRelease(
+	ctx context.Context,
+	options Options,
+	version string,
+	channel ReleaseChannel,
+) (release, error) {
 	version = strings.TrimSpace(version)
 	if version != "" {
 		return fetchReleaseByTag(ctx, options, version)
 	}
+
 	resolvedOptions, err := optionsForReleaseChannel(options, channel)
 	if err != nil {
 		return release{}, err
 	}
+
 	return updateFetchLatestRelease(ctx, resolvedOptions)
 }
 
@@ -263,8 +365,10 @@ func optionsForReleaseChannel(options Options, channel ReleaseChannel) (Options,
 	if err != nil {
 		return Options{}, err
 	}
+
 	allowPrerelease := resolvedChannel == ReleaseChannelRolling
 	options.Config.AllowPrerelease = &allowPrerelease
+
 	return options, nil
 }
 
@@ -272,6 +376,7 @@ func normalizeReleaseChannel(channel ReleaseChannel) (ReleaseChannel, error) {
 	if channel == "" {
 		return ReleaseChannelRolling, nil
 	}
+
 	switch channel {
 	case ReleaseChannelRolling, ReleaseChannelStable:
 		return channel, nil
@@ -284,11 +389,14 @@ func validateInstallReleaseBinaryInput(cfg Config, binDir string) error {
 	if strings.TrimSpace(cfg.Repo) == "" {
 		return fmt.Errorf("update repo is required")
 	}
+
 	if strings.TrimSpace(cfg.Binary) == "" {
 		return fmt.Errorf("update binary is required")
 	}
+
 	if strings.TrimSpace(binDir) == "" {
 		return fmt.Errorf("install bin dir is required")
 	}
+
 	return nil
 }

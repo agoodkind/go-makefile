@@ -96,6 +96,7 @@ func runCacheManifestWith(config cacheManifestConfig) int {
 		config.stderr("go-mk-cache-manifest: " + manifestErr.Error() + "\n")
 		return 1
 	}
+
 	keyBytes := sha256.Sum256([]byte(manifest))
 	cgoEnabled := cgoCacheManifestEnabled(config)
 	cgoPaths := ""
@@ -107,9 +108,11 @@ func runCacheManifestWith(config cacheManifestConfig) int {
 			config.stderr("go-mk-cache-manifest: " + cgoManifestErr.Error() + "\n")
 			return 1
 		}
+
 		cgoKeyBytes := sha256.Sum256([]byte(cgoManifest))
 		cgoKey = hex.EncodeToString(cgoKeyBytes[:])
 	}
+
 	result := cacheManifestResult{
 		enabled:            enabled,
 		requiresSubmodules: requiresSubmodules,
@@ -122,19 +125,26 @@ func runCacheManifestWith(config cacheManifestConfig) int {
 		lintCachePaths:     lintCacheManifestPaths(config),
 	}
 
-	if outputErr := writeCacheManifestGitHubOutputs(config.getenv("GITHUB_OUTPUT"), result); outputErr != nil {
+	if outputErr := writeCacheManifestGitHubOutputs(
+		config.getenv("GITHUB_OUTPUT"),
+		result,
+	); outputErr != nil {
 		config.stderr("go-mk-cache-manifest: " + outputErr.Error() + "\n")
 		return 1
 	}
 
 	config.stdout("go-mk-cache-manifest: generated_cache_enabled=" + result.enabled + "\n")
-	config.stdout("go-mk-cache-manifest: generated_cache_requires_submodules=" + result.requiresSubmodules + "\n")
+	config.stdout(
+		"go-mk-cache-manifest: generated_cache_requires_submodules=" + result.requiresSubmodules + "\n",
+	)
 	if result.paths != "" {
 		config.stdout("go-mk-cache-manifest: generated output paths:\n" + result.paths + "\n")
 	}
+
 	if result.warnings != "" {
 		config.stderr(result.warnings + "\n")
 	}
+
 	return 0
 }
 
@@ -142,15 +152,19 @@ func normalizeCacheManifestConfig(config cacheManifestConfig) cacheManifestConfi
 	if config.getenv == nil {
 		config.getenv = os.Getenv
 	}
+
 	if config.stdout == nil {
 		config.stdout = writeStdout
 	}
+
 	if config.stderr == nil {
 		config.stderr = writeStderr
 	}
+
 	if config.executableHash == nil {
 		config.executableHash = runningExecutableHash
 	}
+
 	return config
 }
 
@@ -158,20 +172,27 @@ func normalizeCacheManifestConfig(config cacheManifestConfig) cacheManifestConfi
 // already tracks (codegen must never overwrite a tracked file from a restored
 // cache) and resolves the rest to absolute paths; see cacheManifestAbsolutePath
 // for why.
-func filterCacheManifestGeneratedOutputs(rawOutputs string, stderr func(string)) (string, []string) {
+func filterCacheManifestGeneratedOutputs(
+	rawOutputs string,
+	stderr func(string),
+) (string, []string) {
 	outputs := make([]string, 0)
 	warnings := make([]string, 0)
+
 	for _, output := range normalizeCacheManifestFields(rawOutputs) {
 		if output == "" {
 			continue
 		}
+
 		if cacheManifestPathIsTracked(output) {
 			stderr("go-mk-cache-manifest: skip tracked generated output: " + output + "\n")
 			warnings = append(warnings, "tracked output skipped: "+output)
 			continue
 		}
+
 		outputs = append(outputs, cacheManifestAbsolutePath(output))
 	}
+
 	return strings.Join(outputs, "\n"), warnings
 }
 
@@ -184,10 +205,12 @@ func buildCacheManifest(config cacheManifestConfig, outputPaths string) (string,
 	builder.WriteString(config.getenv("GO_MK_GENERATE"))
 	builder.WriteString("\n")
 	builder.WriteString("generate_inputs_begin\n")
+
 	for _, input := range normalizeCacheManifestFields(config.getenv("GO_MK_GENERATE_INPUTS")) {
 		builder.WriteString(input)
 		builder.WriteString("\n")
 	}
+
 	builder.WriteString("generate_inputs_end\n")
 	builder.WriteString("generate_outputs_begin\n")
 	builder.WriteString(outputPaths)
@@ -205,10 +228,12 @@ func buildCacheManifest(config cacheManifestConfig, outputPaths string) (string,
 	builder.WriteString("go_mk_api_ref\t")
 	builder.WriteString(config.getenv("GO_MK_API_REF"))
 	builder.WriteString("\n")
+
 	for _, outputPath := range strings.Split(outputPaths, "\n") {
 		if outputPath == "" {
 			continue
 		}
+
 		builder.WriteString("output_path\t")
 		builder.WriteString(outputPath)
 		builder.WriteString("\n")
@@ -219,6 +244,7 @@ func buildCacheManifest(config cacheManifestConfig, outputPaths string) (string,
 	if trackedErr != nil {
 		return "", trackedErr
 	}
+
 	for _, hash := range trackedHashes {
 		builder.WriteString("file\t")
 		builder.WriteString(hash.path)
@@ -226,10 +252,12 @@ func buildCacheManifest(config cacheManifestConfig, outputPaths string) (string,
 		builder.WriteString(hash.digest)
 		builder.WriteString("\n")
 	}
+
 	implementationHashes, implementationErr := collectCacheManifestImplementationHashes(config)
 	if implementationErr != nil {
 		return "", implementationErr
 	}
+
 	for _, hash := range implementationHashes {
 		builder.WriteString("file\t")
 		builder.WriteString(hash.path)
@@ -237,6 +265,7 @@ func buildCacheManifest(config cacheManifestConfig, outputPaths string) (string,
 		builder.WriteString(hash.digest)
 		builder.WriteString("\n")
 	}
+
 	return builder.String(), nil
 }
 
@@ -244,12 +273,15 @@ func cgoCacheManifestEnabled(config cacheManifestConfig) string {
 	if strings.TrimSpace(config.getenv("GO_MK_CGO_DEPS")) == "" {
 		return "false"
 	}
+
 	if strings.TrimSpace(config.getenv("GO_MK_TARGET_GOOS")) == "" {
 		return "false"
 	}
+
 	if strings.TrimSpace(config.getenv("GO_MK_TARGET_GOARCH")) == "" {
 		return "false"
 	}
+
 	return "true"
 }
 
@@ -266,6 +298,7 @@ func cacheManifestAbsolutePath(path string) string {
 	if absErr != nil {
 		return filepath.ToSlash(path)
 	}
+
 	return filepath.ToSlash(absolute)
 }
 
@@ -278,6 +311,7 @@ func cgoCacheManifestPath(config cacheManifestConfig) string {
 	if goos == "" || goarch == "" {
 		return ""
 	}
+
 	return cacheManifestAbsolutePath(filepath.Join(".make", "cgo", goos+"-"+goarch))
 }
 
@@ -295,10 +329,12 @@ func lintCacheManifestPaths(config cacheManifestConfig) string {
 	if pinned := strings.TrimSpace(config.getenv("GOLANGCI_LINT_CACHE")); pinned != "" {
 		patterns = []string{pinned}
 	}
+
 	resolved := make([]string, 0, len(patterns))
 	for _, pattern := range patterns {
 		resolved = append(resolved, cacheManifestAbsolutePath(pattern))
 	}
+
 	return strings.Join(resolved, "\n")
 }
 
@@ -308,10 +344,14 @@ func buildCgoCacheManifest(config cacheManifestConfig, cgoPaths string) (string,
 	builder.WriteString(cacheManifestRepoPrefix())
 	builder.WriteString("\n")
 	builder.WriteString("cgo_deps\t")
-	builder.WriteString(strings.Join(normalizeCacheManifestFields(config.getenv("GO_MK_CGO_DEPS")), " "))
+	builder.WriteString(
+		strings.Join(normalizeCacheManifestFields(config.getenv("GO_MK_CGO_DEPS")), " "),
+	)
 	builder.WriteString("\n")
 	builder.WriteString("cgo_versions\t")
-	builder.WriteString(strings.Join(normalizeCacheManifestFields(config.getenv("GO_MK_CGO_CACHE_VERSIONS")), " "))
+	builder.WriteString(
+		strings.Join(normalizeCacheManifestFields(config.getenv("GO_MK_CGO_CACHE_VERSIONS")), " "),
+	)
 	builder.WriteString("\n")
 	builder.WriteString("target_goos\t")
 	builder.WriteString(strings.TrimSpace(config.getenv("GO_MK_TARGET_GOOS")))
@@ -338,6 +378,7 @@ func buildCgoCacheManifest(config cacheManifestConfig, cgoPaths string) (string,
 	} else {
 		builder.WriteString("compiler_unavailable\ttrue\n")
 	}
+
 	builder.WriteString("toolchain_id\t")
 	builder.WriteString(strings.TrimSpace(config.getenv("GO_MK_CGO_TOOLCHAIN_ID")))
 	builder.WriteString("\n")
@@ -349,10 +390,12 @@ func buildCgoCacheManifest(config cacheManifestConfig, cgoPaths string) (string,
 		builder.WriteString(hash.digest)
 		builder.WriteString("\n")
 	}
+
 	makefileHashes, makefileErr := collectCgoCacheMakefileHashes()
 	if makefileErr != nil {
 		return "", makefileErr
 	}
+
 	for _, hash := range makefileHashes {
 		builder.WriteString("file\t")
 		builder.WriteString(hash.path)
@@ -360,6 +403,7 @@ func buildCgoCacheManifest(config cacheManifestConfig, cgoPaths string) (string,
 		builder.WriteString(hash.digest)
 		builder.WriteString("\n")
 	}
+
 	return builder.String(), nil
 }
 
@@ -367,9 +411,11 @@ func resolvedCgoCacheCompiler(config cacheManifestConfig) string {
 	if compiler := strings.TrimSpace(config.getenv("GO_MK_CC")); compiler != "" {
 		return compiler
 	}
+
 	if compiler := strings.TrimSpace(config.getenv("CC")); compiler != "" {
 		return compiler
 	}
+
 	return "cc"
 }
 
@@ -385,11 +431,13 @@ func cgoCacheCompilerFingerprint(compilerCommand string) cgoCacheCompilerMetadat
 	if dumpErr != nil || versionErr != nil {
 		return cgoCacheCompilerMetadata{}
 	}
+
 	versionLines := strings.Split(strings.TrimRight(versionOutput, "\n"), "\n")
 	versionLine := ""
 	if len(versionLines) > 0 {
 		versionLine = versionLines[0]
 	}
+
 	return cgoCacheCompilerMetadata{
 		dumpMachine: strings.TrimSpace(dumpMachine),
 		versionLine: strings.TrimSpace(versionLine),
@@ -409,28 +457,38 @@ func cgoCacheCompilerOutput(compilerCommand string, arg string) (string, error) 
 	if len(fields) == 0 {
 		return "", fmt.Errorf("empty compiler command")
 	}
+
 	args := append(append([]string{}, fields[1:]...), arg)
 	output, err := exec.Command(fields[0], args...).Output()
 	if err != nil {
 		return "", err
 	}
+
 	return string(output), nil
 }
 
 func collectCgoCacheInputHashes(config cacheManifestConfig) []cacheManifestFileHash {
-	inputs := cacheManifestSortedUnique(normalizeCacheManifestFields(config.getenv("GO_MK_CGO_CACHE_INPUTS")))
+	inputs := cacheManifestSortedUnique(
+		normalizeCacheManifestFields(config.getenv("GO_MK_CGO_CACHE_INPUTS")),
+	)
+
 	hashes := make([]cacheManifestFileHash, 0, len(inputs))
 	for _, input := range inputs {
 		fileHash, hashErr := cacheManifestHashFile(input)
 		if hashErr != nil {
-			hashes = append(hashes, cacheManifestFileHash{
-				path:   input,
-				digest: "missing",
-			})
+			hashes = append(
+				hashes,
+				cacheManifestFileHash{
+					path:   input,
+					digest: "missing",
+				},
+			)
 			continue
 		}
+
 		hashes = append(hashes, fileHash)
 	}
+
 	return hashes
 }
 
@@ -441,32 +499,39 @@ func collectCgoCacheMakefileHashes() ([]cacheManifestFileHash, error) {
 
 func normalizeCacheManifestFields(value string) []string {
 	fields := make([]string, 0)
+
 	for _, field := range strings.Fields(value) {
 		if field == "" || field == "." {
 			continue
 		}
+
 		normalized := collapseCacheManifestSlashes(field)
 		normalized = strings.TrimPrefix(normalized, "./")
 		normalized = strings.TrimSuffix(normalized, "/")
 		fields = append(fields, normalized)
 	}
+
 	return fields
 }
 
 func collapseCacheManifestSlashes(value string) string {
 	var builder strings.Builder
 	lastWasSlash := false
+
 	for _, character := range value {
 		if character == '/' {
 			if !lastWasSlash {
 				builder.WriteRune(character)
 			}
+
 			lastWasSlash = true
 			continue
 		}
+
 		builder.WriteRune(character)
 		lastWasSlash = false
 	}
+
 	return builder.String()
 }
 
@@ -476,7 +541,9 @@ func cacheManifestRepoPrefix() string {
 	if err != nil {
 		return ""
 	}
+
 	prefix := strings.TrimRight(string(output), "\n")
+
 	return strings.TrimSuffix(prefix, "/")
 }
 
@@ -486,30 +553,50 @@ func cacheManifestPathIsTracked(path string) bool {
 	if parent == "" {
 		return false
 	}
-	gitRootOutput, rootErr := exec.Command("git", "-C", parent, "rev-parse", "--show-toplevel").Output()
+
+	gitRootOutput, rootErr := exec.Command(
+		"git",
+		"-C",
+		parent,
+		"rev-parse",
+		"--show-toplevel",
+	).Output()
 	if rootErr != nil {
 		return false
 	}
+
 	gitRoot := strings.TrimRight(string(gitRootOutput), "\n")
 	if gitRoot == "" {
 		return false
 	}
+
 	absolutePath := path
 	if !filepath.IsAbs(path) {
 		cwd, cwdErr := physicalWorkingDirectory()
 		if cwdErr != nil {
 			return false
 		}
+
 		absolutePath = filepath.Join(cwd, path)
 	}
+
 	relativePath := strings.TrimPrefix(absolutePath, gitRoot+string(os.PathSeparator))
-	if exec.Command("git", "-C", gitRoot, "ls-files", "--error-unmatch", relativePath).Run() == nil {
+	if exec.Command(
+		"git",
+		"-C",
+		gitRoot,
+		"ls-files",
+		"--error-unmatch",
+		relativePath,
+	).Run() == nil {
 		return true
 	}
+
 	output, outputErr := exec.Command("git", "-C", gitRoot, "ls-files", "--", relativePath).Output()
 	if outputErr != nil {
 		return false
 	}
+
 	return strings.TrimSpace(string(output)) != ""
 }
 
@@ -519,11 +606,14 @@ func deepestCacheManifestExistingParent(path string) string {
 		if _, err := os.Stat(parent); err == nil {
 			return parent
 		}
+
 		parent = filepath.Dir(parent)
 	}
+
 	if _, err := os.Stat("."); err == nil {
 		return "."
 	}
+
 	return ""
 }
 
@@ -532,10 +622,12 @@ func physicalWorkingDirectory() (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	physical, evalErr := filepath.EvalSymlinks(cwd)
 	if evalErr != nil {
 		return cwd, nil
 	}
+
 	return physical, nil
 }
 
@@ -543,24 +635,31 @@ func cacheManifestSubmoduleStatus() string {
 	if !fileExists(".gitmodules") {
 		return ""
 	}
+
 	slog.Info("cache-manifest git submodule status")
 	var builder strings.Builder
 	builder.WriteString("submodules_begin\n")
 	output, _ := exec.Command("git", "submodule", "status", "--recursive").Output()
 	builder.WriteString(string(output))
 	builder.WriteString("submodules_end\n")
+
 	return builder.String()
 }
 
-func collectCacheManifestTrackedHashes(config cacheManifestConfig) ([]cacheManifestFileHash, error) {
+func collectCacheManifestTrackedHashes(
+	config cacheManifestConfig,
+) ([]cacheManifestFileHash, error) {
 	paths := make([]string, 0)
 	paths = append(paths, cacheManifestGitLsFiles(cacheManifestTrackedPathspecs...)...)
+
 	for _, input := range normalizeCacheManifestFields(config.getenv("GO_MK_GENERATE_INPUTS")) {
 		if input == "" {
 			continue
 		}
+
 		paths = append(paths, cacheManifestGitLsFiles(input)...)
 	}
+
 	return cacheManifestHashesForPaths(paths)
 }
 
@@ -578,15 +677,19 @@ func cacheManifestGitLsFiles(pathspecs ...string) []string {
 	if err != nil {
 		return nil
 	}
+
 	return splitNonEmptyCacheManifestLines(string(output))
 }
 
-func collectCacheManifestImplementationHashes(config cacheManifestConfig) ([]cacheManifestFileHash, error) {
+func collectCacheManifestImplementationHashes(
+	config cacheManifestConfig,
+) ([]cacheManifestFileHash, error) {
 	hashes := make([]cacheManifestFileHash, 0)
 	executableHash, executableErr := config.executableHash()
 	if executableErr != nil {
 		return nil, executableErr
 	}
+
 	hashes = append(hashes, executableHash)
 	candidatePaths := []string{
 		config.getenv("_GO_MK_SELF"),
@@ -596,17 +699,21 @@ func collectCacheManifestImplementationHashes(config cacheManifestConfig) ([]cac
 	if candidateErr != nil {
 		return nil, candidateErr
 	}
+
 	hashes = append(hashes, candidateHashes...)
+
 	return hashes, nil
 }
 
 func cacheManifestHashesForPaths(paths []string) ([]cacheManifestFileHash, error) {
 	uniquePaths := cacheManifestSortedUnique(paths)
+
 	hashes := make([]cacheManifestFileHash, 0, len(uniquePaths))
 	for _, path := range uniquePaths {
 		if path == "" || !fileExists(path) {
 			continue
 		}
+
 		// A file that exists but cannot be hashed (a permission or read error)
 		// must fail the manifest rather than be omitted, so a missing input can
 		// never silently reuse a stale cache. This matches the prior shell
@@ -615,8 +722,10 @@ func cacheManifestHashesForPaths(paths []string) ([]cacheManifestFileHash, error
 		if hashErr != nil {
 			return nil, hashErr
 		}
+
 		hashes = append(hashes, fileHash)
 	}
+
 	return hashes, nil
 }
 
@@ -625,7 +734,9 @@ func cacheManifestHashFile(path string) (cacheManifestFileHash, error) {
 	if err != nil {
 		return cacheManifestFileHash{}, err
 	}
+
 	digest := sha256.Sum256(data)
+
 	return cacheManifestFileHash{
 		path:   path,
 		digest: hex.EncodeToString(digest[:]),
@@ -637,36 +748,46 @@ func runningExecutableHash() (cacheManifestFileHash, error) {
 	if err != nil {
 		return cacheManifestFileHash{}, err
 	}
+
 	fileHash, hashErr := cacheManifestHashFile(executablePath)
 	if hashErr != nil {
 		return cacheManifestFileHash{}, hashErr
 	}
+
 	fileHash.path = executableManifestLabel
+
 	return fileHash, nil
 }
 
 func cacheManifestSortedUnique(paths []string) []string {
 	seen := make(map[string]struct{}, len(paths))
+
 	unique := make([]string, 0, len(paths))
 	for _, path := range paths {
 		if _, ok := seen[path]; ok {
 			continue
 		}
+
 		seen[path] = struct{}{}
 		unique = append(unique, path)
 	}
+
 	sort.Strings(unique)
+
 	return unique
 }
 
 func splitNonEmptyCacheManifestLines(text string) []string {
 	lines := make([]string, 0)
+
 	for _, line := range strings.Split(text, "\n") {
 		if line == "" {
 			continue
 		}
+
 		lines = append(lines, line)
 	}
+
 	return lines
 }
 
@@ -674,6 +795,7 @@ func writeCacheManifestGitHubOutputs(path string, result cacheManifestResult) er
 	if path == "" {
 		return nil
 	}
+
 	values := map[string]string{
 		"generated_cache_enabled":             result.enabled,
 		"generated_cache_requires_submodules": result.requiresSubmodules,
@@ -689,11 +811,14 @@ func writeCacheManifestGitHubOutputs(path string, result cacheManifestResult) er
 	if delimiterErr != nil {
 		return delimiterErr
 	}
+
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = file.Close() }()
+
 	for _, name := range cacheManifestOutputNames {
 		if _, writeErr := fmt.Fprintf(
 			file,
@@ -706,6 +831,7 @@ func writeCacheManifestGitHubOutputs(path string, result cacheManifestResult) er
 			return writeErr
 		}
 	}
+
 	return nil
 }
 
@@ -722,8 +848,10 @@ func cacheManifestOutputDelimiterFor(values map[string]string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+
 		delimiter = cacheManifestOutputDelimiter + "-" + suffix
 	}
+
 	return delimiter, nil
 }
 
@@ -735,6 +863,7 @@ func cacheManifestValuesContainDelimiter(values map[string]string, delimiter str
 			}
 		}
 	}
+
 	return false
 }
 
@@ -743,5 +872,6 @@ func cacheManifestRandomSuffix() (string, error) {
 	if _, err := rand.Read(buffer); err != nil {
 		return "", err
 	}
+
 	return hex.EncodeToString(buffer), nil
 }

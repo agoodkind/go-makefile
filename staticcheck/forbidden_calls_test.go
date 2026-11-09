@@ -115,7 +115,12 @@ func TestNow(t *testing.T) {
 	_ = time.Until(time.Time{})
 }
 `
-	diags := runTimeNowAnalyzerOnSource(t, "example.com/app/internal/service", "service_test.go", source)
+	diags := runTimeNowAnalyzerOnSource(
+		t,
+		"example.com/app/internal/service",
+		"service_test.go",
+		source,
+	)
 	if len(diags) != 0 {
 		t.Fatalf("expected no diagnostics in test file, got %d: %v", len(diags), diags)
 	}
@@ -154,5 +159,6 @@ func runTimeNowAnalyzerOnSource(
 	if _, err := TimeNowOutsideClockAnalyzer.Run(pass); err != nil {
 		t.Fatalf("TimeNowOutsideClockAnalyzer.Run: %v", err)
 	}
+
 	return diags
 }

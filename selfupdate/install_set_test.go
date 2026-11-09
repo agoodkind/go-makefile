@@ -11,10 +11,14 @@ import (
 
 // installSetOptions returns install options for alpha, beta, and gamma from
 // fixture, with installed files that the test writes before the install.
-func installSetOptions(t *testing.T, fixture *releaseFixture) (InstallReleaseBinariesOptions, string, map[string][]byte) {
+func installSetOptions(
+	t *testing.T,
+	fixture *releaseFixture,
+) (InstallReleaseBinariesOptions, string, map[string][]byte) {
 	t.Helper()
 	binDir := t.TempDir()
 	stateDir := t.TempDir()
+
 	oldContents := map[string][]byte{
 		"alpha": []byte("old alpha"),
 		"beta":  []byte("old beta"),
@@ -23,32 +27,50 @@ func installSetOptions(t *testing.T, fixture *releaseFixture) (InstallReleaseBin
 	for binary, content := range oldContents {
 		writeInstalledBinary(t, filepath.Join(binDir, binary), content)
 	}
+
 	options := make([]Options, 0, len(oldContents))
+
 	for _, binary := range []string{"alpha", "beta", "gamma"} {
 		options = append(options, fixture.options(t, binary, binDir, stateDir, "version: pure"))
 	}
-	return InstallReleaseBinariesOptions{Options: options, Channel: ReleaseChannelRolling, BinDir: binDir}, binDir, oldContents
+
+	return InstallReleaseBinariesOptions{
+		Options: options,
+		Channel: ReleaseChannelRolling,
+		BinDir:  binDir,
+	}, binDir, oldContents
 }
 
 func assertInstalledSetUnchanged(t *testing.T, binDir string, oldContents map[string][]byte) {
 	t.Helper()
+
 	for binary, content := range oldContents {
 		assertFileBytes(t, filepath.Join(binDir, binary), content)
 	}
+
 	assertDirectoryEntries(t, binDir, []string{"alpha", "beta", "gamma"})
 }
 
 // emptyInstallSetOptions returns install options for alpha, beta, and gamma
 // from fixture into a new, empty bin directory.
-func emptyInstallSetOptions(t *testing.T, fixture *releaseFixture) (InstallReleaseBinariesOptions, string) {
+func emptyInstallSetOptions(
+	t *testing.T,
+	fixture *releaseFixture,
+) (InstallReleaseBinariesOptions, string) {
 	t.Helper()
 	binDir := t.TempDir()
 	stateDir := t.TempDir()
 	options := make([]Options, 0, 3)
+
 	for _, binary := range []string{"alpha", "beta", "gamma"} {
 		options = append(options, fixture.options(t, binary, binDir, stateDir, "version: pure"))
 	}
-	return InstallReleaseBinariesOptions{Options: options, Channel: ReleaseChannelRolling, BinDir: binDir}, binDir
+
+	return InstallReleaseBinariesOptions{
+		Options: options,
+		Channel: ReleaseChannelRolling,
+		BinDir:  binDir,
+	}, binDir
 }
 
 // TestInstallReleaseBinariesInstallsEveryBinaryIntoEmptyDirectory installs
@@ -57,15 +79,20 @@ func emptyInstallSetOptions(t *testing.T, fixture *releaseFixture) (InstallRelea
 func TestInstallReleaseBinariesInstallsEveryBinaryIntoEmptyDirectory(t *testing.T) {
 	skipAttestationVerification(t)
 	pureCandidate := buildProbeBinary(t, pureGoProbeSource, []string{"CGO_ENABLED=0"})
-	fixture := newReleaseFixture(t, map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": pureCandidate})
+	fixture := newReleaseFixture(
+		t,
+		map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": pureCandidate},
+	)
 	installOptions, binDir := emptyInstallSetOptions(t, fixture)
 
 	if _, err := InstallReleaseBinaries(context.Background(), installOptions); err != nil {
 		t.Fatalf("InstallReleaseBinaries() error: %v", err)
 	}
+
 	for _, binary := range []string{"alpha", "beta", "gamma"} {
 		assertFileBytes(t, filepath.Join(binDir, binary), pureCandidate)
 	}
+
 	assertDirectoryEntries(t, binDir, []string{"alpha", "beta", "gamma"})
 }
 
@@ -77,13 +104,17 @@ func TestInstallReleaseBinariesLeavesEmptyDirectoryWhenOneCandidateFails(t *test
 	skipAttestationVerification(t)
 	pureCandidate := buildProbeBinary(t, pureGoProbeSource, []string{"CGO_ENABLED=0"})
 	failingCandidate := buildProbeBinary(t, failingProbeSource, []string{"CGO_ENABLED=0"})
-	fixture := newReleaseFixture(t, map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": failingCandidate})
+	fixture := newReleaseFixture(
+		t,
+		map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": failingCandidate},
+	)
 	installOptions, binDir := emptyInstallSetOptions(t, fixture)
 
 	_, err := InstallReleaseBinaries(context.Background(), installOptions)
 	if err == nil || !strings.Contains(err.Error(), "candidate version failed") {
 		t.Fatalf("InstallReleaseBinaries() error = %v, want gamma candidate failure", err)
 	}
+
 	assertDirectoryEntries(t, binDir, []string{})
 }
 
@@ -108,6 +139,7 @@ func TestInstallReleaseBinariesRejectsRepeatedBinary(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "repeats binary alpha") {
 		t.Fatalf("InstallReleaseBinaries() error = %v, want repeated binary error", err)
 	}
+
 	assertDirectoryEntries(t, binDir, []string{})
 }
 
@@ -116,22 +148,34 @@ func TestInstallReleaseBinariesRejectsRepeatedBinary(t *testing.T) {
 func TestInstallReleaseBinariesReplacesEveryBinary(t *testing.T) {
 	skipAttestationVerification(t)
 	pureCandidate := buildProbeBinary(t, pureGoProbeSource, []string{"CGO_ENABLED=0"})
-	fixture := newReleaseFixture(t, map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": pureCandidate})
+	fixture := newReleaseFixture(
+		t,
+		map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": pureCandidate},
+	)
 	installOptions, binDir, _ := installSetOptions(t, fixture)
 
 	results, err := InstallReleaseBinaries(context.Background(), installOptions)
 	if err != nil {
 		t.Fatalf("InstallReleaseBinaries() error: %v", err)
 	}
+
 	if len(results) != 3 {
 		t.Fatalf("results = %d, want 3", len(results))
 	}
+
 	for _, result := range results {
 		if result.Tag != installDirTestNewTag {
-			t.Fatalf("result %s Tag = %q, want %q", result.InstallPath, result.Tag, installDirTestNewTag)
+			t.Fatalf(
+				"result %s Tag = %q, want %q",
+				result.InstallPath,
+				result.Tag,
+				installDirTestNewTag,
+			)
 		}
+
 		assertFileBytes(t, result.InstallPath, pureCandidate)
 	}
+
 	assertDirectoryEntries(t, binDir, []string{"alpha", "beta", "gamma"})
 }
 
@@ -142,13 +186,17 @@ func TestInstallReleaseBinariesLeavesInstalledSetWhenOneCandidateFails(t *testin
 	skipAttestationVerification(t)
 	pureCandidate := buildProbeBinary(t, pureGoProbeSource, []string{"CGO_ENABLED=0"})
 	failingCandidate := buildProbeBinary(t, failingProbeSource, []string{"CGO_ENABLED=0"})
-	fixture := newReleaseFixture(t, map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": failingCandidate})
+	fixture := newReleaseFixture(
+		t,
+		map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": failingCandidate},
+	)
 	installOptions, binDir, oldContents := installSetOptions(t, fixture)
 
 	_, err := InstallReleaseBinaries(context.Background(), installOptions)
 	if err == nil || !strings.Contains(err.Error(), "candidate version failed") {
 		t.Fatalf("InstallReleaseBinaries() error = %v, want gamma candidate failure", err)
 	}
+
 	assertInstalledSetUnchanged(t, binDir, oldContents)
 }
 
@@ -158,7 +206,10 @@ func TestInstallReleaseBinariesLeavesInstalledSetWhenOneCandidateFails(t *testin
 func TestInstallReleaseBinariesLeavesInstalledSetWhenOneDownloadFails(t *testing.T) {
 	skipAttestationVerification(t)
 	pureCandidate := buildProbeBinary(t, pureGoProbeSource, []string{"CGO_ENABLED=0"})
-	fixture := newReleaseFixture(t, map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": pureCandidate})
+	fixture := newReleaseFixture(
+		t,
+		map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": pureCandidate},
+	)
 	fixture.refusedDownloads["gamma_"+runtime.GOOS+"_"+runtime.GOARCH+".tar.gz"] = true
 	installOptions, binDir, oldContents := installSetOptions(t, fixture)
 
@@ -166,6 +217,7 @@ func TestInstallReleaseBinariesLeavesInstalledSetWhenOneDownloadFails(t *testing
 	if err == nil || !strings.Contains(err.Error(), "HTTP 404") {
 		t.Fatalf("InstallReleaseBinaries() error = %v, want gamma download HTTP 404", err)
 	}
+
 	assertInstalledSetUnchanged(t, binDir, oldContents)
 }
 
@@ -194,13 +246,18 @@ func main() {
 
 // addInstalledSymlink writes the old and new link targets as files and points
 // setLinkName at the old one, as an earlier install would.
-func addInstalledSymlink(t *testing.T, installOptions *InstallReleaseBinariesOptions, binDir string) {
+func addInstalledSymlink(
+	t *testing.T,
+	installOptions *InstallReleaseBinariesOptions,
+	binDir string,
+) {
 	t.Helper()
 	writeInstalledBinary(t, filepath.Join(binDir, setOldLinkTarget), []byte("old library"))
 	writeInstalledBinary(t, filepath.Join(binDir, setNewLinkTarget), []byte("new library"))
 	if err := os.Symlink(setOldLinkTarget, filepath.Join(binDir, setLinkName)); err != nil {
 		t.Fatalf("create installed symlink: %v", err)
 	}
+
 	installOptions.Symlinks = []InstallSymlink{{Name: setLinkName, Target: setNewLinkTarget}}
 }
 
@@ -210,9 +267,11 @@ func assertSymlinkTarget(t *testing.T, path string, want string) {
 	if err != nil {
 		t.Fatalf("lstat %s: %v", path, err)
 	}
+
 	if info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("%s mode = %v, want a symlink", path, info.Mode())
 	}
+
 	target, err := os.Readlink(path)
 	if err != nil || target != want {
 		t.Fatalf("readlink %s = %q, %v, want %q", path, target, err, want)
@@ -224,15 +283,23 @@ func assertSymlinkTarget(t *testing.T, path string, want string) {
 func TestInstallReleaseBinariesCommitsSymlinkWithBinaries(t *testing.T) {
 	skipAttestationVerification(t)
 	pureCandidate := buildProbeBinary(t, pureGoProbeSource, []string{"CGO_ENABLED=0"})
-	fixture := newReleaseFixture(t, map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": pureCandidate})
+	fixture := newReleaseFixture(
+		t,
+		map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": pureCandidate},
+	)
 	installOptions, binDir, _ := installSetOptions(t, fixture)
 	addInstalledSymlink(t, &installOptions, binDir)
 
 	if _, err := InstallReleaseBinaries(context.Background(), installOptions); err != nil {
 		t.Fatalf("InstallReleaseBinaries() error: %v", err)
 	}
+
 	assertSymlinkTarget(t, filepath.Join(binDir, setLinkName), setNewLinkTarget)
-	assertDirectoryEntries(t, binDir, []string{"alpha", "beta", "gamma", setLinkName, setOldLinkTarget, setNewLinkTarget})
+	assertDirectoryEntries(
+		t,
+		binDir,
+		[]string{"alpha", "beta", "gamma", setLinkName, setOldLinkTarget, setNewLinkTarget},
+	)
 }
 
 // TestInstallReleaseBinariesLeavesSymlinkWhenOneCandidateFails fails gamma
@@ -241,7 +308,10 @@ func TestInstallReleaseBinariesLeavesSymlinkWhenOneCandidateFails(t *testing.T) 
 	skipAttestationVerification(t)
 	pureCandidate := buildProbeBinary(t, pureGoProbeSource, []string{"CGO_ENABLED=0"})
 	failingCandidate := buildProbeBinary(t, failingProbeSource, []string{"CGO_ENABLED=0"})
-	fixture := newReleaseFixture(t, map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": failingCandidate})
+	fixture := newReleaseFixture(
+		t,
+		map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": failingCandidate},
+	)
 	installOptions, binDir, oldContents := installSetOptions(t, fixture)
 	addInstalledSymlink(t, &installOptions, binDir)
 
@@ -249,11 +319,17 @@ func TestInstallReleaseBinariesLeavesSymlinkWhenOneCandidateFails(t *testing.T) 
 	if err == nil || !strings.Contains(err.Error(), "candidate version failed") {
 		t.Fatalf("InstallReleaseBinaries() error = %v, want gamma candidate failure", err)
 	}
+
 	for binary, content := range oldContents {
 		assertFileBytes(t, filepath.Join(binDir, binary), content)
 	}
+
 	assertSymlinkTarget(t, filepath.Join(binDir, setLinkName), setOldLinkTarget)
-	assertDirectoryEntries(t, binDir, []string{"alpha", "beta", "gamma", setLinkName, setOldLinkTarget, setNewLinkTarget})
+	assertDirectoryEntries(
+		t,
+		binDir,
+		[]string{"alpha", "beta", "gamma", setLinkName, setOldLinkTarget, setNewLinkTarget},
+	)
 }
 
 // TestInstallReleaseBinariesRestoresSymlinkWhenCommitFails replaces gamma's
@@ -263,25 +339,35 @@ func TestInstallReleaseBinariesLeavesSymlinkWhenOneCandidateFails(t *testing.T) 
 func TestInstallReleaseBinariesRestoresSymlinkWhenCommitFails(t *testing.T) {
 	skipAttestationVerification(t)
 	pureCandidate := buildProbeBinary(t, pureGoProbeSource, []string{"CGO_ENABLED=0"})
-	fixture := newReleaseFixture(t, map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": pureCandidate})
+	fixture := newReleaseFixture(
+		t,
+		map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": pureCandidate},
+	)
 	installOptions, binDir, oldContents := installSetOptions(t, fixture)
 	addInstalledSymlink(t, &installOptions, binDir)
 	gammaPath := filepath.Join(binDir, "gamma")
 	if err := os.Remove(gammaPath); err != nil {
 		t.Fatalf("remove gamma: %v", err)
 	}
+
 	if err := os.Mkdir(gammaPath, 0o755); err != nil {
 		t.Fatalf("create gamma directory: %v", err)
 	}
+
 	writeInstalledBinary(t, filepath.Join(gammaPath, "occupied"), []byte("directory content"))
 
 	if _, err := InstallReleaseBinaries(context.Background(), installOptions); err == nil {
 		t.Fatal("InstallReleaseBinaries() error = nil, want a gamma commit failure")
 	}
+
 	assertFileBytes(t, filepath.Join(binDir, "alpha"), oldContents["alpha"])
 	assertFileBytes(t, filepath.Join(binDir, "beta"), oldContents["beta"])
 	assertSymlinkTarget(t, filepath.Join(binDir, setLinkName), setOldLinkTarget)
-	assertDirectoryEntries(t, binDir, []string{"alpha", "beta", "gamma", setLinkName, setOldLinkTarget, setNewLinkTarget})
+	assertDirectoryEntries(
+		t,
+		binDir,
+		[]string{"alpha", "beta", "gamma", setLinkName, setOldLinkTarget, setNewLinkTarget},
+	)
 }
 
 // TestInstallReleaseBinariesPassesValidateEnv installs a candidate that
@@ -292,15 +378,23 @@ func TestInstallReleaseBinariesPassesValidateEnv(t *testing.T) {
 	fixture := newReleaseFixture(t, map[string][]byte{"alpha": envCandidate})
 	binDir := t.TempDir()
 	option := fixture.options(t, "alpha", binDir, t.TempDir(), "version: pure")
-	installOptions := InstallReleaseBinariesOptions{Options: []Options{option}, Channel: ReleaseChannelRolling, BinDir: binDir}
+	installOptions := InstallReleaseBinariesOptions{
+		Options: []Options{option},
+		Channel: ReleaseChannelRolling,
+		BinDir:  binDir,
+	}
 
 	if _, err := InstallReleaseBinaries(context.Background(), installOptions); err == nil {
-		t.Fatal("InstallReleaseBinaries() without ValidateEnv error = nil, want a candidate failure")
+		t.Fatal(
+			"InstallReleaseBinaries() without ValidateEnv error = nil, want a candidate failure",
+		)
 	}
+
 	installOptions.Options[0].Config.ValidateEnv = []string{"PROBE_READY=1"}
 	if _, err := InstallReleaseBinaries(context.Background(), installOptions); err != nil {
 		t.Fatalf("InstallReleaseBinaries() with ValidateEnv error: %v", err)
 	}
+
 	assertFileBytes(t, filepath.Join(binDir, "alpha"), envCandidate)
 }
 
@@ -310,7 +404,10 @@ func TestInstallReleaseBinariesPassesValidateEnv(t *testing.T) {
 func TestInstallReleaseBinariesRejectsSymlinkToMissingTarget(t *testing.T) {
 	skipAttestationVerification(t)
 	pureCandidate := buildProbeBinary(t, pureGoProbeSource, []string{"CGO_ENABLED=0"})
-	fixture := newReleaseFixture(t, map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": pureCandidate})
+	fixture := newReleaseFixture(
+		t,
+		map[string][]byte{"alpha": pureCandidate, "beta": pureCandidate, "gamma": pureCandidate},
+	)
 	installOptions, binDir, oldContents := installSetOptions(t, fixture)
 	addInstalledSymlink(t, &installOptions, binDir)
 	installOptions.Symlinks = []InstallSymlink{{Name: setLinkName, Target: "libprobe.missing"}}
@@ -319,9 +416,15 @@ func TestInstallReleaseBinariesRejectsSymlinkToMissingTarget(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "target libprobe.missing") {
 		t.Fatalf("InstallReleaseBinaries() error = %v, want a missing symlink target error", err)
 	}
+
 	for binary, content := range oldContents {
 		assertFileBytes(t, filepath.Join(binDir, binary), content)
 	}
+
 	assertSymlinkTarget(t, filepath.Join(binDir, setLinkName), setOldLinkTarget)
-	assertDirectoryEntries(t, binDir, []string{"alpha", "beta", "gamma", setLinkName, setOldLinkTarget, setNewLinkTarget})
+	assertDirectoryEntries(
+		t,
+		binDir,
+		[]string{"alpha", "beta", "gamma", setLinkName, setOldLinkTarget, setNewLinkTarget},
+	)
 }

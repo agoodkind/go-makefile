@@ -27,6 +27,7 @@ func dispatch() error {
 	if err := a.Flags.Set("targets", "example.com/sample.GRPCRelay.RelayStream:1"); err != nil {
 		t.Fatalf("set targets: %v", err)
 	}
+
 	diags := runAnalyzerOnSource(t, a, "relay.go", source)
 	wantOnce(t, diags, "[GRPCMETHOD001]", "SubscribeRegistry", "argument index 1")
 }
@@ -48,6 +49,7 @@ func dispatch() error {
 	if err := a.Flags.Set("targets", "example.com/sample.RouteUnary:0"); err != nil {
 		t.Fatalf("set targets: %v", err)
 	}
+
 	diags := runAnalyzerOnSource(t, a, "route.go", source)
 	wantOnce(t, diags, "[GRPCMETHOD001]", "Foo", "argument index 0")
 }
@@ -77,9 +79,14 @@ func dispatch() error {
 	if err := a.Flags.Set("targets", "example.com/sample.GRPCRelay.RelayStream:1"); err != nil {
 		t.Fatalf("set targets: %v", err)
 	}
+
 	diags := runAnalyzerOnSource(t, a, "relay.go", source)
 	if len(diags) != 0 {
-		t.Fatalf("expected no diagnostics for _FullMethodName constant, got %d: %v", len(diags), diags)
+		t.Fatalf(
+			"expected no diagnostics for _FullMethodName constant, got %d: %v",
+			len(diags),
+			diags,
+		)
 	}
 }
 
@@ -108,9 +115,14 @@ func dispatch() error {
 	if err := a.Flags.Set("targets", "example.com/sample.GRPCRelay.RelayStream:1"); err != nil {
 		t.Fatalf("set targets: %v", err)
 	}
+
 	diags := runAnalyzerOnSource(t, a, "relay.go", source)
 	if len(diags) != 0 {
-		t.Fatalf("expected no diagnostics for non-literal constant reference, got %d: %v", len(diags), diags)
+		t.Fatalf(
+			"expected no diagnostics for non-literal constant reference, got %d: %v",
+			len(diags),
+			diags,
+		)
 	}
 }
 
@@ -139,9 +151,14 @@ func dispatch(prefix string) error {
 	if err := a.Flags.Set("targets", "example.com/sample.GRPCRelay.RelayStream:1"); err != nil {
 		t.Fatalf("set targets: %v", err)
 	}
+
 	diags := runAnalyzerOnSource(t, a, "relay.go", source)
 	if len(diags) != 0 {
-		t.Fatalf("expected no diagnostics for function-call expression, got %d: %v", len(diags), diags)
+		t.Fatalf(
+			"expected no diagnostics for function-call expression, got %d: %v",
+			len(diags),
+			diags,
+		)
 	}
 }
 
@@ -168,9 +185,14 @@ func dispatch(prefix string) error {
 	if err := a.Flags.Set("targets", "example.com/sample.GRPCRelay.RelayStream:1"); err != nil {
 		t.Fatalf("set targets: %v", err)
 	}
+
 	diags := runAnalyzerOnSource(t, a, "relay.go", source)
 	if len(diags) != 0 {
-		t.Fatalf("expected no diagnostics for concatenation expression, got %d: %v", len(diags), diags)
+		t.Fatalf(
+			"expected no diagnostics for concatenation expression, got %d: %v",
+			len(diags),
+			diags,
+		)
 	}
 }
 
@@ -215,6 +237,7 @@ func dispatch() error {
 	if err := a.Flags.Set("targets", "example.com/sample.GRPCRelay.RelayStream:1"); err != nil {
 		t.Fatalf("set targets: %v", err)
 	}
+
 	diags := runAnalyzerOnSource(t, a, "relay.go", source)
 	if len(diags) != 0 {
 		t.Fatalf("expected no diagnostics for unrelated call, got %d: %v", len(diags), diags)

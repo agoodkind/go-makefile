@@ -39,9 +39,11 @@ func ResolveConcurrency(cpuCount int, loadAverage float64) int {
 	if cpuCount < 2 {
 		minimum = 1
 	}
+
 	if value < minimum {
 		value = minimum
 	}
+
 	if value > cpuCount {
 		value = cpuCount
 	}
@@ -55,10 +57,12 @@ func ResolveConcurrency(cpuCount int, loadAverage float64) int {
 // just the -p= token, matching the shell's empty-output_flags branch.
 func LintGOFLAGS(existing string, concurrency int) string {
 	var kept []string
+
 	for _, token := range strings.Fields(existing) {
 		if strings.HasPrefix(token, "-p=") {
 			continue
 		}
+
 		kept = append(kept, token)
 	}
 
@@ -66,6 +70,7 @@ func LintGOFLAGS(existing string, concurrency int) string {
 	if len(kept) == 0 {
 		return concurrencyFlag
 	}
+
 	return strings.Join(kept, " ") + " " + concurrencyFlag
 }
 
@@ -85,25 +90,37 @@ type Result struct {
 // exec-not-found or an output-file write error. A structured slog call is
 // emitted at the boundary to satisfy the missing_boundary_log rule.
 func Run(name string, args []string, env []string, outputPath string) (Result, error) {
-	slog.Info("capture.Run executing command",
-		"command", name,
-		"args", args,
-		"output_path", outputPath,
+	slog.Info(
+		"capture.Run executing command",
+		"command",
+		name,
+		"args",
+		args,
+		"output_path",
+		outputPath,
 	)
 
 	out, createErr := os.Create(outputPath)
 	if createErr != nil {
-		slog.Error("capture.Run failed to create output file",
-			"output_path", outputPath,
-			"error", createErr,
+		slog.Error(
+			"capture.Run failed to create output file",
+			"output_path",
+			outputPath,
+			"error",
+			createErr,
 		)
+
 		return Result{OutputPath: outputPath}, createErr
 	}
+
 	defer func() {
 		if closeErr := out.Close(); closeErr != nil {
-			slog.Error("capture.Run failed to close output file",
-				"output_path", outputPath,
-				"error", closeErr,
+			slog.Error(
+				"capture.Run failed to close output file",
+				"output_path",
+				outputPath,
+				"error",
+				closeErr,
 			)
 		}
 	}()
@@ -120,18 +137,28 @@ func Run(name string, args []string, env []string, outputPath string) (Result, e
 
 	exitErr, isExit := runErr.(*exec.ExitError)
 	if isExit {
-		slog.Info("capture.Run command exited non-zero",
-			"command", name,
-			"status", exitErr.ExitCode(),
-			"output_path", outputPath,
+		slog.Info(
+			"capture.Run command exited non-zero",
+			"command",
+			name,
+			"status",
+			exitErr.ExitCode(),
+			"output_path",
+			outputPath,
 		)
+
 		return Result{OutputPath: outputPath, Status: exitErr.ExitCode()}, nil
 	}
 
-	slog.Error("capture.Run failed to execute command",
-		"command", name,
-		"output_path", outputPath,
-		"error", runErr,
+	slog.Error(
+		"capture.Run failed to execute command",
+		"command",
+		name,
+		"output_path",
+		outputPath,
+		"error",
+		runErr,
 	)
+
 	return Result{OutputPath: outputPath}, runErr
 }

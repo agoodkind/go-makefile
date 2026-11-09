@@ -35,14 +35,23 @@ func TestFindingPath(t *testing.T) {
 		},
 	}
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			path, ok := FindingPath(testCase.line)
-			if ok != testCase.wantOK {
-				t.Fatalf("FindingPath(%q) ok = %v, want %v", testCase.line, ok, testCase.wantOK)
-			}
-			if path != testCase.wantPath {
-				t.Errorf("FindingPath(%q) path = %q, want %q", testCase.line, path, testCase.wantPath)
-			}
-		})
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				path, ok := FindingPath(testCase.line)
+				if ok != testCase.wantOK {
+					t.Fatalf("FindingPath(%q) ok = %v, want %v", testCase.line, ok, testCase.wantOK)
+				}
+
+				if path != testCase.wantPath {
+					t.Errorf(
+						"FindingPath(%q) path = %q, want %q",
+						testCase.line,
+						path,
+						testCase.wantPath,
+					)
+				}
+			},
+		)
 	}
 }

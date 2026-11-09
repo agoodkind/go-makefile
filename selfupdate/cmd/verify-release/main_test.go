@@ -34,8 +34,21 @@ func TestRunVerifyReleasePassesConfigAndPrintsCount(t *testing.T) {
 		func(_ context.Context, options selfupdate.Options, tag string) error {
 			capturedOptions = options
 			capturedTag = tag
-			options.Log.Info("release asset verified", "asset", "agent-gate_darwin_amd64.tar.gz", "tag", tag)
-			options.Log.Info("release asset verified", "asset", "agent-gate_linux_arm64.tar.gz", "tag", tag)
+			options.Log.Info(
+				"release asset verified",
+				"asset",
+				"agent-gate_darwin_amd64.tar.gz",
+				"tag",
+				tag,
+			)
+			options.Log.Info(
+				"release asset verified",
+				"asset",
+				"agent-gate_linux_arm64.tar.gz",
+				"tag",
+				tag,
+			)
+
 			return nil
 		},
 	)
@@ -43,21 +56,27 @@ func TestRunVerifyReleasePassesConfigAndPrintsCount(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("runVerifyRelease() = %d, want 0\nstderr:\n%s", exitCode, stderr.String())
 	}
+
 	if capturedTag != "v1.2.3" {
 		t.Fatalf("tag = %q, want v1.2.3", capturedTag)
 	}
+
 	if capturedOptions.Config.Repo != "agoodkind/agent-gate" {
 		t.Fatalf("Repo = %q", capturedOptions.Config.Repo)
 	}
+
 	if capturedOptions.Config.Binary != "agent-gate" {
 		t.Fatalf("Binary = %q", capturedOptions.Config.Binary)
 	}
+
 	if capturedOptions.Config.APIBaseURL != "https://api.example.invalid" {
 		t.Fatalf("APIBaseURL = %q", capturedOptions.Config.APIBaseURL)
 	}
+
 	if capturedOptions.Config.AuthToken != "test-token" {
 		t.Fatalf("AuthToken = %q", capturedOptions.Config.AuthToken)
 	}
+
 	if stdout.String() != "verified 2 assets for v1.2.3\n" {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
@@ -79,9 +98,11 @@ func TestRunVerifyReleaseRequiresFlags(t *testing.T) {
 	if exitCode != 1 {
 		t.Fatalf("runVerifyRelease() = %d, want 1", exitCode)
 	}
+
 	if !strings.Contains(stderr.String(), "--repo is required") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
+
 	if stdout.String() != "" {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}

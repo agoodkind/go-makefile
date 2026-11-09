@@ -47,6 +47,7 @@ func newWebRelease(t *testing.T, feedTag string, stableTag string, bundle []byte
 	release := &webRelease{feedTag: feedTag, stableTag: stableTag, bundle: bundle}
 	release.server = httptest.NewServer(http.HandlerFunc(release.serve))
 	t.Cleanup(release.server.Close)
+
 	return release
 }
 
@@ -63,29 +64,44 @@ func (release *webRelease) serve(writer http.ResponseWriter, request *http.Reque
 			`<entry><id>tag:github.com,2008:Repository/1/` + release.feedTag + `</id>` +
 			`<updated>2026-11-03T16:28:00Z</updated></entry></feed>`
 		_, _ = writer.Write([]byte(feed))
+
 		return
 	case repoPath + "/latest":
 		location := repoPath
 		if release.stableTag != "" {
 			location = repoPath + "/tag/" + release.stableTag
 		}
+
 		http.Redirect(writer, request, location, http.StatusFound)
+
 		return
 	}
+
 	for _, tag := range []string{release.feedTag, release.stableTag} {
 		release.serveAsset(writer, request, repoPath+"/download/"+tag+"/")
 	}
 }
 
-func (release *webRelease) serveAsset(writer http.ResponseWriter, request *http.Request, prefix string) {
+func (release *webRelease) serveAsset(
+	writer http.ResponseWriter,
+	request *http.Request,
+	prefix string,
+) {
 	assetName, found := strings.CutPrefix(request.URL.Path, prefix)
 	if !found {
 		return
 	}
+
 	switch assetName {
 	case "checksums.txt":
 		digest := sha256.Sum256([]byte(webTestArchive))
-		_, _ = writer.Write([]byte(hex.EncodeToString(digest[:]) + "  " + release.checksumNamePrefix + webTestAssetName + "\n"))
+		_, _ = writer.Write(
+			[]byte(
+				hex.EncodeToString(
+					digest[:],
+				) + "  " + release.checksumNamePrefix + webTestAssetName + "\n",
+			),
+		)
 	case webTestAssetName:
 		_, _ = writer.Write([]byte(webTestArchive))
 	case webTestAssetName + ".sigstore.json":
@@ -93,6 +109,7 @@ func (release *webRelease) serveAsset(writer http.ResponseWriter, request *http.
 			http.NotFound(writer, request)
 			return
 		}
+
 		_, _ = writer.Write(release.bundle)
 	default:
 		http.NotFound(writer, request)
@@ -106,11 +123,13 @@ func (release *webRelease) assertNoAPIRequests(t *testing.T) {
 	if len(release.paths) == 0 {
 		t.Fatal("server did not receive any requests")
 	}
+
 	for _, path := range release.paths {
 		if strings.HasPrefix(path, "/repos/") {
 			t.Errorf("server received API request %s", path)
 		}
 	}
+
 	for _, authorization := range release.authorizations {
 		if authorization != "" {
 			t.Error("server received an Authorization header")
@@ -125,6 +144,7 @@ func webOptions(t *testing.T, release *webRelease, allowPrerelease bool) selfupd
 	if err := os.WriteFile(installPath, []byte("installed"), 0o700); err != nil {
 		t.Fatalf("write installed binary: %v", err)
 	}
+
 	return selfupdate.Options{
 		Config: selfupdate.Config{
 			Repo:             webTestRepo,
@@ -149,6 +169,7 @@ func assertInstalledUnchanged(t *testing.T, options selfupdate.Options) {
 	if err != nil {
 		t.Fatalf("read installed binary: %v", err)
 	}
+
 	if string(content) != "installed" {
 		t.Fatalf("installed binary = %q, want unchanged", content)
 	}
@@ -161,9 +182,17 @@ func TestCheckFindsRollingReleaseInFeedWithoutGitHubAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Check() error: %v", err)
 	}
-	if result.LatestTag != webTestRollingTag || result.AssetName != webTestAssetName || !result.UpdateAvailable {
-		t.Fatalf("Check() = %+v, want %s and %s with an update", result, webTestRollingTag, webTestAssetName)
+
+	if result.LatestTag != webTestRollingTag || result.AssetName != webTestAssetName ||
+		!result.UpdateAvailable {
+		t.Fatalf(
+			"Check() = %+v, want %s and %s with an update",
+			result,
+			webTestRollingTag,
+			webTestAssetName,
+		)
 	}
+
 	release.assertNoAPIRequests(t)
 }
 
@@ -176,9 +205,11 @@ func TestCheckSelectsNewestReleaseWhenFeedStartsWithOlderTag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Check() error: %v", err)
 	}
+
 	if result.LatestTag != webTestRollingTag || result.AssetName != webTestAssetName {
 		t.Fatalf("Check() = %+v, want %s and %s", result, webTestRollingTag, webTestAssetName)
 	}
+
 	release.assertNoAPIRequests(t)
 }
 
@@ -203,9 +234,11 @@ func TestCheckFindsStableReleaseInRedirectThroughWebBaseEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Check() error: %v", err)
 	}
+
 	if result.LatestTag != webTestStableTag {
 		t.Fatalf("LatestTag = %q, want %q", result.LatestTag, webTestStableTag)
 	}
+
 	release.assertNoAPIRequests(t)
 }
 
@@ -218,6 +251,7 @@ func TestCheckReadsChecksumNamesWithDotSlashPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Check() error: %v", err)
 	}
+
 	if result.AssetName != webTestAssetName {
 		t.Fatalf("AssetName = %q, want %q", result.AssetName, webTestAssetName)
 	}
@@ -230,6 +264,7 @@ func TestCheckReportsRepositoryWithoutStableRelease(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no stable release") {
 		t.Fatalf("Check() error = %v, want no stable release", err)
 	}
+
 	release.assertNoAPIRequests(t)
 }
 
@@ -243,9 +278,12 @@ func TestApplyRejectsReleaseWithoutBundle(t *testing.T) {
 	if !strings.Contains(logOutput.String(), "update build provenance bundle request failed") {
 		t.Fatalf("caller logger did not record the bundle request failure: %s", logOutput.String())
 	}
-	if err == nil || !strings.Contains(err.Error(), "download build provenance bundle") || !strings.Contains(err.Error(), "HTTP 404") {
+
+	if err == nil || !strings.Contains(err.Error(), "download build provenance bundle") ||
+		!strings.Contains(err.Error(), "HTTP 404") {
 		t.Fatalf("Apply() error = %v, want a missing bundle error", err)
 	}
+
 	assertInstalledUnchanged(t, options)
 	release.assertNoAPIRequests(t)
 }
@@ -256,6 +294,7 @@ func TestApplyRejectsArchiveThatRealBundleDoesNotCover(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read real bundle: %v", err)
 	}
+
 	release := newWebRelease(t, webTestRollingTag, webTestStableTag, bundle)
 	options := webOptions(t, release, true)
 
@@ -263,6 +302,7 @@ func TestApplyRejectsArchiveThatRealBundleDoesNotCover(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "provided artifact digest does not match") {
 		t.Fatalf("Apply() error = %v, want an artifact digest mismatch", err)
 	}
+
 	assertInstalledUnchanged(t, options)
 	release.assertNoAPIRequests(t)
 }

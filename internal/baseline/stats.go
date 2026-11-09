@@ -24,22 +24,26 @@ func (statistics Stats) IsNoop() bool {
 // countMissing returns how many keys of a are absent from b.
 func countMissing(a, b map[string]struct{}) int {
 	missing := 0
+
 	for key := range a {
 		if _, present := b[key]; !present {
 			missing++
 		}
 	}
+
 	return missing
 }
 
 // countShared returns how many keys of a are also in b.
 func countShared(a, b map[string]struct{}) int {
 	shared := 0
+
 	for key := range a {
 		if _, present := b[key]; present {
 			shared++
 		}
 	}
+
 	return shared
 }
 
@@ -48,16 +52,21 @@ func countShared(a, b map[string]struct{}) int {
 // and new baseline key sets; covered counts raw findings now represented in the
 // new baseline; remaining is the new baseline key count.
 func computeStats(
-	label, baselinePath, scopePattern string,
+	label string,
+	baselinePath string,
+	scopePattern string,
 	findingsLines []string,
-	oldKeys, newKeys map[string]struct{},
+	oldKeys map[string]struct{},
+	newKeys map[string]struct{},
 ) Stats {
 	covered := 0
+
 	for _, key := range findingKeyList(findingsLines) {
 		if _, present := newKeys[key]; present {
 			covered++
 		}
 	}
+
 	return Stats{
 		Label:            label,
 		BaselinePath:     baselinePath,

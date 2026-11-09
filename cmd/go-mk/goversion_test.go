@@ -21,7 +21,11 @@ func TestOutdatedInstalledGoVersionIsAdvisory(t *testing.T) {
 	if result.Status != report.StatusAdvisory {
 		t.Fatalf("status = %v, want advisory", result.Status)
 	}
-	if !strings.Contains(strings.Join(result.Findings, "\n"), "Installed Go 1.26.4 is behind the latest stable Go 1.26.5") {
+
+	if !strings.Contains(
+		strings.Join(result.Findings, "\n"),
+		"Installed Go 1.26.4 is behind the latest stable Go 1.26.5",
+	) {
 		t.Fatalf("findings = %v, want upgrade notice", result.Findings)
 	}
 }
@@ -39,6 +43,7 @@ func TestGoVersionLookupFailureIsAdvisory(t *testing.T) {
 	if result.Status != report.StatusAdvisory {
 		t.Fatalf("status = %v, want advisory", result.Status)
 	}
+
 	if !strings.Contains(strings.Join(result.Findings, "\n"), "network unavailable") {
 		t.Fatalf("findings = %v, want lookup error", result.Findings)
 	}

@@ -29,11 +29,20 @@ func TestStaticcheckExtraBaselinesOlderTestFindingsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first gate run failed in a consumer older than the notice: %v\n%s", err, output)
 	}
-	if baseline := readConsumerFile(t, consumerDir, baselineFileName); !strings.Contains(baseline, olderTestFinding) {
+
+	if baseline := readConsumerFile(t, consumerDir, baselineFileName); !strings.Contains(
+		baseline,
+		olderTestFinding,
+	) {
 		t.Fatalf("baseline lacks the older test finding %s:\n%s", olderTestFinding, baseline)
 	}
-	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n3\n" {
-		t.Fatalf("applied notices = %q, want notices 1, 2, and 3", applied)
+
+	if applied := readConsumerFile(
+		t,
+		consumerDir,
+		appliedNoticeFile,
+	); applied != "1\n2\n3\n14\n15\n16\n" {
+		t.Fatalf("applied notices = %q, want notices 1, 2, 3, 14, 15, and 16", applied)
 	}
 
 	writeConsumerFile(t, consumerDir, "widget/useful_test.go", assertingTest)
@@ -47,13 +56,19 @@ func TestStaticcheckExtraBaselinesOlderTestFindingsOnce(t *testing.T) {
 	if err == nil {
 		t.Fatalf("gate passed with a new test that asserts nothing:\n%s", output)
 	}
+
 	if !strings.Contains(output, "widget/cruft_test.go:9:6") {
 		t.Fatalf("failure output lacks the new test finding:\n%s", output)
 	}
+
 	if strings.Contains(output, olderTestFinding) {
 		t.Fatalf("failure output reports the baselined older test:\n%s", output)
 	}
-	if baseline := readConsumerFile(t, consumerDir, baselineFileName); strings.Contains(baseline, "cruft_test.go") {
+
+	if baseline := readConsumerFile(t, consumerDir, baselineFileName); strings.Contains(
+		baseline,
+		"cruft_test.go",
+	) {
 		t.Fatalf("a later gate run baselined the new test finding:\n%s", baseline)
 	}
 }
@@ -65,10 +80,14 @@ func TestStaticcheckExtraDoesNotBaselineAConsumerNewerThanTheNotice(t *testing.T
 	if err == nil {
 		t.Fatalf("gate passed on a test in the package under test with no baseline:\n%s", output)
 	}
+
 	if !strings.Contains(output, olderTestFinding) {
 		t.Fatalf("failure output lacks the test finding:\n%s", output)
 	}
-	if _, statErr := os.Stat(filepath.Join(consumerDir, baselineFileName)); !os.IsNotExist(statErr) {
+
+	if _, statErr := os.Stat(filepath.Join(consumerDir, baselineFileName)); !os.IsNotExist(
+		statErr,
+	) {
 		t.Fatalf("baseline stat error = %v, want no baseline file", statErr)
 	}
 }
@@ -80,7 +99,9 @@ func newConsumerRepository(t *testing.T, commitDate string) string {
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
+
 	consumerDir := t.TempDir()
+
 	files := map[string]string{
 		"go.mod":                "module example.com/consumer\n\ngo 1.26\n",
 		"widget/widget.go":      "package widget\n\nfunc Double(value int) int {\n\treturn value * 2\n}\n",
@@ -88,14 +109,27 @@ func newConsumerRepository(t *testing.T, commitDate string) string {
 		".make/golangci.yml":    "version: \"2\"\n",
 		".gitignore":            ".make/\n",
 		appliedNoticeFile:       "1\n",
-		"Makefile":              "GO_MK_DEV_DIR := " + repoRoot + "\n_GO_MK_PROVISIONED := 1\ninclude " + filepath.Join(repoRoot, "go.mk") + "\n",
+		"Makefile": "GO_MK_DEV_DIR := " + repoRoot + "\n_GO_MK_PROVISIONED := 1\ninclude " + filepath.Join(
+			repoRoot,
+			"go.mk",
+		) + "\n",
 	}
 	for name, content := range files {
 		writeConsumerFile(t, consumerDir, name, content)
 	}
+
 	runConsumerGit(t, consumerDir, commitDate, "init", "--quiet", "--initial-branch=main")
 	runConsumerGit(t, consumerDir, commitDate, "add", ".")
-	runConsumerGit(t, consumerDir, commitDate, "commit", "--quiet", "--message", "adopt go-makefile")
+	runConsumerGit(
+		t,
+		consumerDir,
+		commitDate,
+		"commit",
+		"--quiet",
+		"--message",
+		"adopt go-makefile",
+	)
+
 	return consumerDir
 }
 
@@ -106,6 +140,7 @@ func writeConsumerFile(t *testing.T, consumerDir, name, content string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("create directory for %s: %v", name, err)
 	}
+
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", name, err)
 	}
@@ -118,6 +153,7 @@ func readConsumerFile(t *testing.T, consumerDir, name string) string {
 	if err != nil {
 		t.Fatalf("read %s: %v", name, err)
 	}
+
 	return string(content)
 }
 
@@ -155,5 +191,6 @@ func runConsumerMake(consumerDir string, arguments ...string) (string, error) {
 		"GOCACHE=" + os.Getenv("GOCACHE"),
 	}
 	output, err := command.CombinedOutput()
+
 	return string(output), err
 }

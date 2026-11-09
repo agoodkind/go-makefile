@@ -11,13 +11,17 @@ import (
 const rootModule = "module example.com/rootmain\n\ngo 1.26\n"
 
 func TestScaffoldTreatsARootMainPackageAsABinary(t *testing.T) {
-	output, makefile := scaffoldModule(t, map[string]string{
-		"go.mod":  rootModule,
-		"main.go": "package main\n\nfunc main() {}\n",
-	})
+	output, makefile := scaffoldModule(
+		t,
+		map[string]string{
+			"go.mod":  rootModule,
+			"main.go": "package main\n\nfunc main() {}\n",
+		},
+	)
 	if !strings.Contains(output, "layout:  binary") {
 		t.Fatalf("scaffold output lacks the binary layout:\n%s", output)
 	}
+
 	for _, want := range []string{"BINARY := rootmain\n", "CMD    := .\n"} {
 		if !strings.Contains(makefile, want) {
 			t.Fatalf("Makefile lacks %q:\n%s", want, makefile)
@@ -26,14 +30,18 @@ func TestScaffoldTreatsARootMainPackageAsABinary(t *testing.T) {
 }
 
 func TestScaffoldTreatsALibraryWithAnIgnoredGeneratorAsALibrary(t *testing.T) {
-	output, makefile := scaffoldModule(t, map[string]string{
-		"go.mod": rootModule,
-		"lib.go": "package rootmain\n\nfunc Value() int { return 1 }\n",
-		"gen.go": "//go:build ignore\n\npackage main\n\nfunc main() {}\n",
-	})
+	output, makefile := scaffoldModule(
+		t,
+		map[string]string{
+			"go.mod": rootModule,
+			"lib.go": "package rootmain\n\nfunc Value() int { return 1 }\n",
+			"gen.go": "//go:build ignore\n\npackage main\n\nfunc main() {}\n",
+		},
+	)
 	if !strings.Contains(output, "layout:  library") {
 		t.Fatalf("scaffold output lacks the library layout:\n%s", output)
 	}
+
 	if !strings.Contains(makefile, "LIBRARY := 1\n") {
 		t.Fatalf("Makefile lacks the library setting:\n%s", makefile)
 	}
@@ -51,6 +59,7 @@ func scaffoldModule(t *testing.T, files map[string]string) (string, string) {
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {
 		t.Fatalf("create %s: %v", repoDir, err)
 	}
+
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(repoDir, name), []byte(content), 0o644); err != nil {
 			t.Fatalf("write %s: %v", name, err)
@@ -68,9 +77,11 @@ func scaffoldModule(t *testing.T, files map[string]string) (string, string) {
 	if err != nil {
 		t.Fatalf("go-mk scaffold: %v\n%s", err, output)
 	}
+
 	makefile, err := os.ReadFile(filepath.Join(repoDir, "Makefile"))
 	if err != nil {
 		t.Fatalf("read Makefile: %v", err)
 	}
+
 	return string(output), string(makefile)
 }

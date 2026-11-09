@@ -61,14 +61,18 @@ func ParseReport(data []byte) (Report, error) {
 	if err := json.Unmarshal(data, &report); err != nil {
 		return Report{}, err
 	}
+
 	if len(report.Files) == 0 {
 		return report, nil
 	}
+
 	var files []reportFile
 	if err := json.Unmarshal(report.Files, &files); err != nil {
 		return Report{}, err
 	}
+
 	report.MutantsTimedOut = 0
+
 	for _, file := range files {
 		for _, mutant := range file.Mutations {
 			if mutant.Status == timedOutStatus {
@@ -76,6 +80,7 @@ func ParseReport(data []byte) (Report, error) {
 			}
 		}
 	}
+
 	return report, nil
 }
 
@@ -90,6 +95,7 @@ func Summarize(reports []PackageReport) Summary {
 		summary.TimedOut += report.MutantsTimedOut
 		summary.Total += report.MutantsTotal
 	}
+
 	return summary
 }
 
@@ -105,6 +111,7 @@ func score(killed, lived int) (float64, bool) {
 	if covered == 0 {
 		return 0, false
 	}
+
 	return float64(killed) / float64(covered) * percentScale, true
 }
 
@@ -115,7 +122,9 @@ func (summary Summary) MeetsMinimum(minimum float64) bool {
 	if minimum <= 0 {
 		return true
 	}
+
 	value, defined := summary.Score()
+
 	return defined && value >= minimum
 }
 
@@ -124,17 +133,34 @@ func (summary Summary) MeetsMinimum(minimum float64) bool {
 func RenderMarkdown(summary Summary, minimum float64) string {
 	var builder strings.Builder
 	builder.WriteString("## Mutation test summary\n\n")
-	builder.WriteString("| Package | Killed | Lived | Not covered | Timed out | Not viable | Score |\n")
+	builder.WriteString(
+		"| Package | Killed | Lived | Not covered | Timed out | Not viable | Score |\n",
+	)
 	builder.WriteString("| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n")
+
 	for _, report := range summary.Packages {
-		builder.WriteString(tableRow(
-			report.Package, report.MutantsKilled, report.MutantsLived,
-			report.MutantsNotCovered, report.MutantsTimedOut, report.MutantsNotViable,
-		))
+		builder.WriteString(
+			tableRow(
+				report.Package,
+				report.MutantsKilled,
+				report.MutantsLived,
+				report.MutantsNotCovered,
+				report.MutantsTimedOut,
+				report.MutantsNotViable,
+			),
+		)
 	}
-	builder.WriteString(tableRow(
-		"Total", summary.Killed, summary.Lived, summary.NotCovered, summary.TimedOut, summary.NotViable,
-	))
+
+	builder.WriteString(
+		tableRow(
+			"Total",
+			summary.Killed,
+			summary.Lived,
+			summary.NotCovered,
+			summary.TimedOut,
+			summary.NotViable,
+		),
+	)
 	builder.WriteString("\nThe score is killed / (killed + lived).\n")
 	if summary.TimedOut > 0 {
 		fmt.Fprintf(
@@ -143,14 +169,22 @@ func RenderMarkdown(summary Summary, minimum float64) string {
 			summary.TimedOut,
 		)
 	}
+
 	builder.WriteString(minimumLine(summary, minimum))
+
 	return builder.String()
 }
 
 func tableRow(name string, killed, lived, notCovered, timedOut, notViable int) string {
 	return fmt.Sprintf(
 		"| %s | %d | %d | %d | %d | %d | %s |\n",
-		name, killed, lived, notCovered, timedOut, notViable, scoreText(killed, lived),
+		name,
+		killed,
+		lived,
+		notCovered,
+		timedOut,
+		notViable,
+		scoreText(killed, lived),
 	)
 }
 
@@ -159,6 +193,7 @@ func scoreText(killed, lived int) string {
 	if !defined {
 		return "n/a"
 	}
+
 	return fmt.Sprintf("%.2f%%", value)
 }
 
@@ -166,8 +201,10 @@ func minimumLine(summary Summary, minimum float64) string {
 	if minimum <= 0 {
 		return "No minimum score is set.\n"
 	}
+
 	if summary.MeetsMinimum(minimum) {
 		return fmt.Sprintf("The run meets the minimum score of %.2f%%.\n", minimum)
 	}
+
 	return fmt.Sprintf("The run is below the minimum score of %.2f%%.\n", minimum)
 }

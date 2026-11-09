@@ -34,6 +34,7 @@ func makeImmutable(t *testing.T, path string) func() {
 			t.Logf("chflags present but failed, trying chattr: %v: %s", err, output)
 		}
 	}
+
 	// Linux. Needs CAP_LINUX_IMMUTABLE, which a container job usually has and
 	// an unprivileged local user usually does not.
 	if _, err := exec.LookPath("chattr"); err == nil {
@@ -43,7 +44,9 @@ func makeImmutable(t *testing.T, path string) func() {
 			t.Logf("chattr present but failed: %v: %s", err, output)
 		}
 	}
+
 	t.Skip("no working immutable-flag mechanism here (tried chflags and chattr)")
+
 	return func() {}
 }
 
@@ -58,10 +61,12 @@ func inodeOf(t *testing.T, path string) uint64 {
 	if err != nil {
 		t.Fatalf("stat %s: %v", path, err)
 	}
+
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		t.Fatalf("stat %s: no syscall.Stat_t, cannot read the inode", path)
 	}
+
 	return uint64(stat.Ino)
 }
 
@@ -83,25 +88,37 @@ func TestHelperColdProvisionWritesEveryAsset(t *testing.T) {
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
-	stdout, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	})
+	stdout, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	)
 	if code != 0 {
 		t.Fatalf("helper exit = %d, want 0\nstdout: %s\nstderr: %s", code, stdout, stderr)
 	}
 
-	for _, asset := range []string{"go.mk", "golangci.yml", "notices.txt", "scripts/go-mk-fetch-one.sh"} {
+	for _, asset := range []string{
+		"go.mk",
+		"golangci.yml",
+		"notices.txt",
+		"scripts/go-mk-fetch-one.sh",
+	} {
 		if body := readAsset(t, dir, asset); body == "" {
 			t.Fatalf("asset %s missing or empty after cold provision", asset)
 		}
 	}
+
 	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
 		t.Fatalf("go.mk = %q, want the served body", got)
 	}
+
 	requests := server.Requests()
 	if len(requests) != 1 {
 		t.Fatalf("server saw %d requests, want exactly 1", len(requests))
 	}
+
 	// Assert the URL, not just that a request happened. This server answers
 	// every path with the same fixture, so a helper pointed at the wrong
 	// repository or the wrong ref would still get a normal 200 and every other
@@ -130,20 +147,33 @@ func TestHelperLeavesAssetsIntactWhenUpstreamIsUnreachable(t *testing.T) {
 	writeAsset(t, dir, "scripts/go-mk-bin.sh", "#!/usr/bin/env bash\nexit 0\n")
 	writeAsset(t, dir, "scripts/go-mk-sync.sh", "#!/usr/bin/env bash\nexit 0\n")
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		},
+	)
 	if code != 1 {
-		t.Fatalf("helper exit = %d, want 1 (the script's own failure exit, not e.g. 127 from a missing script)\nstderr: %s", code, stderr)
+		t.Fatalf(
+			"helper exit = %d, want 1 (the script's own failure exit, not e.g. 127 from a missing script)\nstderr: %s",
+			code,
+			stderr,
+		)
 	}
+
 	if !strings.Contains(stderr, "could not provision go-makefile assets") {
-		t.Fatalf("stderr = %q, want it to contain the helper's own provisioning-failure message, proving the script actually ran and reached its decision", stderr)
+		t.Fatalf(
+			"stderr = %q, want it to contain the helper's own provisioning-failure message, proving the script actually ran and reached its decision",
+			stderr,
+		)
 	}
 
 	// The point of the task: a failed fetch must not remove what was there.
 	if got := readAsset(t, dir, "go.mk"); got != "# warm go.mk\n" {
 		t.Fatalf("go.mk = %q after a failed fetch, want the original body preserved", got)
 	}
+
 	if got := readAsset(t, dir, "golangci.yml"); got == "" {
 		t.Fatal("golangci.yml was destroyed by a failed fetch")
 	}
@@ -167,11 +197,18 @@ func TestHelperLeavesAssetsIntactWhenTarballIsIncomplete(t *testing.T) {
 	writeAsset(t, dir, "scripts/go-mk-bin.sh", "#!/usr/bin/env bash\nexit 0\n")
 	writeAsset(t, dir, "scripts/go-mk-sync.sh", "#!/usr/bin/env bash\nexit 0\n")
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	)
 	if code == 0 {
-		t.Fatalf("helper exit = 0, want non-zero when the served tarball is missing required assets\nstderr: %s", stderr)
+		t.Fatalf(
+			"helper exit = 0, want non-zero when the served tarball is missing required assets\nstderr: %s",
+			stderr,
+		)
 	}
 
 	for relative, want := range map[string]string{
@@ -183,7 +220,12 @@ func TestHelperLeavesAssetsIntactWhenTarballIsIncomplete(t *testing.T) {
 		"scripts/go-mk-sync.sh":      "#!/usr/bin/env bash\nexit 0\n",
 	} {
 		if got := readAsset(t, dir, relative); got != want {
-			t.Fatalf("%s = %q after an incomplete tarball, want the original body %q preserved byte for byte", relative, got, want)
+			t.Fatalf(
+				"%s = %q after an incomplete tarball, want the original body %q preserved byte for byte",
+				relative,
+				got,
+				want,
+			)
 		}
 	}
 }
@@ -215,6 +257,7 @@ func TestHelperMidInstallFailureExitsNonZero(t *testing.T) {
 	if err := os.MkdirAll(makeDir, 0o755); err != nil {
 		t.Fatalf("mkdir .make: %v", err)
 	}
+
 	golangciPath := filepath.Join(makeDir, "golangci.yml")
 	if err := os.MkdirAll(golangciPath, 0o755); err != nil {
 		t.Fatalf("seed directory at golangci.yml: %v", err)
@@ -224,19 +267,30 @@ func TestHelperMidInstallFailureExitsNonZero(t *testing.T) {
 	// something stale to leave behind.
 	writeState(t, dir, "main", `"old-etag"`, time.Now().Add(-10*time.Minute).Unix())
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	)
 	if code == 0 {
-		t.Fatalf("helper exit = 0, want non-zero when a middle install step (golangci.yml) fails while the surrounding steps succeed\nstderr: %s", stderr)
+		t.Fatalf(
+			"helper exit = 0, want non-zero when a middle install step (golangci.yml) fails while the surrounding steps succeed\nstderr: %s",
+			stderr,
+		)
 	}
+
 	// A failure here leaves .make holding a mix of new and old assets, because
 	// install_from_stage replaces them one at a time. The stale state file must
 	// not survive that: if it did, the next run would send its ETag, get a 304,
 	// and treat the mixed tree as validated and current forever.
 	if _, err := os.Stat(filepath.Join(dir, ".make", ".go-mk-fetch-state")); !os.IsNotExist(err) {
-		t.Fatalf("state file still present after a partial install (stat err = %v); "+
-			"a later run would 304 against it and bless a tree that is half new and half old", err)
+		t.Fatalf(
+			"state file still present after a partial install (stat err = %v); "+
+				"a later run would 304 against it and bless a tree that is half new and half old",
+			err,
+		)
 	}
 }
 
@@ -253,27 +307,40 @@ func TestHelperRefusesAnAssetPathThatSymlinksToADirectory(t *testing.T) {
 	if err := os.MkdirAll(makeDir, 0o755); err != nil {
 		t.Fatalf("mkdir .make: %v", err)
 	}
+
 	decoy := filepath.Join(dir, "decoy")
 	if err := os.MkdirAll(decoy, 0o755); err != nil {
 		t.Fatalf("mkdir decoy: %v", err)
 	}
+
 	if err := os.Symlink("../decoy", filepath.Join(makeDir, "golangci.yml")); err != nil {
 		t.Fatalf("symlink golangci.yml at a directory: %v", err)
 	}
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	)
 	if code == 0 {
-		t.Fatalf("helper exit = 0, want non-zero when an asset path is a symlink to a directory\nstderr: %s", stderr)
+		t.Fatalf(
+			"helper exit = 0, want non-zero when an asset path is a symlink to a directory\nstderr: %s",
+			stderr,
+		)
 	}
 
 	entries, err := os.ReadDir(decoy)
 	if err != nil {
 		t.Fatalf("read decoy: %v", err)
 	}
+
 	if len(entries) != 0 {
-		t.Fatalf("decoy directory holds %d entries; the install wrote through the symlink to a path outside .make", len(entries))
+		t.Fatalf(
+			"decoy directory holds %d entries; the install wrote through the symlink to a path outside .make",
+			len(entries),
+		)
 	}
 }
 
@@ -286,53 +353,75 @@ func TestHelperDevDirReplacesItsOwnFileAndClearsState(t *testing.T) {
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
-	if _, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	}); code != 0 {
+	if _, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	); code != 0 {
 		t.Fatalf("cold provision exit = %d, want 0: %s", code, stderr)
 	}
+
 	statePath := filepath.Join(dir, ".make", ".go-mk-fetch-state")
 	if _, err := os.Stat(statePath); err != nil {
 		t.Fatalf("cold provision left no state file: %v", err)
 	}
+
 	helperPath := filepath.Join(dir, ".make", "scripts", "go-mk-bootstrap.sh")
 	inodeBefore := inodeOf(t, helperPath)
 
 	devDir := t.TempDir()
+
 	for name, body := range helperFiles() {
 		if name == "go.mk" {
 			body = "# go.mk from the dev dir\n"
 		}
+
 		if name == "scripts/go-mk-bootstrap.sh" {
 			body = "#!/usr/bin/env bash\n# dev dir helper\nexit 0\n"
 		}
+
 		path := filepath.Join(devDir, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatalf("mkdir for %s: %v", name, err)
 		}
+
 		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
 
-	if _, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_DEV_DIR":       devDir,
-		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
-	}); code != 0 {
+	if _, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_DEV_DIR":       devDir,
+			"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		},
+	); code != 0 {
 		t.Fatalf("dev-dir run exit = %d, want 0: %s", code, stderr)
 	}
 
 	if got := readAsset(t, dir, "go.mk"); got != "# go.mk from the dev dir\n" {
 		t.Fatalf("go.mk = %q, want the dev dir body", got)
 	}
+
 	if inodeAfter := inodeOf(t, helperPath); inodeAfter == inodeBefore {
-		t.Fatalf("helper inode unchanged (%d) after a dev-dir install that replaced its body; "+
-			"the running script's file was written through rather than replaced", inodeBefore)
+		t.Fatalf(
+			"helper inode unchanged (%d) after a dev-dir install that replaced its body; "+
+				"the running script's file was written through rather than replaced",
+			inodeBefore,
+		)
 	}
+
 	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
-		t.Fatalf("state file survived a dev-dir install (stat err = %v); "+
-			"a later run without GO_MK_DEV_DIR would send that ETag, get a 304, and treat the "+
-			"developer's local edits as current upstream content", err)
+		t.Fatalf(
+			"state file survived a dev-dir install (stat err = %v); "+
+				"a later run without GO_MK_DEV_DIR would send that ETag, get a 304, and treat the "+
+				"developer's local edits as current upstream content",
+			err,
+		)
 	}
 }
 
@@ -346,11 +435,16 @@ func TestHelperDevDirPartialInstallLeavesNoState(t *testing.T) {
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
-	if _, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	}); code != 0 {
+	if _, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	); code != 0 {
 		t.Fatalf("cold provision exit = %d, want 0: %s", code, stderr)
 	}
+
 	statePath := filepath.Join(dir, ".make", ".go-mk-fetch-state")
 	if _, err := os.Stat(statePath); err != nil {
 		t.Fatalf("cold provision left no state: %v", err)
@@ -361,33 +455,45 @@ func TestHelperDevDirPartialInstallLeavesNoState(t *testing.T) {
 	// read-only file would no longer do it: the install renames a sibling
 	// temporary into place, and rename replaces a read-only file without error.
 	devDir := t.TempDir()
+
 	for name, body := range helperFiles() {
 		path := filepath.Join(devDir, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatalf("mkdir for %s: %v", name, err)
 		}
+
 		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
+
 	blockedPath := filepath.Join(dir, ".make", "golangci.yml")
 	if err := os.Remove(blockedPath); err != nil {
 		t.Fatalf("remove installed golangci.yml: %v", err)
 	}
+
 	if err := os.MkdirAll(blockedPath, 0o755); err != nil {
 		t.Fatalf("seed directory at golangci.yml: %v", err)
 	}
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_DEV_DIR":       devDir,
-		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_DEV_DIR":       devDir,
+			"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		},
+	)
 	if code == 0 {
 		t.Fatalf("dev-dir run exit = 0, want non-zero when an install step fails: %s", stderr)
 	}
+
 	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
-		t.Fatalf("state file survived a partial dev-dir install (stat err = %v); "+
-			"a later run would 304 against it and bless a tree that is part dev dir and part upstream", err)
+		t.Fatalf(
+			"state file survived a partial dev-dir install (stat err = %v); "+
+				"a later run would 304 against it and bless a tree that is part dev dir and part upstream",
+			err,
+		)
 	}
 }
 
@@ -412,12 +518,17 @@ func TestHelperFallsBackToCacheWhenStateCannotBeCleared(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("runs as root, where an unwritable directory cannot block removal")
 	}
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
-	if _, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	}); code != 0 {
+	if _, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	); code != 0 {
 		t.Fatalf("cold provision exit = %d, want 0: %s", code, stderr)
 	}
 
@@ -442,15 +553,23 @@ func TestHelperFallsBackToCacheWhenStateCannotBeCleared(t *testing.T) {
 		"scripts/go-mk-bootstrap.sh": "#!/usr/bin/env bash\nexit 0\n",
 	})
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	)
 	if code != 0 {
 		t.Fatalf("helper exit = %d, want 0 after cache fallback: %s", code, stderr)
 	}
+
 	if got := readAsset(t, dir, "go.mk"); got != goMkBefore {
-		t.Fatalf("go.mk = %q, want the previous body %q: assets must not change while stale state survives",
-			got, goMkBefore)
+		t.Fatalf(
+			"go.mk = %q, want the previous body %q: assets must not change while stale state survives",
+			got,
+			goMkBefore,
+		)
 	}
 }
 
@@ -467,9 +586,13 @@ func TestHelperTouchesNothingUnderMakeOnNotModified(t *testing.T) {
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
-	if _, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	}); code != 0 {
+	if _, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	); code != 0 {
 		t.Fatalf("cold provision exit = %d, want 0: %s", code, stderr)
 	}
 
@@ -477,15 +600,21 @@ func TestHelperTouchesNothingUnderMakeOnNotModified(t *testing.T) {
 	makeDir := filepath.Join(dir, ".make")
 	snapshot := func() map[string]time.Time {
 		seen := map[string]time.Time{}
-		if err := filepath.Walk(makeDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			seen[path] = info.ModTime()
-			return nil
-		}); err != nil {
+		if err := filepath.Walk(
+			makeDir,
+			func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+
+				seen[path] = info.ModTime()
+
+				return nil
+			},
+		); err != nil {
 			t.Fatalf("walk .make: %v", err)
 		}
+
 		return seen
 	}
 	before := snapshot()
@@ -494,35 +623,53 @@ func TestHelperTouchesNothingUnderMakeOnNotModified(t *testing.T) {
 	// visible rather than landing in the same tick.
 	time.Sleep(1100 * time.Millisecond)
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	)
 	if code != 0 {
 		t.Fatalf("warm parse exit = %d, want 0: %s", code, stderr)
 	}
+
 	requests := server.Requests()
 	if len(requests) != 2 || requests[1].Status != 304 {
-		t.Fatalf("second request = %+v, want a 304: this test only means something on the 304 path", requests)
+		t.Fatalf(
+			"second request = %+v, want a 304: this test only means something on the 304 path",
+			requests,
+		)
 	}
 
 	after := snapshot()
+
 	for path, mod := range before {
 		if isDiagnosticLogPath(makeDir, path) {
 			continue
 		}
+
 		later, present := after[path]
 		if !present {
 			t.Fatalf("%s disappeared across a 304", path)
 		}
+
 		if !later.Equal(mod) {
-			t.Fatalf("%s mtime moved across a 304 (%v -> %v); a 304 must write nothing under .make, "+
-				"directories included", path, mod, later)
+			t.Fatalf(
+				"%s mtime moved across a 304 (%v -> %v); a 304 must write nothing under .make, "+
+					"directories included",
+				path,
+				mod,
+				later,
+			)
 		}
 	}
+
 	for path := range after {
 		if isDiagnosticLogPath(makeDir, path) {
 			continue
 		}
+
 		if _, present := before[path]; !present {
 			t.Fatalf("%s appeared across a 304; a 304 must write nothing under .make", path)
 		}
@@ -534,10 +681,12 @@ func isDiagnosticLogPath(makeDir string, path string) bool {
 	if path == logsDir {
 		return true
 	}
+
 	rel, err := filepath.Rel(logsDir, path)
 	if err != nil {
 		return false
 	}
+
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
@@ -582,6 +731,7 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 	// consistent every time, so that assertion passed against the very bug it
 	// was meant to catch.
 	const stallPerParse = 2 * time.Second
+
 	for _, server := range servers {
 		server.Stall(stallPerParse)
 	}
@@ -595,18 +745,26 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 	var group sync.WaitGroup
 	codes := make([]int, len(servers))
 	stderrs := make([]string, len(servers))
+
 	startErrors := make([]error, len(servers))
 	for index := range servers {
 		group.Add(1)
 		go func(slot int, base string) {
 			defer group.Done()
-			_, stderr, code, err := runHelperFromGoroutine(helper, dir,
-				map[string]string{"GO_MK_CODELOAD_BASE": base})
+			_, stderr, code, err := runHelperFromGoroutine(
+				helper,
+				dir,
+				map[string]string{"GO_MK_CODELOAD_BASE": base},
+			)
 			codes[slot] = code
 			stderrs[slot] = stderr
 			startErrors[slot] = err
-		}(index, servers[index].CodeloadBase())
+		}(
+			index,
+			servers[index].CodeloadBase(),
+		)
 	}
+
 	group.Wait()
 
 	// Report start failures here, on the test goroutine, rather than from the
@@ -624,43 +782,67 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 	// than by waiting.
 	for slot, code := range codes {
 		if code != 0 {
-			t.Fatalf("parse %d exit = %d, want 0: contenders must wait for the lock and then "+
-				"proceed, not be turned away\nstderr: %s", slot, code, stderrs[slot])
+			t.Fatalf(
+				"parse %d exit = %d, want 0: contenders must wait for the lock and then "+
+					"proceed, not be turned away\nstderr: %s",
+				slot,
+				code,
+				stderrs[slot],
+			)
 		}
 	}
+
 	elapsed := time.Since(start)
 	t.Logf("%d concurrent parses took %s with a %s stall each", parallel, elapsed, stallPerParse)
 
 	if minimum := 3 * stallPerParse; elapsed < minimum {
-		t.Fatalf("%d concurrent parses took %s, want at least %s: they overlapped, "+
-			"so provisioning is not serialized and two installs can interleave",
-			parallel, elapsed, minimum)
+		t.Fatalf(
+			"%d concurrent parses took %s, want at least %s: they overlapped, "+
+				"so provisioning is not serialized and two installs can interleave",
+			parallel,
+			elapsed,
+			minimum,
+		)
 	}
 
 	// Every asset must name the same generation. Which one wins is not
 	// specified and does not matter; that they agree is the whole point.
 	generations := map[string]string{}
+
 	for _, asset := range []string{
-		"go.mk", "golangci.yml", "notices.txt",
-		"scripts/go-mk-fetch-one.sh", "scripts/go-mk-bin.sh", "scripts/go-mk-sync.sh",
+		"go.mk",
+		"golangci.yml",
+		"notices.txt",
+		"scripts/go-mk-fetch-one.sh",
+		"scripts/go-mk-bin.sh",
+		"scripts/go-mk-sync.sh",
 	} {
 		body := readAsset(t, dir, asset)
 		found := ""
+
 		for index := range servers {
 			if strings.Contains(body, fmt.Sprintf("gen%d", index)) {
 				found = fmt.Sprintf("gen%d", index)
 			}
 		}
+
 		if found == "" {
 			t.Fatalf("asset %s = %q, names no generation", asset, body)
 		}
+
 		generations[asset] = found
 	}
+
 	first := generations["go.mk"]
 	for asset, generation := range generations {
 		if generation != first {
-			t.Fatalf("mixed tree after concurrent parses: go.mk is from %s but %s is from %s; "+
-				"two parses interleaved their installs", first, asset, generation)
+			t.Fatalf(
+				"mixed tree after concurrent parses: go.mk is from %s but %s is from %s; "+
+					"two parses interleaved their installs",
+				first,
+				asset,
+				generation,
+			)
 		}
 	}
 }
@@ -678,18 +860,27 @@ func TestHelperProvisionedRejectsDirectoryInPlaceOfAsset(t *testing.T) {
 		if name == "notices.txt" {
 			continue
 		}
+
 		writeAsset(t, dir, name, body)
 	}
+
 	if err := os.MkdirAll(filepath.Join(dir, ".make", "notices.txt"), 0o755); err != nil {
 		t.Fatalf("seed notices.txt as a directory: %v", err)
 	}
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"_GO_MK_PROVISIONED":  "1",
-		"GO_MK_CODELOAD_BASE": "http://127.0.0.1:9",
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"_GO_MK_PROVISIONED":  "1",
+			"GO_MK_CODELOAD_BASE": "http://127.0.0.1:9",
+		},
+	)
 	if code == 0 {
-		t.Fatalf("helper exit = 0, want non-zero when a required asset path is a directory rather than a file\nstderr: %s", stderr)
+		t.Fatalf(
+			"helper exit = 0, want non-zero when a required asset path is a directory rather than a file\nstderr: %s",
+			stderr,
+		)
 	}
 }
 
@@ -706,11 +897,18 @@ func TestHelperDevDirIncompleteFailsLoudly(t *testing.T) {
 	// notices.txt and every scripts/* asset are intentionally absent from the
 	// dev dir, and .make starts out empty.
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_DEV_DIR": devDir,
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_DEV_DIR": devDir,
+		},
+	)
 	if code == 0 {
-		t.Fatalf("helper exit = 0, want non-zero when GO_MK_DEV_DIR does not cover every required asset\nstderr: %s", stderr)
+		t.Fatalf(
+			"helper exit = 0, want non-zero when GO_MK_DEV_DIR does not cover every required asset\nstderr: %s",
+			stderr,
+		)
 	}
 }
 
@@ -720,6 +918,7 @@ func writeDevDirAsset(t *testing.T, devDir string, relative string, body string)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir for %s: %v", relative, err)
 	}
+
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write %s: %v", relative, err)
 	}
@@ -751,13 +950,16 @@ func testProcessEnvironment(overrides map[string]string) []string {
 		"HOME":   os.Getenv("HOME"),
 		"TMPDIR": os.Getenv("TMPDIR"),
 	}
+
 	for key, value := range overrides {
 		allowed[key] = value
 	}
+
 	environment := make([]string, 0, len(allowed))
 	for key, value := range allowed {
 		environment = append(environment, key+"="+value)
 	}
+
 	return environment
 }
 
@@ -773,14 +975,17 @@ func runHelper(t *testing.T, dir string, env map[string]string) (string, string,
 		"GO_MK_API_REPO": "agoodkind/go-makefile",
 		"GO_MK_API_REF":  "main",
 	}
+
 	for key, value := range env {
 		defaults[key] = value
 	}
+
 	command.Env = testProcessEnvironment(defaults)
 	stdout, stderr, code, err := runHelperCommand(command)
 	if err != nil {
 		t.Fatalf("run helper: %v", err)
 	}
+
 	return stdout, stderr, code
 }
 
@@ -802,25 +1007,34 @@ func runHelperCommand(command *exec.Cmd) (string, string, int, error) {
 		if !asExitError(err, &exitErr) {
 			return stdout.String(), stderr.String(), 0, err
 		}
+
 		code = exitErr.ExitCode()
 	}
+
 	return stdout.String(), stderr.String(), code, nil
 }
 
 // runHelperFromGoroutine is runHelper for a caller that is not the test
 // goroutine. It resolves the helper path and environment up front, on the
 // caller's goroutine, and returns every failure instead of fataling.
-func runHelperFromGoroutine(helper string, dir string, env map[string]string) (string, string, int, error) {
+func runHelperFromGoroutine(
+	helper string,
+	dir string,
+	env map[string]string,
+) (string, string, int, error) {
 	command := exec.Command("bash", helper)
 	command.Dir = dir
 	defaults := map[string]string{
 		"GO_MK_API_REPO": "agoodkind/go-makefile",
 		"GO_MK_API_REF":  "main",
 	}
+
 	for key, value := range env {
 		defaults[key] = value
 	}
+
 	command.Env = testProcessEnvironment(defaults)
+
 	return runHelperCommand(command)
 }
 
@@ -829,6 +1043,7 @@ func asExitError(err error, target **exec.ExitError) bool {
 	if ok {
 		*target = exitErr
 	}
+
 	return ok
 }
 
@@ -838,6 +1053,7 @@ func writeAsset(t *testing.T, dir string, relative string, body string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir for %s: %v", relative, err)
 	}
+
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write %s: %v", relative, err)
 	}
@@ -849,6 +1065,7 @@ func readAsset(t *testing.T, dir string, relative string) string {
 	if err != nil {
 		return ""
 	}
+
 	return string(body)
 }
 
@@ -860,6 +1077,7 @@ func repoRootForTest(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("resolve repo root: %v", err)
 	}
+
 	return strings.TrimSpace(string(output))
 }
 
@@ -881,6 +1099,7 @@ func builtTestEngine(t *testing.T) string {
 			testEngineErr = err
 			return
 		}
+
 		testEnginePath = filepath.Join(dir, "go-mk")
 		cmd := exec.Command("go", "build", "-o", testEnginePath, "./cmd/go-mk")
 		cmd.Dir = root
@@ -891,6 +1110,7 @@ func builtTestEngine(t *testing.T) string {
 	if testEngineErr != nil {
 		t.Fatalf("build go-mk for tests: %v", testEngineErr)
 	}
+
 	return testEnginePath
 }
 
@@ -900,6 +1120,7 @@ func seedTestEngine(t *testing.T, dir string) {
 	if _, err := os.Stat(dest); err == nil {
 		return
 	}
+
 	if err := copyFile(builtTestEngine(t), dest); err != nil {
 		t.Fatalf("seed go-mk: %v", err)
 	}
@@ -909,23 +1130,28 @@ func copyFile(source string, dest string) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
+
 	in, err := os.Open(source)
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = in.Close() }()
 	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 	if err != nil {
 		return err
 	}
+
 	_, copyErr := io.Copy(out, in)
 	closeErr := out.Close()
 	if copyErr != nil {
 		return copyErr
 	}
+
 	if closeErr != nil {
 		return closeErr
 	}
+
 	return os.Chmod(dest, 0o755)
 }
 
@@ -933,9 +1159,13 @@ func TestHelperColdProvisionRecordsState(t *testing.T) {
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	)
 	if code != 0 {
 		t.Fatalf("helper exit = %d, want 0: %s", code, stderr)
 	}
@@ -944,13 +1174,16 @@ func TestHelperColdProvisionRecordsState(t *testing.T) {
 	if state["ref"] != "main" {
 		t.Fatalf("state ref = %q, want main", state["ref"])
 	}
+
 	if state["etag"] == "" {
 		t.Fatal("state carried no etag after a cold provision")
 	}
+
 	stamp, err := strconv.ParseInt(state["timestamp"], 10, 64)
 	if err != nil {
 		t.Fatalf("state timestamp %q is not an integer: %v", state["timestamp"], err)
 	}
+
 	if time.Since(time.Unix(stamp, 0)) > time.Minute {
 		t.Fatalf("state timestamp %d is not recent", stamp)
 	}
@@ -965,12 +1198,17 @@ func TestHelperServesDiskWhenUpstreamReturnsNotModified(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("cold run exit = %d, want 0", code)
 	}
+
 	// Mark the on-disk copy so a re-extract would be visible.
 	writeAsset(t, dir, "go.mk", "# locally marked\n")
 	stateBefore := readStateFile(t, dir)
 	modTimeBefore := statStateFile(t, dir).ModTime()
 
-	_, stderr, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()},
+	)
 	if code != 0 {
 		t.Fatalf("warm run exit = %d, want 0: %s", code, stderr)
 	}
@@ -978,14 +1216,20 @@ func TestHelperServesDiskWhenUpstreamReturnsNotModified(t *testing.T) {
 	if got := readAsset(t, dir, "go.mk"); got != "# locally marked\n" {
 		t.Fatalf("go.mk = %q, want the marked body untouched after a 304", got)
 	}
+
 	// A 304 must write nothing at all, including the timestamp: the repo
 	// owner ruled the reuse window a later task adds runs from the last
 	// completed download, not the last successful check, so this compares
 	// the whole file byte for byte rather than only the fields a looser
 	// check might happen to touch.
 	if stateAfter := readStateFile(t, dir); stateAfter != stateBefore {
-		t.Fatalf("state file changed across a 304 run:\nbefore: %q\nafter:  %q\nwant byte-identical, a 304 must not rewrite state (not even the timestamp)", stateBefore, stateAfter)
+		t.Fatalf(
+			"state file changed across a 304 run:\nbefore: %q\nafter:  %q\nwant byte-identical, a 304 must not rewrite state (not even the timestamp)",
+			stateBefore,
+			stateAfter,
+		)
 	}
+
 	// The content comparison above would still pass if write_state ran again
 	// with the same etag and landed in the same wall-clock second as the
 	// cold run, since current_epoch_seconds has one-second resolution. The
@@ -993,18 +1237,29 @@ func TestHelperServesDiskWhenUpstreamReturnsNotModified(t *testing.T) {
 	// call truncates and rewrites the file, so comparing mtime catches a
 	// same-second rewrite that a content-only comparison could miss.
 	if modTimeAfter := statStateFile(t, dir).ModTime(); !modTimeAfter.Equal(modTimeBefore) {
-		t.Fatalf("state file mtime changed across a 304 run: before %v, after %v, want unchanged (a 304 must not touch the state file at all)", modTimeBefore, modTimeAfter)
+		t.Fatalf(
+			"state file mtime changed across a 304 run: before %v, after %v, want unchanged (a 304 must not touch the state file at all)",
+			modTimeBefore,
+			modTimeAfter,
+		)
 	}
+
 	requests := server.Requests()
 	if len(requests) != 2 {
 		t.Fatalf("server saw %d requests, want 2", len(requests))
 	}
+
 	if requests[1].Method != "HEAD" {
-		t.Fatalf("second request method = %q, want HEAD (the validation probe must not GET and discard the tarball body)", requests[1].Method)
+		t.Fatalf(
+			"second request method = %q, want HEAD (the validation probe must not GET and discard the tarball body)",
+			requests[1].Method,
+		)
 	}
+
 	if requests[1].Status != 304 {
 		t.Fatalf("second request status = %d, want 304", requests[1].Status)
 	}
+
 	if requests[1].Bytes != 0 {
 		t.Fatalf("second request transferred %d bytes, want 0", requests[1].Bytes)
 	}
@@ -1019,6 +1274,7 @@ func readStateFile(t *testing.T, dir string) string {
 	if err != nil {
 		t.Fatalf("read fetch state: %v", err)
 	}
+
 	return string(body)
 }
 
@@ -1031,6 +1287,7 @@ func statStateFile(t *testing.T, dir string) os.FileInfo {
 	if err != nil {
 		t.Fatalf("stat fetch state: %v", err)
 	}
+
 	return info
 }
 
@@ -1042,13 +1299,18 @@ func TestHelperReprovisionsWhenUpstreamMoved(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("cold run exit = %d, want 0", code)
 	}
+
 	firstState := readState(t, dir)
 
 	moved := helperFiles()
 	moved["go.mk"] = "# go.mk v2\n"
 	server.SetFiles(moved)
 
-	_, stderr, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()},
+	)
 	if code != 0 {
 		t.Fatalf("moved run exit = %d, want 0: %s", code, stderr)
 	}
@@ -1056,6 +1318,7 @@ func TestHelperReprovisionsWhenUpstreamMoved(t *testing.T) {
 	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v2\n" {
 		t.Fatalf("go.mk = %q, want the advanced body", got)
 	}
+
 	secondState := readState(t, dir)
 	if secondState["etag"] == firstState["etag"] {
 		t.Fatal("state etag did not change after upstream moved")
@@ -1078,18 +1341,29 @@ func TestHelperDegradesWhenUpstreamServesNoETag(t *testing.T) {
 	server.SetETagEnabled(false)
 	dir := t.TempDir()
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	)
 	if code != 0 {
-		t.Fatalf("helper exit = %d, want 0 when upstream serves a 200 with no ETag header (degrade, don't fail): %s", code, stderr)
+		t.Fatalf(
+			"helper exit = %d, want 0 when upstream serves a 200 with no ETag header (degrade, don't fail): %s",
+			code,
+			stderr,
+		)
 	}
+
 	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
 		t.Fatalf("go.mk = %q, want the fetched tree installed even without an ETag", got)
 	}
+
 	if !strings.Contains(stderr, "ETag") {
 		t.Fatalf("stderr = %q, want it to warn about the missing ETag", stderr)
 	}
+
 	if _, err := os.Stat(filepath.Join(dir, ".make", ".go-mk-fetch-state")); err == nil {
 		t.Fatal("state file exists after a provision that had no ETag to record")
 	}
@@ -1111,6 +1385,7 @@ func TestHelperClearsStaleStateWhenUpstreamStopsServingETag(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("cold run exit = %d, want 0", code)
 	}
+
 	if _, err := os.Stat(filepath.Join(dir, ".make", ".go-mk-fetch-state")); err != nil {
 		t.Fatalf("state file missing after a cold run that did carry an ETag: %v", err)
 	}
@@ -1120,15 +1395,23 @@ func TestHelperClearsStaleStateWhenUpstreamStopsServingETag(t *testing.T) {
 	server.SetFiles(moved)
 	server.SetETagEnabled(false)
 
-	_, stderr, code := runHelper(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()},
+	)
 	if code != 0 {
 		t.Fatalf("no-etag run exit = %d, want 0: %s", code, stderr)
 	}
+
 	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v2\n" {
 		t.Fatalf("go.mk = %q, want the newly fetched tree installed", got)
 	}
+
 	if _, err := os.Stat(filepath.Join(dir, ".make", ".go-mk-fetch-state")); err == nil {
-		t.Fatal("state file still exists after upstream stopped serving an ETag, want it removed rather than left stale")
+		t.Fatal(
+			"state file still exists after upstream stopped serving an ETag, want it removed rather than left stale",
+		)
 	}
 }
 
@@ -1143,40 +1426,65 @@ func TestHelperDoesNotReuseETagAcrossRef(t *testing.T) {
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
-	_, _, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-		"GO_MK_API_REF":       "main",
-	})
+	_, _, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+			"GO_MK_API_REF":       "main",
+		},
+	)
 	if code != 0 {
 		t.Fatalf("cold run exit = %d, want 0", code)
 	}
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-		"GO_MK_API_REF":       "other-ref",
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+			"GO_MK_API_REF":       "other-ref",
+		},
+	)
 	if code != 0 {
 		t.Fatalf("ref-changed run exit = %d, want 0: %s", code, stderr)
 	}
 
 	requests := server.Requests()
 	if len(requests) != 2 {
-		t.Fatalf("server saw %d requests, want 2 (a changed ref must skip the validation probe and fetch fresh)", len(requests))
+		t.Fatalf(
+			"server saw %d requests, want 2 (a changed ref must skip the validation probe and fetch fresh)",
+			len(requests),
+		)
 	}
+
 	if requests[1].Method != "GET" {
-		t.Fatalf("second request method = %q, want GET (a changed ref must go straight to provision, not a HEAD validation probe)", requests[1].Method)
+		t.Fatalf(
+			"second request method = %q, want GET (a changed ref must go straight to provision, not a HEAD validation probe)",
+			requests[1].Method,
+		)
 	}
+
 	if requests[1].IfNoneMatch != "" {
-		t.Fatalf("second request If-None-Match = %q, want empty (the stored etag belongs to a different ref and must not be reused)", requests[1].IfNoneMatch)
+		t.Fatalf(
+			"second request If-None-Match = %q, want empty (the stored etag belongs to a different ref and must not be reused)",
+			requests[1].IfNoneMatch,
+		)
 	}
+
 	// The ref must reach the URL, not just the state file. Without this a
 	// helper that recorded the new ref while still fetching the old one would
 	// satisfy every other assertion in this test.
 	if want := "/agoodkind/go-makefile/tar.gz/main"; requests[0].Path != want {
 		t.Fatalf("first request path = %q, want %q", requests[0].Path, want)
 	}
+
 	if want := "/agoodkind/go-makefile/tar.gz/other-ref"; requests[1].Path != want {
-		t.Fatalf("second request path = %q, want %q (the changed ref never reached the URL)", requests[1].Path, want)
+		t.Fatalf(
+			"second request path = %q, want %q (the changed ref never reached the URL)",
+			requests[1].Path,
+			want,
+		)
 	}
 
 	secondState := readState(t, dir)
@@ -1191,8 +1499,10 @@ func readState(t *testing.T, dir string) map[string]string {
 	if err != nil {
 		t.Fatalf("open fetch state: %v", err)
 	}
+
 	defer func() { _ = file.Close() }()
 	state := map[string]string{}
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		key, value, found := strings.Cut(scanner.Text(), "=")
@@ -1200,6 +1510,7 @@ func readState(t *testing.T, dir string) map[string]string {
 			state[key] = value
 		}
 	}
+
 	return state
 }
 
@@ -1210,6 +1521,7 @@ func writeState(t *testing.T, dir string, ref string, etag string, timestamp int
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir for state: %v", err)
 	}
+
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write state: %v", err)
 	}
@@ -1225,6 +1537,7 @@ func writeState(t *testing.T, dir string, ref string, etag string, timestamp int
 // provision path.
 func warmMake(t *testing.T, dir string) {
 	t.Helper()
+
 	for name, body := range helperFiles() {
 		writeAsset(t, dir, name, body)
 	}
@@ -1239,18 +1552,25 @@ func TestHelperServesDiskWhenUpstreamTimesOutAndStateIsRecent(t *testing.T) {
 	stateBefore := readStateFile(t, dir)
 	modTimeBefore := statStateFile(t, dir).ModTime()
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	)
 	if code != 0 {
 		t.Fatalf("helper exit = %d, want 0 when state is recent: %s", code, stderr)
 	}
+
 	if !strings.Contains(stderr, "serving .make assets validated") {
 		t.Fatalf("stderr = %q, want a warning naming the served assets", stderr)
 	}
+
 	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
 		t.Fatalf("go.mk = %q, want the warm body preserved", got)
 	}
+
 	// The reuse window is fixed from the last completed download, not the
 	// last successful reuse: a write here would let the window slide
 	// forward on every offline run, turning a fixed hour into unbounded
@@ -1260,10 +1580,19 @@ func TestHelperServesDiskWhenUpstreamTimesOutAndStateIsRecent(t *testing.T) {
 	// wall-clock second as the original write, which a content-only
 	// comparison could miss.
 	if stateAfter := readStateFile(t, dir); stateAfter != stateBefore {
-		t.Fatalf("state file changed across a reuse run:\nbefore: %q\nafter:  %q\nwant byte-identical, reuse must not rewrite state", stateBefore, stateAfter)
+		t.Fatalf(
+			"state file changed across a reuse run:\nbefore: %q\nafter:  %q\nwant byte-identical, reuse must not rewrite state",
+			stateBefore,
+			stateAfter,
+		)
 	}
+
 	if modTimeAfter := statStateFile(t, dir).ModTime(); !modTimeAfter.Equal(modTimeBefore) {
-		t.Fatalf("state file mtime changed across a reuse run: before %v, after %v, want unchanged", modTimeBefore, modTimeAfter)
+		t.Fatalf(
+			"state file mtime changed across a reuse run: before %v, after %v, want unchanged",
+			modTimeBefore,
+			modTimeAfter,
+		)
 	}
 }
 
@@ -1284,10 +1613,12 @@ func unreachableCodeloadBase(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("open a listener to find a free port: %v", err)
 	}
+
 	address := listener.Addr().String()
 	if err := listener.Close(); err != nil {
 		t.Fatalf("close listener: %v", err)
 	}
+
 	return "http://" + address
 }
 
@@ -1312,16 +1643,26 @@ func TestHelperFallsBackToDiskWhenUpstreamTimesOutAndStateIsStale(t *testing.T) 
 	// fresh connection and the server sleeps again from scratch.
 	server.Stall(10 * time.Second)
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	)
 	if code != 0 {
-		t.Fatalf("helper exit = %d, want 0 when state is older than the reuse window: %s", code, stderr)
+		t.Fatalf(
+			"helper exit = %d, want 0 when state is older than the reuse window: %s",
+			code,
+			stderr,
+		)
 	}
+
 	// The warning must still call out that this run used cached assets.
 	if !strings.Contains(stderr, "serving .make assets validated") {
 		t.Fatalf("stderr = %q, want the disk-fallback warning on the stale path", stderr)
 	}
+
 	// Even on the failing path, nothing may be destroyed.
 	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
 		t.Fatalf("go.mk = %q, want the warm body preserved through a failure", got)
@@ -1337,9 +1678,13 @@ func TestHelperFallsBackToCacheWithFutureTimestamp(t *testing.T) {
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(2*time.Hour).Unix())
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		},
+	)
 	if code != 0 {
 		t.Fatalf("helper exit = %d, want 0 after cache fallback: %s", code, stderr)
 	}
@@ -1375,9 +1720,13 @@ func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
 	server.Stall(10 * time.Second)
 
 	start := time.Now()
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	)
 	elapsed := time.Since(start)
 	// Logged unconditionally (not just on failure) because the overall test
 	// duration Go reports also includes the fetch server's cleanup, which
@@ -1388,13 +1737,18 @@ func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("helper exit = 0, want non-zero against a stalled upstream: %s", stderr)
 	}
+
 	// Measured worst case is ~8s (2 attempts x ~3s + 1 retry delay x 2s).
 	// 15s gives margin for CI/host jitter while staying well clear of the
 	// ~18s an uncapped retry cascade would cost, so a regression back to
 	// that shape would still be caught.
 	const wallClockCeiling = 15 * time.Second
 	if elapsed > wallClockCeiling {
-		t.Fatalf("helper took %s against a stalled upstream, want under %s (a retried stall is not bounded)", elapsed, wallClockCeiling)
+		t.Fatalf(
+			"helper took %s against a stalled upstream, want under %s (a retried stall is not bounded)",
+			elapsed,
+			wallClockCeiling,
+		)
 	}
 }
 
@@ -1425,20 +1779,32 @@ func TestHelperCompletesWhenUpstreamTricklesAboveSpeedLimit(t *testing.T) {
 	server.Trickle(trickleBytesPerSecond)
 
 	start := time.Now()
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+		},
+	)
 	elapsed := time.Since(start)
 	t.Logf("helper took %s against a %d B/s trickling upstream", elapsed, trickleBytesPerSecond)
 
 	if code != 0 {
-		t.Fatalf("helper exit = %d, want 0 against a slow but progressing upstream: %s", code, stderr)
+		t.Fatalf(
+			"helper exit = %d, want 0 against a slow but progressing upstream: %s",
+			code,
+			stderr,
+		)
 	}
+
 	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
 		t.Fatalf("go.mk = %q, want the fetched tree installed", got)
 	}
+
 	if got := readAsset(t, dir, "notices.txt"); got != files["notices.txt"] {
-		t.Fatal("notices.txt does not match the trickled body, want the full slow transfer to have landed intact")
+		t.Fatal(
+			"notices.txt does not match the trickled body, want the full slow transfer to have landed intact",
+		)
 	}
 }
 
@@ -1458,16 +1824,25 @@ func TestHelperDoesNotReuseWhenLocalSetupFailsBeforeAnyRequest(t *testing.T) {
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(-10*time.Minute).Unix())
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-		"TMPDIR":              filepath.Join(dir, "no-such-tmpdir"),
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+			"TMPDIR":              filepath.Join(dir, "no-such-tmpdir"),
+		},
+	)
 	if code == 0 {
 		t.Fatalf("helper exit = 0, want non-zero when TMPDIR is broken: %s", stderr)
 	}
+
 	if strings.Contains(stderr, "upstream unreachable") {
-		t.Fatalf("stderr = %q, want no upstream-unreachable warning: the network was never consulted, only a local setup failure occurred", stderr)
+		t.Fatalf(
+			"stderr = %q, want no upstream-unreachable warning: the network was never consulted, only a local setup failure occurred",
+			stderr,
+		)
 	}
+
 	// Assert that a local cause is named, not which function names it. This
 	// used to require validate_upstream's and provision's specific wording,
 	// which pinned the internal call order rather than the property: the lock
@@ -1480,12 +1855,19 @@ func TestHelperDoesNotReuseWhenLocalSetupFailsBeforeAnyRequest(t *testing.T) {
 	// check but not this one.
 	brokenTmp := filepath.Join(dir, "no-such-tmpdir")
 	if !strings.Contains(stderr, brokenTmp) {
-		t.Fatalf("stderr = %q, want it to name the broken TMPDIR %q: a local setup failure must "+
-			"report its own cause rather than a generic network complaint", stderr, brokenTmp)
+		t.Fatalf(
+			"stderr = %q, want it to name the broken TMPDIR %q: a local setup failure must "+
+				"report its own cause rather than a generic network complaint",
+			stderr,
+			brokenTmp,
+		)
 	}
-	if !strings.Contains(stderr, "local setup problem") && !strings.Contains(stderr, "not a lock conflict") {
+
+	if !strings.Contains(stderr, "local setup problem") &&
+		!strings.Contains(stderr, "not a lock conflict") {
 		t.Fatalf("stderr = %q, want it to say the failure is local rather than remote", stderr)
 	}
+
 	if got := readAsset(t, dir, "go.mk"); got != "# go.mk v1\n" {
 		t.Fatalf("go.mk = %q, want the warm body preserved through a failure", got)
 	}
@@ -1505,11 +1887,15 @@ func TestHelperAlwaysProvisionsUnconditionallyInCI(t *testing.T) {
 	// Fresh state that would produce a 304 and a disk serve off CI.
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Unix())
 
-	_, stderr, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-		"GITHUB_ACTIONS":      "true",
-		"GITHUB_RUN_ID":       "1",
-	})
+	_, stderr, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+			"GITHUB_ACTIONS":      "true",
+			"GITHUB_RUN_ID":       "1",
+		},
+	)
 	if code != 0 {
 		t.Fatalf("helper exit = %d, want 0: %s", code, stderr)
 	}
@@ -1518,18 +1904,24 @@ func TestHelperAlwaysProvisionsUnconditionallyInCI(t *testing.T) {
 	if len(requests) != 1 {
 		t.Fatalf("server saw %d requests, want 1", len(requests))
 	}
+
 	if requests[0].IfNoneMatch != "" {
 		t.Fatalf("CI request carried If-None-Match %q, want none", requests[0].IfNoneMatch)
 	}
+
 	if requests[0].Status != 200 {
 		t.Fatalf("CI request status = %d, want 200", requests[0].Status)
 	}
+
 	// Assert a real body came back, not just a 200-shaped response. Without
 	// this a regression that answered from disk while still issuing one
 	// unconditional request would satisfy every assertion above.
 	if requests[0].Bytes == 0 {
-		t.Fatal("CI request transferred 0 bytes, want the full archive: CI must re-download, not serve disk")
+		t.Fatal(
+			"CI request transferred 0 bytes, want the full archive: CI must re-download, not serve disk",
+		)
 	}
+
 	// On what this cannot cover: the rule is also that CI never READS the
 	// state file, and a read whose value is then discarded has no observable
 	// effect from outside the process, so no assertion here can distinguish
@@ -1550,11 +1942,15 @@ func TestHelperFailsInCIWhenUpstreamIsUnreachableDespiteFreshState(t *testing.T)
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Unix())
 
-	_, _, code := runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": "http://127.0.0.1:9",
-		"GITHUB_ACTIONS":      "true",
-		"GITHUB_RUN_ID":       "1",
-	})
+	_, _, code := runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": "http://127.0.0.1:9",
+			"GITHUB_ACTIONS":      "true",
+			"GITHUB_RUN_ID":       "1",
+		},
+	)
 	if code == 0 {
 		t.Fatal("helper exit = 0 in CI with an unreachable upstream, want non-zero")
 	}
@@ -1575,18 +1971,24 @@ func TestHelperTreatsGithubActionsWithoutRunIdAsLocal(t *testing.T) {
 		t.Fatalf("cold run exit = %d, want 0", code)
 	}
 
-	_, _, code = runHelper(t, dir, map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-		"GITHUB_ACTIONS":      "true",
-		// No GITHUB_RUN_ID, so this is not a CI run.
-	})
+	_, _, code = runHelper(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+			"GITHUB_ACTIONS":      "true",
+			// No GITHUB_RUN_ID, so this is not a CI run.
+		},
+	)
 	if code != 0 {
 		t.Fatalf("second run exit = %d, want 0", code)
 	}
 
 	requests := server.Requests()
 	if requests[len(requests)-1].Status != 304 {
-		t.Fatalf("last status = %d, want 304 because GITHUB_ACTIONS alone is not CI",
-			requests[len(requests)-1].Status)
+		t.Fatalf(
+			"last status = %d, want 304 because GITHUB_ACTIONS alone is not CI",
+			requests[len(requests)-1].Status,
+		)
 	}
 }

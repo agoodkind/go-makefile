@@ -18,11 +18,19 @@ func TestConfirmAccepted(t *testing.T) {
 		{value: "true", want: false},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.value, func(t *testing.T) {
-			if got := ConfirmAccepted(testCase.value); got != testCase.want {
-				t.Fatalf("ConfirmAccepted(%q) = %v, want %v", testCase.value, got, testCase.want)
-			}
-		})
+		t.Run(
+			testCase.value,
+			func(t *testing.T) {
+				if got := ConfirmAccepted(testCase.value); got != testCase.want {
+					t.Fatalf(
+						"ConfirmAccepted(%q) = %v, want %v",
+						testCase.value,
+						got,
+						testCase.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -42,10 +50,19 @@ func TestTokensMatch(t *testing.T) {
 		{name: "mismatch", expected: "alpha", actual: "beta", want: false},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			if got := TokensMatch(testCase.expected, testCase.actual); got != testCase.want {
-				t.Fatalf("TokensMatch(%q, %q) = %v, want %v", testCase.expected, testCase.actual, got, testCase.want)
-			}
-		})
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				if got := TokensMatch(testCase.expected, testCase.actual); got != testCase.want {
+					t.Fatalf(
+						"TokensMatch(%q, %q) = %v, want %v",
+						testCase.expected,
+						testCase.actual,
+						got,
+						testCase.want,
+					)
+				}
+			},
+		)
 	}
 }

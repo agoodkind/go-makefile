@@ -31,9 +31,14 @@ func buildProvenanceSummary(signerWorkflowURI string, repo string) *fulciocert.S
 // signed by the renamed workflow.
 func TestValidateBuildProvenanceCertificateAcceptsAnyGoMakefileWorkflowOnMain(t *testing.T) {
 	pattern := Config{}.signerWorkflowPattern()
+
 	for _, signerWorkflowURI := range []string{testPackageWorkflowURI, testReleaseBuildWorkflowURI} {
 		summary := buildProvenanceSummary(signerWorkflowURI, "agoodkind/agent-gate")
-		if err := validateBuildProvenanceCertificate(summary, "agoodkind/agent-gate", pattern); err != nil {
+		if err := validateBuildProvenanceCertificate(
+			summary,
+			"agoodkind/agent-gate",
+			pattern,
+		); err != nil {
 			t.Fatalf("validateBuildProvenanceCertificate(%s) error: %v", signerWorkflowURI, err)
 		}
 	}
@@ -41,12 +46,24 @@ func TestValidateBuildProvenanceCertificateAcceptsAnyGoMakefileWorkflowOnMain(t 
 
 func TestValidateBuildProvenanceCertificateExactOverride(t *testing.T) {
 	pattern := Config{SignerWorkflowURI: testPackageWorkflowURI}.signerWorkflowPattern()
-	if err := validateBuildProvenanceCertificate(buildProvenanceSummary(testPackageWorkflowURI, "agoodkind/agent-gate"), "agoodkind/agent-gate", pattern); err != nil {
+	if err := validateBuildProvenanceCertificate(
+		buildProvenanceSummary(testPackageWorkflowURI, "agoodkind/agent-gate"),
+		"agoodkind/agent-gate",
+		pattern,
+	); err != nil {
 		t.Fatalf("validateBuildProvenanceCertificate() error: %v", err)
 	}
-	err := validateBuildProvenanceCertificate(buildProvenanceSummary(testReleaseBuildWorkflowURI, "agoodkind/agent-gate"), "agoodkind/agent-gate", pattern)
+
+	err := validateBuildProvenanceCertificate(
+		buildProvenanceSummary(testReleaseBuildWorkflowURI, "agoodkind/agent-gate"),
+		"agoodkind/agent-gate",
+		pattern,
+	)
 	if err == nil || !strings.Contains(err.Error(), "SAN") {
-		t.Fatalf("validateBuildProvenanceCertificate() error = %v, want SAN mismatch for another workflow", err)
+		t.Fatalf(
+			"validateBuildProvenanceCertificate() error = %v, want SAN mismatch for another workflow",
+			err,
+		)
 	}
 }
 
@@ -58,16 +75,22 @@ func TestValidateBuildProvenanceCertificateRejectsMismatches(t *testing.T) {
 		want    string
 	}{
 		{
-			name:    "workflow outside go-makefile",
-			summary: buildProvenanceSummary("https://github.com/agoodkind/agent-gate/.github/workflows/_package.yml@refs/heads/main", "agoodkind/agent-gate"),
-			repo:    "agoodkind/agent-gate",
-			want:    "SAN",
+			name: "workflow outside go-makefile",
+			summary: buildProvenanceSummary(
+				"https://github.com/agoodkind/agent-gate/.github/workflows/_package.yml@refs/heads/main",
+				"agoodkind/agent-gate",
+			),
+			repo: "agoodkind/agent-gate",
+			want: "SAN",
 		},
 		{
-			name:    "go-makefile workflow on another ref",
-			summary: buildProvenanceSummary("https://github.com/agoodkind/go-makefile/.github/workflows/_package.yml@refs/heads/feature", "agoodkind/agent-gate"),
-			repo:    "agoodkind/agent-gate",
-			want:    "SAN",
+			name: "go-makefile workflow on another ref",
+			summary: buildProvenanceSummary(
+				"https://github.com/agoodkind/go-makefile/.github/workflows/_package.yml@refs/heads/feature",
+				"agoodkind/agent-gate",
+			),
+			repo: "agoodkind/agent-gate",
+			want: "SAN",
 		},
 		{
 			name: "build signer differs from SAN",
@@ -84,7 +107,7 @@ func TestValidateBuildProvenanceCertificateRejectsMismatches(t *testing.T) {
 			want: "build signer URI",
 		},
 		{
-			name: "wrong repo",
+			name:    "wrong repo",
 			summary: buildProvenanceSummary(testPackageWorkflowURI, "agoodkind/go-makefile"),
 			repo:    "agoodkind/agent-gate",
 			want:    "source repository URI",
@@ -105,15 +128,27 @@ func TestValidateBuildProvenanceCertificateRejectsMismatches(t *testing.T) {
 		},
 	}
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			err := validateBuildProvenanceCertificate(testCase.summary, testCase.repo, Config{}.signerWorkflowPattern())
-			if err == nil {
-				t.Fatal("validateBuildProvenanceCertificate() error = nil, want mismatch")
-			}
-			if !strings.Contains(err.Error(), testCase.want) {
-				t.Fatalf("validateBuildProvenanceCertificate() error = %v, want substring %q", err, testCase.want)
-			}
-		})
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				err := validateBuildProvenanceCertificate(
+					testCase.summary,
+					testCase.repo,
+					Config{}.signerWorkflowPattern(),
+				)
+				if err == nil {
+					t.Fatal("validateBuildProvenanceCertificate() error = nil, want mismatch")
+				}
+
+				if !strings.Contains(err.Error(), testCase.want) {
+					t.Fatalf(
+						"validateBuildProvenanceCertificate() error = %v, want substring %q",
+						err,
+						testCase.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -122,7 +157,10 @@ func TestValidateBuildProvenanceRejectsMissingCertificateSummary(t *testing.T) {
 		Statement: &in_toto.Statement{
 			PredicateType: githubBuildProvenancePredicateType,
 			Subject: []*in_toto.ResourceDescriptor{
-				{Name: "agent-gate_darwin_arm64.tar.gz", Digest: map[string]string{"sha256": "deadbeef"}},
+				{
+					Name:   "agent-gate_darwin_arm64.tar.gz",
+					Digest: map[string]string{"sha256": "deadbeef"},
+				},
 			},
 		},
 	}
@@ -136,6 +174,7 @@ func TestValidateBuildProvenanceRejectsMissingCertificateSummary(t *testing.T) {
 	if err == nil {
 		t.Fatal("validateBuildProvenance() error = nil, want missing certificate summary")
 	}
+
 	if !strings.Contains(err.Error(), "certificate summary missing") {
 		t.Fatalf("validateBuildProvenance() error = %v", err)
 	}

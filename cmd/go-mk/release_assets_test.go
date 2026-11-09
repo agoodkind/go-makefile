@@ -10,6 +10,7 @@ func TestReleaseAssetsListsEveryBinaryAndPlatform(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
+
 	consumerDir := newConsumerRepository(t, afterNoticeDate)
 	makefile := "GO_MK_DEV_DIR := " + repoRoot + "\n_GO_MK_PROVISIONED := 1\n" +
 		"BINARY := widget\nCMD := ./widget\n" +
@@ -18,10 +19,16 @@ func TestReleaseAssetsListsEveryBinaryAndPlatform(t *testing.T) {
 		"include " + filepath.Join(repoRoot, "go-release.mk") + "\n"
 	writeConsumerFile(t, consumerDir, "Makefile", makefile)
 
-	output, err := runConsumerMake(consumerDir, "--silent", "go-mk-release-assets", "RELEASE_PLATFORMS=linux/amd64 linux/arm64")
+	output, err := runConsumerMake(
+		consumerDir,
+		"--silent",
+		"go-mk-release-assets",
+		"RELEASE_PLATFORMS=linux/amd64 linux/arm64",
+	)
 	if err != nil {
 		t.Fatalf("make go-mk-release-assets: %v\n%s", err, output)
 	}
+
 	want := "widget_linux_amd64.tar.gz\nwidget_linux_arm64.tar.gz\nwidget-cgo_linux_amd64.tar.gz\n"
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)

@@ -20,10 +20,10 @@ func TestRenderLaunchdPlistIncludesProgramArguments(t *testing.T) {
 		RunAtLoad:   true,
 		KeepAlive:   true,
 	})
-
 	if err != nil {
 		t.Fatalf("RenderLaunchdPlist() error: %v", err)
 	}
+
 	for _, want := range []string{
 		"<string>/usr/local/bin/go-mk</string>",
 		"<string>selfupdate</string>",
@@ -53,15 +53,19 @@ func TestInstallLaunchdServiceSkipsRestartWhenPlistUnchangedAndLoaded(t *testing
 	if err != nil {
 		t.Fatalf("RenderLaunchdPlist() error: %v", err)
 	}
+
 	if err := os.WriteFile(plistPath, []byte(rendered), 0o644); err != nil {
 		t.Fatalf("write plist: %v", err)
 	}
+
 	calls := []string{}
 	serviceRunProcess = func(name string, args []string) error {
 		calls = append(calls, name+" "+strings.Join(args, " "))
-		if name == "launchctl" && slices.Equal(args, []string{"print", "gui/501/io.goodkind.demo"}) {
+		if name == "launchctl" &&
+			slices.Equal(args, []string{"print", "gui/501/io.goodkind.demo"}) {
 			return nil
 		}
+
 		return errors.New("unexpected process")
 	}
 	serviceCurrentUserID = func() string {
@@ -74,10 +78,12 @@ func TestInstallLaunchdServiceSkipsRestartWhenPlistUnchangedAndLoaded(t *testing
 	if err != nil {
 		t.Fatalf("InstallLaunchdService() error: %v", err)
 	}
+
 	wantCalls := []string{"launchctl print gui/501/io.goodkind.demo"}
 	if !slices.Equal(calls, wantCalls) {
 		t.Fatalf("calls = %v, want %v", calls, wantCalls)
 	}
+
 	if !strings.Contains(stdout.String(), "unchanged and loaded; skipping bootout/bootstrap") {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
@@ -110,6 +116,7 @@ func TestInstallSystemdUserServiceRestartsWhenUnitChanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InstallSystemdUserService() error: %v", err)
 	}
+
 	wantCalls := []string{
 		"systemctl --user daemon-reload",
 		"systemctl --user enable demo.service",
@@ -118,11 +125,14 @@ func TestInstallSystemdUserServiceRestartsWhenUnitChanged(t *testing.T) {
 	if !slices.Equal(calls, wantCalls) {
 		t.Fatalf("calls = %v, want %v", calls, wantCalls)
 	}
+
 	unitBytes, err := os.ReadFile(unitPath)
 	if err != nil {
 		t.Fatalf("ReadFile() unit error: %v", err)
 	}
+
 	unit := string(unitBytes)
+
 	for _, want := range []string{
 		"Description=Demo Service",
 		"Documentation=https://example.invalid/demo",
@@ -136,6 +146,7 @@ func TestInstallSystemdUserServiceRestartsWhenUnitChanged(t *testing.T) {
 			t.Fatalf("unit missing %q\n%s", want, unit)
 		}
 	}
+
 	if !strings.Contains(stdout.String(), "installed: "+unitPath) {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
@@ -146,6 +157,7 @@ func TestParseEnvironmentPairs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseEnvironmentPairs() error: %v", err)
 	}
+
 	wantPairs := []EnvironmentPair{
 		{Name: "GK_MODE", Value: "test"},
 		{Name: "EMPTY", Value: ""},

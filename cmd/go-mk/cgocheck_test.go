@@ -25,16 +25,20 @@ func TestCgoDisabled(t *testing.T) {
 		{name: "blank keeps cgo default on", value: "  ", set: true, want: false},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			if testCase.set {
-				t.Setenv("CGO_ENABLED", testCase.value)
-			} else {
-				t.Setenv("CGO_ENABLED", "")
-			}
-			if got := cgoDisabled(); got != testCase.want {
-				t.Fatalf("cgoDisabled() = %v, want %v", got, testCase.want)
-			}
-		})
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				if testCase.set {
+					t.Setenv("CGO_ENABLED", testCase.value)
+				} else {
+					t.Setenv("CGO_ENABLED", "")
+				}
+
+				if got := cgoDisabled(); got != testCase.want {
+					t.Fatalf("cgoDisabled() = %v, want %v", got, testCase.want)
+				}
+			},
+		)
 	}
 }
 
@@ -44,6 +48,7 @@ func TestCgoOptionalAllowlist(t *testing.T) {
 	if !allow["example.com/a"] || !allow["example.com/b"] {
 		t.Fatalf("allowlist missing declared packages: %v", allow)
 	}
+
 	if allow["example.com/c"] {
 		t.Fatalf("allowlist contains undeclared package")
 	}
@@ -54,6 +59,7 @@ func TestCgoStubTargetsPrefersCmd(t *testing.T) {
 	if got := cgoStubTargets(); !reflect.DeepEqual(got, []string{"./cmd/thing"}) {
 		t.Fatalf("cgoStubTargets() with CMD = %v", got)
 	}
+
 	t.Setenv("CMD", "")
 	if got := cgoStubTargets(); !reflect.DeepEqual(got, []string{"./..."}) {
 		t.Fatalf("cgoStubTargets() without CMD = %v", got)
@@ -64,7 +70,11 @@ func TestFilterCgoRequiringPackages(t *testing.T) {
 	packages := []cgoListPackage{
 		{ImportPath: "net", Standard: true, CgoFiles: []string{"cgo_unix.go"}},
 		{ImportPath: "os/user", Standard: true, CgoFiles: []string{"cgo_lookup.go"}},
-		{ImportPath: "github.com/mattn/go-sqlite3", Standard: false, CgoFiles: []string{"sqlite3.go"}},
+		{
+			ImportPath: "github.com/mattn/go-sqlite3",
+			Standard:   false,
+			CgoFiles:   []string{"sqlite3.go"},
+		},
 		{ImportPath: "example.com/optional", Standard: false, CgoFiles: []string{"x.go"}},
 		{ImportPath: "example.com/purego", Standard: false, CgoFiles: nil},
 	}
@@ -85,9 +95,11 @@ func TestDecodeGoListPackages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decodeGoListPackages returned error: %v", err)
 	}
+
 	if len(packages) != 3 {
 		t.Fatalf("decoded %d packages, want 3 (the More loop must not stop early)", len(packages))
 	}
+
 	got := filterCgoRequiringPackages(packages, nil)
 	want := []string{"github.com/mattn/go-sqlite3"}
 	if !reflect.DeepEqual(got, want) {
@@ -100,6 +112,7 @@ func TestDecodeGoListPackagesEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decodeGoListPackages(empty) returned error: %v", err)
 	}
+
 	if len(packages) != 0 {
 		t.Fatalf("decoded %d packages from empty stream, want 0", len(packages))
 	}
@@ -109,6 +122,7 @@ func TestCheckCgoStubNoopWhenCgoEnabled(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("stub go is a POSIX shell script")
 	}
+
 	dir := t.TempDir()
 	stub := filepath.Join(dir, "go")
 	script := "#!/bin/sh\n" +
@@ -116,6 +130,7 @@ func TestCheckCgoStubNoopWhenCgoEnabled(t *testing.T) {
 	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
 		t.Fatalf("write stub go: %v", err)
 	}
+
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	t.Setenv("CGO_ENABLED", "1")
@@ -128,6 +143,7 @@ func TestCheckCgoStubNoopWhenCgoEnabled(t *testing.T) {
 	if err == nil {
 		t.Fatal("checkCgoStub() with cgo off and a cgo package in the graph should fail")
 	}
+
 	if !strings.Contains(err.Error(), "github.com/mattn/go-sqlite3") {
 		t.Fatalf("checkCgoStub() error = %v, want the cgo package path", err)
 	}
@@ -142,6 +158,7 @@ func TestCgoRequiringPackagesIgnoresStderrDownloadNoise(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("stub go is a POSIX shell script")
 	}
+
 	dir := t.TempDir()
 	stub := filepath.Join(dir, "go")
 	script := "#!/bin/sh\n" +
@@ -152,12 +169,17 @@ func TestCgoRequiringPackagesIgnoresStderrDownloadNoise(t *testing.T) {
 	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
 		t.Fatalf("write stub go: %v", err)
 	}
+
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	got, err := cgoRequiringPackages([]string{"./..."})
 	if err != nil {
-		t.Fatalf("cgoRequiringPackages returned error (stderr noise must not corrupt the JSON decode): %v", err)
+		t.Fatalf(
+			"cgoRequiringPackages returned error (stderr noise must not corrupt the JSON decode): %v",
+			err,
+		)
 	}
+
 	want := []string{"github.com/mattn/go-sqlite3"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("cgoRequiringPackages() = %v, want %v", got, want)
@@ -176,24 +198,56 @@ func TestReleaseCgoEnabled(t *testing.T) {
 		cgoSet     bool
 		want       bool
 	}{
-		{name: "forced binary stays enabled under ambient zero", cgo: true, cgoEnabled: "0", cgoSet: true, want: true},
-		{name: "forced binary stays enabled under unset ambient", cgo: true, cgoSet: false, want: true},
-		{name: "unforced binary follows ambient zero", cgo: false, cgoEnabled: "0", cgoSet: true, want: false},
-		{name: "unforced binary follows ambient one", cgo: false, cgoEnabled: "1", cgoSet: true, want: true},
-		{name: "unforced binary defaults disabled when ambient unset", cgo: false, cgoSet: false, want: false},
+		{
+			name:       "forced binary stays enabled under ambient zero",
+			cgo:        true,
+			cgoEnabled: "0",
+			cgoSet:     true,
+			want:       true,
+		},
+		{
+			name:   "forced binary stays enabled under unset ambient",
+			cgo:    true,
+			cgoSet: false,
+			want:   true,
+		},
+		{
+			name:       "unforced binary follows ambient zero",
+			cgo:        false,
+			cgoEnabled: "0",
+			cgoSet:     true,
+			want:       false,
+		},
+		{
+			name:       "unforced binary follows ambient one",
+			cgo:        false,
+			cgoEnabled: "1",
+			cgoSet:     true,
+			want:       true,
+		},
+		{
+			name:   "unforced binary defaults disabled when ambient unset",
+			cgo:    false,
+			cgoSet: false,
+			want:   false,
+		},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			if testCase.cgoSet {
-				t.Setenv("CGO_ENABLED", testCase.cgoEnabled)
-			} else {
-				t.Setenv("CGO_ENABLED", "")
-			}
-			binary := releaseBinary{name: "mwan", mainPkg: "./cmd/mwan", cgo: testCase.cgo}
-			if got := releaseCgoEnabled(binary); got != testCase.want {
-				t.Fatalf("releaseCgoEnabled() = %v, want %v", got, testCase.want)
-			}
-		})
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				if testCase.cgoSet {
+					t.Setenv("CGO_ENABLED", testCase.cgoEnabled)
+				} else {
+					t.Setenv("CGO_ENABLED", "")
+				}
+
+				binary := releaseBinary{name: "mwan", mainPkg: "./cmd/mwan", cgo: testCase.cgo}
+				if got := releaseCgoEnabled(binary); got != testCase.want {
+					t.Fatalf("releaseCgoEnabled() = %v, want %v", got, testCase.want)
+				}
+			},
+		)
 	}
 }
 
@@ -208,6 +262,7 @@ func writeReleaseCgoStubGo(t *testing.T, cgoGoos, importPath string) string {
 	if runtime.GOOS == "windows" {
 		t.Skip("stub go is a POSIX shell script")
 	}
+
 	dir := t.TempDir()
 	stub := filepath.Join(dir, "go")
 	script := "#!/bin/sh\n" +
@@ -219,6 +274,7 @@ func writeReleaseCgoStubGo(t *testing.T, cgoGoos, importPath string) string {
 	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
 		t.Fatalf("write stub go: %v", err)
 	}
+
 	return dir
 }
 
@@ -271,33 +327,43 @@ func TestCheckReleaseCgoStub(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Setenv("CGO_ENABLED", "0")
-			t.Setenv("GO_MK_CGO_OPTIONAL", testCase.cgoOptional)
-			t.Setenv("GOOS", "linux")
-			stubDir := writeReleaseCgoStubGo(t, "linux", importPath)
-			t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				t.Setenv("CGO_ENABLED", "0")
+				t.Setenv("GO_MK_CGO_OPTIONAL", testCase.cgoOptional)
+				t.Setenv("GOOS", "linux")
+				stubDir := writeReleaseCgoStubGo(t, "linux", importPath)
+				t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-			cfg := releaseConfig{
-				binaries:  []releaseBinary{testCase.binary},
-				platforms: []string{testCase.platform},
-			}
-			err := checkReleaseCgoStub(cfg)
-			if !testCase.wantErr {
-				if err != nil {
-					t.Fatalf("checkReleaseCgoStub() error = %v, want nil", err)
+				cfg := releaseConfig{
+					binaries:  []releaseBinary{testCase.binary},
+					platforms: []string{testCase.platform},
 				}
-				return
-			}
-			if err == nil {
-				t.Fatal("checkReleaseCgoStub() = nil, want error")
-			}
-			for _, want := range testCase.wantContains {
-				if !strings.Contains(err.Error(), want) {
-					t.Fatalf("checkReleaseCgoStub() error = %q, want substring %q", err.Error(), want)
+				err := checkReleaseCgoStub(cfg)
+				if !testCase.wantErr {
+					if err != nil {
+						t.Fatalf("checkReleaseCgoStub() error = %v, want nil", err)
+					}
+
+					return
 				}
-			}
-		})
+
+				if err == nil {
+					t.Fatal("checkReleaseCgoStub() = nil, want error")
+				}
+
+				for _, want := range testCase.wantContains {
+					if !strings.Contains(err.Error(), want) {
+						t.Fatalf(
+							"checkReleaseCgoStub() error = %q, want substring %q",
+							err.Error(),
+							want,
+						)
+					}
+				}
+			},
+		)
 	}
 }
 
@@ -316,60 +382,97 @@ func TestCheckReleaseCgoStubToleratesOnlyDarwinAmd64(t *testing.T) {
 		wantErr     bool
 		wantWarning bool
 	}{
-		{name: "darwin/amd64 logs one unsupported-platform line and continues", platform: "darwin/amd64", wantErr: false, wantWarning: true},
-		{name: "darwin/arm64 with the same graph still fails", platform: "darwin/arm64", wantErr: true, wantWarning: false},
+		{
+			name:        "darwin/amd64 logs one unsupported-platform line and continues",
+			platform:    "darwin/amd64",
+			wantErr:     false,
+			wantWarning: true,
+		},
+		{
+			name:        "darwin/arm64 with the same graph still fails",
+			platform:    "darwin/arm64",
+			wantErr:     true,
+			wantWarning: false,
+		},
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Setenv("CGO_ENABLED", "0")
-			t.Setenv("GO_MK_CGO_OPTIONAL", "")
-			t.Setenv("GOOS", "linux")
-			stubDir := writeReleaseCgoStubGo(t, "darwin", importPath)
-			t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				t.Setenv("CGO_ENABLED", "0")
+				t.Setenv("GO_MK_CGO_OPTIONAL", "")
+				t.Setenv("GOOS", "linux")
+				stubDir := writeReleaseCgoStubGo(t, "darwin", importPath)
+				t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-			cfg := releaseConfig{
-				binaries:  []releaseBinary{{name: "configsctl", mainPkg: "./cmd/configsctl"}},
-				platforms: []string{testCase.platform},
-			}
-			// Route slog through the same summary handler the go-mk binary installs
-			// on stderr, so a record that would add a second visible line is
-			// captured too.
-			previousLogger := slog.Default()
-			t.Cleanup(func() { slog.SetDefault(previousLogger) })
-			var err error
-			stderr := captureStderr(t, func() {
-				slog.SetDefault(slog.New(logsummary.New(os.Stderr, logsummary.ModeSummary)))
-				err = checkReleaseCgoStub(cfg)
-			})
+				cfg := releaseConfig{
+					binaries:  []releaseBinary{{name: "configsctl", mainPkg: "./cmd/configsctl"}},
+					platforms: []string{testCase.platform},
+				}
+				// Route slog through the same summary handler the go-mk binary installs
+				// on stderr, so a record that would add a second visible line is
+				// captured too.
+				previousLogger := slog.Default()
+				t.Cleanup(func() { slog.SetDefault(previousLogger) })
+				var err error
+				stderr := captureStderr(
+					t,
+					func() {
+						slog.SetDefault(slog.New(logsummary.New(os.Stderr, logsummary.ModeSummary)))
+						err = checkReleaseCgoStub(cfg)
+					},
+				)
 
-			visibleLines := 0
-			warningLines := 0
-			for _, line := range strings.Split(stderr, "\n") {
-				if strings.TrimSpace(line) == "" {
-					continue
+				visibleLines := 0
+				warningLines := 0
+
+				for _, line := range strings.Split(stderr, "\n") {
+					if strings.TrimSpace(line) == "" {
+						continue
+					}
+
+					visibleLines++
+					if strings.Contains(line, "darwin/amd64 is unsupported") {
+						warningLines++
+					}
 				}
-				visibleLines++
-				if strings.Contains(line, "darwin/amd64 is unsupported") {
-					warningLines++
+
+				if testCase.wantWarning {
+					if visibleLines != 1 || warningLines != 1 ||
+						!strings.Contains(stderr, "configsctl") ||
+						!strings.Contains(stderr, importPath) {
+						t.Fatalf(
+							"stderr = %q, want exactly one visible line, the darwin/amd64 unsupported line naming configsctl and %s",
+							stderr,
+							importPath,
+						)
+					}
+				} else if warningLines != 0 {
+					t.Fatalf(
+						"stderr = %q, want no darwin/amd64 unsupported line for %s",
+						stderr,
+						testCase.platform,
+					)
 				}
-			}
-			if testCase.wantWarning {
-				if visibleLines != 1 || warningLines != 1 || !strings.Contains(stderr, "configsctl") || !strings.Contains(stderr, importPath) {
-					t.Fatalf("stderr = %q, want exactly one visible line, the darwin/amd64 unsupported line naming configsctl and %s", stderr, importPath)
+
+				if testCase.wantErr {
+					if err == nil ||
+						!strings.Contains(err.Error(), "configsctl ("+testCase.platform+")") {
+						t.Fatalf(
+							"checkReleaseCgoStub() error = %v, want a finding for configsctl (%s)",
+							err,
+							testCase.platform,
+						)
+					}
+
+					return
 				}
-			} else if warningLines != 0 {
-				t.Fatalf("stderr = %q, want no darwin/amd64 unsupported line for %s", stderr, testCase.platform)
-			}
-			if testCase.wantErr {
-				if err == nil || !strings.Contains(err.Error(), "configsctl ("+testCase.platform+")") {
-					t.Fatalf("checkReleaseCgoStub() error = %v, want a finding for configsctl (%s)", err, testCase.platform)
+
+				if err != nil {
+					t.Fatalf("checkReleaseCgoStub() error = %v, want nil", err)
 				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("checkReleaseCgoStub() error = %v, want nil", err)
-			}
-		})
+			},
+		)
 	}
 }

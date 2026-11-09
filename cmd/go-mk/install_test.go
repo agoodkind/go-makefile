@@ -72,26 +72,49 @@ func TestParseInstallBins(t *testing.T) {
 		},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			got, err := parseInstallBins(testCase.text, testCase.binary, testCase.mainPkg, testCase.installDir)
-			if testCase.wantErr {
-				if err == nil {
-					t.Fatalf("parseInstallBins(%q) expected error, got %v", testCase.text, got)
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				got, err := parseInstallBins(
+					testCase.text,
+					testCase.binary,
+					testCase.mainPkg,
+					testCase.installDir,
+				)
+				if testCase.wantErr {
+					if err == nil {
+						t.Fatalf("parseInstallBins(%q) expected error, got %v", testCase.text, got)
+					}
+
+					return
 				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("parseInstallBins(%q) unexpected error: %v", testCase.text, err)
-			}
-			if len(got) != len(testCase.want) {
-				t.Fatalf("parseInstallBins(%q) = %v, want %v", testCase.text, got, testCase.want)
-			}
-			for index := range got {
-				if got[index] != testCase.want[index] {
-					t.Fatalf("parseInstallBins(%q)[%d] = %v, want %v", testCase.text, index, got[index], testCase.want[index])
+
+				if err != nil {
+					t.Fatalf("parseInstallBins(%q) unexpected error: %v", testCase.text, err)
 				}
-			}
-		})
+
+				if len(got) != len(testCase.want) {
+					t.Fatalf(
+						"parseInstallBins(%q) = %v, want %v",
+						testCase.text,
+						got,
+						testCase.want,
+					)
+				}
+
+				for index := range got {
+					if got[index] != testCase.want[index] {
+						t.Fatalf(
+							"parseInstallBins(%q)[%d] = %v, want %v",
+							testCase.text,
+							index,
+							got[index],
+							testCase.want[index],
+						)
+					}
+				}
+			},
+		)
 	}
 }
 
@@ -103,16 +126,21 @@ func TestDirWritable(t *testing.T) {
 
 	notYetCreated := filepath.Join(writable, "child", "grandchild")
 	if !dirWritable(notYetCreated) {
-		t.Fatalf("dirWritable(%q) = false, want true when the nearest ancestor is writable", notYetCreated)
+		t.Fatalf(
+			"dirWritable(%q) = false, want true when the nearest ancestor is writable",
+			notYetCreated,
+		)
 	}
 
 	if os.Geteuid() == 0 {
 		t.Skip("running as root, so a read-only directory is still writable")
 	}
+
 	readOnly := filepath.Join(writable, "readonly")
 	if err := os.Mkdir(readOnly, 0o500); err != nil {
 		t.Fatalf("mkdir read-only dir: %v", err)
 	}
+
 	target := filepath.Join(readOnly, "binary")
 	if dirWritable(target) {
 		t.Fatalf("dirWritable(%q) = true, want false under a read-only directory", target)
@@ -124,16 +152,20 @@ func TestInstallAllRunsHooksAroundInstalls(t *testing.T) {
 	if err := installAll(cfg); err != nil {
 		t.Fatalf("installAll: %v", err)
 	}
+
 	installFixAssertLog(t, logPath, "pre\nfirst\nsecond\npost\n")
+
 	for _, bin := range cfg.bins {
 		source, err := os.ReadFile(filepath.Join(cfg.distDir, bin.name))
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		installed, err := os.ReadFile(filepath.Join(bin.dir, bin.name))
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		if string(installed) != string(source) {
 			t.Fatalf("installed %q = %q, want dist contents %q", bin.name, installed, source)
 		}
@@ -153,9 +185,11 @@ func TestInstallAllRunsPostHookAfterInstallFailure(t *testing.T) {
 	installFixAssertLog(t, logPath, "pre\npost\n")
 	installFixAssertAbsent(t, cfg)
 	var installErr *os.PathError
-	if !errors.As(err, &installErr) || installErr.Path != missingSource || !errors.Is(err, os.ErrNotExist) {
+	if !errors.As(err, &installErr) || installErr.Path != missingSource ||
+		!errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("installAll error = %v, want missing dist file %q", err, missingSource)
 	}
+
 	var postErr *exec.ExitError
 	if !errors.As(err, &postErr) || postErr.ExitCode() != 31 {
 		t.Fatalf("installAll error = %v, want post hook exit status 31", err)
@@ -189,6 +223,7 @@ func installFixDist(t *testing.T) (installConfig, string) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell hooks require sh")
 	}
+
 	root := t.TempDir()
 	distDir := filepath.Join(root, "dist")
 	installDir := filepath.Join(root, "installed")
@@ -196,11 +231,16 @@ func installFixDist(t *testing.T) (installConfig, string) {
 	if err := os.Mkdir(distDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	for _, name := range []string{"first", "second"} {
 		installFixWriteScript(t, filepath.Join(distDir, name), "printf '%s\\n' '"+name+"'\n")
 	}
+
 	prePath := filepath.Join(root, "pre.sh")
-	installFixWriteScript(t, prePath, `for name in first second; do
+	installFixWriteScript(
+		t,
+		prePath,
+		`for name in first second; do
     if test -e "$INSTALL_FIX_DIR/$name"; then
         printf 'pre hook found an installed binary: %s\n' "$name" >&2
         exit 1
@@ -208,15 +248,20 @@ func installFixDist(t *testing.T) (installConfig, string) {
 done
 printf 'pre\n' >> "$INSTALL_FIX_LOG"
 exit "$INSTALL_FIX_PRE_STATUS"
-`)
+`,
+	)
 	postPath := filepath.Join(root, "post.sh")
-	installFixWriteScript(t, postPath, `if test "$INSTALL_FIX_RUN_BINARIES" = 1; then
+	installFixWriteScript(
+		t,
+		postPath,
+		`if test "$INSTALL_FIX_RUN_BINARIES" = 1; then
     "$INSTALL_FIX_DIR/first" >> "$INSTALL_FIX_LOG"
     "$INSTALL_FIX_DIR/second" >> "$INSTALL_FIX_LOG"
 fi
 printf 'post\n' >> "$INSTALL_FIX_LOG"
 exit "$INSTALL_FIX_POST_STATUS"
-`)
+`,
+	)
 	t.Setenv("HOME", root)
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 	t.Setenv("PATH", "/usr/bin:/bin")
@@ -227,6 +272,7 @@ exit "$INSTALL_FIX_POST_STATUS"
 	t.Setenv("INSTALL_FIX_PRE_STATUS", "0")
 	t.Setenv("INSTALL_FIX_POST_STATUS", "0")
 	t.Setenv("INSTALL_FIX_RUN_BINARIES", "1")
+
 	return installConfig{
 		bins: []binSpec{
 			{name: "first", mainPkg: "./cmd/first", dir: installDir},
@@ -251,6 +297,7 @@ func installFixAssertLog(t *testing.T, path, want string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if string(got) != want {
 		t.Fatalf("hook log = %q, want %q", got, want)
 	}
@@ -258,6 +305,7 @@ func installFixAssertLog(t *testing.T, path, want string) {
 
 func installFixAssertAbsent(t *testing.T, cfg installConfig) {
 	t.Helper()
+
 	for _, bin := range cfg.bins {
 		target := filepath.Join(bin.dir, bin.name)
 		if _, err := os.Stat(target); !os.IsNotExist(err) {

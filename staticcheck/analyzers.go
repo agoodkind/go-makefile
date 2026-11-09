@@ -9,7 +9,11 @@
 // findings easy to reason about.
 package staticcheck
 
-import "golang.org/x/tools/go/analysis"
+import (
+	"golang.org/x/tools/go/analysis"
+
+	"goodkind.io/go-makefile/staticcheck/multilineargs"
+)
 
 // Analyzers returns the checks available to staticcheck-extra.
 //
@@ -21,6 +25,10 @@ import "golang.org/x/tools/go/analysis"
 //	multichecker.Main(staticcheck.Analyzers()...)
 func Analyzers() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
+		CommandEntryAnalyzer,
+		FilenamePrefixAnalyzer,
+		ArgumentLinesAnalyzer,
+		multilineargs.Analyzer,
 		DocStructureAnalyzer,
 		SlogErrorWithoutErrAnalyzer,
 		BannedDirectOutputAnalyzer,

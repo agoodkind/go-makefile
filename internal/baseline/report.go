@@ -13,12 +13,15 @@ func changePhrase(statistics Stats) string {
 	if statistics.Added > 0 {
 		parts = append(parts, fmt.Sprintf("%d added", statistics.Added))
 	}
+
 	if statistics.Removed > 0 {
 		parts = append(parts, fmt.Sprintf("%d removed", statistics.Removed))
 	}
+
 	if len(parts) == 0 {
 		return "no change"
 	}
+
 	return strings.Join(parts, ", ")
 }
 
@@ -30,6 +33,7 @@ func remainingPhrase(statistics Stats) string {
 	if before == 0 && statistics.Remaining == 0 {
 		return "no existing"
 	}
+
 	return fmt.Sprintf("%d -> %d", before, statistics.Remaining)
 }
 
@@ -49,30 +53,42 @@ func rollupLines(all []Stats) []string {
 	if count == 1 {
 		plural = ""
 	}
+
 	lines := []string{
 		fmt.Sprintf("Updating %d baseline%s", count, plural),
 		"",
 	}
 	labelWidth := 0
 	changeWidth := 0
+
 	for _, statistics := range all {
 		if len(statistics.Label) > labelWidth {
 			labelWidth = len(statistics.Label)
 		}
+
 		if phraseLength := len(changePhrase(statistics)); phraseLength > changeWidth {
 			changeWidth = phraseLength
 		}
 	}
+
 	totalRemaining := 0
+
 	for _, statistics := range all {
 		totalRemaining += statistics.Remaining
 		label := fmt.Sprintf("%-*s", labelWidth, statistics.Label)
 		change := fmt.Sprintf("%-*s", changeWidth, changePhrase(statistics))
-		lines = append(lines, fmt.Sprintf("  %s   %s   %s", label, change, remainingPhrase(statistics)))
+		lines = append(
+			lines,
+			fmt.Sprintf("  %s   %s   %s", label, change, remainingPhrase(statistics)),
+		)
 	}
+
 	lines = append(lines, "")
-	lines = append(lines, fmt.Sprintf(
-		"  Done. %d remaining across %d baseline%s.", totalRemaining, count, plural))
+	lines = append(
+		lines,
+		fmt.Sprintf("  Done. %d remaining across %d baseline%s.", totalRemaining, count, plural),
+	)
+
 	return lines
 }
 
@@ -82,12 +98,14 @@ func RenderText(all []Stats) string {
 	if len(all) == 0 {
 		return ""
 	}
+
 	var lines []string
 	if len(all) == 1 {
 		lines = singleLines(all[0])
 	} else {
 		lines = rollupLines(all)
 	}
+
 	return strings.Join(lines, "\n") + "\n"
 }
 
@@ -124,34 +142,45 @@ func RenderJSON(all []Stats) (string, error) {
 	entries := make([]baselineEntry, 0, len(all))
 	scope := "all"
 	var total totals
+
 	total.Baselines = len(all)
 	for _, statistics := range all {
 		if statistics.ScopePattern != "" {
 			scope = statistics.ScopePattern
 		}
-		entries = append(entries, baselineEntry{
-			Label:            statistics.Label,
-			File:             statistics.BaselinePath,
-			FindingsCaptured: statistics.FindingsCaptured,
-			Added:            statistics.Added,
-			Refreshed:        statistics.Refreshed,
-			Removed:          statistics.Removed,
-			Covered:          statistics.Covered,
-			Remaining:        statistics.Remaining,
-			Changed:          !statistics.IsNoop(),
-		})
+
+		entries = append(
+			entries,
+			baselineEntry{
+				Label:            statistics.Label,
+				File:             statistics.BaselinePath,
+				FindingsCaptured: statistics.FindingsCaptured,
+				Added:            statistics.Added,
+				Refreshed:        statistics.Refreshed,
+				Removed:          statistics.Removed,
+				Covered:          statistics.Covered,
+				Remaining:        statistics.Remaining,
+				Changed:          !statistics.IsNoop(),
+			},
+		)
 		total.Added += statistics.Added
 		total.Refreshed += statistics.Refreshed
 		total.Removed += statistics.Removed
 		total.Remaining += statistics.Remaining
 	}
-	encoded, err := json.MarshalIndent(document{
-		Scope:     scope,
-		Baselines: entries,
-		Totals:    total,
-	}, "", "  ")
+
+	encoded, err := json.MarshalIndent(
+		document{
+			Scope:     scope,
+			Baselines: entries,
+			Totals:    total,
+		},
+		"",
+		"  ",
+	)
 	if err != nil {
 		return "", err
 	}
+
 	return string(encoded) + "\n", nil
 }

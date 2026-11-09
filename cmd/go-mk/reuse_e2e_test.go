@@ -30,7 +30,11 @@ func newReuseHarness(t *testing.T, reuseFlag string) *reuseHarness {
 	harness := &reuseHarness{t: t, dir: dir, reuseFlag: reuseFlag}
 
 	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/tool\n\ngo 1.24\n")
-	writeFile(t, filepath.Join(dir, "main.go"), "package main\n\nfunc main() { println(greeting) }\n")
+	writeFile(
+		t,
+		filepath.Join(dir, "main.go"),
+		"package main\n\nfunc main() { println(greeting) }\n",
+	)
 	writeFile(t, filepath.Join(dir, "greeting.go"), "package main\n\nconst greeting = \"one\"\n")
 
 	chdir(t, dir)
@@ -57,6 +61,7 @@ func newReuseHarness(t *testing.T, reuseFlag string) *reuseHarness {
 		return harness.gateCode
 	}
 	t.Cleanup(func() { runBuildGateFunc = previousGate })
+
 	return harness
 }
 
@@ -171,10 +176,12 @@ func replaceWithOtherBinary(t *testing.T, path string) {
 	if err != nil {
 		t.Fatalf("Executable: %v", err)
 	}
+
 	body, readErr := os.ReadFile(self)
 	if readErr != nil {
 		t.Fatalf("ReadFile %s: %v", self, readErr)
 	}
+
 	if writeErr := os.WriteFile(path, body, 0o755); writeErr != nil {
 		t.Fatalf("WriteFile %s: %v", path, writeErr)
 	}
@@ -210,6 +217,7 @@ func TestSourceListRefusesAPackageThatDidNotLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decodeReuseSourceFiles on a clean list: %v", err)
 	}
+
 	if len(files) != 1 || files[0] != "/repo/a/a.go" {
 		t.Fatalf("decodeReuseSourceFiles = %v, want [/repo/a/a.go]", files)
 	}
@@ -224,11 +232,13 @@ func TestLibraryGateReusesItsVerdict(t *testing.T) {
 	if code := runBuildGateCommand(); code != 0 {
 		t.Fatalf("first gate = %d, want 0", code)
 	}
+
 	harness.expectGateRuns(1, "first gate")
 
 	if code := runBuildGateCommand(); code != 0 {
 		t.Fatalf("second gate = %d, want 0", code)
 	}
+
 	harness.expectGateRuns(1, "second gate on an unchanged tree")
 
 	writeFile(t, harness.path("greeting.go"), "package main\n\nconst greeting = \"two\"\n")
@@ -236,6 +246,7 @@ func TestLibraryGateReusesItsVerdict(t *testing.T) {
 	if code := runBuildGateCommand(); code != 0 {
 		t.Fatalf("third gate = %d, want 0", code)
 	}
+
 	harness.expectGateRuns(2, "after editing a source file")
 }
 
@@ -248,9 +259,11 @@ func TestFailedGateIsNeverReused(t *testing.T) {
 	if code := runBuildGateCommand(); code != 1 {
 		t.Fatalf("failing gate = %d, want 1", code)
 	}
+
 	if code := runBuildGateCommand(); code != 1 {
 		t.Fatalf("second failing gate = %d, want 1", code)
 	}
+
 	harness.expectGateRuns(2, "two runs of a failing gate")
 }
 
@@ -283,11 +296,14 @@ func TestBuildTimeStampDoesNotDefeatReuse(t *testing.T) {
 }
 
 func TestNormalizeLdflagsKeepsEveryOtherStamp(t *testing.T) {
-	got := normalizeLdflags("-X pkg.Commit=abc -X pkg.BuildTime=2026-08-14T00:00:00Z -X pkg.Version=v1")
+	got := normalizeLdflags(
+		"-X pkg.Commit=abc -X pkg.BuildTime=2026-08-14T00:00:00Z -X pkg.Version=v1",
+	)
 	want := "-X pkg.Commit=abc -X pkg.Version=v1"
 	if got != want {
 		t.Fatalf("normalizeLdflags = %q, want %q", got, want)
 	}
+
 	if strings.Contains(got, "BuildTime") {
 		t.Fatalf("normalizeLdflags left the build timestamp in %q", got)
 	}
@@ -303,7 +319,9 @@ func TestBuildHonorsGO_MK_PLATFORMSLinuxArm64(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildinfo.ReadFile: %v", err)
 	}
-	if goos, goarch := buildSetting(info, "GOOS"), buildSetting(info, "GOARCH"); goos != "linux" || goarch != "arm64" {
+
+	if goos, goarch := buildSetting(info, "GOOS"), buildSetting(info, "GOARCH"); goos != "linux" ||
+		goarch != "arm64" {
 		t.Fatalf("built %s/%s, want linux/arm64", goos, goarch)
 	}
 }
@@ -312,6 +330,7 @@ func TestBuildSignsHostBinaryWhenMatrixEmpty(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("codesign verify is Darwin-only")
 	}
+
 	harness := newReuseHarness(t, "0")
 
 	harness.build()
@@ -320,9 +339,11 @@ func TestBuildSignsHostBinaryWhenMatrixEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildinfo.ReadFile: %v", err)
 	}
+
 	if goos := buildSetting(info, "GOOS"); goos != "darwin" {
 		t.Fatalf("built GOOS %s, want darwin", goos)
 	}
+
 	verify := exec.Command("codesign", "--verify", harness.path("dist/tool"))
 	if output, verifyErr := verify.CombinedOutput(); verifyErr != nil {
 		t.Fatalf("codesign --verify: %v\n%s", verifyErr, output)
@@ -335,5 +356,6 @@ func buildSetting(info *buildinfo.BuildInfo, key string) string {
 			return setting.Value
 		}
 	}
+
 	return ""
 }

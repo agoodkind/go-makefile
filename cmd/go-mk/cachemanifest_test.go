@@ -18,31 +18,53 @@ func TestCacheManifestSkipsTrackedGeneratedOutputs(t *testing.T) {
 	cacheManifestGit(t, repoDir, "add", "gen/checked.txt", "Makefile")
 	t.Chdir(repoDir)
 
-	result := runCacheManifestForTest(t, map[string]string{
-		"GO_MK_GENERATE":         "generate",
-		"GO_MK_GENERATE_INPUTS":  ".",
-		"GO_MK_GENERATE_OUTPUTS": "gen/checked.txt cache/out",
-	})
+	result := runCacheManifestForTest(
+		t,
+		map[string]string{
+			"GO_MK_GENERATE":         "generate",
+			"GO_MK_GENERATE_INPUTS":  ".",
+			"GO_MK_GENERATE_OUTPUTS": "gen/checked.txt cache/out",
+		},
+	)
 
 	if result.status != 0 {
 		t.Fatalf("status = %d, want 0", result.status)
 	}
+
 	if result.outputs["generated_cache_enabled"] != "true" {
-		t.Fatalf("generated_cache_enabled = %q, want true", result.outputs["generated_cache_enabled"])
+		t.Fatalf(
+			"generated_cache_enabled = %q, want true",
+			result.outputs["generated_cache_enabled"],
+		)
 	}
+
 	wantCachePath, wantCachePathErr := filepath.Abs("cache/out")
 	if wantCachePathErr != nil {
 		t.Fatalf("resolve want cache path: %v", wantCachePathErr)
 	}
+
 	if result.outputs["generated_cache_paths"] != filepath.ToSlash(wantCachePath) {
-		t.Fatalf("generated_cache_paths = %q, want %q", result.outputs["generated_cache_paths"], filepath.ToSlash(wantCachePath))
+		t.Fatalf(
+			"generated_cache_paths = %q, want %q",
+			result.outputs["generated_cache_paths"],
+			filepath.ToSlash(wantCachePath),
+		)
 	}
+
 	if result.outputs["generated_cache_warnings"] != "tracked output skipped: gen/checked.txt" {
-		t.Fatalf("generated_cache_warnings = %q, want tracked output warning", result.outputs["generated_cache_warnings"])
+		t.Fatalf(
+			"generated_cache_warnings = %q, want tracked output warning",
+			result.outputs["generated_cache_warnings"],
+		)
 	}
-	if !strings.Contains(result.stderr, "go-mk-cache-manifest: skip tracked generated output: gen/checked.txt\n") {
+
+	if !strings.Contains(
+		result.stderr,
+		"go-mk-cache-manifest: skip tracked generated output: gen/checked.txt\n",
+	) {
 		t.Fatalf("stderr missing tracked-output diagnostic:\n%s", result.stderr)
 	}
+
 	if !strings.Contains(result.stderr, "tracked output skipped: gen/checked.txt\n") {
 		t.Fatalf("stderr missing final warning stream:\n%s", result.stderr)
 	}
@@ -89,33 +111,50 @@ func TestCacheManifestEnabledTruthTable(t *testing.T) {
 		},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			repoDir := cacheManifestTestRepo(t)
-			t.Chdir(repoDir)
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				repoDir := cacheManifestTestRepo(t)
+				t.Chdir(repoDir)
 
-			result := runCacheManifestForTest(t, testCase.env)
+				result := runCacheManifestForTest(t, testCase.env)
 
-			if result.outputs["generated_cache_enabled"] != testCase.enabled {
-				t.Fatalf("generated_cache_enabled = %q, want %q", result.outputs["generated_cache_enabled"], testCase.enabled)
-			}
-		})
+				if result.outputs["generated_cache_enabled"] != testCase.enabled {
+					t.Fatalf(
+						"generated_cache_enabled = %q, want %q",
+						result.outputs["generated_cache_enabled"],
+						testCase.enabled,
+					)
+				}
+			},
+		)
 	}
 }
 
 func TestCacheManifestRequiresSubmodules(t *testing.T) {
 	repoDir := cacheManifestTestRepo(t)
-	writeScaffoldTestFile(t, filepath.Join(repoDir, ".gitmodules"), "[submodule \"vendor/lib\"]\n\tpath = vendor/lib\n\turl = https://example.invalid/lib.git\n")
+	writeScaffoldTestFile(
+		t,
+		filepath.Join(repoDir, ".gitmodules"),
+		"[submodule \"vendor/lib\"]\n\tpath = vendor/lib\n\turl = https://example.invalid/lib.git\n",
+	)
 	cacheManifestGit(t, repoDir, "add", ".gitmodules")
 	t.Chdir(repoDir)
 
-	result := runCacheManifestForTest(t, map[string]string{
-		"GO_MK_GENERATE":         "generate",
-		"GO_MK_GENERATE_INPUTS":  "schema",
-		"GO_MK_GENERATE_OUTPUTS": "cache/out",
-	})
+	result := runCacheManifestForTest(
+		t,
+		map[string]string{
+			"GO_MK_GENERATE":         "generate",
+			"GO_MK_GENERATE_INPUTS":  "schema",
+			"GO_MK_GENERATE_OUTPUTS": "cache/out",
+		},
+	)
 
 	if result.outputs["generated_cache_requires_submodules"] != "true" {
-		t.Fatalf("generated_cache_requires_submodules = %q, want true", result.outputs["generated_cache_requires_submodules"])
+		t.Fatalf(
+			"generated_cache_requires_submodules = %q, want true",
+			result.outputs["generated_cache_requires_submodules"],
+		)
 	}
 }
 
@@ -123,11 +162,14 @@ func TestCacheManifestWritesGitHubOutputHeredocs(t *testing.T) {
 	repoDir := cacheManifestTestRepo(t)
 	t.Chdir(repoDir)
 
-	result := runCacheManifestForTest(t, map[string]string{
-		"GO_MK_GENERATE":         "generate",
-		"GO_MK_GENERATE_INPUTS":  "schema",
-		"GO_MK_GENERATE_OUTPUTS": "cache/out",
-	})
+	result := runCacheManifestForTest(
+		t,
+		map[string]string{
+			"GO_MK_GENERATE":         "generate",
+			"GO_MK_GENERATE_INPUTS":  "schema",
+			"GO_MK_GENERATE_OUTPUTS": "cache/out",
+		},
+	)
 
 	expectedNames := []string{
 		"generated_cache_enabled",
@@ -142,18 +184,26 @@ func TestCacheManifestWritesGitHubOutputHeredocs(t *testing.T) {
 	}
 	actualNames := githubOutputNames(t, result.githubOutput)
 	if strings.Join(actualNames, ",") != strings.Join(expectedNames, ",") {
-		t.Fatalf("output names = %v, want %v\nGITHUB_OUTPUT:\n%s", actualNames, expectedNames, result.githubOutput)
+		t.Fatalf(
+			"output names = %v, want %v\nGITHUB_OUTPUT:\n%s",
+			actualNames,
+			expectedNames,
+			result.githubOutput,
+		)
 	}
+
 	for _, name := range expectedNames {
 		header := name + "<<__GO_MK_CACHE_OUTPUT__\n"
 		if !strings.Contains(result.githubOutput, header) {
 			t.Fatalf("GITHUB_OUTPUT missing heredoc header %q:\n%s", header, result.githubOutput)
 		}
 	}
+
 	wantCachePath, wantCachePathErr := filepath.Abs("cache/out")
 	if wantCachePathErr != nil {
 		t.Fatalf("resolve want cache path: %v", wantCachePathErr)
 	}
+
 	expectedStdout := "go-mk-cache-manifest: generated_cache_enabled=true\n" +
 		"go-mk-cache-manifest: generated_cache_requires_submodules=false\n" +
 		"go-mk-cache-manifest: generated output paths:\n" +
@@ -176,6 +226,7 @@ func TestCacheManifestLintCachePathMatchesLintEnv(t *testing.T) {
 	if !ok {
 		t.Fatal("lintEnv did not set GOLANGCI_LINT_CACHE")
 	}
+
 	// Only an existing directory can match a glob, and a real lint run creates
 	// this one before golangci-lint writes its first result.
 	mustMkdirAll(t, lintCacheDir)
@@ -186,6 +237,7 @@ func TestCacheManifestLintCachePathMatchesLintEnv(t *testing.T) {
 	if reported == "" {
 		t.Fatal("lint_cache_paths is empty")
 	}
+
 	// The value must be usable by a reader that is not standing in the working
 	// directory the manifest ran from, so it is absolute.
 	for _, pattern := range strings.Split(reported, "\n") {
@@ -193,6 +245,7 @@ func TestCacheManifestLintCachePathMatchesLintEnv(t *testing.T) {
 			t.Fatalf("lint_cache_paths carries %q, want every pattern absolute", pattern)
 		}
 	}
+
 	if !lintCachePatternMatches(t, reported, lintCacheDir) {
 		t.Fatalf("lint_cache_paths %q does not reach the lint cache %q", reported, lintCacheDir)
 	}
@@ -217,7 +270,11 @@ func TestCacheManifestLintCachePathCoversPlatformMatrix(t *testing.T) {
 
 	for _, want := range []string{targetCacheDir, nestedCacheDir} {
 		if !lintCachePatternMatches(t, result.outputs["lint_cache_paths"], want) {
-			t.Errorf("lint_cache_paths %q does not reach %q", result.outputs["lint_cache_paths"], want)
+			t.Errorf(
+				"lint_cache_paths %q does not reach %q",
+				result.outputs["lint_cache_paths"],
+				want,
+			)
 		}
 	}
 }
@@ -229,9 +286,12 @@ func TestCacheManifestLintCachePathHonorsPinnedCache(t *testing.T) {
 	repoDir := cacheManifestTestRepo(t)
 	t.Chdir(repoDir)
 
-	result := runCacheManifestForTest(t, map[string]string{
-		"GOLANGCI_LINT_CACHE": "/custom/golangci-cache",
-	})
+	result := runCacheManifestForTest(
+		t,
+		map[string]string{
+			"GOLANGCI_LINT_CACHE": "/custom/golangci-cache",
+		},
+	)
 
 	// A pinned path is reported unchanged. Rewriting it, for example by joining
 	// it onto a working directory, would send the cache reader somewhere
@@ -240,7 +300,6 @@ func TestCacheManifestLintCachePathHonorsPinnedCache(t *testing.T) {
 		t.Fatalf("lint_cache_paths = %q, want %q", got, "/custom/golangci-cache")
 	}
 }
-
 
 // lintCachePatternMatches reports whether the reported cache pattern expands to
 // the given directory, resolving both sides so a relative match and an absolute
@@ -251,10 +310,12 @@ func lintCachePatternMatches(t *testing.T, reported string, want string) bool {
 	if absErr != nil {
 		t.Fatalf("resolve %q: %v", want, absErr)
 	}
+
 	for _, pattern := range strings.Split(reported, "\n") {
 		if pattern == "" {
 			continue
 		}
+
 		// filepath.Glob treats ** as a single segment, while the cache action's
 		// matcher lets it span zero or more, so expand the recursive pattern into
 		// the depths this test actually creates and try each.
@@ -265,22 +326,26 @@ func lintCachePatternMatches(t *testing.T, reported string, want string) bool {
 				strings.ReplaceAll(pattern, "**", "*"),
 			}
 		}
+
 		for _, candidate := range candidates {
 			matches, globErr := filepath.Glob(candidate)
 			if globErr != nil {
 				t.Fatalf("glob %q: %v", candidate, globErr)
 			}
+
 			for _, match := range matches {
 				matchAbsolute, matchErr := filepath.Abs(match)
 				if matchErr != nil {
 					t.Fatalf("resolve %q: %v", match, matchErr)
 				}
+
 				if matchAbsolute == wantAbsolute {
 					return true
 				}
 			}
 		}
 	}
+
 	return false
 }
 
@@ -309,24 +374,41 @@ func TestCacheManifestCgoKeyStableAndChangesWithInputFile(t *testing.T) {
 	if first.outputs["cgo_cache_enabled"] != "true" {
 		t.Fatalf("cgo_cache_enabled = %q, want true", first.outputs["cgo_cache_enabled"])
 	}
-	wantCgoCachePath, wantCgoCachePathErr := filepath.Abs(filepath.Join(".make", "cgo", "darwin-arm64"))
+
+	wantCgoCachePath, wantCgoCachePathErr := filepath.Abs(
+		filepath.Join(".make", "cgo", "darwin-arm64"),
+	)
 	if wantCgoCachePathErr != nil {
 		t.Fatalf("resolve want cgo cache path: %v", wantCgoCachePathErr)
 	}
+
 	if first.outputs["cgo_cache_paths"] != filepath.ToSlash(wantCgoCachePath) {
-		t.Fatalf("cgo_cache_paths = %q, want %q", first.outputs["cgo_cache_paths"], filepath.ToSlash(wantCgoCachePath))
+		t.Fatalf(
+			"cgo_cache_paths = %q, want %q",
+			first.outputs["cgo_cache_paths"],
+			filepath.ToSlash(wantCgoCachePath),
+		)
 	}
+
 	if first.outputs["cgo_cache_key"] == "" {
 		t.Fatal("cgo_cache_key is empty")
 	}
+
 	if first.outputs["cgo_cache_key"] != second.outputs["cgo_cache_key"] {
-		t.Fatalf("cgo key changed across stable runs\nfirst: %s\nsecond: %s", first.outputs["cgo_cache_key"], second.outputs["cgo_cache_key"])
+		t.Fatalf(
+			"cgo key changed across stable runs\nfirst: %s\nsecond: %s",
+			first.outputs["cgo_cache_key"],
+			second.outputs["cgo_cache_key"],
+		)
 	}
 
 	writeScaffoldTestFile(t, inputPath, "printf 'pcre2 10.46\\n'\n")
 	after := runCacheManifestForTest(t, env)
 	if first.outputs["cgo_cache_key"] == after.outputs["cgo_cache_key"] {
-		t.Fatalf("cgo key did not change after cache input changed: %s", first.outputs["cgo_cache_key"])
+		t.Fatalf(
+			"cgo key did not change after cache input changed: %s",
+			first.outputs["cgo_cache_key"],
+		)
 	}
 }
 
@@ -341,9 +423,11 @@ func TestCgoCacheCompilerProbeRunsTwoWordCommand(t *testing.T) {
 	if !metadata.available {
 		t.Fatal("compiler probe did not resolve the ccache-wrapped compiler")
 	}
+
 	if metadata.dumpMachine != "arm64-apple-darwin" {
 		t.Fatalf("dumpMachine = %q, want arm64-apple-darwin", metadata.dumpMachine)
 	}
+
 	if metadata.versionLine != "fake cc 1.0" {
 		t.Fatalf("versionLine = %q, want fake cc 1.0", metadata.versionLine)
 	}
@@ -366,8 +450,13 @@ func TestCacheManifestKeyStable(t *testing.T) {
 	if first.outputs["generated_cache_key"] == "" {
 		t.Fatal("generated_cache_key is empty")
 	}
+
 	if first.outputs["generated_cache_key"] != second.outputs["generated_cache_key"] {
-		t.Fatalf("cache key changed across stable runs\nfirst: %s\nsecond: %s", first.outputs["generated_cache_key"], second.outputs["generated_cache_key"])
+		t.Fatalf(
+			"cache key changed across stable runs\nfirst: %s\nsecond: %s",
+			first.outputs["generated_cache_key"],
+			second.outputs["generated_cache_key"],
+		)
 	}
 }
 
@@ -388,7 +477,10 @@ func TestCacheManifestKeyChangesWhenTrackedInputChanges(t *testing.T) {
 	after := runCacheManifestForTest(t, env)
 
 	if before.outputs["generated_cache_key"] == after.outputs["generated_cache_key"] {
-		t.Fatalf("cache key did not change after tracked input changed: %s", before.outputs["generated_cache_key"])
+		t.Fatalf(
+			"cache key did not change after tracked input changed: %s",
+			before.outputs["generated_cache_key"],
+		)
 	}
 }
 
@@ -397,20 +489,31 @@ func TestRunningExecutableHashUsesStableLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runningExecutableHash() error: %v", err)
 	}
+
 	if fileHash.path != executableManifestLabel {
-		t.Fatalf("executable hash path = %q, want stable label %q", fileHash.path, executableManifestLabel)
+		t.Fatalf(
+			"executable hash path = %q, want stable label %q",
+			fileHash.path,
+			executableManifestLabel,
+		)
 	}
+
 	executablePath, pathErr := os.Executable()
 	if pathErr != nil {
 		t.Fatalf("os.Executable() error: %v", pathErr)
 	}
+
 	executableBytes, readErr := os.ReadFile(executablePath)
 	if readErr != nil {
 		t.Fatalf("read %s: %v", executablePath, readErr)
 	}
+
 	wantDigest := sha256.Sum256(executableBytes)
 	if fileHash.digest != hex.EncodeToString(wantDigest[:]) {
-		t.Fatalf("executable hash digest = %q, want the sha256 of the executable bytes", fileHash.digest)
+		t.Fatalf(
+			"executable hash digest = %q, want the sha256 of the executable bytes",
+			fileHash.digest,
+		)
 	}
 }
 
@@ -423,8 +526,13 @@ func TestCacheManifestOutputDelimiterKeepsStableWhenNoCollision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cacheManifestOutputDelimiterFor() error: %v", err)
 	}
+
 	if delimiter != cacheManifestOutputDelimiter {
-		t.Fatalf("delimiter = %q, want stable %q with no collision", delimiter, cacheManifestOutputDelimiter)
+		t.Fatalf(
+			"delimiter = %q, want stable %q with no collision",
+			delimiter,
+			cacheManifestOutputDelimiter,
+		)
 	}
 }
 
@@ -436,12 +544,19 @@ func TestCacheManifestOutputDelimiterExtendsOnCollision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cacheManifestOutputDelimiterFor() error: %v", err)
 	}
+
 	if delimiter == cacheManifestOutputDelimiter {
 		t.Fatal("delimiter did not extend past a value containing the stable delimiter line")
 	}
+
 	if !strings.HasPrefix(delimiter, cacheManifestOutputDelimiter+"-") {
-		t.Fatalf("extended delimiter = %q, want %q- prefix", delimiter, cacheManifestOutputDelimiter)
+		t.Fatalf(
+			"extended delimiter = %q, want %q- prefix",
+			delimiter,
+			cacheManifestOutputDelimiter,
+		)
 	}
+
 	if cacheManifestValuesContainDelimiter(values, delimiter) {
 		t.Fatal("extended delimiter still collides with a value line")
 	}
@@ -451,15 +566,19 @@ func TestCacheManifestHashesForPathsFailsOnUnreadableFile(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root bypasses file permissions")
 	}
+
 	dir := t.TempDir()
 	unreadable := filepath.Join(dir, "unreadable")
 	if err := os.WriteFile(unreadable, []byte("secret"), 0o000); err != nil {
 		t.Fatalf("write unreadable file: %v", err)
 	}
+
 	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o644) })
 
 	if _, err := cacheManifestHashesForPaths([]string{unreadable}); err == nil {
-		t.Fatal("cacheManifestHashesForPaths() error = nil, want failure on an existing unreadable file")
+		t.Fatal(
+			"cacheManifestHashesForPaths() error = nil, want failure on an existing unreadable file",
+		)
 	}
 }
 
@@ -476,10 +595,12 @@ func runCacheManifestForTest(t *testing.T, env map[string]string) cacheManifestT
 	var stdout strings.Builder
 	var stderr strings.Builder
 	outputPath := filepath.Join(t.TempDir(), "github_output.txt")
+
 	testEnv := make(map[string]string, len(env)+1)
 	for key, value := range env {
 		testEnv[key] = value
 	}
+
 	testEnv["GITHUB_OUTPUT"] = outputPath
 
 	status := runCacheManifestWith(cacheManifestConfig{
@@ -504,7 +625,9 @@ func runCacheManifestForTest(t *testing.T, env map[string]string) cacheManifestT
 	if err != nil {
 		t.Fatalf("read GITHUB_OUTPUT: %v", err)
 	}
+
 	githubOutput := string(data)
+
 	return cacheManifestTestResult{
 		status:       status,
 		stdout:       stdout.String(),
@@ -518,6 +641,7 @@ func cacheManifestTestRepo(t *testing.T) string {
 	t.Helper()
 	repoDir := t.TempDir()
 	initGitRepo(t, repoDir)
+
 	return repoDir
 }
 
@@ -554,6 +678,7 @@ exit 2
 	if err := os.WriteFile(compilerPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake compiler: %v", err)
 	}
+
 	return compilerPath
 }
 
@@ -573,6 +698,7 @@ exec "$@"
 func parseGitHubOutputHeredocs(t *testing.T, output string) map[string]string {
 	t.Helper()
 	parsed := make(map[string]string)
+
 	lines := strings.Split(output, "\n")
 	for index := 0; index < len(lines); index++ {
 		line := lines[index]
@@ -581,19 +707,25 @@ func parseGitHubOutputHeredocs(t *testing.T, output string) map[string]string {
 			if line == "" {
 				continue
 			}
+
 			t.Fatalf("unexpected GITHUB_OUTPUT line %q in:\n%s", line, output)
 		}
+
 		index++
 		valueLines := make([]string, 0)
+
 		for index < len(lines) && lines[index] != "__GO_MK_CACHE_OUTPUT__" {
 			valueLines = append(valueLines, lines[index])
 			index++
 		}
+
 		if index >= len(lines) {
 			t.Fatalf("unterminated heredoc for %s in:\n%s", name, output)
 		}
+
 		parsed[name] = strings.Join(valueLines, "\n")
 	}
+
 	return parsed
 }
 
@@ -601,16 +733,20 @@ func githubOutputNames(t *testing.T, output string) []string {
 	t.Helper()
 	lines := strings.Split(output, "\n")
 	names := make([]string, 0)
+
 	for index := 0; index < len(lines); index++ {
 		line := lines[index]
 		name, ok := strings.CutSuffix(line, "<<__GO_MK_CACHE_OUTPUT__")
 		if !ok {
 			continue
 		}
+
 		names = append(names, name)
+
 		for index < len(lines) && lines[index] != "__GO_MK_CACHE_OUTPUT__" {
 			index++
 		}
 	}
+
 	return names
 }

@@ -16,11 +16,18 @@ func fileName(pass *analysis.Pass, pos token.Pos) string {
 	return filepath.ToSlash(pass.Fset.Position(pos).Filename)
 }
 
-func reportAtf(pass *analysis.Pass, file *ast.File, preferred token.Pos, format string, args ...any) {
+func reportAtf(
+	pass *analysis.Pass,
+	file *ast.File,
+	preferred token.Pos,
+	format string,
+	args ...any,
+) {
 	position := diagnosticPos(pass, file, preferred)
 	if !diagnosticPathIsActionable(pass, position) {
 		return
 	}
+
 	pass.Report(analysis.Diagnostic{
 		Pos:     position,
 		Message: fmt.Sprintf(format, args...),
@@ -31,12 +38,15 @@ func diagnosticPos(pass *analysis.Pass, file *ast.File, preferred token.Pos) tok
 	if preferred.IsValid() && diagnosticPathIsActionable(pass, preferred) {
 		return preferred
 	}
+
 	if file != nil && file.Package.IsValid() {
 		return file.Package
 	}
+
 	if file != nil && file.Pos().IsValid() {
 		return file.Pos()
 	}
+
 	return preferred
 }
 
@@ -50,17 +60,20 @@ func isGoBuildCacheDescriptorPath(path string) bool {
 	if !strings.HasSuffix(filepath.Base(slashPath), "-d") {
 		return false
 	}
+
 	if gocache := os.Getenv("GOCACHE"); gocache != "" {
 		if pathIsWithin(slashPath, filepath.ToSlash(filepath.Clean(gocache))) {
 			return true
 		}
 	}
+
 	if userCacheDir, err := os.UserCacheDir(); err == nil {
 		goBuildCache := filepath.ToSlash(filepath.Join(userCacheDir, "go-build"))
 		if pathIsWithin(slashPath, goBuildCache) {
 			return true
 		}
 	}
+
 	return strings.Contains(slashPath, "/go-build/")
 }
 
@@ -74,6 +87,7 @@ func isTestFile(path string) bool {
 
 func shouldAnalyzeFile(pass *analysis.Pass, file *ast.File) bool {
 	path := fileName(pass, file.Pos())
+
 	return !isTestFile(path) &&
 		!isGeneratedFile(file, path) &&
 		!isGeneratedTestMainFile(file, path) &&
@@ -105,9 +119,11 @@ func isGeneratedFile(file *ast.File, path string) bool {
 	if file == nil {
 		return false
 	}
+
 	if !generatedFilenameLooksConventional(path) && !isGoBuildCacheDescriptorPath(path) {
 		return false
 	}
+
 	for _, group := range file.Comments {
 		for _, comment := range group.List {
 			text := strings.ToLower(comment.Text)
@@ -116,6 +132,7 @@ func isGeneratedFile(file *ast.File, path string) bool {
 			}
 		}
 	}
+
 	return false
 }
 
@@ -123,7 +140,9 @@ func generatedFilenameLooksConventional(path string) bool {
 	if path == "" {
 		return false
 	}
+
 	base := filepath.Base(path)
+
 	suffixes := []string{
 		".pb.go",
 		".pb.gw.go",
@@ -141,6 +160,7 @@ func generatedFilenameLooksConventional(path string) bool {
 			return true
 		}
 	}
+
 	return base == "bindata.go"
 }
 
@@ -148,13 +168,16 @@ func isGeneratedTestMainFile(file *ast.File, path string) bool {
 	if file == nil || file.Name == nil || file.Name.Name != "main" {
 		return false
 	}
+
 	cacheDescriptorPath := isGoBuildCacheDescriptorPath(path)
 	if !cacheDescriptorPath && filepath.Base(path) != "_testmain.go" {
 		return false
 	}
+
 	if !cacheDescriptorPath && !hasGeneratedComment(file) {
 		return false
 	}
+
 	return importsPath(file, "testing/internal/testdeps") &&
 		assignsSelector(file, "testdeps", "ModulePath") &&
 		assignsSelector(file, "testdeps", "ImportPath") &&
@@ -170,6 +193,7 @@ func hasGeneratedComment(file *ast.File) bool {
 			}
 		}
 	}
+
 	return false
 }
 
@@ -179,36 +203,46 @@ func importsPath(file *ast.File, importPath string) bool {
 		if err != nil {
 			continue
 		}
+
 		if path == importPath {
 			return true
 		}
 	}
+
 	return false
 }
 
 func assignsSelector(file *ast.File, receiver string, name string) bool {
 	found := false
-	ast.Inspect(file, func(node ast.Node) bool {
-		if found {
-			return false
-		}
-		assignment, ok := node.(*ast.AssignStmt)
-		if !ok {
-			return true
-		}
-		for _, expr := range assignment.Lhs {
-			selector, ok := expr.(*ast.SelectorExpr)
-			if !ok || selector.Sel == nil || selector.Sel.Name != name {
-				continue
-			}
-			ident, ok := selector.X.(*ast.Ident)
-			if ok && ident.Name == receiver {
-				found = true
+	ast.Inspect(
+		file,
+		func(node ast.Node) bool {
+			if found {
 				return false
 			}
-		}
-		return true
-	})
+
+			assignment, ok := node.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+
+			for _, expr := range assignment.Lhs {
+				selector, valid := expr.(*ast.SelectorExpr)
+				if !valid || selector.Sel == nil || selector.Sel.Name != name {
+					continue
+				}
+
+				ident, valid := selector.X.(*ast.Ident)
+				if valid && ident.Name == receiver {
+					found = true
+					return false
+				}
+			}
+
+			return true
+		},
+	)
+
 	return found
 }
 
@@ -218,10 +252,12 @@ func hasFunction(file *ast.File, name string) bool {
 		if !ok || functionDeclaration.Name == nil {
 			continue
 		}
+
 		if functionDeclaration.Name.Name == name {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -229,6 +265,7 @@ func packagePath(pass *analysis.Pass) string {
 	if pass.Pkg == nil {
 		return ""
 	}
+
 	return pass.Pkg.Path()
 }
 
@@ -241,7 +278,8 @@ func isStaticcheckPackage(pass *analysis.Pass) bool {
 // the standalone staticcheck module layout and the original
 // internal/staticcheck layout for callers that vendored the source.
 func isStaticcheckPath(path string) bool {
-	return strings.Contains(path, "/staticcheck/") || strings.Contains(path, "/internal/staticcheck/")
+	return strings.Contains(path, "/staticcheck/") ||
+		strings.Contains(path, "/internal/staticcheck/")
 }
 
 func isProtobufGeneratedPath(path string) bool {
@@ -253,6 +291,7 @@ func selectorName(expr ast.Expr) (receiver string, name string, ok bool) {
 	if !ok {
 		return "", "", false
 	}
+
 	name = call.Sel.Name
 	switch recv := call.X.(type) {
 	case *ast.Ident:
@@ -263,6 +302,7 @@ func selectorName(expr ast.Expr) (receiver string, name string, ok bool) {
 			receiver = recvName
 		}
 	}
+
 	return receiver, name, true
 }
 
@@ -271,7 +311,9 @@ func stringLiteral(expr ast.Expr) (string, bool) {
 	if !ok || lit.Kind != token.STRING {
 		return "", false
 	}
+
 	value := strings.Trim(lit.Value, "`\"")
+
 	return value, true
 }
 
@@ -279,5 +321,6 @@ func inspectFunc(fn *ast.FuncDecl, visit func(ast.Node) bool) {
 	if fn == nil || fn.Body == nil {
 		return
 	}
+
 	ast.Inspect(fn.Body, visit)
 }

@@ -28,13 +28,21 @@ func TestResolveConcurrency(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := ResolveConcurrency(tc.cpuCount, tc.loadAverage)
-			if got != tc.want {
-				t.Fatalf("ResolveConcurrency(%d, %v) = %d, want %d",
-					tc.cpuCount, tc.loadAverage, got, tc.want)
-			}
-		})
+		t.Run(
+			tc.name,
+			func(t *testing.T) {
+				got := ResolveConcurrency(tc.cpuCount, tc.loadAverage)
+				if got != tc.want {
+					t.Fatalf(
+						"ResolveConcurrency(%d, %v) = %d, want %d",
+						tc.cpuCount,
+						tc.loadAverage,
+						got,
+						tc.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -68,13 +76,21 @@ func TestLintGOFLAGS(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := LintGOFLAGS(tc.existing, tc.concurrency)
-			if got != tc.want {
-				t.Fatalf("LintGOFLAGS(%q, %d) = %q, want %q",
-					tc.existing, tc.concurrency, got, tc.want)
-			}
-		})
+		t.Run(
+			tc.name,
+			func(t *testing.T) {
+				got := LintGOFLAGS(tc.existing, tc.concurrency)
+				if got != tc.want {
+					t.Fatalf(
+						"LintGOFLAGS(%q, %d) = %q, want %q",
+						tc.existing,
+						tc.concurrency,
+						got,
+						tc.want,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -90,9 +106,11 @@ func TestRunCapturesCombinedOutputAndStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned unexpected error: %v", err)
 	}
+
 	if result.Status != 0 {
 		t.Fatalf("Run status = %d, want 0", result.Status)
 	}
+
 	if result.OutputPath != outputPath {
 		t.Fatalf("Run output path = %q, want %q", result.OutputPath, outputPath)
 	}
@@ -101,6 +119,7 @@ func TestRunCapturesCombinedOutputAndStatus(t *testing.T) {
 	if readErr != nil {
 		t.Fatalf("reading capture file: %v", readErr)
 	}
+
 	got := string(contents)
 	if got != "hello\noops\n" {
 		t.Fatalf("capture file contents = %q, want %q", got, "hello\noops\n")
@@ -114,6 +133,7 @@ func TestRunRecordsNonZeroStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned unexpected error for non-zero exit: %v", err)
 	}
+
 	if result.Status != 7 {
 		t.Fatalf("Run status = %d, want 7", result.Status)
 	}

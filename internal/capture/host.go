@@ -26,6 +26,7 @@ func hostCPUCount() int {
 	if count < 1 {
 		return 1
 	}
+
 	return count
 }
 
@@ -42,16 +43,18 @@ func hostLoadAverage() float64 {
 				return value
 			}
 		}
-		slog.Warn("capture.hostLoadAverage could not parse /proc/loadavg",
-			"raw", string(raw),
-		)
+
+		slog.Warn("capture.hostLoadAverage could not parse /proc/loadavg", "raw", string(raw))
 	}
 
 	out, execErr := exec.Command("sysctl", "-n", "vm.loadavg").Output()
 	if execErr != nil {
-		slog.Warn("capture.hostLoadAverage sysctl vm.loadavg failed, defaulting to 0",
-			"error", execErr,
+		slog.Warn(
+			"capture.hostLoadAverage sysctl vm.loadavg failed, defaulting to 0",
+			"error",
+			execErr,
 		)
+
 		return 0
 	}
 
@@ -64,8 +67,11 @@ func hostLoadAverage() float64 {
 		}
 	}
 
-	slog.Warn("capture.hostLoadAverage could not parse sysctl vm.loadavg, defaulting to 0",
-		"raw", string(out),
+	slog.Warn(
+		"capture.hostLoadAverage could not parse sysctl vm.loadavg, defaulting to 0",
+		"raw",
+		string(out),
 	)
+
 	return 0
 }

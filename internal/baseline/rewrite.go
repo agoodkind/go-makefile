@@ -35,6 +35,7 @@ func ParseMode(value string) (Mode, error) {
 	if mode, ok := modeByName[value]; ok {
 		return mode, nil
 	}
+
 	return 0, errors.New("unknown baseline update mode: " + value)
 }
 
@@ -46,6 +47,7 @@ func isBlank(line string) bool {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -61,6 +63,7 @@ func firstAddedFrom(metadata string) string {
 			return field[len("first_added="):]
 		}
 	}
+
 	return ""
 }
 
@@ -84,19 +87,23 @@ func RewriteBody(input RewriteInput) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		scopeRegexp = compiled
 	}
 
 	var currentOrder []string
 	currentFinding := map[string]string{}
+
 	for _, line := range input.CurrentLines {
 		if skipInput(line) {
 			continue
 		}
+
 		key := Key(line)
 		if _, seen := currentFinding[key]; !seen {
 			currentOrder = append(currentOrder, key)
 		}
+
 		currentFinding[key] = line
 	}
 
@@ -105,23 +112,28 @@ func RewriteBody(input RewriteInput) ([]string, error) {
 	oldFinding := map[string]string{}
 	oldLine := map[string]string{}
 	oldFirstAdded := map[string]string{}
+
 	for _, line := range input.OldLines {
 		if skipInput(line) {
 			continue
 		}
+
 		finding := line
 		metadata := ""
 		if markerIndex := strings.Index(line, marker); markerIndex >= 0 {
 			finding = line[:markerIndex]
 			metadata = line[markerIndex+len(marker):]
 		}
+
 		if finding == "" {
 			continue
 		}
+
 		key := Key(finding)
 		if _, seen := oldFinding[key]; !seen {
 			oldOrder = append(oldOrder, key)
 		}
+
 		oldFinding[key] = finding
 		oldLine[key] = line
 		oldFirstAdded[key] = firstAddedFrom(metadata)
@@ -132,15 +144,21 @@ func RewriteBody(input RewriteInput) ([]string, error) {
 		if firstAdded == "" {
 			firstAdded = input.Now
 		}
+
 		return fmt.Sprintf(
 			"%s\t# %s:first_added=%s last_seen=%s",
-			currentFinding[key], input.Label, firstAdded, input.Now)
+			currentFinding[key],
+			input.Label,
+			firstAdded,
+			input.Now,
+		)
 	}
 
 	inScope := func(finding string) bool {
 		if scopeRegexp == nil {
 			return true
 		}
+
 		return scopeRegexp.MatchString(finding)
 	}
 
@@ -148,13 +166,16 @@ func RewriteBody(input RewriteInput) ([]string, error) {
 		if scopeRegexp == nil {
 			return nil
 		}
+
 		var rows []string
+
 		for _, key := range oldOrder {
 			_, inCurrent := currentFinding[key]
 			if !inCurrent && !inScope(oldFinding[key]) {
 				rows = append(rows, oldLine[key])
 			}
 		}
+
 		return rows
 	}
 
@@ -164,6 +185,7 @@ func RewriteBody(input RewriteInput) ([]string, error) {
 		for _, key := range currentOrder {
 			out = append(out, renderCurrent(key))
 		}
+
 		out = append(out, oldOutsideScope()...)
 	case ModePruneFixed:
 		for _, key := range currentOrder {
@@ -171,17 +193,20 @@ func RewriteBody(input RewriteInput) ([]string, error) {
 				out = append(out, renderCurrent(key))
 			}
 		}
+
 		out = append(out, oldOutsideScope()...)
 	case ModeAcceptNew:
 		for _, key := range currentOrder {
 			out = append(out, renderCurrent(key))
 		}
+
 		for _, key := range oldOrder {
 			if _, inCurrent := currentFinding[key]; !inCurrent {
 				out = append(out, oldLine[key])
 			}
 		}
 	}
+
 	return out, nil
 }
 
@@ -190,9 +215,11 @@ func RewriteBody(input RewriteInput) ([]string, error) {
 func RenderFile(title, now string, body []string) string {
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "# %s: generated_at=%s\n", title, now)
+
 	for _, line := range body {
 		builder.WriteString(line)
 		builder.WriteByte('\n')
 	}
+
 	return builder.String()
 }
