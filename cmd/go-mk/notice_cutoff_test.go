@@ -78,7 +78,7 @@ func TestNoticeRejectsFindingsCommittedAfterItsEffectiveDate(t *testing.T) {
 					t,
 					consumerDir,
 					appliedNoticeFile,
-			); applied != "1\n2\n3\n14\n15\n16\n18\n" {
+				); applied != "1\n2\n3\n14\n15\n16\n18\n19\n" {
 					t.Fatalf(
 						"applied notices = %q, want all notices after the historical capture succeeds",
 						applied,
@@ -206,7 +206,7 @@ func TestNoticePreparesHistoricalGeneratedSource(t *testing.T) {
 		t,
 		consumerDir,
 		appliedNoticeFile,
-	); applied != "1\n2\n3\n14\n15\n16\n18\n" {
+	); applied != "1\n2\n3\n14\n15\n16\n18\n19\n" {
 		t.Fatalf("applied notices = %q, want all notices", applied)
 	}
 }
