@@ -14,8 +14,8 @@ import (
 	"regexp"
 	"strings"
 
-	"goodkind.io/go-makefile/internal/findings"
 	"goodkind.io/go-makefile/internal/lint"
+	"goodkind.io/go-makefile/internal/staticcheckresult"
 	"goodkind.io/go-makefile/selfupdate"
 )
 
@@ -23,6 +23,8 @@ import (
 // a message already printed to stdout, so the dispatcher returns a non-zero exit
 // without statusFromError printing a second diagnostic.
 const errStaticcheckBin sentinelError = "staticcheck-extra bin resolution failed"
+
+const staticcheckDiagnosticsStatus = staticcheckresult.DiagnosticsStatus
 
 const (
 	staticcheckFlagsEnv     = "STATICCHECK_EXTRA_FLAGS"
@@ -364,80 +366,31 @@ func staticcheckSelectedBin() (string, error) {
 	return "", nil
 }
 
-// staticcheckCaptureFindings runs the analyzer and writes the normalized,
-// excluded, sorted-unique findings, mirroring staticcheck_capture_findings.
-// Unlike the golangci capture it normalizes the raw output directly without a
-// finding-pattern match, since the analyzer prints only findings. A missing or
-// non-executable binary writes an empty findings file and prints the neutral
-// skip line.
+// staticcheckCaptureFindings writes observed lint diagnostics after path
+// normalization and exclusions. An incomplete analysis returns an error after
+// writing those observations. Package and analyzer failures remain separate.
 func staticcheckCaptureFindings(rawPath, findingsPath string) error {
 	return captureStaticcheckFindings(rawPath, findingsPath, captureStandard)
 }
 
 func captureStaticcheckFindings(rawPath, findingsPath string, mode captureMode) error {
-	selected, err := staticcheckSelectedBin()
-	if err != nil {
-		return err
-	}
-
-	if mode == captureNotice && (selected == "" || !isExecutable(selected)) {
-		return fmt.Errorf("notice requires an executable staticcheck-extra analyzer")
-	}
-
-	if selected == "" {
-		writeStdout("staticcheck-extra: not configured (skipped)\n")
-		return writeFindingsFile(findingsPath, nil)
-	}
-
-	if !isExecutable(selected) {
-		writeStdout("staticcheck-extra: binary " + selected + " not executable; skipping\n")
-		return writeFindingsFile(findingsPath, nil)
-	}
-
-	flagArgs := splitWords(staticcheckFlagsText())
-	targetArgs, err := expandedPackageTargets(
-		splitWords(lintEnvDefault("STATICCHECK_EXTRA_TARGETS", "./...")),
+	return staticcheckresult.Capture(
+		rawPath,
+		findingsPath,
+		mode,
+		captureNotice,
+		staticcheckSelectedBin,
+		expandedPackageTargets,
+		captureCommand,
+		readFileLines,
+		writeFindingsFile,
+		lintRoot,
+		staticcheckExcludePattern,
+		filterExcluded,
+		sortedUnique,
+		isExecutable,
+		writeStdout,
 	)
-	if err != nil {
-		return err
-	}
-
-	excludePattern := staticcheckExcludePattern()
-	args := make([]string, 0, len(flagArgs)+len(targetArgs))
-	args = append(args, flagArgs...)
-	args = append(args, targetArgs...)
-	status, err := captureCommand(selected, args, rawPath)
-	if err != nil {
-		return err
-	}
-
-	rawLines, err := readFileLines(rawPath)
-	if err != nil {
-		return err
-	}
-
-	root := lintRoot()
-
-	normalized := make([]string, 0, len(rawLines))
-	for _, line := range rawLines {
-		normalized = append(normalized, findings.NormalizePath(line, root, root))
-	}
-
-	if status == staticcheckBuildFailureStatus {
-		return staticcheckBuildFailure(normalized)
-	}
-
-	if mode == captureNotice && status != 0 && status != staticcheckDiagnosticsStatus {
-		return fmt.Errorf(
-			"notice staticcheck-extra capture failed (exit status %d):\n%s",
-			status,
-			strings.Join(normalized, "\n"),
-		)
-	}
-
-	filtered := filterExcluded(normalized, excludePattern)
-
-	return writeFindingsFile(findingsPath, sortedUnique(filtered))
 }
 
 // runStaticcheckBin resolves the analyzer binary, mirroring the shell `bin`
@@ -474,59 +427,26 @@ func runStaticcheckCapture(args []string) int {
 // scope pattern and the suppress-fixed flag, and gates the findings against the
 // baseline.
 func runStaticcheckExtra() int {
-	if err := ensureMakeDir(); err != nil {
-		return statusFromError(err)
-	}
+	return staticcheckresult.RunGate(
+		makeDir,
+		staticcheckCaptureFindings,
+		readFileLines,
+		readBaselineFindings,
+		compilePatterns,
+		staticcheckExcludePattern,
+		runGateAndPrintSuppress,
+		gateCollecting,
+		recordGateToolFailure,
+		recordFailedGate,
+		writeStdout,
+		statusFromError,
+		ensureMakeDir,
+		runStaticcheckNotices,
+		checksToolsPrepared,
+		runStaticcheckBin,
+	)
+}
 
+func runStaticcheckNotices() {
 	runNoticeFor(noticeGateStaticcheck)
-	// Resolve (build or install) the analyzer binary in-process, the work the
-	// staticcheck-extra-bin make prerequisite used to do, so the gate is one
-	// self-contained go-mk process. The aggregate run resolves it once up front
-	// in prepareChecks and sets checksToolsPrepared, so the gate skips it there.
-	if !checksToolsPrepared {
-		if status := runStaticcheckBin(); status != 0 {
-			return status
-		}
-	}
-
-	rawPath := filepath.Join(makeDir, "staticcheck-extra.raw.out")
-	findingsPath := filepath.Join(makeDir, "staticcheck-extra.out")
-	excludePattern := staticcheckExcludePattern()
-	scopePattern := lint.StaticcheckScopePattern(
-		os.Getenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN"),
-		staticcheckFlagsText(),
-	)
-	suppressFixed := lint.StaticcheckSuppressFixed(staticcheckFlagsText(), scopePattern)
-	if err := staticcheckCaptureFindings(rawPath, findingsPath); err != nil {
-		var buildErr *staticcheckBuildError
-		if errors.As(err, &buildErr) {
-			return reportStaticcheckBuildFailure(buildErr)
-		}
-
-		return statusFromError(err)
-	}
-
-	current, err := readFileLines(findingsPath)
-	if err != nil {
-		return statusFromError(err)
-	}
-
-	passed, err := runGateAndPrintSuppress(
-		"staticcheck-extra",
-		current,
-		lintEnvDefault("STATICCHECK_EXTRA_BASELINE", ".staticcheck-extra-baseline.txt"),
-		"Fix the new findings before this gate will pass.",
-		excludePattern,
-		scopePattern,
-		suppressFixed,
-	)
-	if err != nil {
-		return statusFromError(err)
-	}
-
-	if !passed {
-		return 1
-	}
-
-	return 0
 }
