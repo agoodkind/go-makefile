@@ -129,13 +129,13 @@ func forwardsAllParams(fn *ast.FuncDecl, call *ast.CallExpr) bool {
 		return false
 	}
 
-	for i, arg := range call.Args {
-		ident, ok := unwrapVariadic(arg, call.Ellipsis, i == len(call.Args)-1)
+	for index, arg := range call.Args {
+		ident, ok := unwrapVariadic(arg, call.Ellipsis, index == len(call.Args)-1)
 		if !ok {
 			return false
 		}
 
-		if ident.Name != paramNames[i] {
+		if ident.Name != paramNames[index] {
 			return false
 		}
 	}

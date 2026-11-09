@@ -75,13 +75,13 @@ func runBannedDirectOutput(pass *analysis.Pass) (any, error) {
 		ast.Inspect(
 			file,
 			func(node ast.Node) bool {
-				call, ok := node.(*ast.CallExpr)
-				if !ok {
+				call, valid := node.(*ast.CallExpr)
+				if !valid {
 					return true
 				}
 
-				receiver, name, ok := selectorName(call.Fun)
-				if !ok {
+				receiver, name, valid := selectorName(call.Fun)
+				if !valid {
 					return true
 				}
 

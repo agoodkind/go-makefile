@@ -52,7 +52,8 @@ func runGoroutineWithoutRecover(pass *analysis.Pass) (any, error) {
 						pass,
 						file,
 						gostmt.Pos(),
-						"goroutine launched without a deferred recover(); add `defer func() { if r := recover(); r != nil { slog.Error(...) } }()`",
+						"goroutine launched without a deferred recover(); add `defer func() { "+
+							"if r := recover(); r != nil { slog.Error(...) } }()`",
 					)
 				}
 
@@ -405,7 +406,8 @@ func runSilentDeferClose(pass *analysis.Pass) (any, error) {
 					pass,
 					file,
 					def.Pos(),
-					"bare `defer .%s()` drops the error; wrap in `defer func() { _ = ...%s() }()` for intentional silence or check err with slog.Warn",
+					"bare `defer .%s()` drops the error; wrap in `defer func() { _ = "+
+						"...%s() }()` for intentional silence or check err with slog.Warn",
 					name,
 					name,
 				)

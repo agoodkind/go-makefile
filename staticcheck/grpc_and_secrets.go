@@ -58,7 +58,8 @@ func runGrpcHandlerWithoutPeerEnrichment(pass *analysis.Pass) (any, error) {
 				pass,
 				file,
 				fn.Pos(),
-				"gRPC handler %s logs without enriching context with peer info; call peer.FromContext or metadata.FromIncomingContext",
+				"gRPC handler %s logs without enriching context with peer info; call "+
+					"peer.FromContext or metadata.FromIncomingContext",
 				fn.Name.Name,
 			)
 		}
@@ -82,13 +83,13 @@ func isLikelyGrpcServerMethod(fn *ast.FuncDecl) bool {
 	}
 
 	first := fn.Type.Params.List[0]
-	sel, ok := first.Type.(*ast.SelectorExpr)
-	if !ok {
+	sel, valid := first.Type.(*ast.SelectorExpr)
+	if !valid {
 		return false
 	}
 
-	x, ok := sel.X.(*ast.Ident)
-	if !ok {
+	x, valid := sel.X.(*ast.Ident)
+	if !valid {
 		return false
 	}
 
@@ -130,13 +131,13 @@ func funcReferencesPeerHelper(body *ast.BlockStmt) bool {
 				return false
 			}
 
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
+			call, valid := node.(*ast.CallExpr)
+			if !valid {
 				return true
 			}
 
-			recv, name, ok := selectorName(call.Fun)
-			if !ok {
+			recv, name, valid := selectorName(call.Fun)
+			if !valid {
 				return true
 			}
 

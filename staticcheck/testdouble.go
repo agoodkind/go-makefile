@@ -362,13 +362,13 @@ func (finder *testDoubleFinder) checkStructLit(lit *ast.CompositeLit, structType
 			continue
 		}
 
-		key, ok := pair.Key.(*ast.Ident)
-		if !ok {
+		identifier, valid := pair.Key.(*ast.Ident)
+		if !valid {
 			continue
 		}
 
-		field, ok := finder.pass.TypesInfo.Uses[key].(*types.Var)
-		if ok {
+		field, valid := finder.pass.TypesInfo.Uses[identifier].(*types.Var)
+		if valid {
 			finder.check(field.Type(), pair.Value)
 		}
 	}

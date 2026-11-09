@@ -93,7 +93,12 @@ func buildServer(r *relay) *fakeServer {
 // it inside a fresh *analysis.Pass that carries TypesInfo where
 // resolvable. Helper kept inside the test file so tests stay self-
 // contained without expanding the public API.
-func runAnalyzerOnSource(t *testing.T, analyzer *analysis.Analyzer, filename string, source string) []analysis.Diagnostic {
+func runAnalyzerOnSource(
+	t *testing.T,
+	analyzer *analysis.Analyzer,
+	filename string,
+	source string,
+) []analysis.Diagnostic {
 	t.Helper()
 	fset := token.NewFileSet()
 	dir := t.TempDir()
@@ -102,6 +107,7 @@ func runAnalyzerOnSource(t *testing.T, analyzer *analysis.Analyzer, filename str
 	if err != nil {
 		t.Fatalf("parser.ParseFile: %v", err)
 	}
+
 	conf := types.Config{Error: func(error) {}}
 	info := &types.Info{
 		Types:      map[ast.Expr]types.TypeAndValue{},
@@ -113,6 +119,7 @@ func runAnalyzerOnSource(t *testing.T, analyzer *analysis.Analyzer, filename str
 	if pkg == nil {
 		pkg = types.NewPackage("example.com/sample", strings.TrimSuffix(filename, ".go"))
 	}
+
 	var diags []analysis.Diagnostic
 	pass := &analysis.Pass{
 		Analyzer:  analyzer,
@@ -125,6 +132,7 @@ func runAnalyzerOnSource(t *testing.T, analyzer *analysis.Analyzer, filename str
 	if _, err := analyzer.Run(pass); err != nil {
 		t.Fatalf("analyzer.Run: %v", err)
 	}
+
 	return diags
 }
 
@@ -133,6 +141,7 @@ func wantOnce(t *testing.T, diags []analysis.Diagnostic, mustContain ...string) 
 	if len(diags) != 1 {
 		t.Fatalf("expected exactly 1 diagnostic, got %d: %v", len(diags), diags)
 	}
+
 	for _, needle := range mustContain {
 		if !strings.Contains(diags[0].Message, needle) {
 			t.Fatalf("diagnostic %q missing substring %q", diags[0].Message, needle)

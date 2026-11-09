@@ -136,7 +136,9 @@ func (checker assertionChecker) checkFile(file *ast.File) {
 				checker.pass,
 				file,
 				literal.Pos(),
-				"This subtest has no statement able to fail the subtest. A subtest must assert an outcome of the code under test. Add a check that calls t.Error, t.Fatal, or a helper with a testing.TB parameter.",
+				"This subtest has no statement able to fail the subtest. A subtest "+
+					"must assert an outcome of the code under test. Add a check that calls "+
+					"t.Error, t.Fatal, or a helper with a testing.TB parameter.",
 			)
 
 			return true

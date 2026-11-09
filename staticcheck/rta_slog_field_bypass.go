@@ -275,7 +275,10 @@ func checkRTASlogFieldBypassInFunc(
 					pass,
 					file,
 					arg.Pos(),
-					"[RTA004] slog field %q boxes a marker-typed value of %q (carries empty method %q) and the value has no non-slog consumer; this is a deadcode RTA bypass. Drop the field, or route the value through a real consumer if it is genuinely load-bearing",
+					"[RTA004] slog field %q boxes a marker-typed value of %q (carries "+
+						"empty method %q) and the value has no non-slog consumer; this is a "+
+						"deadcode RTA bypass. Drop the field, or route the value through a "+
+						"real consumer if it is genuinely load-bearing",
 					fieldKey,
 					formatType(recvType),
 					markerName,
@@ -412,13 +415,13 @@ func unwrapToStruct(t types.Type) (*types.Named, *types.Struct) {
 		t = ptr.Elem()
 	}
 
-	named, ok := t.(*types.Named)
-	if !ok {
+	named, valid := t.(*types.Named)
+	if !valid {
 		return nil, nil
 	}
 
-	structType, ok := named.Underlying().(*types.Struct)
-	if !ok {
+	structType, valid := named.Underlying().(*types.Struct)
+	if !valid {
 		return nil, nil
 	}
 

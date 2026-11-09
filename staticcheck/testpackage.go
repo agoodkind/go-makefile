@@ -119,13 +119,13 @@ func firstUnexportedProductionCallee(pass *analysis.Pass, body *ast.BlockStmt) s
 				return false
 			}
 
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
+			call, valid := node.(*ast.CallExpr)
+			if !valid {
 				return true
 			}
 
-			callee, ok := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
-			if !ok || callee.Exported() || callee.Pkg() != pass.Pkg {
+			callee, valid := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
+			if !valid || callee.Exported() || callee.Pkg() != pass.Pkg {
 				return true
 			}
 

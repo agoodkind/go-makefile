@@ -84,13 +84,13 @@ func reportSilentDiscards(pass *analysis.Pass, file *ast.File, body *ast.BlockSt
 	ast.Inspect(
 		body,
 		func(node ast.Node) bool {
-			assign, ok := node.(*ast.AssignStmt)
-			if !ok || !isUnderscoreAssign(assign) {
+			assignment, valid := node.(*ast.AssignStmt)
+			if !valid || !isUnderscoreAssign(assignment) {
 				return true
 			}
 
-			call, ok := assign.Rhs[0].(*ast.CallExpr)
-			if !ok {
+			call, valid := assignment.Rhs[0].(*ast.CallExpr)
+			if !valid {
 				return true
 			}
 
@@ -102,8 +102,11 @@ func reportSilentDiscards(pass *analysis.Pass, file *ast.File, body *ast.BlockSt
 			reportAtf(
 				pass,
 				file,
-				assign.Pos(),
-				"[LIFECYCLE002] discarded error from .%s() inside a (reason string) error closer that returns nil; wrap with fmt.Errorf or log at debug, otherwise the closer reports clean even when the underlying call failed",
+				assignment.Pos(),
+				"[LIFECYCLE002] discarded error from .%s() inside a (reason string) "+
+					"error closer that returns nil; wrap with fmt.Errorf or log at debug, "+
+					"otherwise the closer reports clean even when the underlying call "+
+					"failed",
 				name,
 			)
 

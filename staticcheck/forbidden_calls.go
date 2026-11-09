@@ -29,8 +29,8 @@ func runOsExitOutsideMain(pass *analysis.Pass) (any, error) {
 		}
 
 		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
+			fn, matched := decl.(*ast.FuncDecl)
+			if !matched || fn.Body == nil {
 				continue
 			}
 
@@ -49,13 +49,13 @@ func runOsExitOutsideMain(pass *analysis.Pass) (any, error) {
 			ast.Inspect(
 				fn.Body,
 				func(node ast.Node) bool {
-					call, ok := node.(*ast.CallExpr)
-					if !ok {
+					call, matched := node.(*ast.CallExpr)
+					if !matched {
 						return true
 					}
 
-					recv, name, ok := selectorName(call.Fun)
-					if !ok {
+					recv, name, matched := selectorName(call.Fun)
+					if !matched {
 						return true
 					}
 
@@ -95,13 +95,13 @@ func runContextTODO(pass *analysis.Pass) (any, error) {
 		ast.Inspect(
 			file,
 			func(node ast.Node) bool {
-				call, ok := node.(*ast.CallExpr)
-				if !ok {
+				call, matched := node.(*ast.CallExpr)
+				if !matched {
 					return true
 				}
 
-				recv, name, ok := selectorName(call.Fun)
-				if !ok {
+				recv, name, matched := selectorName(call.Fun)
+				if !matched {
 					return true
 				}
 
@@ -146,13 +146,13 @@ func runTimeSleepInProduction(pass *analysis.Pass) (any, error) {
 		ast.Inspect(
 			file,
 			func(node ast.Node) bool {
-				call, ok := node.(*ast.CallExpr)
-				if !ok {
+				call, valid := node.(*ast.CallExpr)
+				if !valid {
 					return true
 				}
 
-				recv, name, ok := selectorName(call.Fun)
-				if !ok {
+				recv, name, valid := selectorName(call.Fun)
+				if !valid {
 					return true
 				}
 
@@ -197,8 +197,8 @@ func runPanicInProduction(pass *analysis.Pass) (any, error) {
 		}
 
 		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
+			fn, matched := decl.(*ast.FuncDecl)
+			if !matched || fn.Body == nil {
 				continue
 			}
 
@@ -213,13 +213,13 @@ func runPanicInProduction(pass *analysis.Pass) (any, error) {
 			ast.Inspect(
 				fn.Body,
 				func(node ast.Node) bool {
-					call, ok := node.(*ast.CallExpr)
-					if !ok {
+					call, valid := node.(*ast.CallExpr)
+					if !valid {
 						return true
 					}
 
-					ident, ok := call.Fun.(*ast.Ident)
-					if !ok {
+					ident, valid := call.Fun.(*ast.Ident)
+					if !valid {
 						return true
 					}
 
@@ -275,13 +275,13 @@ func runTimeNowOutsideClock(pass *analysis.Pass) (any, error) {
 		ast.Inspect(
 			file,
 			func(node ast.Node) bool {
-				call, ok := node.(*ast.CallExpr)
-				if !ok {
+				call, valid := node.(*ast.CallExpr)
+				if !valid {
 					return true
 				}
 
-				recv, name, ok := selectorName(call.Fun)
-				if !ok {
+				recv, name, valid := selectorName(call.Fun)
+				if !valid {
 					return true
 				}
 
@@ -342,8 +342,8 @@ func isStdlibMustShape(pass *analysis.Pass, fn *ast.FuncDecl) bool {
 		return false
 	}
 
-	sig, ok := obj.Type().(*types.Signature)
-	if !ok {
+	sig, matched := obj.Type().(*types.Signature)
+	if !matched {
 		return false
 	}
 

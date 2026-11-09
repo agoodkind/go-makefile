@@ -218,17 +218,17 @@ func markTildeLiteralsIn(expr ast.Expr, flagged map[*ast.BasicLit]bool) {
 // tildeStringLiteral returns the BasicLit when expr is a string literal whose
 // value equals "~" or starts with "~/".
 func tildeStringLiteral(expr ast.Expr) (*ast.BasicLit, bool) {
-	lit, ok := expr.(*ast.BasicLit)
-	if !ok {
+	literal, valid := expr.(*ast.BasicLit)
+	if !valid {
 		return nil, false
 	}
 
-	value, ok := stringLiteral(lit)
-	if !ok || !looksLikeTildeHomePath(value) {
+	value, valid := stringLiteral(literal)
+	if !valid || !looksLikeTildeHomePath(value) {
 		return nil, false
 	}
 
-	return lit, true
+	return literal, true
 }
 
 // identNamesIn returns the names of every identifier in expr.

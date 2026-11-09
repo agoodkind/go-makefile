@@ -105,17 +105,17 @@ func checkRTAThrowawayInFunc(
 	cfg rtaThrowawayConfig,
 ) {
 	for _, stmt := range fn.Body.List {
-		assign, ok := stmt.(*ast.AssignStmt)
-		if !ok || assign.Tok != token.DEFINE {
+		assignment, valid := stmt.(*ast.AssignStmt)
+		if !valid || assignment.Tok != token.DEFINE {
 			continue
 		}
 
-		varName, callName, ok := serverConstructorAssignment(assign, cfg)
-		if !ok {
+		varName, callName, valid := serverConstructorAssignment(assignment, cfg)
+		if !valid {
 			continue
 		}
 
-		usage := classifyServerVarUsage(fn.Body, varName, fn.Body.Pos(), assign.End(), cfg)
+		usage := classifyServerVarUsage(fn.Body, varName, fn.Body.Pos(), assignment.End(), cfg)
 		if usage.servedOrReturned {
 			continue
 		}
@@ -127,7 +127,7 @@ func checkRTAThrowawayInFunc(
 		reportAtf(
 			pass,
 			file,
-			assign.Pos(),
+			assignment.Pos(),
 			"[RTA003] %q is constructed via %s and only passed to a Register*Server call; the server is never served, returned, or stored. This is a deadcode RTA bypass: drop the registration if the server is unused, or call Serve/ListenAndServe on it",
 			varName,
 			callName,
@@ -370,13 +370,13 @@ func qualifiedCallName(call *ast.CallExpr) (string, bool) {
 // the trimmed non-empty entries as a set. Missing or empty flags
 // produce an empty set, which callers interpret as "use built-in
 // defaults".
-func csvFlagSet(fs *flag.FlagSet, name string) map[string]struct{} {
+func csvFlagSet(fileSet *flag.FlagSet, name string) map[string]struct{} {
 	out := map[string]struct{}{}
-	if fs == nil {
+	if fileSet == nil {
 		return out
 	}
 
-	f := fs.Lookup(name)
+	f := fileSet.Lookup(name)
 	if f == nil {
 		return out
 	}

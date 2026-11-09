@@ -85,7 +85,9 @@ func analyzeFuncForWrappedReturns(pass *analysis.Pass, file *ast.File, fn *ast.F
 				pass,
 				file,
 				ret.Pos(),
-				"function %s returns a wrapped error without an accompanying slog.Error/Warn; log before returning, or rename to a stdlib codec/io shape (Marshal*/Unmarshal*/Read/Write/etc.) if this is a pure encoder",
+				"function %s returns a wrapped error without an accompanying "+
+					"slog.Error/Warn; log before returning, or rename to a stdlib codec/io "+
+					"shape (Marshal*/Unmarshal*/Read/Write/etc.) if this is a pure encoder",
 				fn.Name.Name,
 			)
 
@@ -102,13 +104,13 @@ func analyzeFuncForWrappedReturns(pass *analysis.Pass, file *ast.File, fn *ast.F
 //	return ..., fmt.Errorf("...", err)   // also flagged: still wrapping
 func returnWrapsError(ret *ast.ReturnStmt) bool {
 	for _, expr := range ret.Results {
-		call, ok := expr.(*ast.CallExpr)
-		if !ok {
+		call, valid := expr.(*ast.CallExpr)
+		if !valid {
 			continue
 		}
 
-		recv, name, ok := selectorName(call.Fun)
-		if !ok {
+		recv, name, valid := selectorName(call.Fun)
+		if !valid {
 			continue
 		}
 

@@ -113,13 +113,13 @@ func runGrpcMethodNameLiteral(pass *analysis.Pass) (any, error) {
 		ast.Inspect(
 			file,
 			func(node ast.Node) bool {
-				call, ok := node.(*ast.CallExpr)
-				if !ok {
+				call, valid := node.(*ast.CallExpr)
+				if !valid {
 					return true
 				}
 
-				matched, target, ok := matchGrpcMethodNameTarget(pass, call, targets)
-				if !ok {
+				matched, target, valid := matchGrpcMethodNameTarget(pass, call, targets)
+				if !valid {
 					return true
 				}
 
@@ -147,7 +147,9 @@ func runGrpcMethodNameLiteral(pass *analysis.Pass) (any, error) {
 					pass,
 					file,
 					lit.Pos(),
-					"[GRPCMETHOD001] grpc method name should be a proto-generated _FullMethodName constant; got bare string literal %q at %s argument index %d",
+					"[GRPCMETHOD001] grpc method name should be a proto-generated "+
+						"_FullMethodName constant; got bare string literal %q at %s argument "+
+						"index %d",
 					value,
 					matched,
 					target.argIndex,

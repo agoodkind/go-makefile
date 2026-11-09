@@ -227,13 +227,13 @@ func assignsSelector(file *ast.File, receiver string, name string) bool {
 			}
 
 			for _, expr := range assignment.Lhs {
-				selector, ok := expr.(*ast.SelectorExpr)
-				if !ok || selector.Sel == nil || selector.Sel.Name != name {
+				selector, valid := expr.(*ast.SelectorExpr)
+				if !valid || selector.Sel == nil || selector.Sel.Name != name {
 					continue
 				}
 
-				ident, ok := selector.X.(*ast.Ident)
-				if ok && ident.Name == receiver {
+				ident, valid := selector.X.(*ast.Ident)
+				if valid && ident.Name == receiver {
 					found = true
 					return false
 				}

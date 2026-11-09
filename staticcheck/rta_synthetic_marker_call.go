@@ -80,7 +80,10 @@ func runRTASyntheticMarkerCall(pass *analysis.Pass) (any, error) {
 					pass,
 					file,
 					call.Pos(),
-					"[RTA002] discarded call to method %q on %q with adjacent deadcode/RTA/reachability comment; this is a self-confessed reachability bypass. Drop the call and the alibi, or document why the call is load-bearing in a way that does not name the deadcode analyzer",
+					"[RTA002] discarded call to method %q on %q with adjacent "+
+						"deadcode/RTA/reachability comment; this is a self-confessed "+
+						"reachability bypass. Drop the call and the alibi, or document why the "+
+						"call is load-bearing in a way that does not name the deadcode analyzer",
 					methodName,
 					formatType(recvType),
 				)
