@@ -82,6 +82,55 @@ func TestDuplicateSourceKeyPreservesNormalBaselineEquivalence(t *testing.T) {
 	}
 }
 
+func TestSourceIdentityPreservesLiteralCommentAnchors(t *testing.T) {
+	const original = `package sample
+
+// Collect returns the selected value.
+func Collect() string {
+	values := map[string]string{"key": "value"}
+	// Keep the lookup beside its key.
+	value := values["key"]
+	return value
+}
+`
+	wrapped := strings.ReplaceAll(
+		original,
+		`map[string]string{"key": "value"}`,
+		"map[string]string{\n\t\t\"key\": \"value\",\n\t}",
+	)
+
+	relocated := strings.ReplaceAll(
+		wrapped,
+		"\t// Keep the lookup beside its key.\n\tvalue := values[\"key\"]",
+		"\tvalue := values[\"key\"]\n\t// Keep the lookup beside its key.",
+	)
+	for _, scenario := range []struct {
+		name, contents string
+		equal          bool
+	}{
+		{"literal layout", wrapped, true},
+		{"comment attachment", relocated, false},
+	} {
+		t.Run(
+			scenario.name,
+			func(t *testing.T) {
+				for _, anchor := range []string{"func Collect(", "//"} {
+					before := sourceIdentity(t, original, anchor)
+					after := sourceIdentity(t, scenario.contents, anchor)
+					if (before == after) != scenario.equal {
+						t.Fatalf(
+							"source identity equality at %q = %v, want %v",
+							anchor,
+							before == after,
+							scenario.equal,
+						)
+					}
+				}
+			},
+		)
+	}
+}
+
 func sourceIdentity(t *testing.T, contents, anchor string) string {
 	t.Helper()
 	root := t.TempDir()

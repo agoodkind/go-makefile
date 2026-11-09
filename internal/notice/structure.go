@@ -38,7 +38,7 @@ func (encoder *syntaxEncoder) value(value reflect.Value, path string) error {
 	if value.Type() == positionType {
 		encoder.contents.WriteString("position:" + strconv.FormatBool(value.Int() != 0) + ";")
 		if value.Int() != 0 && !strings.HasSuffix(path, ".FileStart") &&
-			!strings.HasSuffix(path, ".FileEnd") {
+			!strings.HasSuffix(path, ".FileEnd") && !strings.HasSuffix(path, ".ValueEnd") {
 			encoder.positions = append(
 				encoder.positions,
 				syntaxPosition{position: token.Pos(value.Int()), path: path},
