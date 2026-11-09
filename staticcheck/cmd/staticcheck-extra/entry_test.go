@@ -137,7 +137,7 @@ func init() { for {} }`,
 
 	check := exec.CommandContext(t.Context(), binary, "-commandentry", "./...")
 	check.Dir = fixture
-	check.Env = append(os.Environ(), "GOROOT=")
+	check.Env = append(os.Environ(), "GOROOT=", "GODEBUG=toolchaintrace=1")
 	output, err := check.CombinedOutput()
 	status, ok := errors.AsType[*exec.ExitError](err)
 	if !ok || status.ExitCode() != 3 {
