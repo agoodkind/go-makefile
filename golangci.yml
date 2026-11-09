@@ -278,6 +278,12 @@ formatters:
   enable:
     - gofumpt
     - goimports
+    - golines
+  settings:
+    golines:
+      max-len: 100
+      reformat-tags: false
+      chain-split-dots: false
   exclusions:
     generated: lax
     paths:

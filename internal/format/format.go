@@ -24,9 +24,9 @@ var (
 // Only the selected module files receive fixes.
 //
 // The command sequence is:
-//  1. Apply and check argument-layout fixes.
-//  2. Apply whitespace fixes to the selected files.
-//  3. Run the configured Go formatters.
+//  1. Apply whitespace fixes to the selected files.
+//  2. Run the configured Go formatters.
+//  3. Apply the supplied multiline argument formatter.
 func Run(
 	prepare func() error,
 	resolve func() error,
@@ -96,20 +96,6 @@ func Run(
 	}
 
 	packages := lint.ScopedPackagesFromFiles(files)
-	arguments := []string{"-argumentlines"}
-
-	for _, file := range files {
-		arguments = append(arguments, "-argumentlines.file="+filepath.Join(cwd, file))
-	}
-
-	if err := run(analyzer, slices.Concat(arguments, []string{"-fix"}, packages)); err != nil {
-		return failure("format argument lists", err)
-	}
-
-	if err := run(analyzer, slices.Concat(arguments, packages)); err != nil {
-		return failure("check argument layout after fixes", err)
-	}
-
 	patch, err := selectionPatch(files)
 	if err != nil {
 		return err
@@ -126,7 +112,11 @@ func Run(
 		return failure("format whitespace", err)
 	}
 
-	return run(binary, slices.Concat([]string{"fmt"}, flags, files))
+	if err := run(binary, slices.Concat([]string{"fmt"}, flags, files)); err != nil {
+		return err
+	}
+
+	return run(analyzer, append([]string{"--format-multilineargs"}, files...))
 }
 
 func failure(operation string, err error) error {

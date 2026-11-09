@@ -19,9 +19,11 @@ func TestMakeFmtAppliesSourceRules(t *testing.T) {
 	writeConsumerFile(t, consumer, "widget/widget.go", `package widget
 
 func sum(first, second int) int { return first + second }
+func message(first, second, third string) {}
 func Double(value int) int { return sum(
 value, value,
 ) }
+func Long() { message("the first argument contains enough text to make this call exceed the configured width", "second argument", "third argument") }
 func Apply(value int, callback func(int) int) int {
 if value < 0 { return 0 }
 return callback(value)
@@ -34,7 +36,8 @@ return callback(value)
 	}
 
 	formatted := readConsumerFile(t, consumer, "widget/widget.go")
-	if !strings.Contains(formatted, "\n\t\tvalue,\n\t\tvalue,\n") || !strings.Contains(formatted, "func Apply(\n") {
+	if !strings.Contains(formatted, "return sum(value, value)") ||
+		!strings.Contains(formatted, "\n\t\t\"second argument\",\n\t\t\"third argument\",\n") {
 		t.Fatalf("argument layout was not applied:\n%s", formatted)
 	}
 

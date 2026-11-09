@@ -13,3 +13,9 @@ linters:
 formatters:
   enable:
     - gofumpt
+    - golines
+  settings:
+    golines:
+      max-len: 100
+      reformat-tags: false
+      chain-split-dots: false

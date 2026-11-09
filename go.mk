@@ -240,7 +240,7 @@ STATICCHECK_EXTRA_CORE_FLAGS    ?= \
 STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-commandentry \
 	-filenameprefix \
-	-argumentlines \
+	-multiline_call_arguments \
 	-wrapped_error_without_slog \
 	-os_exit_outside_main \
 	-context_todo_in_production \
