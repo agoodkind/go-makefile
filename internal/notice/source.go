@@ -141,7 +141,8 @@ func occurrence(file *ast.File, position token.Pos) (ast.Node, *ast.FuncDecl) {
 	ast.Inspect(
 		file,
 		func(candidate ast.Node) bool {
-			if candidate == nil || position < candidate.Pos() || position >= candidate.End() {
+			if candidate == nil || position < commentStart(candidate) ||
+				position >= candidate.End() {
 				return false
 			}
 

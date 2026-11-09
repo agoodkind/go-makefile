@@ -21,6 +21,8 @@ func Collect(first, second int) []any {
 	values := []any{first + second, 7, "value"}
 	return append(values, []any{"end"}...)
 }
+
+func untouched() int { return 17 }
 `
 
 	for _, scenario := range []struct {
@@ -29,6 +31,7 @@ func Collect(first, second int) []any {
 	}{
 		{"parameter layout", "first, second int", "first int,\nsecond int,", true},
 		{"comment formatting", "//Collect", "// Collect", true},
+		{"unrelated declaration", "return 17", "return 19", true},
 		{"parameter name", "first", "left", false},
 		{"literal", ", 7,", ", 9,", false},
 		{"operator", "first + second", "first - second", false},
@@ -40,17 +43,21 @@ func Collect(first, second int) []any {
 		t.Run(
 			scenario.name,
 			func(t *testing.T) {
-				old := sourceIdentity(t, original)
-				current := sourceIdentity(
-					t,
-					strings.ReplaceAll(original, scenario.before, scenario.after),
-				)
-				if (old == current) != scenario.equal {
-					t.Fatalf(
-						"source identity equality = %v, want %v",
-						old == current,
-						scenario.equal,
+				for _, anchor := range []string{"func Collect(", "//"} {
+					old := sourceIdentity(t, original, anchor)
+					current := sourceIdentity(
+						t,
+						strings.ReplaceAll(original, scenario.before, scenario.after),
+						anchor,
 					)
+					if (old == current) != scenario.equal {
+						t.Fatalf(
+							"source identity equality at %q = %v, want %v",
+							anchor,
+							old == current,
+							scenario.equal,
+						)
+					}
 				}
 			},
 		)
@@ -75,7 +82,7 @@ func TestDuplicateSourceKeyPreservesNormalBaselineEquivalence(t *testing.T) {
 	}
 }
 
-func sourceIdentity(t *testing.T, contents string) string {
+func sourceIdentity(t *testing.T, contents, anchor string) string {
 	t.Helper()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "sample.go"), []byte(contents), 0o600); err != nil {
@@ -83,7 +90,7 @@ func sourceIdentity(t *testing.T, contents string) string {
 	}
 
 	for index, line := range strings.Split(contents, "\n") {
-		if !strings.HasPrefix(line, "func Collect(") {
+		if !strings.HasPrefix(line, anchor) {
 			continue
 		}
 
@@ -96,7 +103,7 @@ func sourceIdentity(t *testing.T, contents string) string {
 		return identity
 	}
 
-	t.Fatal("source fixture does not declare Collect")
+	t.Fatalf("source fixture does not contain diagnostic anchor %q", anchor)
 
 	return ""
 }
