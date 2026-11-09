@@ -261,12 +261,7 @@ STATICCHECK_EXTRA_STRICT_FLAGS  ?= \
 	-doc_structure
 # The engine appends these flags even when a consumer overrides
 # STATICCHECK_EXTRA_FLAGS.
-STATICCHECK_EXTRA_TEST_FLAGS    ?= \
-	-testpackage \
-	-testsourcefile \
-	-testassert \
-	-testdouble \
-	-testseam
+STATICCHECK_EXTRA_TEST_FLAGS    ?=
 STATICCHECK_EXTRA_FLAGS        ?= $(STATICCHECK_EXTRA_CORE_FLAGS) $(STATICCHECK_EXTRA_STRICT_FLAGS)
 STATICCHECK_EXTRA_TARGETS       ?= ./...
 STATICCHECK_EXTRA_BASELINE      ?= .staticcheck-extra-baseline.txt

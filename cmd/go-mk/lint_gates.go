@@ -36,25 +36,7 @@ const (
 // raw targets because the format gate is driven separately through
 // moduleGoFiles, which applies the same filter to the resolved file list.
 func golangciCommand(mode string) (string, []string, error) {
-	binary := lintEnvDefault("GOLANGCI_LINT", "golangci-lint")
-	flagsText := lintEnvDefault("GOLANGCI_LINT_RUN_FLAGS", os.Getenv("GOLANGCI_LINT_FLAGS"))
-	if mode == "fmt" {
-		flagsText = os.Getenv("GOLANGCI_LINT_FLAGS")
-	}
-	targetsText := lintEnvDefault("GOLANGCI_LINT_TARGETS", "./...")
-	rawTargets := splitWords(targetsText)
-	targets := rawTargets
-	if mode == "run" {
-		expanded, err := expandedPackageTargets(rawTargets)
-		if err != nil {
-			return "", nil, err
-		}
-		targets = expanded
-	}
-	args := []string{mode}
-	args = append(args, splitWords(flagsText)...)
-	args = append(args, targets...)
-	return binary, args, nil
+	return lint.GolangciCommand(mode, expandedPackageTargets)
 }
 
 // golangciExcludePattern resolves the golangci exclude pattern from the default

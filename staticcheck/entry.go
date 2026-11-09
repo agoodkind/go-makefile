@@ -88,7 +88,8 @@ func entryDeclaration(pass *entryCheck, declaration ast.Decl) bool {
 			}
 
 			for _, name := range value.Names {
-				if !entryInteger(pass.TypesInfo.Defs[name].Type()) {
+				object := pass.TypesInfo.Defs[name]
+				if object == nil || !entryInteger(object.Type()) {
 					return false
 				}
 			}
@@ -243,6 +244,10 @@ func (check *entryCheck) standardPackage(path string) bool {
 }
 
 func entryInteger(value types.Type) bool {
+	if value == nil {
+		return false
+	}
+
 	basic, ok := value.Underlying().(*types.Basic)
 
 	return ok && basic.Info()&types.IsInteger != 0

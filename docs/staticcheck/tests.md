@@ -1,12 +1,12 @@
 # Checks for Go tests
 
-The staticcheck-extra gate runs five analyzers on Go test files. The analyzers are enabled by default.
+The staticcheck-extra gate provides five optional analyzers for Go test files. The default configuration disables them.
 
 The gate accepts findings recorded in the committed baseline and rejects new findings. Baseline matching ignores line and column numbers.
 
 ## One-time baseline of existing findings
 
-Notice 2 baselines the existing test-file findings of a consumer once. When the consumer adopted go-makefile before 2026-10-05, the first `make build` or `make staticcheck-extra` after the update writes every current finding in a `_test.go` file to `.staticcheck-extra-baseline.txt` and records notice 2 in `.go-mk-applied-notices`. The write needs no baseline token and can refresh the line number and `last_seen` value of existing rows. Review the diff and commit both files.
+When a consumer enables these analyzers, notice 2 baselines its existing test findings once. When the consumer adopted go-makefile before 2026-10-05, the first `make build` or `make staticcheck-extra` after the update writes every current finding in a `_test.go` file to `.staticcheck-extra-baseline.txt` and records notice 2 in `.go-mk-applied-notices`. The write needs no baseline token and can refresh the line number and `last_seen` value of existing rows. Review the diff and commit both files.
 
 The adoption date is the commit date of the first commit that added `bootstrap.mk`, `go.mk`, or `.go-mk-applied-notices`. When git cannot report the date, as in a shallow clone, the consumer counts as adopted before 2026-10-05 if any baseline file is non-empty.
 
@@ -57,7 +57,7 @@ The mock libraries are `github.com/golang/mock`, `go.uber.org/mock`, `github.com
 
 ## Configuration
 
-`STATICCHECK_EXTRA_TEST_FLAGS` lists the enabled test-habit analyzers as flags. The gate runs `STATICCHECK_EXTRA_FLAGS` followed by this list. The default enables all five. Set the variable before `include bootstrap.mk`, or on the make command line, to run a subset:
+`STATICCHECK_EXTRA_TEST_FLAGS` lists the enabled test analyzers as flags. The gate runs `STATICCHECK_EXTRA_FLAGS` followed by this list. The default value is empty. Set the variable before `include bootstrap.mk`, or on the make command line, to enable selected analyzers:
 
 ```make
 STATICCHECK_EXTRA_TEST_FLAGS := -testpackage -testassert

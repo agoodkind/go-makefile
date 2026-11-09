@@ -12,6 +12,7 @@ const (
 	olderTestFinding  = "widget/widget_test.go:1:9"
 	baselineFileName  = ".staticcheck-extra-baseline.txt"
 	appliedNoticeFile = ".go-mk-applied-notices"
+	testAnalyzerFlags = "STATICCHECK_EXTRA_TEST_FLAGS=-testpackage -testassert"
 
 	// Notice 2 in notices.txt has the date 2026-10-05.
 	beforeNoticeDate = "2026-01-01T00:00:00Z"
@@ -24,7 +25,7 @@ const (
 func TestStaticcheckExtraBaselinesOlderTestFindingsOnce(t *testing.T) {
 	consumerDir := newConsumerRepository(t, beforeNoticeDate)
 
-	output, err := runConsumerMake(consumerDir, "staticcheck-extra")
+	output, err := runConsumerMake(consumerDir, "staticcheck-extra", testAnalyzerFlags)
 	if err != nil {
 		t.Fatalf("first gate run failed in a consumer older than the notice: %v\n%s", err, output)
 	}
@@ -36,13 +37,13 @@ func TestStaticcheckExtraBaselinesOlderTestFindingsOnce(t *testing.T) {
 	}
 
 	writeConsumerFile(t, consumerDir, "widget/useful_test.go", assertingTest)
-	output, err = runConsumerMake(consumerDir, "staticcheck-extra")
+	output, err = runConsumerMake(consumerDir, "staticcheck-extra", testAnalyzerFlags)
 	if err != nil {
 		t.Fatalf("gate failed on a new external test with an assertion: %v\n%s", err, output)
 	}
 
 	writeConsumerFile(t, consumerDir, "widget/cruft_test.go", assertionFreeTest)
-	output, err = runConsumerMake(consumerDir, "staticcheck-extra")
+	output, err = runConsumerMake(consumerDir, "staticcheck-extra", testAnalyzerFlags)
 	if err == nil {
 		t.Fatalf("gate passed with a new test that asserts nothing:\n%s", output)
 	}
@@ -60,7 +61,7 @@ func TestStaticcheckExtraBaselinesOlderTestFindingsOnce(t *testing.T) {
 func TestStaticcheckExtraDoesNotBaselineAConsumerNewerThanTheNotice(t *testing.T) {
 	consumerDir := newConsumerRepository(t, afterNoticeDate)
 
-	output, err := runConsumerMake(consumerDir, "staticcheck-extra")
+	output, err := runConsumerMake(consumerDir, "staticcheck-extra", testAnalyzerFlags)
 	if err == nil {
 		t.Fatalf("gate passed on a test in the package under test with no baseline:\n%s", output)
 	}

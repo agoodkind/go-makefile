@@ -6,7 +6,7 @@ import (
 
 // TestRTASlogFieldBypassFlagsCLYDE308Shape covers the empirical
 // CLYDE-308 phase 2 case: a marker-typed value is constructed
-// locally and passed to [slog.InfoContext] as a key-value attribute
+// locally and passed to slog.InfoContext as a key-value attribute
 // with no other consumer. The marker method IsLivetrackMeta is
 // declared with an empty body alongside the boxing site.
 func TestRTASlogFieldBypassFlagsCLYDE308Shape(t *testing.T) {
@@ -188,8 +188,8 @@ func startup(ctx context.Context) {
 }
 
 // TestRTASlogFieldBypassFlagsLoggerMethodReceiver covers the
-// receiver-method shape: instead of [slog.InfoContext], the call is
-// log.InfoContext on a *[slog.Logger] value. The detector must still
+// receiver-method shape: instead of slog.InfoContext, the call is
+// log.InfoContext on a *slog.Logger value. The detector must still
 // fire because isLikelyLoggerReceiver matches the "log" receiver.
 func TestRTASlogFieldBypassFlagsLoggerMethodReceiver(t *testing.T) {
 	t.Parallel()

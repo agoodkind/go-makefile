@@ -14,6 +14,7 @@ import (
 
 	"goodkind.io/go-makefile/internal/logsummary"
 	"goodkind.io/go-makefile/internal/report"
+	"goodkind.io/go-makefile/internal/vet"
 )
 
 // runBuildCheck runs vet, the lint gates, govulncheck, and the Go version check,
@@ -50,8 +51,7 @@ func runBuildCheckRaw() int {
 
 // runVetStep runs go vet as a captured build-check step.
 func runVetStep() (report.StepResult, int) {
-	targets := splitWords(lintEnvDefault("GO_VET_TARGETS", "./..."))
-	return toolStep("vet", "go", append([]string{"vet"}, targets...))
+	return vet.Step(vetCommands, toolStep)
 }
 
 // runGovulncheckStep installs and runs govulncheck as a captured advisory step.

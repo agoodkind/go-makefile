@@ -17,6 +17,7 @@ import (
 	"goodkind.io/go-makefile/internal/findings"
 	formatting "goodkind.io/go-makefile/internal/format"
 	"goodkind.io/go-makefile/internal/lint"
+	"goodkind.io/go-makefile/internal/vet"
 )
 
 // errNoGoFiles signals that the current module owns no Go source files, so the
@@ -132,10 +133,14 @@ func runFmt() error {
 	return nil
 }
 
-// runVet runs go vet, mirroring run_vet.
+// runVet checks production source files in each selected package.
 func runVet() error {
-	targets := splitWords(lintEnvDefault("GO_VET_TARGETS", "./..."))
-	return runLintCPU("go", append([]string{"vet"}, targets...))
+	return vet.Run(vetCommands, runLintCPU)
+}
+
+// vetCommands selects production files for each package's go vet command.
+func vetCommands() ([][]string, error) {
+	return vet.Commands(expandedPackageTargets, lintEnv)
 }
 
 // runTest runs go test, mirroring run_test. When GO_TEST_LDFLAGS is set it is
@@ -144,22 +149,9 @@ func runVet() error {
 // whitespace-split for package and flag lists, which cannot carry a quoted
 // multi-word value.
 func runTest() error {
-	targets := splitWords(lintEnvDefault("GO_TEST_TARGETS", "./..."))
-	args := append([]string{"test"}, testLdflagsArgs()...)
-	args = append(args, targets...)
-	return runLintCPU("go", args)
+	return lint.RunTest(runLintCPU)
 }
 
-// testLdflagsArgs returns the -ldflags flag and its value as two argv elements
-// when GO_TEST_LDFLAGS is set, keeping the multi-word value unsplit. It returns
-// nil when the variable is empty so the default invocation is unchanged.
-func testLdflagsArgs() []string {
-	value := strings.TrimSpace(os.Getenv("GO_TEST_LDFLAGS"))
-	if value == "" {
-		return nil
-	}
-	return []string{"-ldflags", value}
-}
 
 // defaultGovulncheckInstall selects a scanner whose x/tools supports Go 1.27.
 // Consumers can override the release through GOVULNCHECK_INSTALL.

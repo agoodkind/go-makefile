@@ -15,12 +15,24 @@
 package lint
 
 import (
+	"os"
 	"path"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 )
+
+// StaticcheckFlagsText combines the configured production and test flags.
+//
+// Both settings contribute to the analyzer flags.
+//
+// For example, test flags follow production flags:
+//
+//	STATICCHECK_EXTRA_FLAGS="-first" STATICCHECK_EXTRA_TEST_FLAGS="-second"
+func StaticcheckFlagsText() string {
+	return strings.TrimSpace(os.Getenv("STATICCHECK_EXTRA_FLAGS") + " " + os.Getenv("STATICCHECK_EXTRA_TEST_FLAGS"))
+}
 
 // ExcludePattern joins the default and extra exclude path patterns into a
 // single alternation, mirroring go_mk_exclude_pattern: the two comma-separated

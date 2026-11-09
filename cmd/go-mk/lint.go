@@ -23,6 +23,7 @@ import (
 
 	"goodkind.io/go-makefile/internal/capture"
 	"goodkind.io/go-makefile/internal/findings"
+	"goodkind.io/go-makefile/internal/findings/extract"
 	"goodkind.io/go-makefile/internal/lintgate"
 	"goodkind.io/go-makefile/internal/report"
 )
@@ -357,39 +358,15 @@ func installGoTool(spec string) error {
 // repo-local-looking path and surface as a false new finding. It reads files, so
 // it emits a boundary log.
 func extractFindings(rawPath, matchPattern, excludePattern string) ([]string, int, error) {
-	slog.Info("lint extract findings", slog.String("raw", rawPath))
-	lines, err := readFileLines(rawPath)
-	if err != nil {
-		return nil, 0, err
-	}
-	pattern, err := regexp.Compile(matchPattern)
-	if err != nil {
-		return nil, 0, err
-	}
-	root := lintRoot()
-	kept := make([]string, 0, len(lines))
-	droppedOutOfTree := 0
-	for _, line := range lines {
-		if !pattern.MatchString(line) {
-			continue
-		}
-		normalized := findings.NormalizePath(line, root, root)
-		if excludePattern != "" {
-			excludeRegexp, compileErr := regexp.Compile(excludePattern)
-			if compileErr != nil {
-				return nil, 0, compileErr
-			}
-			if excludeRegexp.MatchString(normalized) {
-				continue
-			}
-		}
-		if path, ok := findings.FindingPath(normalized); ok && !findingResolvesInTree(path, root) {
-			droppedOutOfTree++
-			continue
-		}
-		kept = append(kept, normalized)
-	}
-	return sortedUnique(kept), droppedOutOfTree, nil
+	return extract.Findings(
+		rawPath,
+		matchPattern,
+		excludePattern,
+		readFileLines,
+		lintRoot,
+		findingResolvesInTree,
+		sortedUnique,
+	)
 }
 
 // findingResolvesInTree reports whether the file named by a normalized finding
