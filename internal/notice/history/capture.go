@@ -1,6 +1,7 @@
 package history
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"os"
@@ -8,7 +9,12 @@ import (
 	"path/filepath"
 )
 
-func (check comparison) inDirectory(directory, rawPath, findingsPath string) error {
+func (check comparison) inDirectory(
+	ctx context.Context,
+	directory string,
+	rawPath string,
+	findingsPath string,
+) error {
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return failed("locate notice working directory", err)
@@ -50,7 +56,7 @@ func (check comparison) inDirectory(directory, rawPath, findingsPath string) err
 	restoration := directoryRestoration{path: workingDir, attempted: false}
 	defer restoration.onExit()
 
-	captureErr := check.capturePrepared(rawPath, findingsPath)
+	captureErr := check.capturePrepared(ctx, rawPath, findingsPath)
 	restoreErr := restoration.restore()
 	if err := errors.Join(captureErr, restoreErr); err != nil {
 		slog.Error("notice capture historical directory", slog.Any("error", err))
@@ -61,8 +67,8 @@ func (check comparison) inDirectory(directory, rawPath, findingsPath string) err
 	return nil
 }
 
-func (check comparison) capturePrepared(rawPath, findingsPath string) error {
-	if err := prepareSource(); err != nil {
+func (check comparison) capturePrepared(ctx context.Context, rawPath, findingsPath string) error {
+	if err := prepareSource(ctx); err != nil {
 		return err
 	}
 

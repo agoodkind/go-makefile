@@ -1,6 +1,7 @@
 package history
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -12,7 +13,7 @@ import (
 
 const makeDirectory = ".make"
 
-func (check comparison) captureHistory(revision string) ([]string, error) {
+func (check comparison) captureHistory(ctx context.Context, revision string) ([]string, error) {
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return nil, failed("locate current notice source", err)
@@ -79,6 +80,7 @@ func (check comparison) captureHistory(revision string) ([]string, error) {
 
 	findingsPath := filepath.Join(temporaryDir, "findings.out")
 	if err := check.inDirectory(
+		ctx,
 		moduleDir,
 		filepath.Join(temporaryDir, "raw.out"),
 		findingsPath,

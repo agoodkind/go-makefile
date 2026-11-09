@@ -56,6 +56,186 @@ func TestRunNoticeRecordsDirectiveWhenAdoptionIsAfterNotice(t *testing.T) {
 	noticeGitAssertText(t, baselinePath, "# existing baseline\n")
 }
 
+func TestLegacyMakefileNoticePreservesEffectiveDate(t *testing.T) {
+	engine := gomk.BuiltTestEngine(t)
+	repository, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, scenario := range []struct {
+		name       string
+		fixture    string
+		fresh      bool
+		historical bool
+	}{
+		{"legacy include", "legacy", false, true},
+		{"inline bootstrap", "inline", false, true},
+		{"fresh adoption", "comments", true, false},
+		{"comment mentions", "comments", false, false},
+		{"unrelated URL", "unrelated", false, false},
+		{"unused URL", "unused", false, false},
+		{"unrelated fetch target", "documentation", false, false},
+		{"unevaluated definition", "definitions", false, false},
+		{"inactive conditional", "conditional", false, false},
+	} {
+		t.Run(
+			scenario.name,
+			func(t *testing.T) {
+				consumer := legacyNoticeRepository(t, scenario.fixture)
+				if scenario.fresh {
+					writeLegacyMakefile(t, consumer, "legacy")
+				}
+
+				writeConsumerFile(
+					t,
+					consumer,
+					"widget/later_test.go",
+					strings.Replace(assertionFreeTest, "TestDoubleRuns", "TestLater", 1),
+				)
+				runConsumerGit(t, consumer, afterNoticeDate, "add", ".")
+				runConsumerGit(
+					t,
+					consumer,
+					afterNoticeDate,
+					"commit",
+					"--quiet",
+					"--message",
+					"Add a finding after the notice",
+				)
+				writeConsumerFile(
+					t,
+					consumer,
+					".make/notices.txt",
+					"2\tINTRODUCED=2026-10-05T00:00:00-07:00 GATE=staticcheck-extra PATTERN=_test\\.go:\tCheck existing tests\n",
+				)
+				output, gateErr := runConsumerMake(
+					consumer,
+					"-f",
+					filepath.Join(repository, "go.mk"),
+					"GO_MK_DEV_DIR="+repository,
+					"GO_MK_BIN="+engine,
+					"STATICCHECK_EXTRA_BUILD_REPO="+filepath.Join(repository, "staticcheck"),
+					"STATICCHECK_EXTRA_BUILD_PKG=./cmd/staticcheck-extra",
+					"_GO_MK_NOTICES_FILE="+filepath.Join(consumer, ".make/notices.txt"),
+					"GO_MK_NOTICE_MAKEFILE="+filepath.Join(repository, "go.mk"),
+					"staticcheck-extra",
+					testAnalyzerFlags,
+				)
+				if gateErr == nil || !strings.Contains(output, "later_test.go") {
+					t.Fatalf("gate did not reject the later finding: %v\n%s", gateErr, output)
+				}
+
+				baseline, readErr := os.ReadFile(filepath.Join(consumer, baselineFileName))
+				if !scenario.historical {
+					if !os.IsNotExist(readErr) {
+						t.Fatalf(
+							"fresh consumer baseline read error = %v; baseline = %s",
+							readErr,
+							baseline,
+						)
+					}
+
+					return
+				}
+
+				if readErr != nil {
+					t.Fatalf("historical baseline read failed: %v\n%s", readErr, output)
+				}
+
+				if !strings.Contains(string(baseline), "widget/widget_test.go") ||
+					strings.Contains(string(baseline), "later_test.go") {
+					t.Fatalf(
+						"baseline did not preserve the effective date:\n%s\n%s",
+						baseline,
+						output,
+					)
+				}
+			},
+		)
+	}
+}
+
+func legacyNoticeRepository(t *testing.T, fixture string) string {
+	t.Helper()
+	adoptionDate := "2026-05-03T11:15:05-07:00"
+	if fixture == "inline" {
+		adoptionDate = "2026-05-24T20:39:49-07:00"
+	}
+
+	consumer := t.TempDir()
+	writeConsumerFile(t, consumer, "go.mod", "module example.com/consumer\n\ngo 1.26\n")
+	writeConsumerFile(t, consumer, ".gitignore", ".make/\n")
+	writeConsumerFile(
+		t,
+		consumer,
+		"widget/widget.go",
+		"package widget\n\nfunc Double(value int) int { return value * 2 }\n",
+	)
+	writeConsumerFile(t, consumer, "widget/widget_test.go", assertionFreeTest)
+	writeLegacyMakefile(t, consumer, fixture)
+	runConsumerGit(t, consumer, adoptionDate, "init", "--quiet", "--initial-branch=main")
+	runConsumerGit(t, consumer, adoptionDate, "add", ".")
+	runConsumerGit(
+		t,
+		consumer,
+		adoptionDate,
+		"commit",
+		"--quiet",
+		"--message",
+		"Add the consumer source",
+	)
+
+	return consumer
+}
+
+func writeLegacyMakefile(t *testing.T, consumer, fixture string) {
+	t.Helper()
+	contents, err := os.ReadFile(filepath.Join("testdata", "adoption", fixture+".mk"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writeConsumerFile(t, consumer, "Makefile", string(contents))
+}
+
+func TestRunNoticeLeavesDirectiveUnappliedWhenGitHistoryIsBroken(t *testing.T) {
+	engine := gomk.BuiltTestEngine(t)
+	consumer := legacyNoticeRepository(t, "legacy")
+	writeConsumerFile(t, consumer, ".git/HEAD", strings.Repeat("0", 40)+"\n")
+	notices := filepath.Join(consumer, "notices.txt")
+	writeConsumerFile(
+		t,
+		consumer,
+		"notices.txt",
+		"2\tINTRODUCED=2026-10-05T00:00:00-07:00 GATE=staticcheck-extra PATTERN=_test\\.go:\tCheck existing tests\n",
+	)
+	command := exec.CommandContext(t.Context(), engine, "notice")
+	command.Dir = consumer
+	command.Env = append(
+		noticeGitEnvironment(t),
+		"_GO_MK_ROOT="+consumer,
+		"_GO_MK_NOTICES_FILE="+notices,
+		"GO_MK_APPLIED_NOTICES="+appliedNoticeFile,
+		"GOPROXY=off",
+		"GOSUMDB=off",
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("notice command failed: %v\n%s", err, output)
+	}
+
+	if !strings.Contains(string(output), "adoption history could not be read") {
+		t.Fatalf("notice did not report the Git history failure:\n%s", output)
+	}
+
+	for _, name := range []string{appliedNoticeFile, baselineFileName} {
+		if _, statErr := os.Stat(filepath.Join(consumer, name)); !os.IsNotExist(statErr) {
+			t.Fatalf("artifact %s stat error = %v after a history failure", name, statErr)
+		}
+	}
+}
+
 func noticeGitEnvironment(t *testing.T) []string {
 	t.Helper()
 	home := t.TempDir()

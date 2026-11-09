@@ -2,6 +2,7 @@ package history
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -82,7 +83,7 @@ func stageTools(source, destination string) error {
 	return nil
 }
 
-func prepareSource() error {
+func prepareSource(ctx context.Context) error {
 	slog.Info("notice prepare historical source")
 	engine, err := os.Executable()
 	if err != nil {
@@ -101,12 +102,15 @@ func prepareSource() error {
 
 	arguments = append(arguments, "GO_MK_BIN="+engine, "go-mk-workspace", "go-mk-cgo-deps")
 	// #nosec G702 -- preparationMakefile resolves the required regular file.
-	command := exec.CommandContext(context.Background(), "make", arguments...)
+	command := exec.CommandContext(ctx, "make", arguments...)
 	command.Env = append(os.Environ(), "MAKEFLAGS=", "MFLAGS=", "MAKEOVERRIDES=")
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	if err := command.Run(); err != nil {
-		return failed("prepare source before the notice effective date", err)
+		return failed(
+			"prepare source before the notice effective date",
+			errors.Join(ctx.Err(), err),
+		)
 	}
 
 	return nil

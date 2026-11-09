@@ -2,6 +2,7 @@
 package history
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -40,8 +41,9 @@ func (sources sourceCache) identity(finding, root string) (string, error) {
 //
 // For example:
 //
-//	RestrictFindings(path, cutoff, gate, rule, git, capture)
+//	RestrictFindings(ctx, path, cutoff, gate, rule, git, capture)
 func RestrictFindings(
+	ctx context.Context,
 	path string,
 	introduced time.Time,
 	gate string,
@@ -60,7 +62,7 @@ func RestrictFindings(
 		return err
 	}
 
-	historical, err := check.captureHistory(revision)
+	historical, err := check.captureHistory(ctx, revision)
 	if err != nil {
 		return err
 	}
