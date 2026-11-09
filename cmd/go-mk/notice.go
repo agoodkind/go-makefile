@@ -78,17 +78,20 @@ func runNoticeFor(onlyGate string) int {
 	if err != nil {
 		return 0
 	}
+
 	// GitHub Actions deletes the checkout after the run. No commit records the
 	// files that a notice writes in that checkout.
 	if currentCIProofEnv().inRun() {
 		reportUnappliedNoticesInCI(records, applied)
 		return 0
 	}
+
 	for _, record := range records {
 		numericID, ok := atoiNotice(record.id)
 		if !ok {
 			continue
 		}
+
 		directiveNotice := record.directive != "" && record.directive != "-"
 		directive := noticeDirective{}
 		autoBaselineNotice := false
@@ -96,12 +99,16 @@ func runNoticeFor(onlyGate string) int {
 			directive = parseNoticeDirective(record.directive)
 			autoBaselineNotice = shouldAutoBaselineDirective(directive)
 		}
+
 		if onlyGate != "" {
-			if directiveNotice && directive.gate == onlyGate && !applied[record.id] && autoBaselineNotice {
+			if directiveNotice && directive.gate == onlyGate && !applied[record.id] &&
+				autoBaselineNotice {
 				runNoticeAutoBaseline(record, directive, appliedFile, applied)
 			}
+
 			continue
 		}
+
 		if directiveNotice && !applied[record.id] {
 			if autoBaselineNotice {
 				runNoticeAutoBaseline(record, directive, appliedFile, applied)
@@ -109,9 +116,11 @@ func runNoticeFor(onlyGate string) int {
 				recordFreshNoticeApplied(record, appliedFile, applied)
 			}
 		}
+
 		if numericID > lastSeen && !(directiveNotice && !autoBaselineNotice && applied[record.id]) {
 			writeStderr("go-makefile notice #" + record.id + ": " + record.summary + "\n")
 		}
+
 		if numericID > maxSeen {
 			maxSeen = numericID
 		}
@@ -120,10 +129,13 @@ func runNoticeFor(onlyGate string) int {
 	if onlyGate != "" {
 		return 0
 	}
+
 	if err := os.MkdirAll(makeDir, 0o755); err != nil {
 		return 0
 	}
+
 	_ = writeSeenFile(seenFile, maxSeen)
+
 	return 0
 }
 
@@ -133,7 +145,10 @@ func reportUnappliedNoticesInCI(records []noticeFields, applied map[string]bool)
 		if !directiveNotice || applied[record.id] {
 			continue
 		}
-		writeStderr("go-makefile notice #" + record.id + " is not applied. Run make check locally, then commit the files it changes or fix the findings.\n")
+
+		writeStderr(
+			"go-makefile notice #" + record.id + " is not applied. Run make check locally, then commit the files it changes or fix the findings.\n",
+		)
 	}
 }
 
@@ -143,10 +158,12 @@ func shouldAutoBaselineDirective(directive noticeDirective) bool {
 	if directive.introduced.IsZero() {
 		return anyConfiguredBaselineFileHasContent()
 	}
+
 	adoptionTime, ok := noticeAdoptionTimeFunc()
 	if !ok {
 		return anyConfiguredBaselineFileHasContent()
 	}
+
 	return adoptionTime.Before(directive.introduced)
 }
 
@@ -159,6 +176,7 @@ func anyConfiguredBaselineFileHasContent() bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -169,51 +187,71 @@ func baselineFileHasContent(path string) bool {
 	if err != nil {
 		return !os.IsNotExist(err)
 	}
+
 	return info.Size() > 0
 }
 
 func detectNoticeAdoptionTime() (time.Time, bool) {
 	// A shallow clone shows every file as added in its one commit, and the
 	// adoption date would be the date of that commit.
-	shallow, shallowErr := loggedGitOutput("notice git shallow", "rev-parse", "--is-shallow-repository")
+	shallow, shallowErr := loggedGitOutput(
+		"notice git shallow",
+		"rev-parse",
+		"--is-shallow-repository",
+	)
 	if shallowErr == nil && strings.TrimSpace(shallow) == "true" {
 		return time.Time{}, false
 	}
+
 	earliest := time.Time{}
 	found := false
+
 	for _, sentinelPath := range noticeAdoptionSentinelPaths {
 		added, ok := sentinelAddTime(sentinelPath)
 		if !ok {
 			continue
 		}
+
 		if !found || added.Before(earliest) {
 			earliest = added
 			found = true
 		}
 	}
+
 	return earliest, found
 }
 
 // --follow accepts one path per query and depends on Git rename detection.
 func sentinelAddTime(sentinelPath string) (time.Time, bool) {
-	output, err := loggedGitOutput("notice git adoption",
-		"log", "--follow", "--diff-filter=A", "--format=%cI", "--", sentinelPath)
+	output, err := loggedGitOutput(
+		"notice git adoption",
+		"log",
+		"--follow",
+		"--diff-filter=A",
+		"--format=%cI",
+		"--",
+		sentinelPath,
+	)
 	if err != nil {
 		return time.Time{}, false
 	}
+
 	added := time.Time{}
 	found := false
+
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
 		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(scanner.Text()))
 		if err != nil {
 			continue
 		}
+
 		if !found || parsed.Before(added) {
 			added = parsed
 			found = true
 		}
 	}
+
 	return added, found
 }
 
@@ -226,6 +264,7 @@ func readNoticeRecords(path string) ([]noticeFields, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	records := make([]noticeFields, 0, len(lines))
 	for _, line := range lines {
 		fields := strings.SplitN(line, "\t", 3)
@@ -233,15 +272,19 @@ func readNoticeRecords(path string) ([]noticeFields, error) {
 		if id == "" || strings.HasPrefix(id, "#") {
 			continue
 		}
+
 		record := noticeFields{id: id}
 		if len(fields) > 1 {
 			record.directive = fields[1]
 		}
+
 		if len(fields) > 2 {
 			record.summary = fields[2]
 		}
+
 		records = append(records, record)
 	}
+
 	return records, nil
 }
 
@@ -255,12 +298,14 @@ func loadAppliedNotices(path string) map[string]bool {
 	if err != nil {
 		return applied
 	}
+
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed != "" {
 			applied[trimmed] = true
 		}
 	}
+
 	return applied
 }
 
@@ -273,10 +318,12 @@ func loadLastSeen(path string) int {
 	if err != nil || len(lines) == 0 {
 		return 0
 	}
+
 	value, ok := atoiNotice(strings.TrimSpace(lines[0]))
 	if !ok {
 		return 0
 	}
+
 	return value
 }
 
@@ -293,9 +340,12 @@ func writeSeenFile(path string, maxSeen int) error {
 // so running the scoped baseline would create adoption-only churn.
 func recordFreshNoticeApplied(record noticeFields, appliedFile string, applied map[string]bool) {
 	if err := appendAppliedNotice(appliedFile, record.id); err != nil {
-		writeStderr("go-makefile notice #" + record.id + ": could not record applied notice in " + appliedFile + "; will retry on the next run\n")
+		writeStderr(
+			"go-makefile notice #" + record.id + ": could not record applied notice in " + appliedFile + "; will retry on the next run\n",
+		)
 		return
 	}
+
 	applied[record.id] = true
 }
 
@@ -304,18 +354,28 @@ func recordFreshNoticeApplied(record noticeFields, appliedFile string, applied m
 // scope tokens, refuses any gate other than golangci, runs the in-process
 // baseline auto-baseline-scope updater with the scope env set, records the id on
 // success, and reports failure without aborting the build.
-func runNoticeAutoBaseline(record noticeFields, directive noticeDirective, appliedFile string, applied map[string]bool) {
+func runNoticeAutoBaseline(
+	record noticeFields,
+	directive noticeDirective,
+	appliedFile string,
+	applied map[string]bool,
+) {
 	if directive.gate == noticeGateStaticcheck {
 		runNoticeStaticcheckAutoBaseline(record, directive, appliedFile, applied)
 		return
 	}
+
 	if directive.gate != "golangci" {
-		writeStderr("go-makefile notice #" + record.id + ": unsupported auto-baseline gate '" + directive.gate + "'; skipping\n")
+		writeStderr(
+			"go-makefile notice #" + record.id + ": unsupported auto-baseline gate '" + directive.gate + "'; skipping\n",
+		)
 		return
 	}
 
 	golangciBaseline := lintEnvDefault("GOLANGCI_LINT_BASELINE", ".golangci-lint-baseline.txt")
-	writeStderr("go-makefile notice #" + record.id + ": auto-baselining existing findings for " + record.directive + "\n")
+	writeStderr(
+		"go-makefile notice #" + record.id + ": auto-baselining existing findings for " + record.directive + "\n",
+	)
 
 	previousLinter, hadLinter := os.LookupEnv("LINTER")
 	previousRule, hadRule := os.LookupEnv("RULE")
@@ -331,23 +391,38 @@ func runNoticeAutoBaseline(record noticeFields, directive noticeDirective, appli
 	restoreEnv("GOLANGCI_LINT_BASELINE_SCOPE_PATTERN", previousPattern, hadPattern)
 
 	if code != 0 {
-		writeStderr("go-makefile notice #" + record.id + ": auto-baseline failed; run it manually with the scoped baseline target\n")
+		writeStderr(
+			"go-makefile notice #" + record.id + ": auto-baseline failed; run it manually with the scoped baseline target\n",
+		)
 		return
 	}
+
 	if err := appendAppliedNotice(appliedFile, record.id); err != nil {
-		writeStderr("go-makefile notice #" + record.id + ": auto-baseline failed; run it manually with the scoped baseline target\n")
+		writeStderr(
+			"go-makefile notice #" + record.id + ": auto-baseline failed; run it manually with the scoped baseline target\n",
+		)
 		return
 	}
+
 	applied[record.id] = true
-	writeStderr("go-makefile notice #" + record.id + ": wrote " + golangciBaseline +
-		". Review with 'git diff " + golangciBaseline + "' and commit it together with " + appliedFile + ".\n")
+	writeStderr(
+		"go-makefile notice #" + record.id + ": wrote " + golangciBaseline +
+			". Review with 'git diff " + golangciBaseline + "' and commit it together with " + appliedFile + ".\n",
+	)
 }
 
 const noticeGateStaticcheck = "staticcheck-extra"
 
-func runNoticeStaticcheckAutoBaseline(record noticeFields, directive noticeDirective, appliedFile string, applied map[string]bool) {
+func runNoticeStaticcheckAutoBaseline(
+	record noticeFields,
+	directive noticeDirective,
+	appliedFile string,
+	applied map[string]bool,
+) {
 	baselineFile := lintEnvDefault("STATICCHECK_EXTRA_BASELINE", ".staticcheck-extra-baseline.txt")
-	writeStderr("go-makefile notice #" + record.id + ": auto-baselining existing findings for " + record.directive + "\n")
+	writeStderr(
+		"go-makefile notice #" + record.id + ": auto-baselining existing findings for " + record.directive + "\n",
+	)
 
 	previousPattern, hadPattern := os.LookupEnv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN")
 	_ = os.Setenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN", directive.pattern)
@@ -355,22 +430,31 @@ func runNoticeStaticcheckAutoBaseline(record noticeFields, directive noticeDirec
 	restoreEnv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN", previousPattern, hadPattern)
 
 	if code != 0 {
-		writeStderr("go-makefile notice #" + record.id + ": auto-baseline failed; it runs again on the next build\n")
+		writeStderr(
+			"go-makefile notice #" + record.id + ": auto-baseline failed; it runs again on the next build\n",
+		)
 		return
 	}
+
 	if err := appendAppliedNotice(appliedFile, record.id); err != nil {
-		writeStderr("go-makefile notice #" + record.id + ": could not record applied notice in " + appliedFile + "; the auto-baseline runs again on the next build\n")
+		writeStderr(
+			"go-makefile notice #" + record.id + ": could not record applied notice in " + appliedFile + "; the auto-baseline runs again on the next build\n",
+		)
 		return
 	}
+
 	applied[record.id] = true
-	writeStderr("go-makefile notice #" + record.id + ": wrote " + baselineFile +
-		". Review with 'git diff " + baselineFile + "' and commit it together with " + appliedFile + ".\n")
+	writeStderr(
+		"go-makefile notice #" + record.id + ": wrote " + baselineFile +
+			". Review with 'git diff " + baselineFile + "' and commit it together with " + appliedFile + ".\n",
+	)
 }
 
 // parseNoticeDirective splits a directive into its scope tokens, mirroring the
 // shell `for token in $directive` case arm. The gate defaults to golangci.
 func parseNoticeDirective(directive string) noticeDirective {
 	parsed := noticeDirective{gate: "golangci"}
+
 	for _, token := range strings.Fields(directive) {
 		switch {
 		case strings.HasPrefix(token, "GATE="):
@@ -388,6 +472,7 @@ func parseNoticeDirective(directive string) noticeDirective {
 			}
 		}
 	}
+
 	return parsed
 }
 
@@ -402,12 +487,15 @@ func appendAppliedNotice(path, id string) error {
 			return err
 		}
 	}
+
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = file.Close() }()
 	_, err = file.WriteString(id + "\n")
+
 	return err
 }
 
@@ -419,6 +507,7 @@ func restoreEnv(key, previous string, had bool) {
 		_ = os.Setenv(key, previous)
 		return
 	}
+
 	_ = os.Unsetenv(key)
 }
 
@@ -430,5 +519,6 @@ func atoiNotice(value string) (int, bool) {
 	if err != nil {
 		return 0, false
 	}
+
 	return parsed, true
 }

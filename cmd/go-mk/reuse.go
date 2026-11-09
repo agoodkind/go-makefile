@@ -40,11 +40,34 @@ const reuseStampFile = ".make/go-mk-reuse.json"
 // setting in the make layer invalidates the stamp without anyone remembering to
 // add it here.
 var reuseEnvPrefixes = []string{
-	"BINARY", "BUNDLE_ID", "CGO_ENABLED", "CC", "CMD", "CODESIGN_", "CXX",
-	"DEADCODE_", "DIST_DIR", "GKLOG_VPKG", "GOARCH", "GOCYCLO_", "GOEXPERIMENT",
-	"GOFLAGS", "GOOS", "GOWORK", "GO_BUILD_", "GO_MK_", "GO_TEST_", "GO_VET_",
-	"GOLANGCI", "GOVULNCHECK", "INSTALL_BINS", "INSTALL_DIR", "LINT_",
-	"RELEASE_BINS", "STATICCHECK", "VPKG",
+	"BINARY",
+	"BUNDLE_ID",
+	"CGO_ENABLED",
+	"CC",
+	"CMD",
+	"CODESIGN_",
+	"CXX",
+	"DEADCODE_",
+	"DIST_DIR",
+	"GKLOG_VPKG",
+	"GOARCH",
+	"GOCYCLO_",
+	"GOEXPERIMENT",
+	"GOFLAGS",
+	"GOOS",
+	"GOWORK",
+	"GO_BUILD_",
+	"GO_MK_",
+	"GO_TEST_",
+	"GO_VET_",
+	"GOLANGCI",
+	"GOVULNCHECK",
+	"INSTALL_BINS",
+	"INSTALL_DIR",
+	"LINT_",
+	"RELEASE_BINS",
+	"STATICCHECK",
+	"VPKG",
 }
 
 // reuseConfigFiles are repo-root files whose content changes how the build or
@@ -66,7 +89,10 @@ var reuseConfigFiles = []string{
 
 // reuseTruthyValues are the ways a consumer can spell "on" in GO_MK_REUSE_OUTPUTS.
 var reuseTruthyValues = map[string]struct{}{
-	"1": {}, "true": {}, "yes": {}, "on": {},
+	"1":    {},
+	"true": {},
+	"yes":  {},
+	"on":   {},
 }
 
 // buildTimePattern matches the version stamp that carries the moment of the
@@ -98,10 +124,13 @@ func runBuildGateCommand() int {
 		writeStdout("build-gate reused (no build input changed)\n")
 		return 0
 	}
+
 	if code := runBuildGateFunc(); code != 0 {
 		return code
 	}
+
 	recordReuse("build-gate", empty)
+
 	return 0
 }
 
@@ -116,7 +145,9 @@ func reuseOutputs(mode string, cfg installConfig) []string {
 			paths = append(paths, filepath.Join(bin.dir, bin.name))
 		}
 	}
+
 	sort.Strings(paths)
+
 	return paths
 }
 
@@ -126,19 +157,27 @@ func reuseSatisfied(mode string, cfg installConfig) bool {
 	if !reuseEnabled() {
 		return false
 	}
+
 	record, ok := readReuseStamp(mode)
 	if !ok {
 		return false
 	}
+
 	fingerprint, err := reuseFingerprint(mode, cfg)
 	if err != nil {
-		slog.Warn("build reuse could not fingerprint the inputs; building",
-			slog.String("mode", mode), slog.String("err", err.Error()))
+		slog.Warn(
+			"build reuse could not fingerprint the inputs; building",
+			slog.String("mode", mode),
+			slog.String("err", err.Error()),
+		)
+
 		return false
 	}
+
 	if record.Version != reuseStampVersion || record.Fingerprint != fingerprint {
 		return false
 	}
+
 	return outputsUnchanged(mode, record.Outputs, reuseOutputs(mode, cfg))
 }
 
@@ -148,14 +187,24 @@ func outputsUnchanged(mode string, recorded map[string]string, wanted []string) 
 	if len(recorded) != len(wanted) {
 		return false
 	}
+
 	mismatch := firstOutputMismatch(recorded, wanted)
 	if mismatch != "" {
-		slog.Info("build reuse output no longer matches its stamp; building",
-			slog.String("mode", mode), slog.String("path", mismatch))
+		slog.Info(
+			"build reuse output no longer matches its stamp; building",
+			slog.String("mode", mode),
+			slog.String("path", mismatch),
+		)
+
 		return false
 	}
-	slog.Info("build reuse outputs all match their stamp",
-		slog.String("mode", mode), slog.Int("count", len(wanted)))
+
+	slog.Info(
+		"build reuse outputs all match their stamp",
+		slog.String("mode", mode),
+		slog.Int("count", len(wanted)),
+	)
+
 	return true
 }
 
@@ -169,6 +218,7 @@ func firstOutputMismatch(recorded map[string]string, wanted []string) string {
 			return path
 		}
 	}
+
 	return ""
 }
 
@@ -179,28 +229,43 @@ func recordReuse(mode string, cfg installConfig) {
 	if !reuseEnabled() {
 		return
 	}
+
 	fingerprint, err := reuseFingerprint(mode, cfg)
 	if err != nil {
-		slog.Warn("build reuse could not fingerprint the inputs; not stamping",
-			slog.String("mode", mode), slog.String("err", err.Error()))
+		slog.Warn(
+			"build reuse could not fingerprint the inputs; not stamping",
+			slog.String("mode", mode),
+			slog.String("err", err.Error()),
+		)
+
 		return
 	}
+
 	outputs := make(map[string]string, len(cfg.bins)*2)
 	for _, path := range reuseOutputs(mode, cfg) {
 		digest, digestErr := fileDigest(path)
 		if digestErr != nil {
-			slog.Warn("build reuse could not digest an output; not stamping",
-				slog.String("mode", mode), slog.String("path", path),
-				slog.String("err", digestErr.Error()))
+			slog.Warn(
+				"build reuse could not digest an output; not stamping",
+				slog.String("mode", mode),
+				slog.String("path", path),
+				slog.String("err", digestErr.Error()),
+			)
+
 			return
 		}
+
 		outputs[path] = digest
 	}
-	writeReuseStamp(mode, reuseRecord{
-		Version:     reuseStampVersion,
-		Fingerprint: fingerprint,
-		Outputs:     outputs,
-	})
+
+	writeReuseStamp(
+		mode,
+		reuseRecord{
+			Version:     reuseStampVersion,
+			Fingerprint: fingerprint,
+			Outputs:     outputs,
+		},
+	)
 }
 
 // readReuseStamp returns the record for one mode. A missing, unreadable, or
@@ -210,40 +275,64 @@ func readReuseStamp(mode string) (reuseRecord, bool) {
 	if err != nil {
 		return reuseRecord{}, false
 	}
+
 	stamps := make(map[string]reuseRecord)
 	if unmarshalErr := json.Unmarshal(raw, &stamps); unmarshalErr != nil {
-		slog.Warn("build reuse stamp is unreadable; building",
-			slog.String("path", reuseStampFile), slog.String("err", unmarshalErr.Error()))
+		slog.Warn(
+			"build reuse stamp is unreadable; building",
+			slog.String("path", reuseStampFile),
+			slog.String("err", unmarshalErr.Error()),
+		)
+
 		return reuseRecord{}, false
 	}
+
 	record, ok := stamps[mode]
+
 	return record, ok
 }
 
 // writeReuseStamp merges one mode's record into the stamp file. It writes the
 // filesystem, so it emits a boundary log.
 func writeReuseStamp(mode string, record reuseRecord) {
-	slog.Info("build reuse stamp written",
-		slog.String("mode", mode), slog.String("path", reuseStampFile))
+	slog.Info(
+		"build reuse stamp written",
+		slog.String("mode", mode),
+		slog.String("path", reuseStampFile),
+	)
 	stamps := make(map[string]reuseRecord)
 	if raw, err := os.ReadFile(reuseStampFile); err == nil {
 		_ = json.Unmarshal(raw, &stamps)
 	}
+
 	stamps[mode] = record
 	encoded, err := json.MarshalIndent(stamps, "", "  ")
 	if err != nil {
-		slog.Warn("build reuse could not encode its stamp",
-			slog.String("mode", mode), slog.String("err", err.Error()))
+		slog.Warn(
+			"build reuse could not encode its stamp",
+			slog.String("mode", mode),
+			slog.String("err", err.Error()),
+		)
+
 		return
 	}
+
 	if mkdirErr := os.MkdirAll(filepath.Dir(reuseStampFile), 0o755); mkdirErr != nil {
-		slog.Warn("build reuse could not create its stamp directory",
-			slog.String("path", filepath.Dir(reuseStampFile)), slog.String("err", mkdirErr.Error()))
+		slog.Warn(
+			"build reuse could not create its stamp directory",
+			slog.String("path", filepath.Dir(reuseStampFile)),
+			slog.String("err", mkdirErr.Error()),
+		)
+
 		return
 	}
+
 	if writeErr := os.WriteFile(reuseStampFile, encoded, 0o644); writeErr != nil {
-		slog.Warn("build reuse could not write its stamp",
-			slog.String("path", reuseStampFile), slog.String("err", writeErr.Error()))
+		slog.Warn(
+			"build reuse could not write its stamp",
+			slog.String("path", reuseStampFile),
+			slog.String("err", writeErr.Error()),
+		)
 	}
 }
 
@@ -256,6 +345,7 @@ func reuseFingerprint(mode string, cfg installConfig) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	engine, err := engineDigest()
 	if err != nil {
 		return "", err
@@ -265,19 +355,24 @@ func reuseFingerprint(mode string, cfg installConfig) (string, error) {
 	writeFingerprintLine(hash, "version", reuseStampVersion)
 	writeFingerprintLine(hash, "mode", mode)
 	writeFingerprintLine(hash, "engine", engine)
+
 	for _, entry := range reuseEnvironment() {
 		writeFingerprintLine(hash, "env", entry)
 	}
+
 	for _, bin := range cfg.bins {
 		writeFingerprintLine(hash, "bin", bin.name+"|"+bin.mainPkg+"|"+bin.dir)
 	}
+
 	writeFingerprintLine(hash, "dist", cfg.distDir)
 	if err := hashFingerprintFiles(hash, "source", sources); err != nil {
 		return "", err
 	}
+
 	if err := hashFingerprintFiles(hash, "config", existingConfigFiles()); err != nil {
 		return "", err
 	}
+
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
@@ -288,13 +383,19 @@ func hashFingerprintFiles(hash io.Writer, label string, paths []string) error {
 	for _, path := range paths {
 		digest, err := fileDigest(path)
 		if err != nil {
-			slog.Warn("build reuse could not read an input; building",
-				slog.String("label", label), slog.String("path", path),
-				slog.String("err", err.Error()))
+			slog.Warn(
+				"build reuse could not read an input; building",
+				slog.String("label", label),
+				slog.String("path", path),
+				slog.String("err", err.Error()),
+			)
+
 			return err
 		}
+
 		writeFingerprintLine(hash, label, path+" "+digest)
 	}
+
 	return nil
 }
 
@@ -313,10 +414,12 @@ func existingConfigFiles() []string {
 			found = append(found, name)
 		}
 	}
+
 	fragments, err := filepath.Glob("*.mk")
 	if err == nil {
 		found = append(found, fragments...)
 	}
+
 	return sortedUnique(found)
 }
 
@@ -325,10 +428,11 @@ func existingConfigFiles() []string {
 func engineDigest() (string, error) {
 	self, err := os.Executable()
 	if err != nil {
-		slog.Warn("build reuse could not locate the engine binary",
-			slog.String("err", err.Error()))
+		slog.Warn("build reuse could not locate the engine binary", slog.String("err", err.Error()))
+
 		return "", err
 	}
+
 	return fileDigest(self)
 }
 
@@ -339,11 +443,13 @@ func fileDigest(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	defer func() { _ = file.Close() }()
 	hash := sha256.New()
 	if _, copyErr := io.Copy(hash, file); copyErr != nil {
 		return "", copyErr
 	}
+
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
@@ -352,17 +458,22 @@ func fileDigest(path string) (string, error) {
 // output of the run rather than an input to it.
 func reuseEnvironment() []string {
 	entries := make([]string, 0, 32)
+
 	for _, entry := range os.Environ() {
 		name, value, found := strings.Cut(entry, "=")
 		if !found || !hasReusePrefix(name) {
 			continue
 		}
+
 		if name == "GO_BUILD_LDFLAGS" {
 			value = normalizeLdflags(value)
 		}
+
 		entries = append(entries, name+"="+value)
 	}
+
 	sort.Strings(entries)
+
 	return entries
 }
 
@@ -374,6 +485,7 @@ func hasReusePrefix(name string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -394,16 +506,21 @@ func reuseSourceFiles() ([]string, error) {
 	slog.Info("build reuse list packages")
 	out, err := exec.Command("go", "list", "-e", "-deps", "-json", "./...").Output()
 	if err != nil {
-		slog.Warn("build reuse could not list packages; building",
-			slog.String("err", err.Error()))
+		slog.Warn("build reuse could not list packages; building", slog.String("err", err.Error()))
+
 		return nil, err
 	}
+
 	files, decodeErr := decodeReuseSourceFiles(out)
 	if decodeErr != nil {
-		slog.Warn("build reuse could not read the package list; building",
-			slog.String("err", decodeErr.Error()))
+		slog.Warn(
+			"build reuse could not read the package list; building",
+			slog.String("err", decodeErr.Error()),
+		)
+
 		return nil, decodeErr
 	}
+
 	return files, nil
 }
 
@@ -411,23 +528,28 @@ func reuseSourceFiles() ([]string, error) {
 func decodeReuseSourceFiles(out []byte) ([]string, error) {
 	decoder := json.NewDecoder(strings.NewReader(string(out)))
 	files := make([]string, 0, 256)
+
 	for decoder.More() {
 		var pkg goListPackage
 		if decodeErr := decoder.Decode(&pkg); decodeErr != nil {
 			return nil, decodeErr
 		}
+
 		if pkg.Standard || pkg.Dir == "" {
 			continue
 		}
+
 		if pkg.Error != nil || len(pkg.DepsErrors) > 0 {
 			return nil, errReusePackageLoad
 		}
+
 		for _, group := range packageFileGroups(pkg) {
 			for _, name := range group {
 				files = append(files, filepath.ToSlash(filepath.Join(pkg.Dir, name)))
 			}
 		}
 	}
+
 	return sortedUnique(files), nil
 }
 

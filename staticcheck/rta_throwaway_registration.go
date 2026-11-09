@@ -48,8 +48,17 @@ func newRTAThrowawayRegistrationAnalyzer() *analysis.Analyzer {
 		Doc:  "rejects servers constructed only to be passed to a Register*Server call and then discarded",
 		Run:  runRTAThrowawayRegistration,
 	}
-	a.Flags.String("server_constructors", "", "comma-separated qualified call names that return a server (e.g. grpc.NewServer)")
-	a.Flags.String("registration_funcs", "", "comma-separated qualified call names that register a service on a server (e.g. clydev1.RegisterClydeServiceServer)")
+	a.Flags.String(
+		"server_constructors",
+		"",
+		"comma-separated qualified call names that return a server (e.g. grpc.NewServer)",
+	)
+	a.Flags.String(
+		"registration_funcs",
+		"",
+		"comma-separated qualified call names that register a service on a server (e.g. clydev1.RegisterClydeServiceServer)",
+	)
+
 	return a
 }
 
@@ -61,14 +70,17 @@ func runRTAThrowawayRegistration(pass *analysis.Pass) (any, error) {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {
 				continue
 			}
+
 			checkRTAThrowawayInFunc(pass, file, fn, cfg)
 		}
 	}
+
 	return nil, nil
 }
 
@@ -82,29 +94,44 @@ func loadRTAThrowawayConfig(a *analysis.Analyzer) rtaThrowawayConfig {
 		serverConstructors: csvFlagSet(&a.Flags, "server_constructors"),
 		registrationFuncs:  csvFlagSet(&a.Flags, "registration_funcs"),
 	}
+
 	return cfg
 }
 
-func checkRTAThrowawayInFunc(pass *analysis.Pass, file *ast.File, fn *ast.FuncDecl, cfg rtaThrowawayConfig) {
+func checkRTAThrowawayInFunc(
+	pass *analysis.Pass,
+	file *ast.File,
+	fn *ast.FuncDecl,
+	cfg rtaThrowawayConfig,
+) {
 	for _, stmt := range fn.Body.List {
 		assign, ok := stmt.(*ast.AssignStmt)
 		if !ok || assign.Tok != token.DEFINE {
 			continue
 		}
+
 		varName, callName, ok := serverConstructorAssignment(assign, cfg)
 		if !ok {
 			continue
 		}
+
 		usage := classifyServerVarUsage(fn.Body, varName, fn.Body.Pos(), assign.End(), cfg)
 		if usage.servedOrReturned {
 			continue
 		}
+
 		if !usage.registered {
 			continue
 		}
-		reportAtf(pass, file, assign.Pos(),
+
+		reportAtf(
+			pass,
+			file,
+			assign.Pos(),
 			"[RTA003] %q is constructed via %s and only passed to a Register*Server call; the server is never served, returned, or stored. This is a deadcode RTA bypass: drop the registration if the server is unused, or call Serve/ListenAndServe on it",
-			varName, callName)
+			varName,
+			callName,
+		)
 	}
 }
 
@@ -112,25 +139,33 @@ func checkRTAThrowawayInFunc(pass *analysis.Pass, file *ast.File, fn *ast.FuncDe
 // any selector call whose Sel ends in "NewServer", returning the
 // declared variable name and the qualified call name. If the assignment
 // declares multiple variables, none match.
-func serverConstructorAssignment(assign *ast.AssignStmt, cfg rtaThrowawayConfig) (varName string, callName string, ok bool) {
+func serverConstructorAssignment(
+	assign *ast.AssignStmt,
+	cfg rtaThrowawayConfig,
+) (varName string, callName string, ok bool) {
 	if len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
 		return "", "", false
 	}
+
 	ident, ok := assign.Lhs[0].(*ast.Ident)
 	if !ok || ident.Name == "_" {
 		return "", "", false
 	}
+
 	call, ok := assign.Rhs[0].(*ast.CallExpr)
 	if !ok {
 		return "", "", false
 	}
+
 	qualified, ok := qualifiedCallName(call)
 	if !ok {
 		return "", "", false
 	}
+
 	if !isServerConstructor(qualified, cfg) {
 		return "", "", false
 	}
+
 	return ident.Name, qualified, true
 }
 
@@ -139,10 +174,12 @@ func isServerConstructor(qualified string, cfg rtaThrowawayConfig) bool {
 		_, hit := cfg.serverConstructors[qualified]
 		return hit
 	}
+
 	_, short, hasDot := strings.CutLast(qualified, ".")
 	if !hasDot {
 		short = qualified
 	}
+
 	return strings.HasSuffix(short, "NewServer")
 }
 
@@ -151,10 +188,12 @@ func isRegistrationFunc(qualified string, cfg rtaThrowawayConfig) bool {
 		_, hit := cfg.registrationFuncs[qualified]
 		return hit
 	}
+
 	_, short, hasDot := strings.CutLast(qualified, ".")
 	if !hasDot {
 		short = qualified
 	}
+
 	return registerServerCallPattern.MatchString(short)
 }
 
@@ -171,28 +210,46 @@ type serverVarUsage struct {
 // ListenAndServe / ServeTLS / Shutdown / GracefulStop, is assigned to a
 // struct field, is sent on a channel, or is captured by a closure that
 // is launched via go or saved beyond the function scope.
-func classifyServerVarUsage(body *ast.BlockStmt, varName string, _ token.Pos, declEnd token.Pos, cfg rtaThrowawayConfig) serverVarUsage {
+func classifyServerVarUsage(
+	body *ast.BlockStmt,
+	varName string,
+	_ token.Pos,
+	declEnd token.Pos,
+	cfg rtaThrowawayConfig,
+) serverVarUsage {
 	usage := serverVarUsage{}
 	parents := buildParentMap(body)
-	ast.Inspect(body, func(node ast.Node) bool {
-		ident, ok := node.(*ast.Ident)
-		if !ok || ident.Name != varName {
+	ast.Inspect(
+		body,
+		func(node ast.Node) bool {
+			ident, ok := node.(*ast.Ident)
+			if !ok || ident.Name != varName {
+				return true
+			}
+
+			if ident.Pos() < declEnd {
+				return true
+			}
+
+			usage.recordReference(ident, parents, cfg)
+
 			return true
-		}
-		if ident.Pos() < declEnd {
-			return true
-		}
-		usage.recordReference(ident, parents, cfg)
-		return true
-	})
+		},
+	)
+
 	return usage
 }
 
-func (u *serverVarUsage) recordReference(ident *ast.Ident, parents map[ast.Node]ast.Node, cfg rtaThrowawayConfig) {
+func (u *serverVarUsage) recordReference(
+	ident *ast.Ident,
+	parents map[ast.Node]ast.Node,
+	cfg rtaThrowawayConfig,
+) {
 	parent := parents[ident]
 	if parent == nil {
 		return
 	}
+
 	switch p := parent.(type) {
 	case *ast.CallExpr:
 		u.recordCallReference(ident, p, parents, cfg)
@@ -211,36 +268,62 @@ func (u *serverVarUsage) recordReference(ident *ast.Ident, parents map[ast.Node]
 	}
 }
 
-func (u *serverVarUsage) recordCallReference(ident *ast.Ident, call *ast.CallExpr, parents map[ast.Node]ast.Node, cfg rtaThrowawayConfig) {
+func (u *serverVarUsage) recordCallReference(
+	ident *ast.Ident,
+	call *ast.CallExpr,
+	parents map[ast.Node]ast.Node,
+	cfg rtaThrowawayConfig,
+) {
 	qualified, qualifiedOK := qualifiedCallName(call)
 	if !qualifiedOK {
 		return
 	}
+
 	if isRegistrationFunc(qualified, cfg) && len(call.Args) > 0 && call.Args[0] == ident {
 		u.registered = true
 		return
 	}
+
 	_, short, hasDot := strings.CutLast(qualified, ".")
 	if !hasDot {
 		short = qualified
 	}
+
 	switch short {
-	case "Serve", "ListenAndServe", "ServeTLS", "ListenAndServeTLS", "Shutdown", "GracefulStop", "Stop":
+	case "Serve",
+		"ListenAndServe",
+		"ServeTLS",
+		"ListenAndServeTLS",
+		"Shutdown",
+		"GracefulStop",
+		"Stop":
 		if isReceiverOfCall(ident, call) {
 			u.servedOrReturned = true
 		}
 	}
+
 	_ = parents
 }
 
-func (u *serverVarUsage) recordSelectorReference(ident *ast.Ident, sel *ast.SelectorExpr, parents map[ast.Node]ast.Node) {
+func (u *serverVarUsage) recordSelectorReference(
+	ident *ast.Ident,
+	sel *ast.SelectorExpr,
+	parents map[ast.Node]ast.Node,
+) {
 	if sel.X != ident {
 		return
 	}
+
 	gp := parents[sel]
 	if call, ok := gp.(*ast.CallExpr); ok && call.Fun == sel {
 		switch sel.Sel.Name {
-		case "Serve", "ListenAndServe", "ServeTLS", "ListenAndServeTLS", "Shutdown", "GracefulStop", "Stop":
+		case "Serve",
+			"ListenAndServe",
+			"ServeTLS",
+			"ListenAndServeTLS",
+			"Shutdown",
+			"GracefulStop",
+			"Stop":
 			u.servedOrReturned = true
 		}
 	}
@@ -251,6 +334,7 @@ func isReceiverOfCall(ident *ast.Ident, call *ast.CallExpr) bool {
 	if !ok {
 		return false
 	}
+
 	return sel.X == ident
 }
 
@@ -260,6 +344,7 @@ func isStructFieldLHS(assign *ast.AssignStmt) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -274,8 +359,10 @@ func qualifiedCallName(call *ast.CallExpr) (string, bool) {
 		if recv, ok := fun.X.(*ast.Ident); ok {
 			return recv.Name + "." + fun.Sel.Name, true
 		}
+
 		return fun.Sel.Name, true
 	}
+
 	return "", false
 }
 
@@ -288,19 +375,23 @@ func csvFlagSet(fs *flag.FlagSet, name string) map[string]struct{} {
 	if fs == nil {
 		return out
 	}
+
 	f := fs.Lookup(name)
 	if f == nil {
 		return out
 	}
+
 	val := f.Value.String()
 	if val == "" {
 		return out
 	}
+
 	for item := range strings.SplitSeq(val, ",") {
 		trimmed := strings.TrimSpace(item)
 		if trimmed != "" {
 			out[trimmed] = struct{}{}
 		}
 	}
+
 	return out
 }

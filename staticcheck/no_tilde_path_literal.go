@@ -35,8 +35,10 @@ func runNoTildePathLiteral(pass *analysis.Pass) (any, error) {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		reportTildePathLiterals(pass, file)
 	}
+
 	return nil, nil
 }
 
@@ -49,50 +51,73 @@ func reportTildePathLiterals(pass *analysis.Pass, file *ast.File) {
 	if len(flagged) == 0 {
 		return
 	}
-	ast.Inspect(file, func(node ast.Node) bool {
-		lit, ok := node.(*ast.BasicLit)
-		if !ok || !flagged[lit] {
+
+	ast.Inspect(
+		file,
+		func(node ast.Node) bool {
+			lit, ok := node.(*ast.BasicLit)
+			if !ok || !flagged[lit] {
+				return true
+			}
+
+			value, _ := stringLiteral(lit)
+			reportAtf(
+				pass,
+				file,
+				lit.Pos(),
+				"hardcoded home directory %q; use os.UserHomeDir() or filepath.Join(homeDir, ...) since Go does not expand ~",
+				value,
+			)
+
 			return true
-		}
-		value, _ := stringLiteral(lit)
-		reportAtf(pass, file, lit.Pos(), "hardcoded home directory %q; use os.UserHomeDir() or filepath.Join(homeDir, ...) since Go does not expand ~", value)
-		return true
-	})
+		},
+	)
 }
 
 // markDirectPathArgTildes marks tilde literals that appear inside the argument
 // list of a path API call, including literals nested in composite argument
 // expressions such as string concatenation.
 func markDirectPathArgTildes(file *ast.File, flagged map[*ast.BasicLit]bool) {
-	ast.Inspect(file, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok || !isPathAPICall(call) {
+	ast.Inspect(
+		file,
+		func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok || !isPathAPICall(call) {
+				return true
+			}
+
+			for _, arg := range call.Args {
+				markTildeLiteralsIn(arg, flagged)
+			}
+
 			return true
-		}
-		for _, arg := range call.Args {
-			markTildeLiteralsIn(arg, flagged)
-		}
-		return true
-	})
+		},
+	)
 }
 
 // markLocalAssignedPathTildes marks a tilde literal that is assigned to a local
 // identifier and then passed, within the same function body, to a path API.
 func markLocalAssignedPathTildes(file *ast.File, flagged map[*ast.BasicLit]bool) {
-	ast.Inspect(file, func(node ast.Node) bool {
-		var body *ast.BlockStmt
-		switch fn := node.(type) {
-		case *ast.FuncDecl:
-			body = fn.Body
-		case *ast.FuncLit:
-			body = fn.Body
-		}
-		if body == nil {
+	ast.Inspect(
+		file,
+		func(node ast.Node) bool {
+			var body *ast.BlockStmt
+			switch fn := node.(type) {
+			case *ast.FuncDecl:
+				body = fn.Body
+			case *ast.FuncLit:
+				body = fn.Body
+			}
+
+			if body == nil {
+				return true
+			}
+
+			markLocalTildesInBody(body, flagged)
+
 			return true
-		}
-		markLocalTildesInBody(body, flagged)
-		return true
-	})
+		},
+	)
 }
 
 // markLocalTildesInBody resolves tilde-bound local identifiers in body and marks
@@ -102,35 +127,46 @@ func markLocalTildesInBody(body *ast.BlockStmt, flagged map[*ast.BasicLit]bool) 
 	if len(bindings) == 0 {
 		return
 	}
-	ast.Inspect(body, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok || !isPathAPICall(call) {
-			return true
-		}
-		for _, arg := range call.Args {
-			for _, name := range identNamesIn(arg) {
-				if lit, ok := bindings[name]; ok {
-					flagged[lit] = true
+
+	ast.Inspect(
+		body,
+		func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok || !isPathAPICall(call) {
+				return true
+			}
+
+			for _, arg := range call.Args {
+				for _, name := range identNamesIn(arg) {
+					if lit, ok := bindings[name]; ok {
+						flagged[lit] = true
+					}
 				}
 			}
-		}
-		return true
-	})
+
+			return true
+		},
+	)
 }
 
 // tildeLocalBindings maps each local identifier bound to a tilde literal (via
 // `:=`, `=`, or `var x = "~"`) to that literal, scanning the whole body.
 func tildeLocalBindings(body *ast.BlockStmt) map[string]*ast.BasicLit {
 	bindings := map[string]*ast.BasicLit{}
-	ast.Inspect(body, func(node ast.Node) bool {
-		switch stmt := node.(type) {
-		case *ast.AssignStmt:
-			collectTildeAssign(stmt, bindings)
-		case *ast.ValueSpec:
-			collectTildeValueSpec(stmt, bindings)
-		}
-		return true
-	})
+	ast.Inspect(
+		body,
+		func(node ast.Node) bool {
+			switch stmt := node.(type) {
+			case *ast.AssignStmt:
+				collectTildeAssign(stmt, bindings)
+			case *ast.ValueSpec:
+				collectTildeValueSpec(stmt, bindings)
+			}
+
+			return true
+		},
+	)
+
 	return bindings
 }
 
@@ -139,10 +175,12 @@ func collectTildeAssign(stmt *ast.AssignStmt, bindings map[string]*ast.BasicLit)
 		if index >= len(stmt.Rhs) {
 			return
 		}
+
 		ident, ok := lhs.(*ast.Ident)
 		if !ok || ident.Name == "_" {
 			continue
 		}
+
 		if lit, ok := tildeStringLiteral(stmt.Rhs[index]); ok {
 			bindings[ident.Name] = lit
 		}
@@ -154,6 +192,7 @@ func collectTildeValueSpec(spec *ast.ValueSpec, bindings map[string]*ast.BasicLi
 		if index >= len(spec.Values) || name.Name == "_" {
 			continue
 		}
+
 		if lit, ok := tildeStringLiteral(spec.Values[index]); ok {
 			bindings[name.Name] = lit
 		}
@@ -162,14 +201,18 @@ func collectTildeValueSpec(spec *ast.ValueSpec, bindings map[string]*ast.BasicLi
 
 // markTildeLiteralsIn marks every tilde literal found anywhere inside expr.
 func markTildeLiteralsIn(expr ast.Expr, flagged map[*ast.BasicLit]bool) {
-	ast.Inspect(expr, func(node ast.Node) bool {
-		if lit, ok := node.(*ast.BasicLit); ok {
-			if _, isTilde := tildeStringLiteral(lit); isTilde {
-				flagged[lit] = true
+	ast.Inspect(
+		expr,
+		func(node ast.Node) bool {
+			if lit, ok := node.(*ast.BasicLit); ok {
+				if _, isTilde := tildeStringLiteral(lit); isTilde {
+					flagged[lit] = true
+				}
 			}
-		}
-		return true
-	})
+
+			return true
+		},
+	)
 }
 
 // tildeStringLiteral returns the BasicLit when expr is a string literal whose
@@ -179,22 +222,29 @@ func tildeStringLiteral(expr ast.Expr) (*ast.BasicLit, bool) {
 	if !ok {
 		return nil, false
 	}
+
 	value, ok := stringLiteral(lit)
 	if !ok || !looksLikeTildeHomePath(value) {
 		return nil, false
 	}
+
 	return lit, true
 }
 
 // identNamesIn returns the names of every identifier in expr.
 func identNamesIn(expr ast.Expr) []string {
 	var names []string
-	ast.Inspect(expr, func(node ast.Node) bool {
-		if ident, ok := node.(*ast.Ident); ok {
-			names = append(names, ident.Name)
-		}
-		return true
-	})
+	ast.Inspect(
+		expr,
+		func(node ast.Node) bool {
+			if ident, ok := node.(*ast.Ident); ok {
+				names = append(names, ident.Name)
+			}
+
+			return true
+		},
+	)
+
 	return names
 }
 
@@ -205,10 +255,12 @@ func isPathAPICall(call *ast.CallExpr) bool {
 	if !ok {
 		return false
 	}
+
 	switch receiver {
 	case "os", "filepath", "exec", "ioutil":
 		return true
 	}
+
 	return false
 }
 
@@ -216,5 +268,6 @@ func looksLikeTildeHomePath(value string) bool {
 	if value == "~" {
 		return true
 	}
+
 	return strings.HasPrefix(value, "~/")
 }

@@ -13,7 +13,7 @@ import (
 
 // Run dispatches the source formatter or the registered analyzers.
 //
-// The formatting mode accepts the selected source files as positional arguments.
+// The formatting mode reads the selected source paths from the command line.
 //
 // Run formatting with:
 //

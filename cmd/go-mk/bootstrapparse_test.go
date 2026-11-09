@@ -30,6 +30,7 @@ func newConsumer(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("read bootstrap.mk: %v", err)
 	}
+
 	if err := os.WriteFile(filepath.Join(dir, "bootstrap.mk"), body, 0o644); err != nil {
 		t.Fatalf("write bootstrap.mk: %v", err)
 	}
@@ -39,18 +40,26 @@ func newConsumer(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("read scripts/go-mk-bootstrap.sh: %v", err)
 	}
+
 	if err := os.MkdirAll(filepath.Join(dir, ".make", "scripts"), 0o755); err != nil {
 		t.Fatalf("mkdir .make/scripts: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".make", "scripts", "go-mk-bootstrap.sh"), helperBody, 0o755); err != nil {
+
+	if err := os.WriteFile(
+		filepath.Join(dir, ".make", "scripts", "go-mk-bootstrap.sh"),
+		helperBody,
+		0o755,
+	); err != nil {
 		t.Fatalf("seed .make/scripts/go-mk-bootstrap.sh: %v", err)
 	}
+
 	seedTestEngine(t, dir)
 
 	makefile := "BINARY := probe\nCMD := ./cmd/probe\ninclude bootstrap.mk\n"
 	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0o644); err != nil {
 		t.Fatalf("write Makefile: %v", err)
 	}
+
 	return dir
 }
 
@@ -64,9 +73,11 @@ func runMake(t *testing.T, dir string, env map[string]string) (string, int) {
 	t.Helper()
 	seedTestEngine(t, dir)
 	environment := map[string]string{"GO_MK_BIN": filepath.Join(dir, ".make", "go-mk")}
+
 	for key, value := range env {
 		environment[key] = value
 	}
+
 	command := exec.Command("make", "-n", "help")
 	command.Dir = dir
 	command.Env = testProcessEnvironment(environment)
@@ -80,8 +91,10 @@ func runMake(t *testing.T, dir string, env map[string]string) (string, int) {
 		if !asExitError(err, &exitErr) {
 			t.Fatalf("run make: %v", err)
 		}
+
 		code = exitErr.ExitCode()
 	}
+
 	return combined.String(), code
 }
 
@@ -96,12 +109,16 @@ func runMakeWithCommandLineVars(t *testing.T, dir string, vars map[string]string
 	t.Helper()
 	seedTestEngine(t, dir)
 	arguments := []string{"-n", "help"}
+
 	for key, value := range vars {
 		arguments = append(arguments, key+"="+value)
 	}
+
 	command := exec.Command("make", arguments...)
 	command.Dir = dir
-	command.Env = testProcessEnvironment(map[string]string{"GO_MK_BIN": filepath.Join(dir, ".make", "go-mk")})
+	command.Env = testProcessEnvironment(map[string]string{
+		"GO_MK_BIN": filepath.Join(dir, ".make", "go-mk"),
+	})
 	var combined strings.Builder
 	command.Stdout = &combined
 	command.Stderr = &combined
@@ -112,8 +129,10 @@ func runMakeWithCommandLineVars(t *testing.T, dir string, vars map[string]string
 		if !asExitError(err, &exitErr) {
 			t.Fatalf("run make: %v", err)
 		}
+
 		code = exitErr.ExitCode()
 	}
+
 	return combined.String(), code
 }
 
@@ -127,26 +146,33 @@ func devDirTree(t *testing.T, marker string) string {
 	if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o755); err != nil {
 		t.Fatalf("mkdir dev scripts: %v", err)
 	}
+
 	for name, body := range helperFiles() {
 		if name == "go.mk" {
 			body = "help:\n\t@printf '" + marker + "\\n'\n"
 		}
+
 		if name == "scripts/go-mk-bootstrap.sh" {
 			helperBody, err := os.ReadFile(
-				filepath.Join(repoRootForTest(t), "scripts", "go-mk-bootstrap.sh"))
+				filepath.Join(repoRootForTest(t), "scripts", "go-mk-bootstrap.sh"),
+			)
 			if err != nil {
 				t.Fatalf("read helper: %v", err)
 			}
+
 			body = string(helperBody)
 		}
+
 		path := filepath.Join(dir, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatalf("mkdir for %s: %v", name, err)
 		}
+
 		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
+
 	return dir
 }
 
@@ -162,16 +188,28 @@ func TestDevDirHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
 	dir := newConsumer(t)
 	devDir := devDirTree(t, "from-dev-dir")
 
-	output, code := runMakeWithCommandLineVars(t, dir, map[string]string{
-		"GO_MK_DEV_DIR":       devDir,
-		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
-	})
+	output, code := runMakeWithCommandLineVars(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_DEV_DIR":       devDir,
+			"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		},
+	)
 	if code != 0 {
-		t.Fatalf("parse exit = %d with GO_MK_DEV_DIR set on the command line, want 0: %s", code, output)
+		t.Fatalf(
+			"parse exit = %d with GO_MK_DEV_DIR set on the command line, want 0: %s",
+			code,
+			output,
+		)
 	}
+
 	if !strings.Contains(output, "from-dev-dir") {
-		t.Fatalf("parse output = %q, want the dev tree's go.mk (marker \"from-dev-dir\"); "+
-			"the helper used upstream instead of the developer's checkout", output)
+		t.Fatalf(
+			"parse output = %q, want the dev tree's go.mk (marker \"from-dev-dir\"); "+
+				"the helper used upstream instead of the developer's checkout",
+			output,
+		)
 	}
 }
 
@@ -182,6 +220,7 @@ func TestDevDirHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
 // case the flag exists to serve.
 func TestProvisionedHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
 	dir := newConsumer(t)
+
 	for name, body := range helperFiles() {
 		// Leave the helper alone. newConsumer seeded .make with this
 		// checkout's real script, and helperFiles carries a stub that exits 0
@@ -191,19 +230,29 @@ func TestProvisionedHonoredWhenSetOnTheMakeCommandLine(t *testing.T) {
 		if name == "scripts/go-mk-bootstrap.sh" {
 			continue
 		}
+
 		if name == "go.mk" {
 			body = "help:\n\t@printf 'vendored\\n'\n"
 		}
+
 		writeAsset(t, dir, name, body)
 	}
 
-	output, code := runMakeWithCommandLineVars(t, dir, map[string]string{
-		"_GO_MK_PROVISIONED":  "1",
-		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
-	})
+	output, code := runMakeWithCommandLineVars(
+		t,
+		dir,
+		map[string]string{
+			"_GO_MK_PROVISIONED":  "1",
+			"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		},
+	)
 	if code != 0 {
-		t.Fatalf("parse exit = %d with _GO_MK_PROVISIONED=1 on the command line and a complete .make, "+
-			"want 0 (the flag must prevent every network access): %s", code, output)
+		t.Fatalf(
+			"parse exit = %d with _GO_MK_PROVISIONED=1 on the command line and a complete .make, "+
+				"want 0 (the flag must prevent every network access): %s",
+			code,
+			output,
+		)
 	}
 }
 
@@ -221,13 +270,16 @@ func consumerFiles(t *testing.T) map[string]string {
 	t.Helper()
 	files := helperFiles()
 	files["go.mk"] = "help:\n\t@printf 'stub help\\n'\n"
+
 	for _, asset := range []string{"scripts/go-mk-bootstrap.sh", "scripts/go-mk-bin.sh"} {
 		helperBody, err := os.ReadFile(filepath.Join(repoRootForTest(t), asset))
 		if err != nil {
 			t.Fatalf("read %s: %v", asset, err)
 		}
+
 		files[asset] = string(helperBody)
 	}
+
 	return files
 }
 
@@ -239,6 +291,7 @@ func TestOfflineParseDoesNotDestroyCachedAssets(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("warm parse exit = %d, want 0: %s", code, output)
 	}
+
 	before := readAsset(t, dir, "go.mk")
 	if before == "" {
 		t.Fatal("go.mk absent after the first parse")
@@ -248,8 +301,13 @@ func TestOfflineParseDoesNotDestroyCachedAssets(t *testing.T) {
 	_, _ = runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": "http://127.0.0.1:9"})
 
 	if after := readAsset(t, dir, "go.mk"); after != before {
-		t.Fatalf("go.mk = %q after an offline parse, want the cached body %q preserved", after, before)
+		t.Fatalf(
+			"go.mk = %q after an offline parse, want the cached body %q preserved",
+			after,
+			before,
+		)
 	}
+
 	if readAsset(t, dir, "golangci.yml") == "" {
 		t.Fatal("golangci.yml was destroyed by an offline parse")
 	}
@@ -263,41 +321,58 @@ func TestEngineInstallUsesTheTarballCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read go.mk: %v", err)
 	}
+
 	testCases := []struct {
 		name        string
 		commit      string
 		wantInstall string
 	}{
-		{name: "tarball with a commit", commit: tarballCommit, wantInstall: "goodkind.io/go-makefile/cmd/go-mk@" + tarballCommit},
-		{name: "tarball without a commit", commit: "", wantInstall: "goodkind.io/go-makefile/cmd/go-mk@main"},
+		{
+			name:        "tarball with a commit",
+			commit:      tarballCommit,
+			wantInstall: "goodkind.io/go-makefile/cmd/go-mk@" + tarballCommit,
+		},
+		{
+			name:        "tarball without a commit",
+			commit:      "",
+			wantInstall: "goodkind.io/go-makefile/cmd/go-mk@main",
+		},
 	}
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			files := consumerFiles(t)
-			files["go.mk"] = string(goMk)
-			server := newFetchServer(t, files)
-			server.SetCommitTree(testCase.commit, files)
-			dir := newConsumer(t)
-			makefile := "BINARY := probe\nCMD := ./cmd/probe\ninclude bootstrap.mk\n\n" +
-				"print-engine-install:\n\t@printf 'install=%s\\n' '$(GO_MK_INSTALL)'\n"
-			if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0o644); err != nil {
-				t.Fatalf("write Makefile: %v", err)
-			}
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				files := consumerFiles(t)
+				files["go.mk"] = string(goMk)
+				server := newFetchServer(t, files)
+				server.SetCommitTree(testCase.commit, files)
+				dir := newConsumer(t)
+				makefile := "BINARY := probe\nCMD := ./cmd/probe\ninclude bootstrap.mk\n\n" +
+					"print-engine-install:\n\t@printf 'install=%s\\n' '$(GO_MK_INSTALL)'\n"
+				if err := os.WriteFile(
+					filepath.Join(dir, "Makefile"),
+					[]byte(makefile),
+					0o644,
+				); err != nil {
+					t.Fatalf("write Makefile: %v", err)
+				}
 
-			command := exec.Command("make", "print-engine-install")
-			command.Dir = dir
-			command.Env = testProcessEnvironment(map[string]string{
-				"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-				"GO_MK_BIN":           filepath.Join(dir, ".make", "go-mk"),
-			})
-			output, err := command.CombinedOutput()
-			if err != nil {
-				t.Fatalf("make print-engine-install: %v\n%s", err, output)
-			}
-			if !strings.Contains(string(output), "install="+testCase.wantInstall+"\n") {
-				t.Fatalf("output lacks install=%s:\n%s", testCase.wantInstall, output)
-			}
-		})
+				command := exec.Command("make", "print-engine-install")
+				command.Dir = dir
+				command.Env = testProcessEnvironment(map[string]string{
+					"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+					"GO_MK_BIN":           filepath.Join(dir, ".make", "go-mk"),
+				})
+				output, err := command.CombinedOutput()
+				if err != nil {
+					t.Fatalf("make print-engine-install: %v\n%s", err, output)
+				}
+
+				if !strings.Contains(string(output), "install="+testCase.wantInstall+"\n") {
+					t.Fatalf("output lacks install=%s:\n%s", testCase.wantInstall, output)
+				}
+			},
+		)
 	}
 }
 
@@ -312,10 +387,12 @@ func TestProvisionedRejectsAnEmptyHelper(t *testing.T) {
 	if err := os.WriteFile(helperPath, nil, 0o755); err != nil {
 		t.Fatalf("truncate the cached helper: %v", err)
 	}
+
 	for name, body := range helperFiles() {
 		if name == "scripts/go-mk-bootstrap.sh" {
 			continue
 		}
+
 		if name == "go.mk" {
 			// A working go.mk with the target the parse asks for. Without it
 			// the parse dies on "No rule to make target help" whatever the
@@ -324,20 +401,33 @@ func TestProvisionedRejectsAnEmptyHelper(t *testing.T) {
 			// against the old $(wildcard) guard.
 			body = "help:\n\t@printf 'vendored help\\n'\n"
 		}
+
 		writeAsset(t, dir, name, body)
 	}
 
-	output, code := runMake(t, dir, map[string]string{
-		"_GO_MK_PROVISIONED":  "1",
-		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
-	})
+	output, code := runMake(
+		t,
+		dir,
+		map[string]string{
+			"_GO_MK_PROVISIONED":  "1",
+			"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		},
+	)
 	if code == 0 {
-		t.Fatalf("parse exit = 0 with an empty %s, want non-zero: an empty script exits 0, "+
-			"so the parse would continue with no engine provisioned\noutput: %s", helperPath, output)
+		t.Fatalf(
+			"parse exit = 0 with an empty %s, want non-zero: an empty script exits 0, "+
+				"so the parse would continue with no engine provisioned\noutput: %s",
+			helperPath,
+			output,
+		)
 	}
+
 	if !strings.Contains(output, "non-empty") {
-		t.Fatalf("parse failed but not on the helper guard, so this test would pass for an "+
-			"unrelated reason\noutput: %s", output)
+		t.Fatalf(
+			"parse failed but not on the helper guard, so this test would pass for an "+
+				"unrelated reason\noutput: %s",
+			output,
+		)
 	}
 }
 
@@ -355,13 +445,22 @@ func TestProvisionedZeroStillFetchesGolangci(t *testing.T) {
 		t.Fatalf("write Makefile: %v", err)
 	}
 
-	output, code := runMakeWithCommandLineVars(t, dir, map[string]string{
-		"_GO_MK_PROVISIONED": "0",
-	})
+	output, code := runMakeWithCommandLineVars(
+		t,
+		dir,
+		map[string]string{
+			"_GO_MK_PROVISIONED": "0",
+		},
+	)
 	if code != 0 {
-		t.Fatalf("parse exit = %d with _GO_MK_PROVISIONED=0 and no local golangci.yml, "+
-			"want 0 (0 is not provisioned, so go.mk must fetch): %s", code, output)
+		t.Fatalf(
+			"parse exit = %d with _GO_MK_PROVISIONED=0 and no local golangci.yml, "+
+				"want 0 (0 is not provisioned, so go.mk must fetch): %s",
+			code,
+			output,
+		)
 	}
+
 	if strings.Contains(output, "rerun without _GO_MK_PROVISIONED") {
 		t.Fatalf("go.mk treated _GO_MK_PROVISIONED=0 as provisioned:\n%s", output)
 	}
@@ -392,31 +491,46 @@ func TestDevDirHelperAcquisitionReplacesRatherThanOverwrites(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(devDir, "scripts"), 0o755); err != nil {
 		t.Fatalf("mkdir dev scripts: %v", err)
 	}
+
 	const devBody = "#!/usr/bin/env bash\n# dev dir helper that refuses to provision\nexit 1\n"
-	if err := os.WriteFile(filepath.Join(devDir, "scripts", "go-mk-bootstrap.sh"),
-		[]byte(devBody), 0o755); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(devDir, "scripts", "go-mk-bootstrap.sh"),
+		[]byte(devBody),
+		0o755,
+	); err != nil {
 		t.Fatalf("write dev helper: %v", err)
 	}
 
 	// The parse fails, which is the point: it stops after the acquisition and
 	// before any install.
-	runMake(t, dir, map[string]string{
-		"GO_MK_DEV_DIR":       devDir,
-		"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
-	})
+	runMake(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_DEV_DIR":       devDir,
+			"GO_MK_CODELOAD_BASE": unreachableCodeloadBase(t),
+		},
+	)
 
 	installed, err := os.ReadFile(helperPath)
 	if err != nil {
 		t.Fatalf("read the helper after acquisition: %v", err)
 	}
+
 	if string(installed) != devBody {
-		t.Fatalf("the dev helper was not installed (%q), so this test proves nothing about how it was installed",
-			string(installed))
+		t.Fatalf(
+			"the dev helper was not installed (%q), so this test proves nothing about how it was installed",
+			string(installed),
+		)
 	}
+
 	if inodeAfter := inodeOf(t, helperPath); inodeAfter == inodeBefore {
-		t.Fatalf("helper inode unchanged (%d) after the dev-dir acquisition replaced its body; "+
-			"the file was written through rather than replaced, so a concurrent parse executing "+
-			"it can read new content at an old offset", inodeBefore)
+		t.Fatalf(
+			"helper inode unchanged (%d) after the dev-dir acquisition replaced its body; "+
+				"the file was written through rather than replaced, so a concurrent parse executing "+
+				"it can read new content at an old offset",
+			inodeBefore,
+		)
 	}
 }
 
@@ -432,11 +546,14 @@ func TestOldBootstrapPrimePreservesCachedAssetsOffline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read go.mk: %v", err)
 	}
+
 	if err := os.MkdirAll(filepath.Join(dir, ".make", "scripts"), 0o755); err != nil {
 		t.Fatalf("mkdir .make/scripts: %v", err)
 	}
+
 	// A warm tree carrying exactly the assets the prime owns.
 	writeAsset(t, dir, "go.mk", string(realGoMk))
+
 	cached := map[string]string{
 		"scripts/go-mk-fetch-one.sh": "#!/usr/bin/env bash\n# cached fetch-one\nexit 0\n",
 		"scripts/go-mk-bin.sh":       "#!/usr/bin/env bash\n# cached bin\nexit 0\n",
@@ -450,11 +567,19 @@ func TestOldBootstrapPrimePreservesCachedAssetsOffline(t *testing.T) {
 	// A pre-helper bootstrap.mk: it never sets GO_MK_PROVISION, which is the
 	// condition that lets go.mk run its own prime.
 	oldBootstrap := "GO_MK := .make/go.mk\nGO_MK_BOOTSTRAP_FETCHED := 1\n-include $(GO_MK)\n"
-	if err := os.WriteFile(filepath.Join(dir, "bootstrap.mk"), []byte(oldBootstrap), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(dir, "bootstrap.mk"),
+		[]byte(oldBootstrap),
+		0o644,
+	); err != nil {
 		t.Fatalf("write old bootstrap.mk: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "Makefile"),
-		[]byte("BINARY := probe\ninclude bootstrap.mk\n"), 0o644); err != nil {
+
+	if err := os.WriteFile(
+		filepath.Join(dir, "Makefile"),
+		[]byte("BINARY := probe\ninclude bootstrap.mk\n"),
+		0o644,
+	); err != nil {
 		t.Fatalf("write Makefile: %v", err)
 	}
 
@@ -462,8 +587,13 @@ func TestOldBootstrapPrimePreservesCachedAssetsOffline(t *testing.T) {
 
 	for name, body := range cached {
 		if got := readAsset(t, dir, name); got != body {
-			t.Fatalf("%s = %q after an offline parse, want the cached body %q preserved: "+
-				"the prime deleted it before its replacement existed", name, got, body)
+			t.Fatalf(
+				"%s = %q after an offline parse, want the cached body %q preserved: "+
+					"the prime deleted it before its replacement existed",
+				name,
+				got,
+				body,
+			)
 		}
 	}
 }
@@ -472,12 +602,21 @@ func TestWarmParseIssuesOneRequestTotal(t *testing.T) {
 	server := newFetchServer(t, consumerFiles(t))
 	dir := newConsumer(t)
 
-	if output, code := runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()}); code != 0 {
+	if output, code := runMake(
+		t,
+		dir,
+		map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()},
+	); code != 0 {
 		t.Fatalf("cold parse exit = %d: %s", code, output)
 	}
+
 	coldRequests := len(server.Requests())
 
-	if output, code := runMake(t, dir, map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()}); code != 0 {
+	if output, code := runMake(
+		t,
+		dir,
+		map[string]string{"GO_MK_CODELOAD_BASE": server.CodeloadBase()},
+	); code != 0 {
 		t.Fatalf("warm parse exit = %d: %s", code, output)
 	}
 
@@ -485,6 +624,7 @@ func TestWarmParseIssuesOneRequestTotal(t *testing.T) {
 	if len(warmRequests) != 1 {
 		t.Fatalf("warm parse issued %d requests, want exactly 1", len(warmRequests))
 	}
+
 	if warmRequests[0].Status != 304 {
 		t.Fatalf("warm request status = %d, want 304", warmRequests[0].Status)
 	}
@@ -592,6 +732,7 @@ func TestOldBootstrapMkParsesWithCurrentGoMkAndNoGoMkProvision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read current go.mk: %v", err)
 	}
+
 	if err := os.WriteFile(filepath.Join(devDir, "go.mk"), goMkBody, 0o644); err != nil {
 		t.Fatalf("write go.mk into dev dir: %v", err)
 	}
@@ -600,6 +741,7 @@ func TestOldBootstrapMkParsesWithCurrentGoMkAndNoGoMkProvision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read current golangci.yml: %v", err)
 	}
+
 	if err := os.WriteFile(filepath.Join(devDir, "golangci.yml"), golangciBody, 0o644); err != nil {
 		t.Fatalf("write golangci.yml into dev dir: %v", err)
 	}
@@ -607,15 +749,21 @@ func TestOldBootstrapMkParsesWithCurrentGoMkAndNoGoMkProvision(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(devDir, "scripts"), 0o755); err != nil {
 		t.Fatalf("mkdir dev scripts dir: %v", err)
 	}
+
 	helper := filepath.Join(devDir, "scripts", "go-mk-bin.sh")
 	if err := copyFile(filepath.Join(repoRoot, "scripts", "go-mk-bin.sh"), helper); err != nil {
 		t.Fatalf("copy go-mk-bin.sh: %v", err)
 	}
 
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "bootstrap.mk"), []byte(oldBootstrapMkSnapshot), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(dir, "bootstrap.mk"),
+		[]byte(oldBootstrapMkSnapshot),
+		0o644,
+	); err != nil {
 		t.Fatalf("write old bootstrap.mk: %v", err)
 	}
+
 	makefile := "BINARY := probe\nCMD := ./cmd/probe\ninclude bootstrap.mk\n"
 	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0o644); err != nil {
 		t.Fatalf("write Makefile: %v", err)
@@ -623,7 +771,11 @@ func TestOldBootstrapMkParsesWithCurrentGoMkAndNoGoMkProvision(t *testing.T) {
 
 	output, code := runMake(t, dir, map[string]string{"GO_MK_DEV_DIR": devDir})
 	if code != 0 {
-		t.Fatalf("parse exit = %d, want 0 (old bootstrap.mk + current go.mk, GO_MK_PROVISION never set): %s", code, output)
+		t.Fatalf(
+			"parse exit = %d, want 0 (old bootstrap.mk + current go.mk, GO_MK_PROVISION never set): %s",
+			code,
+			output,
+		)
 	}
 }
 
@@ -650,31 +802,42 @@ func TestHelperAcquisitionBoundedWhenBootstrapURLStalls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read bootstrap.mk: %v", err)
 	}
+
 	if err := os.WriteFile(filepath.Join(dir, "bootstrap.mk"), body, 0o644); err != nil {
 		t.Fatalf("write bootstrap.mk: %v", err)
 	}
+
 	makefile := "BINARY := probe\nCMD := ./cmd/probe\ninclude bootstrap.mk\n"
 	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0o644); err != nil {
 		t.Fatalf("write Makefile: %v", err)
 	}
 
 	start := time.Now()
-	output, code := runMake(t, dir, map[string]string{
-		"GO_MK_BOOTSTRAP_BASE_URL": server.CodeloadBase(),
-	})
+	output, code := runMake(
+		t,
+		dir,
+		map[string]string{
+			"GO_MK_BOOTSTRAP_BASE_URL": server.CodeloadBase(),
+		},
+	)
 	elapsed := time.Since(start)
 	t.Logf("helper acquisition took %s against a stalled bootstrap URL", elapsed)
 
 	if code == 0 {
 		t.Fatalf("parse exit = 0, want non-zero against a stalled bootstrap URL: %s", output)
 	}
+
 	// Measured worst case is ~8s (2 attempts x ~3s speed-limit abort + 1
 	// retry delay x 2s), the same shape as provision()'s own bound. 15s
 	// gives margin for CI/host jitter while staying well clear of the
 	// ~30s+ an uncapped retry cascade against this fetch would cost.
 	const wallClockCeiling = 15 * time.Second
 	if elapsed > wallClockCeiling {
-		t.Fatalf("helper acquisition took %s against a stalled bootstrap URL, want under %s (a retried stall is not bounded)", elapsed, wallClockCeiling)
+		t.Fatalf(
+			"helper acquisition took %s against a stalled bootstrap URL, want under %s (a retried stall is not bounded)",
+			elapsed,
+			wallClockCeiling,
+		)
 	}
 }
 
@@ -683,6 +846,7 @@ func TestDeadCacheVariablesAreGone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read go.mk: %v", err)
 	}
+
 	for _, name := range []string{"GO_MK_URL", "GO_MK_CACHE_DIR", "GO_MK_CACHE "} {
 		if strings.Contains(string(body), name) {
 			t.Fatalf("go.mk still defines the unused variable %s", strings.TrimSpace(name))
@@ -692,6 +856,7 @@ func TestDeadCacheVariablesAreGone(t *testing.T) {
 
 func TestMoratoriumWordingIsGone(t *testing.T) {
 	root := repoRootForTest(t)
+
 	for _, relative := range []string{
 		"bootstrap.mk",
 		"cmd/go-mk/scaffold_assets/bootstrap.mk",
@@ -701,6 +866,7 @@ func TestMoratoriumWordingIsGone(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", relative, err)
 		}
+
 		if strings.Contains(strings.ToLower(string(body)), "moratorium") {
 			t.Fatalf("%s still references the moratorium", relative)
 		}
@@ -718,6 +884,7 @@ func TestOldBootstrapStillParsesWithNewGoMk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read go.mk: %v", err)
 	}
+
 	files["go.mk"] = string(realGoMk)
 	server := newFetchServer(t, files)
 
@@ -731,9 +898,14 @@ GO_MK_BOOTSTRAP_FETCHED := 1
 $(shell mkdir -p .make && curl -sS -o .make/snapshot.tar.gz "$(GO_MK_CODELOAD_BASE)/$(GO_MK_API_REPO)/tar.gz/$(GO_MK_API_REF)" && tar -xzf .make/snapshot.tar.gz -C .make --strip-components 1 2>/dev/null)
 -include $(GO_MK)
 `
-	if err := os.WriteFile(filepath.Join(dir, "bootstrap.mk"), []byte(oldBootstrap), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(dir, "bootstrap.mk"),
+		[]byte(oldBootstrap),
+		0o644,
+	); err != nil {
 		t.Fatalf("write old bootstrap.mk: %v", err)
 	}
+
 	makefile := "BINARY := probe\ninclude bootstrap.mk\n"
 	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0o644); err != nil {
 		t.Fatalf("write Makefile: %v", err)
@@ -743,9 +915,11 @@ $(shell mkdir -p .make && curl -sS -o .make/snapshot.tar.gz "$(GO_MK_CODELOAD_BA
 	if code != 0 {
 		t.Fatalf("mixed-version parse exit = %d, want 0: %s", code, output)
 	}
+
 	if readAsset(t, dir, "go.mk") == "" {
 		t.Fatal("go.mk absent after a mixed-version parse")
 	}
+
 	// Two requests must reach THIS server: the old bootstrap.mk fetching the
 	// archive itself, and go.mk's own _go_mk_prime running because
 	// GO_MK_PROVISION is unset. The second one is the point. While the prime
@@ -756,8 +930,12 @@ $(shell mkdir -p .make && curl -sS -o .make/snapshot.tar.gz "$(GO_MK_CODELOAD_BA
 	// Recipe validation parses the legacy bootstrap and adds one archive request.
 	requests := server.Requests()
 	if len(requests) != 3 {
-		t.Fatalf("server saw %d archive requests, want 3 from the outer bootstrap, its prime, and validation bootstrap", len(requests))
+		t.Fatalf(
+			"server saw %d archive requests, want 3 from the outer bootstrap, its prime, and validation bootstrap",
+			len(requests),
+		)
 	}
+
 	for index, request := range requests {
 		if want := "/agoodkind/go-makefile/tar.gz/main"; request.Path != want {
 			t.Fatalf("request %d path = %q, want %q", index, request.Path, want)
@@ -790,6 +968,7 @@ func TestGoMkSkipsItsOwnPrimeWhenHelperProvisioned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read go.mk: %v", err)
 	}
+
 	files["go.mk"] = string(realGoMk)
 	server := newFetchServer(t, files)
 	dir := newConsumer(t)
@@ -801,15 +980,23 @@ func TestGoMkSkipsItsOwnPrimeWhenHelperProvisioned(t *testing.T) {
 
 	const stub = "#!/usr/bin/env bash\nexit 0\n"
 	if got := readAsset(t, dir, "scripts/go-mk-fetch-one.sh"); got != stub {
-		t.Fatalf("scripts/go-mk-fetch-one.sh = %q, want the helper-provisioned stub %q preserved (go.mk's own prime must not run a second time)", got, stub)
+		t.Fatalf(
+			"scripts/go-mk-fetch-one.sh = %q, want the helper-provisioned stub %q preserved (go.mk's own prime must not run a second time)",
+			got,
+			stub,
+		)
 	}
+
 	// Content alone cannot detect the prime running, because the prime fetches
 	// from the same redirected server and reinstalls a byte-identical stub, so
 	// the assertion above passes either way. The request count is what
 	// distinguishes them: the helper's own provision is one request, and a
 	// prime that also runs adds a second.
 	if requests := server.Requests(); len(requests) != 1 {
-		t.Fatalf("server saw %d requests, want exactly 1: go.mk's prime ran in addition to the "+
-			"helper's provision, which is what GO_MK_PROVISION is supposed to prevent", len(requests))
+		t.Fatalf(
+			"server saw %d requests, want exactly 1: go.mk's prime ran in addition to the "+
+				"helper's provision, which is what GO_MK_PROVISION is supposed to prevent",
+			len(requests),
+		)
 	}
 }

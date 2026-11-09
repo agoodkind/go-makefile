@@ -16,7 +16,11 @@ func TestMakeFmtAppliesSourceRules(t *testing.T) {
 	}
 
 	writeConsumerFile(t, consumer, ".make/format.yml", string(settings))
-	writeConsumerFile(t, consumer, "widget/widget.go", `package widget
+	writeConsumerFile(
+		t,
+		consumer,
+		"widget/widget.go",
+		`package widget
 
 func sum(first, second int) int { return first + second }
 func message(first, second, third string) {}
@@ -28,8 +32,13 @@ func Apply(value int, callback func(int) int) int {
 if value < 0 { return 0 }
 return callback(value)
 }
-`)
-	arguments := []string{"fmt", "GOLANGCI_LINT_FLAGS=-c .make/format.yml", "GOLANGCI_FMT_FILES=widget/widget.go"}
+`,
+	)
+	arguments := []string{
+		"fmt",
+		"GOLANGCI_LINT_FLAGS=-c .make/format.yml",
+		"GOLANGCI_FMT_FILES=widget/widget.go",
+	}
 	output, err := runConsumerMake(consumer, arguments...)
 	if err != nil {
 		t.Fatalf("format consumer: %v\n%s", err, output)

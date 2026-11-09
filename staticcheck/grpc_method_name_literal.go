@@ -78,9 +78,13 @@ func newGrpcMethodNameLiteralAnalyzer() *analysis.Analyzer {
 		Doc:  "rejects bare string literals at call sites that expect a proto-generated gRPC _FullMethodName constant",
 		Run:  runGrpcMethodNameLiteral,
 	}
-	a.Flags.String("targets", "",
+	a.Flags.String(
+		"targets",
+		"",
 		"comma-separated list of target call sites; each entry is "+
-			"<pkg>.<Type>.<Method>:<argIndex> or <pkg>.<Function>:<argIndex>")
+			"<pkg>.<Type>.<Method>:<argIndex> or <pkg>.<Function>:<argIndex>",
+	)
+
 	return a
 }
 
@@ -100,54 +104,76 @@ func runGrpcMethodNameLiteral(pass *analysis.Pass) (any, error) {
 	if len(targets) == 0 {
 		return nil, nil
 	}
+
 	for _, file := range pass.Files {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
-		ast.Inspect(file, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
+
+		ast.Inspect(
+			file,
+			func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+
+				matched, target, ok := matchGrpcMethodNameTarget(pass, call, targets)
+				if !ok {
+					return true
+				}
+
+				if target.argIndex < 0 || target.argIndex >= len(call.Args) {
+					return true
+				}
+
+				arg := call.Args[target.argIndex]
+				lit, isLit := arg.(*ast.BasicLit)
+				if !isLit {
+					return true
+				}
+
+				if lit.Kind != token.STRING {
+					return true
+				}
+
+				value := lit.Value
+				unquoted, err := strconv.Unquote(value)
+				if err == nil {
+					value = unquoted
+				}
+
+				reportAtf(
+					pass,
+					file,
+					lit.Pos(),
+					"[GRPCMETHOD001] grpc method name should be a proto-generated _FullMethodName constant; got bare string literal %q at %s argument index %d",
+					value,
+					matched,
+					target.argIndex,
+				)
+
 				return true
-			}
-			matched, target, ok := matchGrpcMethodNameTarget(pass, call, targets)
-			if !ok {
-				return true
-			}
-			if target.argIndex < 0 || target.argIndex >= len(call.Args) {
-				return true
-			}
-			arg := call.Args[target.argIndex]
-			lit, isLit := arg.(*ast.BasicLit)
-			if !isLit {
-				return true
-			}
-			if lit.Kind != token.STRING {
-				return true
-			}
-			value := lit.Value
-			unquoted, err := strconv.Unquote(value)
-			if err == nil {
-				value = unquoted
-			}
-			reportAtf(pass, file, lit.Pos(),
-				"[GRPCMETHOD001] grpc method name should be a proto-generated _FullMethodName constant; got bare string literal %q at %s argument index %d",
-				value, matched, target.argIndex)
-			return true
-		})
+			},
+		)
 	}
+
 	return nil, nil
 }
 
 func loadGrpcMethodNameTargets(a *analysis.Analyzer) []grpcMethodNameTarget {
 	raw := csvFlagSet(&a.Flags, "targets")
+
 	targets := make([]grpcMethodNameTarget, 0, len(raw))
 	for entry := range raw {
 		target, ok := parseGrpcMethodNameTarget(entry)
 		if !ok {
 			continue
 		}
+
 		targets = append(targets, target)
 	}
+
 	return targets
 }
 
@@ -166,19 +192,23 @@ func parseGrpcMethodNameTarget(entry string) (grpcMethodNameTarget, bool) {
 	if !hasColon {
 		return grpcMethodNameTarget{}, false
 	}
+
 	argIndex, err := strconv.Atoi(tail)
 	if err != nil || argIndex < 0 {
 		return grpcMethodNameTarget{}, false
 	}
+
 	dirPart, lastSegment, hasSlash := splitGrpcMethodNameHead(head)
 	if !hasSlash {
 		lastSegment = head
 	}
+
 	parts := strings.Split(lastSegment, ".")
 	pkgPrefix := ""
 	if hasSlash {
 		pkgPrefix = dirPart + "/"
 	}
+
 	switch len(parts) {
 	case 2:
 		return grpcMethodNameTarget{
@@ -194,6 +224,7 @@ func parseGrpcMethodNameTarget(entry string) (grpcMethodNameTarget, bool) {
 			argIndex: argIndex,
 		}, true
 	}
+
 	return grpcMethodNameTarget{}, false
 }
 
@@ -209,6 +240,7 @@ func splitGrpcMethodNameHead(head string) (string, string, bool) {
 	if !hasSlash {
 		return "", head, false
 	}
+
 	return directory, segment, true
 }
 
@@ -217,21 +249,29 @@ func splitGrpcMethodNameHead(head string) (string, string, bool) {
 // the matched target, and ok=true. Resolution prefers TypesInfo. When
 // TypesInfo is unavailable (e.g. parse-only callers), the matcher
 // degrades gracefully and returns ok=false rather than guessing.
-func matchGrpcMethodNameTarget(pass *analysis.Pass, call *ast.CallExpr, targets []grpcMethodNameTarget) (string, grpcMethodNameTarget, bool) {
+func matchGrpcMethodNameTarget(
+	pass *analysis.Pass,
+	call *ast.CallExpr,
+	targets []grpcMethodNameTarget,
+) (string, grpcMethodNameTarget, bool) {
 	if pass.TypesInfo == nil {
 		return "", grpcMethodNameTarget{}, false
 	}
+
 	pkgPath, typeName, funcName, ok := resolveCallIdentity(pass, call)
 	if !ok {
 		return "", grpcMethodNameTarget{}, false
 	}
+
 	for _, target := range targets {
 		if target.funcName != funcName {
 			continue
 		}
+
 		if target.pkgPath != pkgPath {
 			continue
 		}
+
 		if target.isMethod() {
 			if typeName == "" || !typeNameMatches(typeName, target.typeName) {
 				continue
@@ -239,12 +279,15 @@ func matchGrpcMethodNameTarget(pass *analysis.Pass, call *ast.CallExpr, targets 
 		} else if typeName != "" {
 			continue
 		}
+
 		display := target.pkgPath + "." + funcName
 		if target.isMethod() {
 			display = target.pkgPath + "." + target.typeName + "." + funcName
 		}
+
 		return display, target, true
 	}
+
 	return "", grpcMethodNameTarget{}, false
 }
 
@@ -261,6 +304,7 @@ func resolveCallIdentity(pass *analysis.Pass, call *ast.CallExpr) (string, strin
 	case *ast.SelectorExpr:
 		return resolveSelectorCall(pass, fun)
 	}
+
 	return "", "", "", false
 }
 
@@ -269,17 +313,23 @@ func resolveIdentCall(pass *analysis.Pass, ident *ast.Ident) (string, string, st
 	if !ok {
 		return "", "", "", false
 	}
+
 	return identityFromFuncObject(fnObj)
 }
 
-func resolveSelectorCall(pass *analysis.Pass, sel *ast.SelectorExpr) (string, string, string, bool) {
+func resolveSelectorCall(
+	pass *analysis.Pass,
+	sel *ast.SelectorExpr,
+) (string, string, string, bool) {
 	if selection := pass.TypesInfo.Selections[sel]; selection != nil {
 		return identityFromSelection(selection)
 	}
+
 	fnObj, ok := lookupFuncObject(pass, sel.Sel)
 	if !ok {
 		return "", "", "", false
 	}
+
 	return identityFromFuncObject(fnObj)
 }
 
@@ -287,14 +337,17 @@ func identityFromSelection(selection *types.Selection) (string, string, string, 
 	if selection.Kind() != types.MethodVal && selection.Kind() != types.MethodExpr {
 		return "", "", "", false
 	}
+
 	fnObj, ok := selection.Obj().(*types.Func)
 	if !ok || fnObj.Pkg() == nil {
 		return "", "", "", false
 	}
+
 	recvName, recvOK := receiverTypeBaseName(selection.Recv())
 	if !recvOK {
 		return "", "", "", false
 	}
+
 	return fnObj.Pkg().Path(), recvName, fnObj.Name(), true
 }
 
@@ -303,14 +356,17 @@ func identityFromFuncObject(fnObj *types.Func) (string, string, string, bool) {
 	if !ok {
 		return "", "", "", false
 	}
+
 	recv := sig.Recv()
 	if recv == nil {
 		return fnObj.Pkg().Path(), "", fnObj.Name(), true
 	}
+
 	recvName, recvOK := receiverTypeBaseName(recv.Type())
 	if !recvOK {
 		return "", "", "", false
 	}
+
 	return fnObj.Pkg().Path(), recvName, fnObj.Name(), true
 }
 
@@ -319,10 +375,12 @@ func lookupFuncObject(pass *analysis.Pass, ident *ast.Ident) (*types.Func, bool)
 	if obj == nil {
 		obj = pass.TypesInfo.Defs[ident]
 	}
+
 	fnObj, ok := obj.(*types.Func)
 	if !ok || fnObj.Pkg() == nil {
 		return nil, false
 	}
+
 	return fnObj, true
 }
 
@@ -335,16 +393,20 @@ func receiverTypeBaseName(t types.Type) (string, bool) {
 	if t == nil {
 		return "", false
 	}
+
 	if ptr, ok := t.(*types.Pointer); ok {
 		t = ptr.Elem()
 	}
+
 	named, ok := t.(*types.Named)
 	if !ok {
 		return "", false
 	}
+
 	if obj := named.Obj(); obj != nil {
 		return obj.Name(), true
 	}
+
 	return "", false
 }
 

@@ -49,8 +49,10 @@ func newCheckModel(title string, width int, checks []check) *checkModel {
 	for index, current := range checks {
 		steps[index] = stepView{name: current.name}
 	}
+
 	spin := spinner.New()
 	spin.Spinner = spinner.MiniDot
+
 	return &checkModel{title: title, width: width, steps: steps, spinner: spin}
 }
 
@@ -68,12 +70,14 @@ func (m *checkModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.steps[message.index].done = true
 			m.steps[message.index].result = message.result
 		}
+
 		return m, nil
 	case runFinishedMsg:
 		return m, tea.Quit
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(message)
+
 		return m, cmd
 	default:
 		return m, nil
@@ -87,11 +91,13 @@ func (m *checkModel) View() tea.View {
 	var builder strings.Builder
 	builder.WriteString(m.title)
 	builder.WriteString("\n\n")
+
 	running := m.firstPendingIndex()
 	for index, step := range m.steps {
 		builder.WriteString(strings.TrimRight(m.row(index, step, running), " "))
 		builder.WriteString("\n")
 	}
+
 	return tea.NewView(strings.TrimRight(builder.String(), "\n"))
 }
 
@@ -101,9 +107,11 @@ func (m *checkModel) row(index int, step stepView, running int) string {
 	if step.done {
 		return report.StepRow(m.width, step.result)
 	}
+
 	if index == running {
 		return report.Row(m.width, step.name, m.spinner.View())
 	}
+
 	return report.Row(m.width, step.name, "")
 }
 
@@ -115,6 +123,7 @@ func (m *checkModel) firstPendingIndex() int {
 			return index
 		}
 	}
+
 	return -1
 }
 
@@ -143,21 +152,31 @@ func runChecksTUI(title string, checks []check) int {
 			if r := recover(); r != nil {
 				slog.Error("build-check progress runner panicked", slog.Any("err", r))
 			}
+
 			safeSend(program, runFinishedMsg(status))
 			done <- status
 		}()
-		status = executeChecks(checks, func(index int, result report.StepResult) {
-			results[index] = result
-			safeSend(program, gateDoneMsg{index: index, result: result})
-		})
+		status = executeChecks(
+			checks,
+			func(index int, result report.StepResult) {
+				results[index] = result
+				safeSend(program, gateDoneMsg{index: index, result: result})
+			},
+		)
 	}()
 	_, err := program.Run()
 	status := <-done
 	if err != nil {
-		writeStdout(report.Render(report.Report{Title: title, Steps: results}))
+		writeStdout(
+			report.Render(report.Report{
+				Title: title,
+				Steps: results,
+			}),
+		)
 	} else {
 		writeStdout(checkCompletionDetails(results))
 	}
+
 	return status
 }
 
@@ -165,13 +184,13 @@ func runChecksTUI(title string, checks []check) int {
 // table has settled. Omitting status rows keeps each check visible once.
 func checkCompletionDetails(results []report.StepResult) string {
 	var builder strings.Builder
+
 	for _, result := range results {
 		builder.WriteString(report.FindingsBlock(result))
 	}
-	builder.WriteString(report.Footer(
-		failedStepNames(results),
-		advisoryStepCount(results),
-	))
+
+	builder.WriteString(report.Footer(failedStepNames(results), advisoryStepCount(results)))
+
 	return builder.String()
 }
 

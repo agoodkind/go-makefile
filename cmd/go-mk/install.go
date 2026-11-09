@@ -57,25 +57,32 @@ func runInstall() int {
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	if reuseSatisfied("install", cfg) {
 		writeStdout("install    reused (no build input changed)\n")
 		return 0
 	}
+
 	if code := runBuildGateFunc(); code != 0 {
 		return code
 	}
+
 	if code := runAcrossPlatforms(func() int {
 		if err := buildAll(cfg); err != nil {
 			return statusFromError(err)
 		}
+
 		return 0
 	}); code != 0 {
 		return code
 	}
+
 	if err := installAll(cfg); err != nil {
 		return statusFromError(err)
 	}
+
 	recordReuse("install", cfg)
+
 	return 0
 }
 
@@ -87,22 +94,28 @@ func runBuild() int {
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	if reuseSatisfied("build", cfg) {
 		writeStdout("build      reused (no build input changed)\n")
 		return 0
 	}
+
 	if code := runBuildGateFunc(); code != 0 {
 		return code
 	}
+
 	if code := runAcrossPlatforms(func() int {
 		if err := buildAll(cfg); err != nil {
 			return statusFromError(err)
 		}
+
 		return 0
 	}); code != 0 {
 		return code
 	}
+
 	recordReuse("build", cfg)
+
 	return 0
 }
 
@@ -113,11 +126,13 @@ func runUninstall() int {
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	for _, bin := range cfg.bins {
 		if err := uninstallOne(bin); err != nil {
 			return statusFromError(err)
 		}
 	}
+
 	return 0
 }
 
@@ -128,22 +143,27 @@ func loadInstallConfig() (installConfig, error) {
 	if mainPkg == "" {
 		mainPkg = "."
 	}
+
 	installDir := strings.TrimSpace(os.Getenv("INSTALL_DIR"))
 	if installDir == "" {
 		installDir = defaultInstallDir()
 	}
+
 	distDir := strings.TrimSpace(os.Getenv("DIST_DIR"))
 	if distDir == "" {
 		distDir = "dist"
 	}
+
 	bins, err := parseInstallBins(os.Getenv("INSTALL_BINS"), binary, mainPkg, installDir)
 	if err != nil {
 		return installConfig{}, err
 	}
+
 	timestamp := strings.TrimSpace(os.Getenv("CODESIGN_TIMESTAMP"))
 	if timestamp == "" {
 		timestamp = "none"
 	}
+
 	return installConfig{
 		bins:                 bins,
 		distDir:              distDir,
@@ -166,6 +186,7 @@ func defaultInstallDir() string {
 	if xdg := strings.TrimSpace(os.Getenv("XDG_BIN_HOME")); xdg != "" {
 		return xdg
 	}
+
 	return filepath.Join(os.Getenv("HOME"), ".local", "bin")
 }
 
@@ -180,21 +201,27 @@ func parseInstallBins(text, binary, mainPkg, installDir string) ([]binSpec, erro
 		if binary == "" {
 			return nil, errInstallNoBinary
 		}
+
 		return []binSpec{{name: binary, mainPkg: mainPkg, dir: installDir}}, nil
 	}
+
 	entries := strings.Fields(text)
+
 	bins := make([]binSpec, 0, len(entries))
 	for _, entry := range entries {
 		parts := strings.SplitN(entry, ":", 3)
 		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 			return nil, &installBinError{entry: entry}
 		}
+
 		dir := installDir
 		if len(parts) == 3 && strings.TrimSpace(parts[2]) != "" {
 			dir = parts[2]
 		}
+
 		bins = append(bins, binSpec{name: parts[0], mainPkg: parts[1], dir: dir})
 	}
+
 	return bins, nil
 }
 
@@ -204,20 +231,25 @@ func buildAll(cfg installConfig) error {
 	if err := os.MkdirAll(cfg.distDir, 0o755); err != nil {
 		return err
 	}
+
 	signed := 0
+
 	for _, bin := range cfg.bins {
 		didSign, err := buildOne(cfg, bin)
 		if err != nil {
 			return err
 		}
+
 		if didSign {
 			signed++
 		}
 	}
+
 	if signed > 0 {
 		slog.Info("install signed binaries", slog.Int("count", signed))
 		writeStdout("codesign   ok\n")
 	}
+
 	return nil
 }
 
@@ -232,14 +264,17 @@ func buildOne(cfg installConfig, bin binSpec) (bool, error) {
 	if cfg.buildTags != "" {
 		args = append(args, "-tags", cfg.buildTags)
 	}
+
 	if cfg.ldflags != "" {
 		args = append(args, "-ldflags", cfg.ldflags)
 	}
+
 	args = append(args, cfg.extraFlags...)
 	args = append(args, "-o", out, bin.mainPkg)
 	if err := runProcess("go", args, compilePlatformEnv()); err != nil {
 		return false, err
 	}
+
 	return signBinary(cfg, out)
 }
 
@@ -251,6 +286,7 @@ func compilePlatformEnv() []string {
 	if activePlatform.goos == "" {
 		return nil
 	}
+
 	env := []string{
 		"GOOS=" + activePlatform.goos,
 		"GOARCH=" + activePlatform.goarch,
@@ -259,6 +295,7 @@ func compilePlatformEnv() []string {
 	if crossTarget && strings.TrimSpace(os.Getenv("GO_MK_CC")) == "" {
 		env = append(env, "CGO_ENABLED=0")
 	}
+
 	return env
 }
 
@@ -268,9 +305,11 @@ func compileGOOS() string {
 	if activePlatform.goos != "" {
 		return activePlatform.goos
 	}
+
 	if goos := strings.TrimSpace(os.Getenv("GOOS")); goos != "" {
 		return goos
 	}
+
 	return runtime.GOOS
 }
 
@@ -278,20 +317,31 @@ func installAll(cfg installConfig) error {
 	if err := runInstallHookFunc("pre", cfg.installPreCommand); err != nil {
 		return err
 	}
+
 	var installErr error
+
 	for _, bin := range cfg.bins {
 		if err := installOneFunc(cfg, bin); err != nil {
 			installErr = err
 			break
 		}
 	}
+
 	if err := runInstallHookFunc("post", cfg.installPostCommand); err != nil {
 		if installErr != nil {
-			slog.Error("install post hook failed after install failure", "install_err", installErr, "err", err)
+			slog.Error(
+				"install post hook failed after install failure",
+				"install_err",
+				installErr,
+				"err",
+				err,
+			)
 			return errors.Join(installErr, err)
 		}
+
 		return err
 	}
+
 	return installErr
 }
 
@@ -299,7 +349,9 @@ func runInstallHook(label string, command string) error {
 	if command == "" {
 		return nil
 	}
+
 	slog.Info("install hook", slog.String("hook", label))
+
 	return runProcess("sh", []string{"-c", command}, nil)
 }
 
@@ -314,28 +366,38 @@ func signBinary(cfg installConfig, bin string) (bool, error) {
 	if compileGOOS() != "darwin" {
 		return false, nil
 	}
+
 	if runtime.GOOS != "darwin" {
 		return false, nil
 	}
+
 	if cfg.codesignIdentity == "" {
 		return false, errNoCodesignIdentity
 	}
+
 	args := []string{
-		"--force", "--sign", cfg.codesignIdentity,
-		"--identifier", cfg.bundleID,
-		"--options", "runtime",
+		"--force",
+		"--sign",
+		cfg.codesignIdentity,
+		"--identifier",
+		cfg.bundleID,
+		"--options",
+		"runtime",
 		"--timestamp=" + cfg.codesignTimestamp,
 	}
 	if cfg.codesignEntitlements != "" {
 		args = append(args, "--entitlements", cfg.codesignEntitlements)
 	}
+
 	args = append(args, bin)
 	if err := runProcess("codesign", args, nil); err != nil {
 		return false, err
 	}
+
 	if err := runProcess("codesign", []string{"--verify", bin}, nil); err != nil {
 		return false, err
 	}
+
 	return true, nil
 }
 
@@ -351,12 +413,15 @@ func installOne(cfg installConfig, bin binSpec) error {
 		if err := os.MkdirAll(bin.dir, 0o755); err != nil {
 			return err
 		}
+
 		return atomicInstall(src, target)
 	}
+
 	slog.Info("install via sudo", slog.String("dir", bin.dir), slog.String("name", bin.name))
 	if err := runProcess("sudo", []string{"install", "-d", bin.dir}, nil); err != nil {
 		return err
 	}
+
 	return runProcess("sudo", []string{"install", "-m", "0755", src, target}, nil)
 }
 
@@ -369,8 +434,10 @@ func uninstallOne(bin binSpec) error {
 		if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
 			return err
 		}
+
 		return nil
 	}
+
 	return runProcess("sudo", []string{"rm", "-f", target}, nil)
 }
 
@@ -383,30 +450,38 @@ func atomicInstall(src, target string) error {
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = source.Close() }()
 	temporary, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+".new")
 	if err != nil {
 		return err
 	}
+
 	temporaryName := temporary.Name()
 	if _, err := io.Copy(temporary, source); err != nil {
 		_ = temporary.Close()
 		_ = os.Remove(temporaryName)
+
 		return err
 	}
+
 	if err := temporary.Chmod(0o755); err != nil {
 		_ = temporary.Close()
 		_ = os.Remove(temporaryName)
+
 		return err
 	}
+
 	if err := temporary.Close(); err != nil {
 		_ = os.Remove(temporaryName)
 		return err
 	}
+
 	if err := os.Rename(temporaryName, target); err != nil {
 		_ = os.Remove(temporaryName)
 		return err
 	}
+
 	return nil
 }
 
@@ -417,23 +492,29 @@ func atomicInstall(src, target string) error {
 func dirWritable(dir string) bool {
 	slog.Info("install probe writable", slog.String("dir", dir))
 	existing := dir
+
 	for {
 		if _, err := os.Stat(existing); err == nil {
 			break
 		}
+
 		parent := filepath.Dir(existing)
 		if parent == existing {
 			return false
 		}
+
 		existing = parent
 	}
+
 	probe, err := os.CreateTemp(existing, ".gomk-write-test")
 	if err != nil {
 		return false
 	}
+
 	probeName := probe.Name()
 	_ = probe.Close()
 	_ = os.Remove(probeName)
+
 	return true
 }
 

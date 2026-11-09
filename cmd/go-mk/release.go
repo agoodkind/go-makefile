@@ -72,6 +72,7 @@ func (binary releaseBinary) buildsFor(platform string) bool {
 	if binary.platforms == "" {
 		return true
 	}
+
 	return slices.Contains(strings.Fields(binary.platforms), platform)
 }
 
@@ -83,13 +84,16 @@ func (binary releaseBinary) buildEnv(platformEnv []string) []string {
 	if !binary.cgo {
 		return platformEnv
 	}
+
 	env := make([]string, 0, len(platformEnv)+1)
 	for _, entry := range platformEnv {
 		if strings.HasPrefix(entry, "CGO_ENABLED=") {
 			continue
 		}
+
 		env = append(env, entry)
 	}
+
 	return append(env, "CGO_ENABLED=1")
 }
 
@@ -114,7 +118,9 @@ func runRelease() int {
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	stage := releaseStage(strings.TrimSpace(os.Getenv("RELEASE_STAGE")))
+
 	return statusFromError(runReleaseStage(stage, cfg))
 }
 
@@ -169,13 +175,16 @@ func emitReleaseTag(cfg releaseConfig) error {
 	if outputPath == "" {
 		return nil
 	}
+
 	slog.Info("release emit tag", slog.String("tag", cfg.tag))
 	file, err := os.OpenFile(outputPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = file.Close() }()
 	_, err = file.WriteString("tag=" + cfg.tag + "\n")
+
 	return err
 }
 
@@ -190,14 +199,17 @@ func compileStage(cfg releaseConfig) error {
 	if err := os.MkdirAll(cfg.distDir, 0o755); err != nil {
 		return err
 	}
+
 	if err := checkReleaseCgoStub(cfg); err != nil {
 		return err
 	}
+
 	for _, platform := range cfg.platforms {
 		if err := buildPlatform(cfg, platform); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -211,10 +223,13 @@ func packageStage(cfg releaseConfig) error {
 	if err := os.MkdirAll(cfg.distDir, 0o755); err != nil {
 		return err
 	}
+
 	if err := signDarwinBinaries(cfg); err != nil {
 		return err
 	}
+
 	_, err := archivePlatforms(cfg)
+
 	return err
 }
 
@@ -226,6 +241,7 @@ func buildStage(cfg releaseConfig) error {
 	if err := compileStage(cfg); err != nil {
 		return err
 	}
+
 	return packageStage(cfg)
 }
 
@@ -237,15 +253,19 @@ func publishStage(cfg releaseConfig) error {
 	if err != nil {
 		return err
 	}
+
 	bundles, err := distProvenanceBundles(cfg.distDir)
 	if err != nil {
 		return err
 	}
+
 	checksums, err := writeChecksums(cfg, archives)
 	if err != nil {
 		return err
 	}
+
 	assets := slices.Concat(archives, bundles, []string{checksums})
+
 	return publishRelease(cfg, assets)
 }
 
@@ -256,7 +276,9 @@ func distArchives(distDir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	sort.Strings(matches)
+
 	return matches, nil
 }
 
@@ -265,7 +287,9 @@ func distProvenanceBundles(distDir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	sort.Strings(matches)
+
 	return matches, nil
 }
 
@@ -275,20 +299,24 @@ func loadReleaseConfig() (releaseConfig, error) {
 	if binary == "" {
 		return releaseConfig{}, fmt.Errorf("release: BINARY is not set")
 	}
+
 	mainPkg := strings.TrimSpace(os.Getenv("CMD"))
 	if mainPkg == "" {
 		mainPkg = "."
 	}
+
 	binaries, err := parseReleaseBinaries(binary, mainPkg, os.Getenv("RELEASE_BINS"))
 	if err != nil {
 		return releaseConfig{}, err
 	}
+
 	primaryBinary := binaries[0]
 	platformsText := strings.TrimSpace(os.Getenv("RELEASE_PLATFORMS"))
 	// A release job sets `RELEASE_PLATFORMS` to its one platform.
 	if platformsText == "" {
 		platformsText = strings.Join(declaredPlatforms(), " ")
 	}
+
 	distDir := strings.TrimSpace(os.Getenv("DIST_DIR"))
 	if distDir == "" {
 		distDir = "dist"
@@ -298,6 +326,7 @@ func loadReleaseConfig() (releaseConfig, error) {
 	if err != nil {
 		return releaseConfig{}, err
 	}
+
 	targetSHA := strings.TrimSpace(os.Getenv("GITHUB_SHA"))
 	if targetSHA == "" {
 		targetSHA, err = gitOutput("rev-parse", "HEAD")
@@ -311,6 +340,7 @@ func loadReleaseConfig() (releaseConfig, error) {
 	if runNumber == "" {
 		runNumber = "0"
 	}
+
 	hexRun := runNumber
 	if parsed, convErr := strconv.ParseInt(runNumber, 10, 64); convErr == nil {
 		hexRun = strconv.FormatInt(parsed, 16)
@@ -327,6 +357,7 @@ func loadReleaseConfig() (releaseConfig, error) {
 	if stable {
 		tag = refName
 	}
+
 	// The matrix tag job computes the timestamp tag once and threads it to every
 	// build and publish job through RELEASE_TAG so each native runner agrees on
 	// one tag; a stable v-tag is already identical across runners.
@@ -352,52 +383,72 @@ func loadReleaseConfig() (releaseConfig, error) {
 	}, nil
 }
 
-func parseReleaseBinaries(binary string, mainPkg string, releaseBinsText string) ([]releaseBinary, error) {
+func parseReleaseBinaries(
+	binary string,
+	mainPkg string,
+	releaseBinsText string,
+) ([]releaseBinary, error) {
 	fields := strings.Fields(releaseBinsText)
 	if len(fields) == 0 {
 		return []releaseBinary{{name: binary, mainPkg: mainPkg}}, nil
 	}
+
 	binaries := make([]releaseBinary, 0, len(fields))
 	for _, field := range fields {
 		parts := strings.Split(field, ":")
 		if len(parts) != 2 && len(parts) != 3 {
-			return nil, fmt.Errorf("release: malformed RELEASE_BINS entry %q (want name:cmd[:opts])", field)
+			return nil, fmt.Errorf(
+				"release: malformed RELEASE_BINS entry %q (want name:cmd[:opts])",
+				field,
+			)
 		}
+
 		name := strings.TrimSpace(parts[0])
 		mainPackage := strings.TrimSpace(parts[1])
 		if name == "" || mainPackage == "" {
-			return nil, fmt.Errorf("release: malformed RELEASE_BINS entry %q (want name:cmd[:opts])", field)
+			return nil, fmt.Errorf(
+				"release: malformed RELEASE_BINS entry %q (want name:cmd[:opts])",
+				field,
+			)
 		}
+
 		entry := releaseBinary{name: name, mainPkg: mainPackage}
 		if len(parts) == 3 {
 			parsed, err := parseReleaseBinaryOptions(entry, field, parts[2])
 			if err != nil {
 				return nil, err
 			}
+
 			entry = parsed
 		}
+
 		binaries = append(binaries, entry)
 	}
+
 	// RELEASE_BINS is the full set of binaries the release ships, not an
 	// addition to BINARY. Require it to include the primary BINARY so an
 	// incomplete list cannot silently drop the primary binary, and move the
 	// primary to the front so entry order never changes which binary titles
 	// the GitHub release.
 	primaryIndex := -1
+
 	for index, candidate := range binaries {
 		if candidate.name == binary {
 			primaryIndex = index
 			break
 		}
 	}
+
 	if primaryIndex < 0 {
 		return nil, fmt.Errorf("release: RELEASE_BINS must include the primary binary %q", binary)
 	}
+
 	if primaryIndex > 0 {
 		primary := binaries[primaryIndex]
 		binaries = append(binaries[:primaryIndex], binaries[primaryIndex+1:]...)
 		binaries = append([]releaseBinary{primary}, binaries...)
 	}
+
 	return binaries, nil
 }
 
@@ -419,18 +470,28 @@ const (
 // os/arch targets. platforms may repeat to list several targets. An unknown key
 // is an error so a typo fails the release instead of silently building the
 // wrong artifact.
-func parseReleaseBinaryOptions(entry releaseBinary, field string, optionsText string) (releaseBinary, error) {
+func parseReleaseBinaryOptions(
+	entry releaseBinary,
+	field string,
+	optionsText string,
+) (releaseBinary, error) {
 	platforms := make([]string, 0, 2)
+
 	for _, option := range strings.Split(optionsText, ",") {
 		option = strings.TrimSpace(option)
 		if option == "" {
 			continue
 		}
+
 		key, value, ok := strings.Cut(option, "=")
 		if !ok {
 			return releaseBinary{}, fmt.Errorf(
-				"release: malformed RELEASE_BINS option %q in entry %q (want key=value)", option, field)
+				"release: malformed RELEASE_BINS option %q in entry %q (want key=value)",
+				option,
+				field,
+			)
 		}
+
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 		switch releaseBinaryOption(key) {
@@ -439,15 +500,23 @@ func parseReleaseBinaryOptions(entry releaseBinary, field string, optionsText st
 		case releaseBinaryOptionPlatforms:
 			if value == "" {
 				return releaseBinary{}, fmt.Errorf(
-					"release: empty platforms value in RELEASE_BINS entry %q", field)
+					"release: empty platforms value in RELEASE_BINS entry %q",
+					field,
+				)
 			}
+
 			platforms = append(platforms, value)
 		default:
 			return releaseBinary{}, fmt.Errorf(
-				"release: unknown RELEASE_BINS option %q in entry %q (want cgo or platforms)", key, field)
+				"release: unknown RELEASE_BINS option %q in entry %q (want cgo or platforms)",
+				key,
+				field,
+			)
 		}
 	}
+
 	entry.platforms = strings.Join(platforms, " ")
+
 	return entry, nil
 }
 
@@ -459,6 +528,7 @@ func envTruthy(value string) bool {
 		"on":   {},
 	}
 	_, ok := truthyValues[strings.ToLower(strings.TrimSpace(value))]
+
 	return ok
 }
 
@@ -474,25 +544,31 @@ func executeRelease(cfg releaseConfig) error {
 	if err := os.MkdirAll(cfg.distDir, 0o755); err != nil {
 		return err
 	}
+
 	if err := checkReleaseCgoStub(cfg); err != nil {
 		return err
 	}
+
 	for _, platform := range cfg.platforms {
 		if err := buildPlatform(cfg, platform); err != nil {
 			return err
 		}
 	}
+
 	if err := signDarwinBinaries(cfg); err != nil {
 		return err
 	}
+
 	archives, err := archivePlatforms(cfg)
 	if err != nil {
 		return err
 	}
+
 	checksums, err := writeChecksums(cfg, archives)
 	if err != nil {
 		return err
 	}
+
 	return publishRelease(cfg, append(archives, checksums))
 }
 
@@ -506,29 +582,50 @@ func buildPlatform(cfg releaseConfig, platform string) error {
 	if !ok {
 		return fmt.Errorf("release: malformed platform %q (want os/arch)", platform)
 	}
+
 	pkgConfigDir, err := provisionCgoDeps(osName, arch)
 	if err != nil {
 		return err
 	}
+
 	env := buildPlatformEnv(osName, arch, pkgConfigDir, os.Getenv("PKG_CONFIG_PATH"))
+
 	for _, binary := range releaseBinaries(cfg) {
 		if !binary.buildsFor(platform) {
 			continue
 		}
+
 		if err := buildReleaseBinary(cfg, binary, osName, arch, binary.buildEnv(env)); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
-func buildReleaseBinary(cfg releaseConfig, binary releaseBinary, osName string, arch string, env []string) error {
+func buildReleaseBinary(
+	cfg releaseConfig,
+	binary releaseBinary,
+	osName string,
+	arch string,
+	env []string,
+) error {
 	outDir := filepath.Join(cfg.distDir, fmt.Sprintf("%s_%s_%s", binary.name, osName, arch))
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err
 	}
+
 	outPath := filepath.Join(outDir, binary.name)
-	args := []string{"build", "-trimpath", "-ldflags", releaseLdflags(cfg), "-o", outPath, binary.mainPkg}
+	args := []string{
+		"build",
+		"-trimpath",
+		"-ldflags",
+		releaseLdflags(cfg),
+		"-o",
+		outPath,
+		binary.mainPkg,
+	}
+
 	return runProcess("go", args, env)
 }
 
@@ -558,18 +655,29 @@ func provisionCgoDeps(osName, arch string) (string, error) {
 	if strings.TrimSpace(os.Getenv("GO_MK_CGO_DEPS")) == "" {
 		return "", nil
 	}
+
 	workDir, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
+
 	prefix := cgoPrefixForTarget(workDir, osName, arch)
 	pkgConfigDir := filepath.Join(prefix, "lib", "pkgconfig")
 	cacheKey := strings.TrimSpace(os.Getenv("GO_MK_CGO_CACHE_KEY"))
 	if cgoDepsCacheRestored(prefix, pkgConfigDir, cacheKey) {
-		slog.Info("release skip cgo deps from restored cache", slog.String("goos", osName), slog.String("goarch", arch))
+		slog.Info(
+			"release skip cgo deps from restored cache",
+			slog.String("goos", osName),
+			slog.String("goarch", arch),
+		)
 		return pkgConfigDir, nil
 	}
-	slog.Info("release provision cgo deps", slog.String("goos", osName), slog.String("goarch", arch))
+
+	slog.Info(
+		"release provision cgo deps",
+		slog.String("goos", osName),
+		slog.String("goarch", arch),
+	)
 	env := []string{
 		"GO_MK_TARGET_GOOS=" + osName,
 		"GO_MK_TARGET_GOARCH=" + arch,
@@ -581,9 +689,11 @@ func provisionCgoDeps(osName, arch string) (string, error) {
 	if err := releaseRunProcess("make", []string{cgoDepsTarget}, env); err != nil {
 		return "", err
 	}
+
 	if err := writeCgoDepsCacheStamp(prefix, cacheKey); err != nil {
 		return "", err
 	}
+
 	return pkgConfigDir, nil
 }
 
@@ -591,20 +701,25 @@ func cgoDepsCacheRestored(prefix, pkgConfigDir, cacheKey string) bool {
 	if strings.TrimSpace(os.Getenv("GO_MK_CGO_CACHE_HIT")) != "true" {
 		return false
 	}
+
 	if cacheKey == "" {
 		return false
 	}
+
 	stamp, err := os.ReadFile(filepath.Join(prefix, cgoCacheStampFile))
 	if err != nil {
 		return false
 	}
+
 	// Trim surrounding whitespace so a stamp with a trailing newline (for
 	// example one rewritten by a shell script) still compares equal and does
 	// not force an unnecessary cold rebuild.
 	if strings.TrimSpace(string(stamp)) != cacheKey {
 		return false
 	}
+
 	info, err := os.Stat(pkgConfigDir)
+
 	return err == nil && info.IsDir()
 }
 
@@ -613,16 +728,20 @@ func writeCgoDepsCacheStamp(prefix, cacheKey string) error {
 	if cacheKey == "" {
 		return nil
 	}
+
 	info, err := os.Stat(prefix)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
+
 		return err
 	}
+
 	if !info.IsDir() {
 		return nil
 	}
+
 	return os.WriteFile(filepath.Join(prefix, cgoCacheStampFile), []byte(cacheKey), 0o644)
 }
 
@@ -638,9 +757,11 @@ func crossCompilerEnv() []string {
 	if cc := strings.TrimSpace(os.Getenv("GO_MK_CC")); cc != "" {
 		env = append(env, "CC="+cc)
 	}
+
 	if cxx := strings.TrimSpace(os.Getenv("GO_MK_CXX")); cxx != "" {
 		env = append(env, "CXX="+cxx)
 	}
+
 	return env
 }
 
@@ -656,10 +777,12 @@ func buildPlatformEnv(osName, arch, pkgConfigDir, inheritedPkgConfigPath string)
 	if pkgConfigDir == "" {
 		return env
 	}
+
 	pkgConfigPath := pkgConfigDir
 	if strings.TrimSpace(inheritedPkgConfigPath) != "" {
 		pkgConfigPath = pkgConfigDir + string(os.PathListSeparator) + inheritedPkgConfigPath
 	}
+
 	return append(env, "PKG_CONFIG_PATH="+pkgConfigPath)
 }
 
@@ -672,6 +795,7 @@ func cgoEnabledValue() string {
 	if value := strings.TrimSpace(os.Getenv("CGO_ENABLED")); value != "" {
 		return value
 	}
+
 	return "0"
 }
 
@@ -681,22 +805,35 @@ func cgoEnabledValue() string {
 func releaseLdflags(cfg releaseConfig) string {
 	parts := []string{"-s", "-w"}
 	if cfg.versionPkg != "" {
-		parts = append(parts,
-			"-X", cfg.versionPkg+".Version="+cfg.tag,
-			"-X", cfg.versionPkg+".Commit="+cfg.shortSHA,
-			"-X", cfg.versionPkg+".Dirty=false",
-			"-X", cfg.versionPkg+".BuildTime="+cfg.buildTime,
+		parts = append(
+			parts,
+			"-X",
+			cfg.versionPkg+".Version="+cfg.tag,
+			"-X",
+			cfg.versionPkg+".Commit="+cfg.shortSHA,
+			"-X",
+			cfg.versionPkg+".Dirty=false",
+			"-X",
+			cfg.versionPkg+".BuildTime="+cfg.buildTime,
 		)
 	}
+
 	if cfg.gklogPkg != "" {
-		parts = append(parts,
-			"-X", cfg.gklogPkg+".Version="+cfg.tag,
-			"-X", cfg.gklogPkg+".Commit="+cfg.shortSHA,
-			"-X", cfg.gklogPkg+".Dirty=false",
-			"-X", cfg.gklogPkg+".BuildTime="+cfg.buildTime,
-			"-X", cfg.gklogPkg+".BinHash=",
+		parts = append(
+			parts,
+			"-X",
+			cfg.gklogPkg+".Version="+cfg.tag,
+			"-X",
+			cfg.gklogPkg+".Commit="+cfg.shortSHA,
+			"-X",
+			cfg.gklogPkg+".Dirty=false",
+			"-X",
+			cfg.gklogPkg+".BuildTime="+cfg.buildTime,
+			"-X",
+			cfg.gklogPkg+".BinHash=",
 		)
 	}
+
 	return strings.Join(parts, " ")
 }
 
@@ -708,6 +845,7 @@ func hasDarwinPlatform(platforms []string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -718,32 +856,44 @@ func signDarwinBinaries(cfg releaseConfig) error {
 	if !hasDarwinPlatform(cfg.platforms) {
 		return nil
 	}
+
 	if strings.TrimSpace(os.Getenv("QUILL_SIGN_P12")) == "" {
 		if cfg.requireDarwinCodesign {
 			return fmt.Errorf("release: darwin signing required but QUILL_SIGN_P12 is unset")
 		}
+
 		slog.Info("release skip signing", slog.String("reason", "QUILL_SIGN_P12 unset"))
+
 		return nil
 	}
+
 	quill, err := resolveQuill()
 	if err != nil {
 		return err
 	}
+
 	for _, platform := range cfg.platforms {
 		osName, arch, ok := strings.Cut(platform, "/")
 		if !ok || osName != "darwin" {
 			continue
 		}
+
 		for _, binary := range releaseBinaries(cfg) {
 			if !binary.buildsFor(platform) {
 				continue
 			}
-			bin := filepath.Join(cfg.distDir, fmt.Sprintf("%s_%s_%s", binary.name, osName, arch), binary.name)
+
+			bin := filepath.Join(
+				cfg.distDir,
+				fmt.Sprintf("%s_%s_%s", binary.name, osName, arch),
+				binary.name,
+			)
 			if err := signAndNotarizeDarwinBinary(quill, bin, cfg.entitlements); err != nil {
 				return err
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -752,16 +902,20 @@ func signAndNotarizeDarwinBinary(quill string, bin string, entitlements string) 
 	if entitlements != "" {
 		args = append(args, "--entitlements", entitlements)
 	}
+
 	var lastErr error
+
 	for attempt := 1; attempt <= darwinSignAttempts; attempt++ {
 		err := releaseRunProcess(quill, args, nil)
 		if err == nil {
 			return nil
 		}
+
 		lastErr = err
 		if attempt == darwinSignAttempts {
 			break
 		}
+
 		slog.Warn(
 			"release darwin sign-and-notarize failed; retrying",
 			slog.Int("attempt", attempt),
@@ -771,6 +925,7 @@ func signAndNotarizeDarwinBinary(quill string, bin string, entitlements string) 
 		)
 		releaseSleep(darwinSignRetryInterval)
 	}
+
 	return lastErr
 }
 
@@ -780,14 +935,17 @@ func resolveQuill() (string, error) {
 	if path, err := exec.LookPath("quill"); err == nil {
 		return path, nil
 	}
+
 	gopath, err := goEnvPath("GOPATH")
 	if err != nil {
 		return "", err
 	}
+
 	candidate := filepath.Join(gopath, "bin", "quill")
 	if _, statErr := os.Stat(candidate); statErr != nil {
 		return "", fmt.Errorf("release: quill not found on PATH or in %s", candidate)
 	}
+
 	return candidate, nil
 }
 
@@ -799,30 +957,39 @@ func archivePlatforms(cfg releaseConfig) ([]string, error) {
 	if _, err := os.Stat("README.md"); err == nil {
 		readme = "README.md"
 	}
+
 	binaries := releaseBinaries(cfg)
+
 	archives := make([]string, 0, len(cfg.platforms)*len(binaries))
 	for _, platform := range cfg.platforms {
 		osName, arch, ok := strings.Cut(platform, "/")
 		if !ok {
 			return nil, fmt.Errorf("release: malformed platform %q", platform)
 		}
+
 		for _, binary := range binaries {
 			if !binary.buildsFor(platform) {
 				continue
 			}
+
 			name := fmt.Sprintf("%s_%s_%s", binary.name, osName, arch)
 			dir := filepath.Join(cfg.distDir, name)
 			archivePath := filepath.Join(cfg.distDir, name+".tar.gz")
-			members := []tarMember{{source: filepath.Join(dir, binary.name), name: binary.name, mode: 0o755}}
+			members := []tarMember{
+				{source: filepath.Join(dir, binary.name), name: binary.name, mode: 0o755},
+			}
 			if readme != "" {
 				members = append(members, tarMember{source: readme, name: "README.md", mode: 0o644})
 			}
+
 			if err := writeTarGz(archivePath, members); err != nil {
 				return nil, err
 			}
+
 			archives = append(archives, archivePath)
 		}
 	}
+
 	return archives, nil
 }
 
@@ -830,13 +997,16 @@ func releaseBinaries(cfg releaseConfig) []releaseBinary {
 	if len(cfg.binaries) > 0 {
 		return cfg.binaries
 	}
+
 	if cfg.binary == "" {
 		return nil
 	}
+
 	mainPackage := cfg.mainPkg
 	if mainPackage == "" {
 		mainPackage = "."
 	}
+
 	return []releaseBinary{{name: cfg.binary, mainPkg: mainPackage}}
 }
 
@@ -854,17 +1024,21 @@ func writeTarGz(path string, members []tarMember) error {
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = file.Close() }()
 	gzipWriter := gzip.NewWriter(file)
 	tarWriter := tar.NewWriter(gzipWriter)
+
 	for _, member := range members {
 		if err := writeTarMember(tarWriter, member); err != nil {
 			return err
 		}
 	}
+
 	if err := tarWriter.Close(); err != nil {
 		return err
 	}
+
 	return gzipWriter.Close()
 }
 
@@ -874,11 +1048,14 @@ func writeTarMember(tarWriter *tar.Writer, member tarMember) error {
 	if err != nil {
 		return err
 	}
+
 	header := &tar.Header{Name: member.name, Mode: member.mode, Size: int64(len(content))}
 	if err := tarWriter.WriteHeader(header); err != nil {
 		return err
 	}
+
 	_, err = tarWriter.Write(content)
+
 	return err
 }
 
@@ -886,18 +1063,26 @@ func writeTarMember(tarWriter *tar.Writer, member tarMember) error {
 // like sha256sum output, and returns its path.
 func writeChecksums(cfg releaseConfig, archives []string) (string, error) {
 	checksumsPath := filepath.Join(cfg.distDir, "checksums.txt")
-	slog.Info("release checksums", slog.String("path", checksumsPath), slog.Int("archives", len(archives)))
+	slog.Info(
+		"release checksums",
+		slog.String("path", checksumsPath),
+		slog.Int("archives", len(archives)),
+	)
 	builder := strings.Builder{}
+
 	for _, archive := range archives {
 		sum, err := sha256File(archive)
 		if err != nil {
 			return "", err
 		}
+
 		fmt.Fprintf(&builder, "%s  %s\n", sum, filepath.Base(archive))
 	}
+
 	if err := os.WriteFile(checksumsPath, []byte(builder.String()), 0o644); err != nil {
 		return "", err
 	}
+
 	return checksumsPath, nil
 }
 
@@ -907,11 +1092,13 @@ func sha256File(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	defer func() { _ = file.Close() }()
 	digest := sha256.New()
 	if _, err := io.Copy(digest, file); err != nil {
 		return "", err
 	}
+
 	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 
@@ -922,9 +1109,13 @@ func sha256File(path string) (string, error) {
 // reuses the v-tag that already triggered the run.
 func publishRelease(cfg releaseConfig, assets []string) error {
 	args := []string{
-		"release", "create", cfg.tag,
-		"--target", cfg.targetSHA,
-		"--title", cfg.binary + " " + cfg.tag,
+		"release",
+		"create",
+		cfg.tag,
+		"--target",
+		cfg.targetSHA,
+		"--title",
+		cfg.binary + " " + cfg.tag,
 		"--generate-notes",
 	}
 	if cfg.prerelease {
@@ -932,7 +1123,9 @@ func publishRelease(cfg releaseConfig, assets []string) error {
 	} else {
 		args = append(args, "--latest")
 	}
+
 	args = append(args, assets...)
+
 	return runProcess("gh", args, nil)
 }
 
@@ -947,6 +1140,7 @@ func runProcess(name string, args []string, extraEnv []string) error {
 	if len(extraEnv) > 0 {
 		cmd.Env = append(os.Environ(), extraEnv...)
 	}
+
 	return cmd.Run()
 }
 
@@ -962,5 +1156,6 @@ func loggedGitOutput(message string, args ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	return strings.TrimSpace(string(out)), nil
 }

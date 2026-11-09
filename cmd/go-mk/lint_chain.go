@@ -36,13 +36,16 @@ func runLintChain() int {
 	if logsummary.ParseMode(os.Getenv("GO_MK_LOG")) == logsummary.ModeDebug {
 		return runLintChainRaw()
 	}
+
 	if err := prepareChecks(false); err != nil {
 		return statusFromError(err)
 	}
+
 	status := runChecks("lint", gateChecks())
 	if status == 0 {
 		return 0
 	}
+
 	return status
 }
 
@@ -65,6 +68,7 @@ func gateRunners() map[string]func() int {
 // runner, so a misconfigured gate list is visible instead of silently skipped.
 func unknownGateStep(gateName string) report.StepResult {
 	slog.Warn("lint encountered unknown gate", slog.String("gate", gateName))
+
 	return report.StepResult{
 		Name:     gateName,
 		Status:   report.StatusFailed,
@@ -80,14 +84,17 @@ func runLintChainRaw() int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+
 	clearFailedGateFile()
 	if err := runLintTools(); err != nil {
 		return statusFromError(err)
 	}
+
 	runners := gateRunners()
 	gateList := splitWords(lintEnvDefault("LINT_GATES", defaultLintGates))
 
 	status := 0
+
 	for _, gateName := range gateList {
 		writeStdout("lint: running " + gateName + "\n")
 		runner, ok := runners[gateName]
@@ -96,14 +103,18 @@ func runLintChainRaw() int {
 			status = 1
 			continue
 		}
+
 		if code := runAcrossPlatforms(runner); code != 0 {
 			status = code
 		}
 	}
+
 	if status == 0 {
 		return 0
 	}
+
 	printFailedSummary(filepath.Join(makeDir, "lint.failed"))
+
 	return status
 }
 
@@ -119,26 +130,40 @@ func clearFailedGateFile() {
 // gateStep turns one gate's marker (or, as a fallback, its exit status and
 // captured output) into a StepResult. The gate's detection is untouched: a
 // failing gate's findings come straight from the marker, formatted for display.
-func gateStep(gateName string, marker report.GateMarker, found bool, status int, rest []string) report.StepResult {
+func gateStep(
+	gateName string,
+	marker report.GateMarker,
+	found bool,
+	status int,
+	rest []string,
+) report.StepResult {
 	if found {
 		if marker.Passed {
 			return report.StepResult{Name: gateName, Status: report.StatusOK}
 		}
+
 		resultStatus := report.StatusFailed
 		if gateName == "lint-deadcode" {
 			resultStatus = report.StatusAdvisory
 		}
+
 		return report.StepResult{
-			Name:        gateName,
-			Status:      resultStatus,
-			Note:        fmt.Sprintf("%d new finding%s", len(marker.Findings), findingPlural(len(marker.Findings))),
+			Name:   gateName,
+			Status: resultStatus,
+			Note: fmt.Sprintf(
+				"%d new finding%s",
+				len(marker.Findings),
+				findingPlural(len(marker.Findings)),
+			),
 			Findings:    formatFindings(marker.Findings),
 			Remediation: marker.Remediation,
 		}
 	}
+
 	if status == 0 {
 		return report.StepResult{Name: gateName, Status: report.StatusOK}
 	}
+
 	return report.StepResult{
 		Name:     gateName,
 		Status:   report.StatusFailed,
@@ -154,6 +179,7 @@ func formatFindings(raw []string) []string {
 		rendered := strings.TrimSuffix(findings.Print(finding, "", ""), "\n")
 		out = append(out, strings.Split(rendered, "\n")...)
 	}
+
 	return out
 }
 
@@ -162,6 +188,7 @@ func findingPlural(count int) string {
 	if count == 1 {
 		return ""
 	}
+
 	return "s"
 }
 
@@ -172,10 +199,12 @@ func splitOutputLines(text string) []string {
 	if text == "" {
 		return []string{}
 	}
+
 	trimmed := strings.TrimSuffix(text, "\n")
 	if trimmed == "" {
 		return []string{""}
 	}
+
 	return strings.Split(trimmed, "\n")
 }
 
@@ -188,8 +217,10 @@ func printFailedSummary(failedPath string) {
 		failed := lint.DedupeFailedGates(lines)
 		writeStdout("\nlint: FAILED\n")
 		writeStdout("  Failed gates: " + strings.Join(failed, ", ") + "\n")
+
 		return
 	}
+
 	writeStdout("\nlint: FAILED\n")
 	writeStdout("  Failed gates: see failed target output above\n")
 }

@@ -40,26 +40,33 @@ func runInstaller(ctx context.Context, args []string, stdout io.Writer, stderr i
 		fmt.Fprintf(stderr, "go-mk-install: %v\n", err)
 		return 1
 	}
-	result, err := installReleaseBinaryFunc(ctx, selfupdate.InstallReleaseBinaryOptions{
-		Options: selfupdateOptions(options),
-		Version: options.version,
-		Channel: selfupdate.ReleaseChannelRolling,
-		BinDir:  options.binDir,
-	})
+
+	result, err := installReleaseBinaryFunc(
+		ctx,
+		selfupdate.InstallReleaseBinaryOptions{
+			Options: selfupdateOptions(options),
+			Version: options.version,
+			Channel: selfupdate.ReleaseChannelRolling,
+			BinDir:  options.binDir,
+		},
+	)
 	if err != nil {
 		fmt.Fprintf(stderr, "go-mk-install: %v\n", err)
 		return 1
 	}
+
 	fmt.Fprintf(stdout, "installed: %s\n", result.InstallPath)
 	fmt.Fprintf(stdout, "tag: %s\n", result.Tag)
 	fmt.Fprintf(stdout, "asset: %s\n", result.AssetName)
 	if len(options.postInstallArgs) == 0 {
 		return 0
 	}
+
 	if err := execInstalledBinaryFunc(result.InstallPath, options.postInstallArgs); err != nil {
 		fmt.Fprintf(stderr, "go-mk-install: %v\n", err)
 		return 1
 	}
+
 	return 0
 }
 
@@ -69,25 +76,42 @@ func parseInstallerOptions(args []string, stderr io.Writer) (installerOptions, e
 	flagSet.SetOutput(stderr)
 	flagSet.StringVar(&options.repo, "repo", "", "GitHub repository in OWNER/NAME form")
 	flagSet.StringVar(&options.binary, "binary", "", "release binary name")
-	flagSet.StringVar(&options.binDir, "bin-dir", options.binDir, "directory to install the binary into")
+	flagSet.StringVar(
+		&options.binDir,
+		"bin-dir",
+		options.binDir,
+		"directory to install the binary into",
+	)
 	flagSet.StringVar(&options.version, "version", "", "exact release tag to install")
-	flagSet.Int64Var(&options.maxDownloadBytes, "max-download-bytes", 0,
-		"reject a release asset larger than this many bytes; 0 uses the default")
-	flagSet.Int64Var(&options.maxBinaryBytes, "max-binary-bytes", 0,
-		"reject an unpacked binary larger than this many bytes; 0 uses the default")
+	flagSet.Int64Var(
+		&options.maxDownloadBytes,
+		"max-download-bytes",
+		0,
+		"reject a release asset larger than this many bytes; 0 uses the default",
+	)
+	flagSet.Int64Var(
+		&options.maxBinaryBytes,
+		"max-binary-bytes",
+		0,
+		"reject an unpacked binary larger than this many bytes; 0 uses the default",
+	)
 	if err := flagSet.Parse(args); err != nil {
 		return installerOptions{}, err
 	}
+
 	options.postInstallArgs = append([]string{}, flagSet.Args()...)
 	if strings.TrimSpace(options.repo) == "" {
 		return installerOptions{}, fmt.Errorf("--repo is required")
 	}
+
 	if strings.TrimSpace(options.binary) == "" {
 		return installerOptions{}, fmt.Errorf("--binary is required")
 	}
+
 	if strings.TrimSpace(options.binDir) == "" {
 		return installerOptions{}, fmt.Errorf("--bin-dir is required")
 	}
+
 	return options, nil
 }
 
@@ -96,6 +120,7 @@ func selfupdateOptions(options installerOptions) selfupdate.Options {
 	if token == "" {
 		token = strings.TrimSpace(os.Getenv("GH_TOKEN"))
 	}
+
 	return selfupdate.Options{
 		Config: selfupdate.Config{
 			Repo:             options.repo,
@@ -111,9 +136,11 @@ func defaultInstallerBinDir() string {
 	if xdgBinHome := strings.TrimSpace(os.Getenv("XDG_BIN_HOME")); xdgBinHome != "" {
 		return xdgBinHome
 	}
+
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		return filepath.Join(home, ".local", "bin")
 	}
+
 	return filepath.Join(".local", "bin")
 }
 
@@ -121,5 +148,6 @@ func execInstalledBinary(path string, args []string) error {
 	argv := make([]string, 0, len(args)+1)
 	argv = append(argv, path)
 	argv = append(argv, args...)
+
 	return syscall.Exec(path, argv, os.Environ())
 }

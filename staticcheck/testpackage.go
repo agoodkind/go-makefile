@@ -39,26 +39,36 @@ func runTestPackage(pass *analysis.Pass) (any, error) {
 		if filepath.Base(path) == exportTestFileName {
 			continue
 		}
+
 		packageName := file.Name.Name
 		if strings.HasSuffix(packageName, externalTestPackageSuffix) {
 			continue
 		}
+
 		if reportUnexportedCalls(pass, file) > 0 {
 			continue
 		}
+
 		if packageName == mainPackageName {
 			reportAtf(
-				pass, file, file.Name.Pos(),
+				pass,
+				file,
+				file.Name.Pos(),
 				"This test file declares package main, the package under test. A test of a command must enter through the built command. Change the package clause to main_test and run the command.",
 			)
 			continue
 		}
+
 		reportAtf(
-			pass, file, file.Name.Pos(),
+			pass,
+			file,
+			file.Name.Pos(),
 			"This test file declares package %s, the package under test. A test must enter through the exported API. Change the package clause to %s_test and call only exported identifiers.",
-			packageName, packageName,
+			packageName,
+			packageName,
 		)
 	}
+
 	return nil, nil
 }
 
@@ -68,47 +78,64 @@ func runTestPackage(pass *analysis.Pass) (any, error) {
 // the changed package clause.
 func reportUnexportedCalls(pass *analysis.Pass, file *ast.File) int {
 	count := 0
+
 	for _, declaration := range file.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
 		if !ok || function.Body == nil || function.Recv != nil {
 			continue
 		}
+
 		name := function.Name.Name
 		if !strings.HasPrefix(name, testFunctionPrefix) || name == testMainFunctionName {
 			continue
 		}
+
 		callee := firstUnexportedProductionCallee(pass, function.Body)
 		if callee == "" {
 			continue
 		}
+
 		count++
 		reportAtf(
-			pass, file, function.Name.Pos(),
+			pass,
+			file,
+			function.Name.Pos(),
 			"Test %s calls the unexported function %s of the package under test. A test must enter through the exported API or the built command. Call the exported entry point that uses %s.",
-			name, callee, callee,
+			name,
+			callee,
+			callee,
 		)
 	}
+
 	return count
 }
 
 func firstUnexportedProductionCallee(pass *analysis.Pass, body *ast.BlockStmt) string {
 	found := ""
-	ast.Inspect(body, func(node ast.Node) bool {
-		if found != "" {
-			return false
-		}
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		callee, ok := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
-		if !ok || callee.Exported() || callee.Pkg() != pass.Pkg {
-			return true
-		}
-		if !isTestFile(fileName(pass, callee.Pos())) {
-			found = callee.Name()
-		}
-		return found == ""
-	})
+	ast.Inspect(
+		body,
+		func(node ast.Node) bool {
+			if found != "" {
+				return false
+			}
+
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+
+			callee, ok := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
+			if !ok || callee.Exported() || callee.Pkg() != pass.Pkg {
+				return true
+			}
+
+			if !isTestFile(fileName(pass, callee.Pos())) {
+				found = callee.Name()
+			}
+
+			return found == ""
+		},
+	)
+
 	return found
 }

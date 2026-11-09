@@ -12,11 +12,13 @@ func baselineFinding(line, label string) string {
 	if skipInput(line) {
 		return ""
 	}
+
 	finding := line
 	marker := "\t# " + label + ":"
 	if markerIndex := strings.Index(line, marker); markerIndex >= 0 {
 		finding = line[:markerIndex]
 	}
+
 	return stripDotDot(finding)
 }
 
@@ -27,10 +29,12 @@ func compileFilter(pattern string) (*regexp.Regexp, error) {
 	if pattern == "" {
 		return nil, nil
 	}
+
 	compiled, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, err
 	}
+
 	return compiled, nil
 }
 
@@ -39,30 +43,40 @@ func compileFilter(pattern string) (*regexp.Regexp, error) {
 // rows (grep -E), then reduce to the deduplicated key set. The returned set is
 // what the statistics compare before and after a rewrite.
 func baselineKeySet(
-	baselineLines []string, label, excludePattern, scopePattern string,
+	baselineLines []string,
+	label string,
+	excludePattern string,
+	scopePattern string,
 ) (map[string]struct{}, error) {
 	exclude, err := compileFilter(excludePattern)
 	if err != nil {
 		return nil, err
 	}
+
 	scope, err := compileFilter(scopePattern)
 	if err != nil {
 		return nil, err
 	}
+
 	keys := map[string]struct{}{}
+
 	for _, line := range baselineLines {
 		finding := baselineFinding(line, label)
 		if finding == "" {
 			continue
 		}
+
 		if exclude != nil && exclude.MatchString(finding) {
 			continue
 		}
+
 		if scope != nil && !scope.MatchString(finding) {
 			continue
 		}
+
 		keys[Key(finding)] = struct{}{}
 	}
+
 	return keys, nil
 }
 
@@ -76,7 +90,9 @@ func findingKeyList(findingsLines []string) []string {
 		if isBlank(line) {
 			continue
 		}
+
 		keys = append(keys, Key(line))
 	}
+
 	return keys
 }

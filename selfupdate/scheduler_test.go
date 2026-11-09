@@ -36,8 +36,10 @@ func TestRunSchedulerRecoversPanicPerIteration(t *testing.T) {
 		if callCount.Add(1) == 1 {
 			panic("scheduled check panic")
 		}
+
 		cancel()
 		close(secondCall)
+
 		return release{
 			TagName: testCurrentVersion,
 			Assets: []releaseAsset{
@@ -52,30 +54,40 @@ func TestRunSchedulerRecoversPanicPerIteration(t *testing.T) {
 	schedulerDone := make(chan struct{})
 	go func() {
 		defer close(schedulerDone)
-		RunScheduler(ctx, SchedulerHooks{
-			Enabled: func() bool {
-				return true
+		RunScheduler(
+			ctx,
+			SchedulerHooks{
+				Enabled: func() bool {
+					return true
+				},
+				Mode: func() string {
+					return ModeCheck
+				},
+				Options: func() Options {
+					return Options{
+						Config:    testConfig(),
+						StatePath: statePath,
+					}
+				},
+				Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 			},
-			Mode: func() string {
-				return ModeCheck
-			},
-			Options: func() Options {
-				return Options{
-					Config:    testConfig(),
-					StatePath: statePath,
-				}
-			},
-			Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		})
+		)
 	}()
 
 	select {
 	case <-secondCall:
 	case <-schedulerDone:
-		t.Fatalf("RunScheduler exited after panic; update calls = %d, want second iteration", callCount.Load())
+		t.Fatalf(
+			"RunScheduler exited after panic; update calls = %d, want second iteration",
+			callCount.Load(),
+		)
 	case <-time.After(2 * time.Second):
-		t.Fatalf("timed out waiting for second scheduler iteration; update calls = %d", callCount.Load())
+		t.Fatalf(
+			"timed out waiting for second scheduler iteration; update calls = %d",
+			callCount.Load(),
+		)
 	}
+
 	select {
 	case <-schedulerDone:
 	case <-time.After(2 * time.Second):

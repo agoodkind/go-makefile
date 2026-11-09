@@ -20,17 +20,23 @@ func TestCommandEntry(t *testing.T) {
 
 	fixture := t.TempDir()
 	writeFixtureFile(t, fixture, "go.mod", "module corp\n\ngo 1.27\n")
-	writeFixtureFile(t, fixture, "cli/run.go", `package cli
+	writeFixtureFile(
+		t,
+		fixture,
+		"cli/run.go",
+		`package cli
 func Run() error { return nil }
 func Count() int { return 0 }
 func Delete() {}
 func Generic[T ~int](value T) T { return value }
-`)
+`,
+	)
 	cases := map[string]struct {
 		source string
 		reject bool
 	}{
-		"wrapper": {source: `import("corp/cli";"fmt";"errors";"log/slog")
+		"wrapper": {
+			source: `import("corp/cli";"fmt";"errors";"log/slog")
 func run() error {
  if err := cli.Run(); err != nil && !errors.Is(err, nil) {
   wrapped := fmt.Errorf("run: %w", err)
@@ -39,42 +45,72 @@ func run() error {
  }
  return nil
 }
-func main() { _ = run() }`},
-		"status": {source: `import("corp/cli";"os";"log/slog")
+func main() { _ = run() }`,
+		},
+		"status": {
+			source: `import("corp/cli";"os";"log/slog")
 const failed = 1
 func main() {
  slog.Debug("command invoked")
  status := cli.Count()
  if status != 0 { slog.Error("command failed"); os.Exit(failed) }
-}`},
-		"generic": {source: `import("corp/cli";"os")
-func main() { os.Exit(cli.Generic(0)) }`},
-		"mapping": {source: `import("corp/cli";"os")
-func main() { status := cli.Count(); switch status { case 0: os.Exit(0); default: os.Exit(1) } }`},
-		"assigned": {source: `import("corp/cli";"fmt")
+}`,
+		},
+		"generic": {
+			source: `import("corp/cli";"os")
+func main() { os.Exit(cli.Generic(0)) }`,
+		},
+		"mapping": {
+			source: `import("corp/cli";"os")
+func main() { status := cli.Count(); switch status { case 0: os.Exit(0); default: os.Exit(1) } }`,
+		},
+		"assigned": {
+			source: `import("corp/cli";"fmt")
 func run() error {
  err := cli.Run()
  if err = cli.Run(); err != nil { return fmt.Errorf("run: %w", err) }
  return nil
 }
-func main() { _ = run() }`},
+func main() { _ = run() }`,
+		},
 		"loop": {source: `func main() { for {} }`, reject: true},
-		"parse": {source: `import "flag"
-func main() { flag.Parse() }`, reject: true},
-		"setup": {source: `import("corp/cli";"os")
-func main() { option := "value"; os.Exit(cli.Generic(len(option))) }`, reject: true},
-		"business": {source: `import "corp/cli"
-func main() { count := cli.Count(); if count > 10 { cli.Delete() } }`, reject: true},
-		"helper": {source: `func main() { work() }
-func work() { for {} }`, reject: true},
+		"parse": {
+			source: `import "flag"
+func main() { flag.Parse() }`,
+			reject: true,
+		},
+		"setup": {
+			source: `import("corp/cli";"os")
+func main() { option := "value"; os.Exit(cli.Generic(len(option))) }`,
+			reject: true,
+		},
+		"business": {
+			source: `import "corp/cli"
+func main() { count := cli.Count(); if count > 10 { cli.Delete() } }`,
+			reject: true,
+		},
+		"helper": {
+			source: `func main() { work() }
+func work() { for {} }`,
+			reject: true,
+		},
 		"generated": {source: `func main() { for {} }`, reject: true},
-		"receiver": {source: `import("log/slog";"os")
-func main() { slog.New(slog.NewTextHandler(os.Stderr, nil)).Info("started") }`, reject: true},
-		"constant": {source: `const status, option = 1, "setup"
-func main() {}`, reject: true},
-		"duplicate": {source: `func main() {}
+		"receiver": {
+			source: `import("log/slog";"os")
+func main() { slog.New(slog.NewTextHandler(os.Stderr, nil)).Info("started") }`,
+			reject: true,
+		},
+		"constant": {
+			source: `const status, option = 1, "setup"
+func main() {}`,
+			reject: true,
+		},
+		"duplicate": {
+			source: `func main() {}
 func init() { for {} }
-func init() { for {} }`, reject: true},
+func init() { for {} }`,
+			reject: true,
+		},
 	}
 
 	for name, test := range cases {
@@ -101,7 +137,13 @@ func init() { for {} }`, reject: true},
 	for name, test := range cases {
 		reported := strings.Contains(filepath.ToSlash(string(output)), "/cmd/"+name+"/")
 		if reported != test.reject {
-			t.Errorf("command %s: diagnostic = %t, want %t\n%s", name, reported, test.reject, output)
+			t.Errorf(
+				"command %s: diagnostic = %t, want %t\n%s",
+				name,
+				reported,
+				test.reject,
+				output,
+			)
 		}
 	}
 

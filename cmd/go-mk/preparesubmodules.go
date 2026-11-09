@@ -32,21 +32,26 @@ func prepareSubmodulesForOutputs(
 	initSubmodule func(parent, submodulePath string) error,
 ) error {
 	seen := map[string]bool{}
+
 	for _, output := range outputs {
 		remaining := path.Clean(strings.TrimSpace(output))
 		if remaining == "" || remaining == "." {
 			continue
 		}
+
 		parent := ""
+
 		for {
 			subs, err := listSubmodules(parent)
 			if err != nil {
 				return err
 			}
+
 			match := longestSubmodulePrefix(subs, remaining)
 			if match == "" {
 				break
 			}
+
 			full := path.Join(parent, match)
 			if !seen[full] {
 				seen[full] = true
@@ -54,10 +59,12 @@ func prepareSubmodulesForOutputs(
 					return err
 				}
 			}
+
 			parent = full
 			remaining = strings.TrimPrefix(remaining[len(match):], "/")
 		}
 	}
+
 	return nil
 }
 
@@ -66,6 +73,7 @@ func prepareSubmodulesForOutputs(
 // returns "" when none is a prefix.
 func longestSubmodulePrefix(subs []string, target string) string {
 	best := ""
+
 	for _, sub := range subs {
 		clean := path.Clean(sub)
 		if clean == target || strings.HasPrefix(target, clean+"/") {
@@ -74,6 +82,7 @@ func longestSubmodulePrefix(subs []string, target string) string {
 			}
 		}
 	}
+
 	return best
 }
 
@@ -87,11 +96,19 @@ func gitListSubmodules(dir string) ([]string, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		slog.Error("prepare-generated-submodules open .gitmodules failed", slog.String("dir", dir), slog.Any("err", err))
+
+		slog.Error(
+			"prepare-generated-submodules open .gitmodules failed",
+			slog.String("dir", dir),
+			slog.Any("err", err),
+		)
+
 		return nil, fmt.Errorf("prepare-generated-submodules: open .gitmodules in %q: %w", dir, err)
 	}
+
 	defer func() { _ = file.Close() }()
 	var paths []string
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -99,19 +116,27 @@ func gitListSubmodules(dir string) ([]string, error) {
 		if !ok {
 			continue
 		}
+
 		value = strings.TrimSpace(value)
 		value, ok = strings.CutPrefix(value, "=")
 		if !ok {
 			continue
 		}
+
 		if trimmed := strings.TrimSpace(value); trimmed != "" {
 			paths = append(paths, trimmed)
 		}
 	}
+
 	if err := scanner.Err(); err != nil {
-		slog.Error("prepare-generated-submodules read .gitmodules failed", slog.String("dir", dir), slog.Any("err", err))
+		slog.Error(
+			"prepare-generated-submodules read .gitmodules failed",
+			slog.String("dir", dir),
+			slog.Any("err", err),
+		)
 		return nil, fmt.Errorf("prepare-generated-submodules: read .gitmodules in %q: %w", dir, err)
 	}
+
 	return paths, nil
 }
 
@@ -123,15 +148,25 @@ func gitInitSubmodule(parent, submodulePath string) error {
 	if parent != "" {
 		args = append(args, "-C", parent)
 	}
+
 	args = append(args, "submodule", "update", "--init", "--", submodulePath)
 	if err := runProcess("git", args, nil); err != nil {
-		wrapped := fmt.Errorf("prepare-generated-submodules: init %q under %q: %w", submodulePath, parent, err)
-		slog.Error("prepare-generated-submodules init failed",
+		wrapped := fmt.Errorf(
+			"prepare-generated-submodules: init %q under %q: %w",
+			submodulePath,
+			parent,
+			err,
+		)
+		slog.Error(
+			"prepare-generated-submodules init failed",
 			slog.String("parent", parent),
 			slog.String("path", submodulePath),
-			slog.Any("err", wrapped))
+			slog.Any("err", wrapped),
+		)
+
 		return wrapped
 	}
+
 	return nil
 }
 
@@ -144,6 +179,8 @@ func runPrepareGeneratedSubmodules() error {
 	if len(outputs) == 0 {
 		return nil
 	}
+
 	slog.Info("prepare-generated-submodules", slog.Int("outputs", len(outputs)))
+
 	return prepareSubmodulesForOutputs(outputs, gitListSubmodules, gitInitSubmodule)
 }

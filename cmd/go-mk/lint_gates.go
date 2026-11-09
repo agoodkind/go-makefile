@@ -57,30 +57,49 @@ func captureGolangciFindings(rawPath, findingsPath string) (int, int, error) {
 	if err != nil {
 		return 0, 0, err
 	}
+
 	status, err := captureCommand(binary, args, rawPath)
 	if err != nil {
 		return 0, 0, err
 	}
-	extracted, dropped, err := extractFindings(rawPath, goFindingPattern.String(), golangciExcludePattern())
+
+	extracted, dropped, err := extractFindings(
+		rawPath,
+		goFindingPattern.String(),
+		golangciExcludePattern(),
+	)
 	if err != nil {
 		return 0, 0, err
 	}
+
 	if writeErr := writeFindingsFile(findingsPath, extracted); writeErr != nil {
 		return 0, 0, writeErr
 	}
+
 	return status, dropped, nil
 }
 
 // runLintTools installs golangci-lint, gofumpt, and goimports, mirroring
 // run_lint_tools.
 func runLintTools() error {
-	if err := installGoTool(lintEnvDefault("GOLANGCI_LINT_INSTALL", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0")); err != nil {
+	if err := installGoTool(
+		lintEnvDefault(
+			"GOLANGCI_LINT_INSTALL",
+			"github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0",
+		),
+	); err != nil {
 		return err
 	}
-	if err := installGoTool(lintEnvDefault("GOFUMPT_INSTALL", "mvdan.cc/gofumpt@v0.10.0")); err != nil {
+
+	if err := installGoTool(
+		lintEnvDefault("GOFUMPT_INSTALL", "mvdan.cc/gofumpt@v0.10.0"),
+	); err != nil {
 		return err
 	}
-	return installGoTool(lintEnvDefault("GOIMPORTS_INSTALL", "golang.org/x/tools/cmd/goimports@v0.45.0"))
+
+	return installGoTool(
+		lintEnvDefault("GOIMPORTS_INSTALL", "golang.org/x/tools/cmd/goimports@v0.45.0"),
+	)
 }
 
 // ensureLintTools installs the golangci-lint tool trio for a standalone gate or
@@ -91,6 +110,7 @@ func ensureLintTools() error {
 	if checksToolsPrepared {
 		return nil
 	}
+
 	return runLintTools()
 }
 
@@ -101,45 +121,59 @@ func runLintGolangci() int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+
 	if err := ensureLintTools(); err != nil {
 		return statusFromError(err)
 	}
+
 	rawPath := filepath.Join(makeDir, "golangci-lint.raw.out")
 	findingsPath := filepath.Join(makeDir, "golangci-lint.out")
 	status, dropped, err := captureGolangciFindings(rawPath, findingsPath)
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	if dropped > 0 {
-		slog.Warn("lint dropped out-of-tree findings",
-			slog.String("gate", "golangci-lint"), slog.Int("count", dropped))
+		slog.Warn(
+			"lint dropped out-of-tree findings",
+			slog.String("gate", "golangci-lint"),
+			slog.Int("count", dropped),
+		)
 		if !gateCollecting {
 			writeStdout(outOfTreeNotice(dropped) + "\n")
 		}
 	}
+
 	current, err := readFileLines(findingsPath)
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	passed, err := runGateAndPrint(
-		"golangci-lint", current,
+		"golangci-lint",
+		current,
 		lintEnvDefault("GOLANGCI_LINT_BASELINE", ".golangci-lint-baseline.txt"),
 		"Fix the new findings before this gate will pass.",
-		golangciExcludePattern(), "",
+		golangciExcludePattern(),
+		"",
 	)
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	cacheUsable := golangciCacheUsable(passed, status, len(current), dropped)
 	if cacheUsable {
 		reportGolangciRunToCI()
 	}
+
 	if !passed {
 		return 1
 	}
+
 	if !cacheUsable {
 		return reportToolFailure("golangci-lint", status, rawPath)
 	}
+
 	return 0
 }
 
@@ -153,39 +187,51 @@ func golangciCacheUsable(passed bool, status int, findingCount int, dropped int)
 func runLintGolangciScope() int {
 	scopePattern := lint.GolangciScopePattern(
 		os.Getenv("GOLANGCI_LINT_BASELINE_SCOPE_PATTERN"),
-		os.Getenv("RULE"), os.Getenv("LINTER"),
+		os.Getenv("RULE"),
+		os.Getenv("LINTER"),
 	)
 	if scopePattern == "" {
-		writeStdout("lint-golangci-scope: set LINTER=<name>, RULE=<name>, or GOLANGCI_LINT_BASELINE_SCOPE_PATTERN\n")
+		writeStdout(
+			"lint-golangci-scope: set LINTER=<name>, RULE=<name>, or GOLANGCI_LINT_BASELINE_SCOPE_PATTERN\n",
+		)
 		return 2
 	}
+
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+
 	if err := ensureLintTools(); err != nil {
 		return statusFromError(err)
 	}
+
 	rawPath := filepath.Join(makeDir, "golangci-lint-scope.raw.out")
 	findingsPath := filepath.Join(makeDir, "golangci-lint-scope.out")
 	if err := captureGolangciScopeFindings(rawPath, findingsPath); err != nil {
 		return statusFromError(err)
 	}
+
 	current, err := readFileLines(findingsPath)
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	passed, err := runGateAndPrint(
-		"golangci-lint", current,
+		"golangci-lint",
+		current,
 		lintEnvDefault("GOLANGCI_LINT_BASELINE", ".golangci-lint-baseline.txt"),
 		"Fix the new findings before this gate will pass.",
-		golangciExcludePattern(), scopePattern,
+		golangciExcludePattern(),
+		scopePattern,
 	)
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	if !passed {
 		return 1
 	}
+
 	return 0
 }
 
@@ -206,46 +252,65 @@ func captureGolangciScope(rawPath, findingsPath string, mode captureMode) error 
 	if err != nil {
 		return err
 	}
+
 	if linterName := os.Getenv("LINTER"); linterName != "" {
 		scoped := []string{args[0], "--enable-only=" + linterName}
 		scoped = append(scoped, args[1:]...)
 		args = scoped
 	}
+
 	if mode == captureNotice {
 		args = append(args, "--issues-exit-code=0")
 	}
+
 	status, err := captureCommand(binary, args, rawPath)
 	if err != nil {
 		return err
 	}
+
 	if mode == captureNotice && status != 0 {
 		output, err := os.ReadFile(rawPath)
 		if err != nil {
 			return err
 		}
-		return fmt.Errorf("notice golangci-lint capture failed (exit status %d):\n%s", status, output)
+
+		return fmt.Errorf(
+			"notice golangci-lint capture failed (exit status %d):\n%s",
+			status,
+			output,
+		)
 	}
+
 	excludePattern := golangciExcludePattern()
 	if mode == captureNotice {
 		excludePattern = ""
 	}
+
 	extracted, _, err := extractFindings(rawPath, goFindingPattern.String(), excludePattern)
 	if err != nil {
 		return err
 	}
+
 	if mode == captureNotice {
 		for _, finding := range extracted {
 			if strings.HasSuffix(finding, "(typecheck)") {
-				return fmt.Errorf("notice golangci-lint could not type-check the source: %s", finding)
+				return fmt.Errorf(
+					"notice golangci-lint could not type-check the source: %s",
+					finding,
+				)
 			}
 		}
+
 		extracted = filterExcluded(extracted, golangciExcludePattern())
 	}
+
 	scopePattern := lint.GolangciScopePattern(
 		os.Getenv("GOLANGCI_LINT_BASELINE_SCOPE_PATTERN"),
-		os.Getenv("RULE"), os.Getenv("LINTER"),
+		os.Getenv("RULE"),
+		os.Getenv("LINTER"),
 	)
 	scoped := scopeLines(extracted, scopePattern)
+
 	return writeFindingsFile(findingsPath, scoped)
 }
 
@@ -255,16 +320,19 @@ func scopeLines(lines []string, scopePattern string) []string {
 	if scopePattern == "" {
 		return lines
 	}
+
 	regexpValue, _, err := compilePatterns("", scopePattern)
 	if err != nil || regexpValue == nil {
 		return lines
 	}
+
 	kept := make([]string, 0, len(lines))
 	for _, line := range lines {
 		if regexpValue.MatchString(line) {
 			kept = append(kept, line)
 		}
 	}
+
 	return kept
 }
 
@@ -275,62 +343,88 @@ func runLintFormat() int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+
 	if err := ensureLintTools(); err != nil {
 		return statusFromError(err)
 	}
+
 	outputPath := filepath.Join(makeDir, "lint-format.out")
 	binary, args, fmtErr := golangciFmtCommand()
 	if errors.Is(fmtErr, errNoGoFiles) {
 		if gateCollecting {
-			recordGateMarker(report.GateMarker{Name: "lint-format", Passed: true})
+			recordGateMarker(report.GateMarker{
+				Name:   "lint-format",
+				Passed: true,
+			})
 			return 0
 		}
+
 		writeStdout("lint-format: OK\n")
 		writeStdout("  No Go source files in this module.\n")
+
 		return 0
 	}
+
 	if fmtErr != nil {
 		return statusFromError(fmtErr)
 	}
+
 	withDiff := []string{args[0], "--diff"}
 	withDiff = append(withDiff, args[1:]...)
 	status, err := captureCommand(binary, withDiff, outputPath)
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	output, err := readFileContent(outputPath)
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	if output != "" {
 		recordFailedGate("lint-format")
 		if gateCollecting {
-			rest := append([]string{"golangci-lint formatters need to update:"}, splitOutputLines(output)...)
+			rest := append(
+				[]string{"golangci-lint formatters need to update:"},
+				splitOutputLines(output)...,
+			)
 			rest = append(rest, "run make fmt")
 			recordGateToolFailure(rest)
+
 			return 1
 		}
+
 		writeStdout("golangci-lint formatters need to update:\n")
 		writeStdout(output)
 		if !strings.HasSuffix(output, "\n") {
 			writeStdout("\n")
 		}
+
 		writeStdout("run make fmt\n")
+
 		return 1
 	}
+
 	if status != 0 {
 		recordFailedGate("lint-format")
 		if gateCollecting {
 			recordGateToolFailure([]string{"Exit status: " + strconv.Itoa(status)})
 			return status
 		}
+
 		writeStdout("lint-format: FAILED\n")
 		writeStdout("  Exit status: " + strconv.Itoa(status) + "\n")
+
 		return status
 	}
+
 	if gateCollecting {
-		recordGateMarker(report.GateMarker{Name: "lint-format", Passed: true})
+		recordGateMarker(report.GateMarker{
+			Name:   "lint-format",
+			Passed: true,
+		})
 	}
+
 	return 0
 }
 
@@ -347,31 +441,38 @@ func captureGocycloFindings(rawPath, findingsPath string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+
 	gopathBin, err := goEnvPath("GOPATH")
 	if err != nil {
 		return 0, err
 	}
+
 	gocycloPath := filepath.Join(gopathBin, "bin", "gocyclo")
 	args := append([]string{"-over", strconv.Itoa(threshold)}, targets...)
 	status, err := captureCommand(gocycloPath, args, rawPath)
 	if err != nil {
 		return 0, err
 	}
+
 	rawLines, err := readFileLines(rawPath)
 	if err != nil {
 		return 0, err
 	}
+
 	transformed := lint.GocycloTransform(rawLines, threshold)
 	root := lintRoot()
+
 	normalized := make([]string, 0, len(transformed))
 	for _, line := range transformed {
 		normalized = append(normalized, findings.NormalizePath(line, root, root))
 	}
+
 	filtered := filterExcluded(normalized, excludePattern)
 	result := sortedUnique(filtered)
 	if writeErr := writeFindingsFile(findingsPath, result); writeErr != nil {
 		return 0, writeErr
 	}
+
 	return status, nil
 }
 
@@ -387,6 +488,7 @@ func gocycloTargets() ([]string, error) {
 	if targetsText != "" && !isUnexpandedFindExpression(targetsText) {
 		return splitWords(targetsText), nil
 	}
+
 	return findGoFiles()
 }
 
@@ -409,40 +511,52 @@ func findGoFiles() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	prunedDirs := map[string]struct{}{
 		"vendor":      {},
 		"gen":         {},
 		"third_party": {},
 	}
 	files := make([]string, 0)
-	walkErr := filepath.WalkDir(".", func(walkPath string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			if filepath.Dir(walkPath) == "." {
-				if _, pruned := prunedDirs[entry.Name()]; pruned {
+	walkErr := filepath.WalkDir(
+		".",
+		func(walkPath string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if entry.IsDir() {
+				if filepath.Dir(walkPath) == "." {
+					if _, pruned := prunedDirs[entry.Name()]; pruned {
+						return filepath.SkipDir
+					}
+				}
+
+				if walkPath != "." && pathInAnyRoot("./"+filepath.ToSlash(walkPath), roots) {
 					return filepath.SkipDir
 				}
+
+				return nil
 			}
-			if walkPath != "." && pathInAnyRoot("./"+filepath.ToSlash(walkPath), roots) {
-				return filepath.SkipDir
+
+			name := entry.Name()
+			if !strings.HasSuffix(name, ".go") {
+				return nil
 			}
+
+			if strings.HasSuffix(name, "_test.go") {
+				return nil
+			}
+
+			files = append(files, "./"+filepath.ToSlash(walkPath))
+
 			return nil
-		}
-		name := entry.Name()
-		if !strings.HasSuffix(name, ".go") {
-			return nil
-		}
-		if strings.HasSuffix(name, "_test.go") {
-			return nil
-		}
-		files = append(files, "./"+filepath.ToSlash(walkPath))
-		return nil
-	})
+		},
+	)
 	if walkErr != nil {
 		return nil, walkErr
 	}
+
 	return files, nil
 }
 
@@ -452,17 +566,21 @@ func filterExcluded(lines []string, excludePattern string) []string {
 	if excludePattern == "" {
 		return lines
 	}
+
 	regexpValue, _, err := compilePatterns(excludePattern, "")
 	if err != nil || regexpValue == nil {
 		return lines
 	}
+
 	kept := make([]string, 0, len(lines))
 	for _, line := range lines {
 		if regexpValue.MatchString(line) {
 			continue
 		}
+
 		kept = append(kept, line)
 	}
+
 	return kept
 }
 
@@ -471,40 +589,51 @@ func runLintGocyclo() int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+
 	if !checksToolsPrepared {
-		if err := installGoTool(lintEnvDefault("GOCYCLO_INSTALL", "github.com/fzipp/gocyclo/cmd/gocyclo@latest")); err != nil {
+		if err := installGoTool(
+			lintEnvDefault("GOCYCLO_INSTALL", "github.com/fzipp/gocyclo/cmd/gocyclo@latest"),
+		); err != nil {
 			return statusFromError(err)
 		}
 	}
+
 	rawPath := filepath.Join(makeDir, "gocyclo.raw.out")
 	findingsPath := filepath.Join(makeDir, "gocyclo.out")
 	status, err := captureGocycloFindings(rawPath, findingsPath)
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	current, err := readFileLines(findingsPath)
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	excludePattern := lint.ExcludePattern(
 		lintEnvDefault("GOCYCLO_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
 		os.Getenv("GOCYCLO_EXCLUDE_PATHS"),
 	)
 	passed, err := runGateAndPrint(
-		"gocyclo", current,
+		"gocyclo",
+		current,
 		lintEnvDefault("GOCYCLO_BASELINE", ".gocyclo-baseline.txt"),
 		"Reduce the reported cyclomatic complexity before this gate will pass.",
-		excludePattern, "",
+		excludePattern,
+		"",
 	)
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	if !passed {
 		return 1
 	}
+
 	if status != 0 && len(current) == 0 {
 		return reportToolFailure("gocyclo", status, rawPath)
 	}
+
 	return 0
 }
 
@@ -519,18 +648,22 @@ func captureDeadcodeFindings(rawPath, findingsPath string) error {
 	if err != nil {
 		return err
 	}
+
 	gopathBin, err := goEnvPath("GOPATH")
 	if err != nil {
 		return err
 	}
+
 	deadcodePath := filepath.Join(gopathBin, "bin", "deadcode")
 	if _, err := captureCommand(deadcodePath, targets, rawPath); err != nil {
 		return err
 	}
+
 	extracted, _, err := extractFindings(rawPath, goLocationPattern.String(), excludePattern)
 	if err != nil {
 		return err
 	}
+
 	return writeFindingsFile(findingsPath, extracted)
 }
 
@@ -539,32 +672,41 @@ func runLintDeadcode() int {
 	if err := ensureMakeDir(); err != nil {
 		return statusFromError(err)
 	}
+
 	if !checksToolsPrepared {
-		if err := installGoTool(lintEnvDefault("DEADCODE_INSTALL", "golang.org/x/tools/cmd/deadcode@latest")); err != nil {
+		if err := installGoTool(
+			lintEnvDefault("DEADCODE_INSTALL", "golang.org/x/tools/cmd/deadcode@latest"),
+		); err != nil {
 			return statusFromError(err)
 		}
 	}
+
 	rawPath := filepath.Join(makeDir, "deadcode.raw.out")
 	findingsPath := filepath.Join(makeDir, "deadcode.out")
 	if err := captureDeadcodeFindings(rawPath, findingsPath); err != nil {
 		return statusFromError(err)
 	}
+
 	current, err := readFileLines(findingsPath)
 	if err != nil {
 		return statusFromError(err)
 	}
+
 	excludePattern := lint.ExcludePattern(
 		lintEnvDefault("DEADCODE_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
 		os.Getenv("DEADCODE_EXCLUDE_PATHS"),
 	)
 	if _, err := runGateAndPrint(
-		"deadcode", current,
+		"deadcode",
+		current,
 		lintEnvDefault("DEADCODE_BASELINE", ".deadcode-baseline.txt"),
 		"The deadcode lint gate found unreachable code. Remove the reported code.",
-		excludePattern, "",
+		excludePattern,
+		"",
 	); err != nil {
 		return statusFromError(err)
 	}
+
 	return 0
 }
 
@@ -577,17 +719,22 @@ func reportToolFailure(gateName string, status int, rawPath string) int {
 		if lines, err := readFileLines(rawPath); err == nil {
 			rest = append(rest, lines...)
 		}
+
 		recordGateToolFailure(rest)
 		recordFailedGate(gateName)
+
 		return status
 	}
+
 	writeStdout(gateName + ": FAILED\n")
 	writeStdout("  Exit status: " + strconv.Itoa(status) + "\n\n")
 	writeStdout("Output:\n")
 	if content, err := readFileContent(rawPath); err == nil {
 		writeStdout(content)
 	}
+
 	recordFailedGate(gateName)
+
 	return status
 }
 
@@ -601,7 +748,9 @@ func readFileContent(path string) (string, error) {
 		if os.IsNotExist(err) {
 			return "", nil
 		}
+
 		return "", err
 	}
+
 	return string(data), nil
 }

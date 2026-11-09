@@ -17,16 +17,19 @@ func TestGolangciCacheUsable(t *testing.T) {
 		{name: "tool failure", passed: true, status: 2, want: false},
 	}
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			got := golangciCacheUsable(
-				testCase.passed,
-				testCase.status,
-				testCase.findingCount,
-				testCase.dropped,
-			)
-			if got != testCase.want {
-				t.Fatalf("golangciCacheUsable() = %t, want %t", got, testCase.want)
-			}
-		})
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				got := golangciCacheUsable(
+					testCase.passed,
+					testCase.status,
+					testCase.findingCount,
+					testCase.dropped,
+				)
+				if got != testCase.want {
+					t.Fatalf("golangciCacheUsable() = %t, want %t", got, testCase.want)
+				}
+			},
+		)
 	}
 }

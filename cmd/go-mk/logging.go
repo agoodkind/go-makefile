@@ -20,10 +20,16 @@ func setupLogging() {
 	if mode == logsummary.ModeDebug {
 		level = slog.LevelDebug
 	}
+
 	summary := logsummary.New(os.Stderr, mode)
-	router := gklog.NewRouter(logDir, level, summary, gklog.RouterOptions{
-		FallbackConcern: "go-mk",
-		Rotation:        gklog.RotationConfig{},
-	})
+	router := gklog.NewRouter(
+		logDir,
+		level,
+		summary,
+		gklog.RouterOptions{
+			FallbackConcern: "go-mk",
+			Rotation:        gklog.RotationConfig{},
+		},
+	)
 	slog.SetDefault(slog.New(router))
 }

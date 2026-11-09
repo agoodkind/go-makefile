@@ -29,18 +29,22 @@ func newArgumentLinesAnalyzer() *analysis.Analyzer {
 		Doc:  "separate wrapped arguments and callback parameters",
 		Run:  nil,
 	}
-	analyzer.Flags.Func("file", "limit fixes to this source file; repeat for each selected file", func(path string) error {
-		if path == "" {
-			return errArgumentSource
-		}
+	analyzer.Flags.Func(
+		"file",
+		"limit fixes to this source file; repeat for each selected file",
+		func(path string) error {
+			if path == "" {
+				return errArgumentSource
+			}
 
-		resolved, err := argumentSourcePath(path)
-		if err == nil {
-			selected[resolved] = true
-		}
+			resolved, err := argumentSourcePath(path)
+			if err == nil {
+				selected[resolved] = true
+			}
 
-		return err
-	})
+			return err
+		},
+	)
 	analyzer.Run = func(pass *analysis.Pass) (any, error) {
 		return runArgumentLines(pass, selected)
 	}
@@ -84,47 +88,52 @@ func runArgumentLines(pass *analysis.Pass, selected map[string]bool) (any, error
 		layout := argumentLayout{pass: pass, contents: contents}
 		occurrences := make(map[string]int)
 		var layoutError error
-		ast.Inspect(file, func(node ast.Node) bool {
-			if layoutError != nil {
-				return false
-			}
+		ast.Inspect(
+			file,
+			func(node ast.Node) bool {
+				if layoutError != nil {
+					return false
+				}
 
-			switch node.(type) {
-			case *ast.CallExpr, *ast.FuncType:
-			default:
+				switch node.(type) {
+				case *ast.CallExpr, *ast.FuncType:
+				default:
+					return true
+				}
+
+				identity, err := ruleFingerprint(node)
+				if err != nil {
+					layoutError = err
+
+					return false
+				}
+
+				occurrences[identity]++
+				list, err := layout.list(node)
+				if err != nil {
+					layoutError = err
+
+					return false
+				}
+
+				edits := layout.edits(list)
+				if len(edits) > 0 {
+					pass.Report(analysis.Diagnostic{
+						Pos: list.opening,
+						Message: fmt.Sprintf(
+							"argumentlines: separate wrapped arguments or callback parameters [id=%s-%d]",
+							identity,
+							occurrences[identity],
+						),
+						SuggestedFixes: []analysis.SuggestedFix{
+							{Message: "Separate list elements", TextEdits: edits},
+						},
+					})
+				}
+
 				return true
-			}
-
-			identity, err := ruleFingerprint(node)
-			if err != nil {
-				layoutError = err
-
-				return false
-			}
-
-			occurrences[identity]++
-			list, err := layout.list(node)
-			if err != nil {
-				layoutError = err
-
-				return false
-			}
-
-			edits := layout.edits(list)
-			if len(edits) > 0 {
-				pass.Report(analysis.Diagnostic{
-					Pos: list.opening,
-					Message: fmt.Sprintf(
-						"argumentlines: separate wrapped arguments or callback parameters [id=%s-%d]",
-						identity,
-						occurrences[identity],
-					),
-					SuggestedFixes: []analysis.SuggestedFix{{Message: "Separate list elements", TextEdits: edits}},
-				})
-			}
-
-			return true
-		})
+			},
+		)
 		if layoutError != nil {
 			return nil, layoutError
 		}
@@ -197,7 +206,9 @@ func (layout argumentLayout) list(node ast.Node) (argumentList, error) {
 				element := argumentElement{start: name.Pos(), end: field.End()}
 				if index < len(field.Names)-1 {
 					element.end = name.End()
-					element.annotation = " " + string(layout.gap(field.Type.Pos(), field.Type.End()))
+					element.annotation = " " + string(
+						layout.gap(field.Type.Pos(), field.Type.End()),
+					)
 				}
 
 				elements = append(elements, element)
@@ -205,7 +216,10 @@ func (layout argumentLayout) list(node ast.Node) (argumentList, error) {
 		}
 
 		return argumentList{
-			opening: typed.Params.Opening, closing: typed.Params.Closing, elements: elements, force: callback,
+			opening:  typed.Params.Opening,
+			closing:  typed.Params.Closing,
+			elements: elements,
+			force:    callback,
 		}, nil
 	}
 
@@ -269,7 +283,10 @@ func (layout argumentLayout) edits(list argumentList) []analysis.TextEdit {
 
 	edits := make([]analysis.TextEdit, 0, len(positions))
 	for _, position := range positions {
-		edits = append(edits, analysis.TextEdit{Pos: position, End: position, NewText: []byte(insertions[position])})
+		edits = append(
+			edits,
+			analysis.TextEdit{Pos: position, End: position, NewText: []byte(insertions[position])},
+		)
 	}
 
 	return edits

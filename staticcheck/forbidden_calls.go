@@ -27,11 +27,13 @@ func runOsExitOutsideMain(pass *analysis.Pass) (any, error) {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {
 				continue
 			}
+
 			// init() is the package-init function in any package.
 			// main() is only special in package main; a function named
 			// main in any other package is just a regular function and
@@ -39,25 +41,39 @@ func runOsExitOutsideMain(pass *analysis.Pass) (any, error) {
 			if fn.Name.Name == "init" {
 				continue
 			}
+
 			if fn.Name.Name == "main" && pass.Pkg != nil && pass.Pkg.Name() == "main" {
 				continue
 			}
-			ast.Inspect(fn.Body, func(node ast.Node) bool {
-				call, ok := node.(*ast.CallExpr)
-				if !ok {
+
+			ast.Inspect(
+				fn.Body,
+				func(node ast.Node) bool {
+					call, ok := node.(*ast.CallExpr)
+					if !ok {
+						return true
+					}
+
+					recv, name, ok := selectorName(call.Fun)
+					if !ok {
+						return true
+					}
+
+					if recv == "os" && name == "Exit" {
+						reportAtf(
+							pass,
+							file,
+							call.Pos(),
+							"os.Exit called outside main()/init(); return error to caller instead",
+						)
+					}
+
 					return true
-				}
-				recv, name, ok := selectorName(call.Fun)
-				if !ok {
-					return true
-				}
-				if recv == "os" && name == "Exit" {
-					reportAtf(pass, file, call.Pos(), "os.Exit called outside main()/init(); return error to caller instead")
-				}
-				return true
-			})
+				},
+			)
 		}
 	}
+
 	return nil, nil
 }
 
@@ -75,21 +91,34 @@ func runContextTODO(pass *analysis.Pass) (any, error) {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
-		ast.Inspect(file, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
+
+		ast.Inspect(
+			file,
+			func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+
+				recv, name, ok := selectorName(call.Fun)
+				if !ok {
+					return true
+				}
+
+				if recv == "context" && name == "TODO" {
+					reportAtf(
+						pass,
+						file,
+						call.Pos(),
+						"context.TODO() in production code; use context.Background() or thread context from caller",
+					)
+				}
+
 				return true
-			}
-			recv, name, ok := selectorName(call.Fun)
-			if !ok {
-				return true
-			}
-			if recv == "context" && name == "TODO" {
-				reportAtf(pass, file, call.Pos(), "context.TODO() in production code; use context.Background() or thread context from caller")
-			}
-			return true
-		})
+			},
+		)
 	}
+
 	return nil, nil
 }
 
@@ -109,24 +138,38 @@ func runTimeSleepInProduction(pass *analysis.Pass) (any, error) {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		if pass.Pkg != nil && pass.Pkg.Name() == "main" {
 			continue
 		}
-		ast.Inspect(file, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
+
+		ast.Inspect(
+			file,
+			func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+
+				recv, name, ok := selectorName(call.Fun)
+				if !ok {
+					return true
+				}
+
+				if recv == "time" && name == "Sleep" {
+					reportAtf(
+						pass,
+						file,
+						call.Pos(),
+						"time.Sleep in production library code; use time.NewTimer + select for cancellation",
+					)
+				}
+
 				return true
-			}
-			recv, name, ok := selectorName(call.Fun)
-			if !ok {
-				return true
-			}
-			if recv == "time" && name == "Sleep" {
-				reportAtf(pass, file, call.Pos(), "time.Sleep in production library code; use time.NewTimer + select for cancellation")
-			}
-			return true
-		})
+			},
+		)
 	}
+
 	return nil, nil
 }
 
@@ -152,33 +195,49 @@ func runPanicInProduction(pass *analysis.Pass) (any, error) {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {
 				continue
 			}
+
 			if fn.Name.Name == "init" {
 				continue
 			}
+
 			if isStdlibMustShape(pass, fn) {
 				continue
 			}
-			ast.Inspect(fn.Body, func(node ast.Node) bool {
-				call, ok := node.(*ast.CallExpr)
-				if !ok {
+
+			ast.Inspect(
+				fn.Body,
+				func(node ast.Node) bool {
+					call, ok := node.(*ast.CallExpr)
+					if !ok {
+						return true
+					}
+
+					ident, ok := call.Fun.(*ast.Ident)
+					if !ok {
+						return true
+					}
+
+					if ident.Name == "panic" {
+						reportAtf(
+							pass,
+							file,
+							call.Pos(),
+							"panic() called in production code; return error up the stack",
+						)
+					}
+
 					return true
-				}
-				ident, ok := call.Fun.(*ast.Ident)
-				if !ok {
-					return true
-				}
-				if ident.Name == "panic" {
-					reportAtf(pass, file, call.Pos(), "panic() called in production code; return error up the stack")
-				}
-				return true
-			})
+				},
+			)
 		}
 	}
+
 	return nil, nil
 }
 
@@ -204,27 +263,43 @@ func runTimeNowOutsideClock(pass *analysis.Pass) (any, error) {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		if pass.Pkg != nil && pass.Pkg.Name() == "main" {
 			continue
 		}
+
 		if isCanonicalClockPackage(pass) {
 			continue
 		}
-		ast.Inspect(file, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
+
+		ast.Inspect(
+			file,
+			func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+
+				recv, name, ok := selectorName(call.Fun)
+				if !ok {
+					return true
+				}
+
+				if recv == "time" && isWallClockRead(name) {
+					reportAtf(
+						pass,
+						file,
+						call.Pos(),
+						"time.%s() outside internal/clock; inject a clock.Clock for testability",
+						name,
+					)
+				}
+
 				return true
-			}
-			recv, name, ok := selectorName(call.Fun)
-			if !ok {
-				return true
-			}
-			if recv == "time" && isWallClockRead(name) {
-				reportAtf(pass, file, call.Pos(), "time.%s() outside internal/clock; inject a clock.Clock for testability", name)
-			}
-			return true
-		})
+			},
+		)
 	}
+
 	return nil, nil
 }
 
@@ -253,24 +328,30 @@ func isStdlibMustShape(pass *analysis.Pass, fn *ast.FuncDecl) bool {
 	if fn == nil || fn.Name == nil {
 		return false
 	}
+
 	if !strings.HasPrefix(fn.Name.Name, "Must") {
 		return false
 	}
+
 	if pass.TypesInfo == nil {
 		return false
 	}
+
 	obj := pass.TypesInfo.Defs[fn.Name]
 	if obj == nil {
 		return false
 	}
+
 	sig, ok := obj.Type().(*types.Signature)
 	if !ok {
 		return false
 	}
+
 	for result := range sig.Results().Variables() {
 		if isErrorType(result.Type()) {
 			return false
 		}
 	}
+
 	return true
 }

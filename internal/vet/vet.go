@@ -41,7 +41,11 @@ func Step(
 ) (report.StepResult, int) {
 	selected, err := commands()
 	if err != nil {
-		return report.StepResult{Name: "vet", Status: report.StatusFailed, Findings: []string{err.Error()}}, 1
+		return report.StepResult{
+			Name:     "vet",
+			Status:   report.StatusFailed,
+			Findings: []string{err.Error()},
+		}, 1
 	}
 
 	for _, arguments := range selected {

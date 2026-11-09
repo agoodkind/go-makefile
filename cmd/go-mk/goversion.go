@@ -45,18 +45,22 @@ func goVersionStepWith(config goVersionConfig) report.StepResult {
 	if err != nil {
 		return advisoryToolFailure("go-version", err.Error())
 	}
+
 	latestVersion, err := config.latestVersion()
 	if err != nil {
 		return advisoryToolFailure("go-version", err.Error())
 	}
+
 	if compareGoVersions(installedVersion, latestVersion) >= 0 {
 		return report.StepResult{Name: "go-version", Status: report.StatusOK}
 	}
+
 	slog.Warn("go version behind latest stable")
 	findings := []string{
 		"Installed Go " + installedVersion + " is behind the latest stable Go " + latestVersion + ".",
 		"Update the installed Go toolchain when practical.",
 	}
+
 	return report.StepResult{
 		Name:     "go-version",
 		Status:   report.StatusAdvisory,
@@ -66,10 +70,13 @@ func goVersionStepWith(config goVersionConfig) report.StepResult {
 
 func runGoVersionCheck() int {
 	result, _ := runGoVersionStep()
-	writeStdout(report.Render(report.Report{
-		Title: "go-mk go-version-check",
-		Steps: []report.StepResult{result},
-	}))
+	writeStdout(
+		report.Render(report.Report{
+			Title: "go-mk go-version-check",
+			Steps: []report.StepResult{result},
+		}),
+	)
+
 	return 0
 }
 
@@ -83,10 +90,12 @@ func installedGoVersion() (string, error) {
 		slog.Warn("go version read installed toolchain failed", slog.Any("err", err))
 		return "", fmt.Errorf("read installed Go version: %w", err)
 	}
+
 	version := strings.TrimPrefix(strings.TrimSpace(string(output)), "go")
 	if version == "" {
 		return "", fmt.Errorf("read installed Go version: Go returned no version")
 	}
+
 	return version, nil
 }
 
@@ -98,11 +107,14 @@ func latestStableGo() (string, error) {
 	if cached, ok := freshCachedGoVersion(cachePath); ok {
 		return cached, nil
 	}
+
 	version, err := fetchLatestStableGo()
 	if err != nil {
 		return "", err
 	}
+
 	writeGoVersionCache(cachePath, version)
+
 	return version, nil
 }
 
@@ -113,17 +125,21 @@ func freshCachedGoVersion(cachePath string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+
 	if time.Since(info.ModTime()) > goLatestCacheTTL {
 		return "", false
 	}
+
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
 		return "", false
 	}
+
 	version := strings.TrimSpace(string(data))
 	if version == "" {
 		return "", false
 	}
+
 	return version, true
 }
 
@@ -134,6 +150,7 @@ func writeGoVersionCache(cachePath, version string) {
 	if err := os.MkdirAll(makeDir, 0o755); err != nil {
 		return
 	}
+
 	_ = os.WriteFile(cachePath, []byte(version+"\n"), 0o644)
 }
 
@@ -147,20 +164,24 @@ func fetchLatestStableGo() (string, error) {
 		slog.Warn("go version lookup request failed", slog.Any("err", err))
 		return "", fmt.Errorf("look up latest Go version: network request failed: %w", err)
 	}
+
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("look up latest Go version: server returned %s", resp.Status)
 	}
+
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 256))
 	if err != nil {
 		slog.Warn("go version lookup response failed", slog.Any("err", err))
 		return "", fmt.Errorf("look up latest Go version: read response: %w", err)
 	}
+
 	firstLine, _, _ := strings.Cut(string(body), "\n")
 	version := strings.TrimPrefix(strings.TrimSpace(firstLine), "go")
 	if version == "" {
 		return "", fmt.Errorf("look up latest Go version: server returned no version")
 	}
+
 	return version, nil
 }
 
@@ -174,16 +195,19 @@ func compareGoVersions(left, right string) int {
 	if len(rightParts) > count {
 		count = len(rightParts)
 	}
+
 	for index := 0; index < count; index++ {
 		leftValue := goVersionComponent(leftParts, index)
 		rightValue := goVersionComponent(rightParts, index)
 		if leftValue < rightValue {
 			return -1
 		}
+
 		if leftValue > rightValue {
 			return 1
 		}
 	}
+
 	return 0
 }
 
@@ -191,13 +215,16 @@ func compareGoVersions(left, right string) int {
 // at the first non-numeric fragment such as a release-candidate suffix.
 func goVersionParts(version string) []int {
 	parts := []int{}
+
 	for _, fragment := range strings.Split(version, ".") {
 		value, err := strconv.Atoi(fragment)
 		if err != nil {
 			break
 		}
+
 		parts = append(parts, value)
 	}
+
 	return parts
 }
 
@@ -207,5 +234,6 @@ func goVersionComponent(parts []int, index int) int {
 	if index < len(parts) {
 		return parts[index]
 	}
+
 	return 0
 }

@@ -31,7 +31,9 @@ import (
 //
 //	STATICCHECK_EXTRA_FLAGS="-first" STATICCHECK_EXTRA_TEST_FLAGS="-second"
 func StaticcheckFlagsText() string {
-	return strings.TrimSpace(os.Getenv("STATICCHECK_EXTRA_FLAGS") + " " + os.Getenv("STATICCHECK_EXTRA_TEST_FLAGS"))
+	return strings.TrimSpace(
+		os.Getenv("STATICCHECK_EXTRA_FLAGS") + " " + os.Getenv("STATICCHECK_EXTRA_TEST_FLAGS"),
+	)
 }
 
 // ExcludePattern joins the default and extra exclude path patterns into a
@@ -44,11 +46,13 @@ func StaticcheckFlagsText() string {
 func ExcludePattern(defaultPatterns, extraPatterns string) string {
 	combined := defaultPatterns + "," + extraPatterns
 	fields := make([]string, 0)
+
 	for _, field := range strings.Split(combined, ",") {
 		if field != "" {
 			fields = append(fields, field)
 		}
 	}
+
 	return strings.Join(fields, "|")
 }
 
@@ -75,13 +79,17 @@ func StaticcheckDefaultExcludePaths(defaultPatterns, flagsText string) string {
 	if !staticcheckTestFileFlagEnabled(flagsText) {
 		return defaultPatterns
 	}
+
 	kept := make([]string, 0)
+
 	for _, field := range strings.Split(defaultPatterns, ",") {
 		if field == testFileExcludePath {
 			continue
 		}
+
 		kept = append(kept, field)
 	}
+
 	return strings.Join(kept, ",")
 }
 
@@ -93,10 +101,12 @@ func staticcheckTestFileFlagEnabled(flagsText string) bool {
 		if !isFlag || value == "false" || value == "0" {
 			continue
 		}
+
 		if _, ok := staticcheckTestFileFlags[name]; ok {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -113,15 +123,19 @@ func GolangciScopePattern(explicit, rule, linter string) string {
 	if explicit != "" {
 		return explicit
 	}
+
 	if rule != "" {
 		if linter != "" {
 			return rule + `:.*\(` + linter + `\)$`
 		}
+
 		return rule + ":"
 	}
+
 	if linter != "" {
 		return `\(` + linter + `\)$`
 	}
+
 	return ""
 }
 
@@ -136,16 +150,22 @@ func GolangciScopePattern(explicit, rule, linter string) string {
 func GocycloTransform(lines []string, threshold int) []string {
 	out := make([]string, 0, len(lines))
 	thresholdText := strconv.Itoa(threshold)
+
 	for _, line := range lines {
 		fields := strings.Fields(line)
 		if len(fields) < 4 {
 			continue
 		}
+
 		complexity := fields[0]
 		location := fields[len(fields)-1]
 		symbol := strings.Join(fields[1:len(fields)-1], " ")
-		out = append(out, location+": gocyclo: complexity "+complexity+" over "+thresholdText+" in "+symbol)
+		out = append(
+			out,
+			location+": gocyclo: complexity "+complexity+" over "+thresholdText+" in "+symbol,
+		)
 	}
+
 	return out
 }
 
@@ -161,14 +181,18 @@ func ScopedPackagesFromFiles(files []string) []string {
 		if file == "" {
 			continue
 		}
+
 		directory := path.Dir(file)
 		seen["./"+directory] = struct{}{}
 	}
+
 	packages := make([]string, 0, len(seen))
 	for pkg := range seen {
 		packages = append(packages, pkg)
 	}
+
 	sort.Strings(packages)
+
 	return packages
 }
 
@@ -181,11 +205,13 @@ func ScopedPackagesFromFiles(files []string) []string {
 // ---- FilterScopedFindings ----
 func FilterScopedFindings(lines, files []string) []string {
 	keep := make([]string, 0)
+
 	for _, file := range files {
 		if file != "" {
 			keep = append(keep, file+":")
 		}
 	}
+
 	kept := make([]string, 0, len(lines))
 	for _, line := range lines {
 		for _, prefix := range keep {
@@ -195,6 +221,7 @@ func FilterScopedFindings(lines, files []string) []string {
 			}
 		}
 	}
+
 	return kept
 }
 
@@ -214,8 +241,10 @@ func FilterMakeErrorLines(lines []string) []string {
 		if makeErrorLine.MatchString(line) {
 			continue
 		}
+
 		kept = append(kept, line)
 	}
+
 	return kept
 }
 
@@ -226,17 +255,21 @@ func FilterMakeErrorLines(lines []string) []string {
 // ---- DedupeFailedGates ----
 func DedupeFailedGates(names []string) []string {
 	seen := make(map[string]struct{}, len(names))
+
 	out := make([]string, 0, len(names))
 	for _, name := range names {
 		if name == "" {
 			continue
 		}
+
 		if _, ok := seen[name]; ok {
 			continue
 		}
+
 		seen[name] = struct{}{}
 		out = append(out, name)
 	}
+
 	return out
 }
 
@@ -261,27 +294,35 @@ func StaticcheckScopePattern(explicit, flagsText string) string {
 	if explicit != "" {
 		return explicit
 	}
+
 	if strings.TrimSpace(flagsText) == "" {
 		return ""
 	}
+
 	patterns := make([]string, 0)
+
 	for _, word := range strings.Fields(flagsText) {
 		name, value, isFlag := parseStaticcheckFlagWord(word)
 		if !isFlag {
 			continue
 		}
+
 		if value == "false" || value == "0" {
 			continue
 		}
+
 		pattern, ok := staticcheckFlagScopePatterns[name]
 		if !ok {
 			return ""
 		}
+
 		patterns = append(patterns, pattern)
 	}
+
 	if len(patterns) == 0 {
 		return ""
 	}
+
 	return strings.Join(patterns, "|")
 }
 
@@ -294,9 +335,11 @@ func parseStaticcheckFlagWord(word string) (name, value string, isFlag bool) {
 	if trimmed == word || trimmed == "" {
 		return "", "", false
 	}
+
 	if equals := strings.IndexByte(trimmed, '='); equals >= 0 {
 		return trimmed[:equals], trimmed[equals+1:], true
 	}
+
 	return trimmed, "true", true
 }
 
@@ -320,6 +363,7 @@ func StaticcheckSuppressFixed(flagsText, scopePattern string) bool {
 // ---- Slugify ----
 func Slugify(text string) string {
 	var builder strings.Builder
+
 	for _, char := range text {
 		switch {
 		case char >= 'A' && char <= 'Z':
@@ -332,5 +376,6 @@ func Slugify(text string) string {
 			builder.WriteRune(char)
 		}
 	}
+
 	return builder.String()
 }

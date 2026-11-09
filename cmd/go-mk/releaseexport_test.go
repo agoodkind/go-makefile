@@ -22,27 +22,43 @@ func TestReleaseExportsCgoOptionalFromConsumerMakefile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read go-release.mk: %v", err)
 	}
+
 	files["go-release.mk"] = string(releaseModule)
 	server := newFetchServer(t, files)
 	dir := newConsumer(t)
-	writeMakefile(t, dir, `BINARY := probe
+	writeMakefile(
+		t,
+		dir,
+		`BINARY := probe
 CMD := ./cmd/probe
 GO_MK_MODULES := go-release.mk
 GO_MK_CGO_OPTIONAL := `+allowlisted+`
 include bootstrap.mk
 probe-cgo-optional:
 	@printf 'cgo_optional=%s\n' "$$GO_MK_CGO_OPTIONAL"
-`)
+`,
+	)
 
-	output, code := runMakeTarget(t, "make", dir, "probe-cgo-optional", map[string]string{
-		"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
-		"GO_MK_BIN":           filepath.Join(dir, ".make", "go-mk"),
-		"HOME":                t.TempDir(),
-	})
+	output, code := runMakeTarget(
+		t,
+		"make",
+		dir,
+		"probe-cgo-optional",
+		map[string]string{
+			"GO_MK_CODELOAD_BASE": server.CodeloadBase(),
+			"GO_MK_BIN":           filepath.Join(dir, ".make", "go-mk"),
+			"HOME":                t.TempDir(),
+		},
+	)
 	if code != 0 {
 		t.Fatalf("make probe-cgo-optional exit = %d, want 0: %s", code, output)
 	}
+
 	if !strings.Contains(output, "cgo_optional="+allowlisted+"\n") {
-		t.Fatalf("recipe environment lacks GO_MK_CGO_OPTIONAL=%s, so the engine never sees the allowlist:\n%s", allowlisted, output)
+		t.Fatalf(
+			"recipe environment lacks GO_MK_CGO_OPTIONAL=%s, so the engine never sees the allowlist:\n%s",
+			allowlisted,
+			output,
+		)
 	}
 }

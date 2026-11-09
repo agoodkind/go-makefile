@@ -27,7 +27,9 @@ func TestRunUpdateCommandCheckPrintsFacts(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, want 0, stderr %q", exitCode, stderr.String())
 	}
+
 	output := stdout.String()
+
 	for _, want := range []string{
 		"current: " + testCurrentVersion,
 		"latest: 202606250140-71-dbb89ef",
@@ -59,7 +61,9 @@ func TestRunUpdateCommandDryRunPrintsApplyFacts(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, want 0, stderr %q", exitCode, stderr.String())
 	}
+
 	output := stdout.String()
+
 	for _, want := range []string{
 		"available: true",
 		"applied: false",
@@ -85,6 +89,7 @@ func TestRunUpdateCommandRejectsUnexpectedArgs(t *testing.T) {
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1", exitCode)
 	}
+
 	if !strings.Contains(stderr.String(), "unexpected argument") {
 		t.Fatalf("stderr = %q, want unexpected argument", stderr.String())
 	}
@@ -118,6 +123,7 @@ func restoreCommandTestSeams(t *testing.T, latestTag string) {
 	if err := os.WriteFile(candidatePath, []byte("candidate"), 0o755); err != nil {
 		t.Fatalf("WriteFile() error: %v", err)
 	}
+
 	updateWithLock = func(_ context.Context, _ string, fn func() error) error {
 		return fn()
 	}
@@ -139,7 +145,13 @@ func restoreCommandTestSeams(t *testing.T, latestTag string) {
 	updateVerifyChecksum = func(_ context.Context, _ Options, _ release, _ releaseAsset, _ string) error {
 		return nil
 	}
-	updateVerifyGitHubAttestations = func(_ context.Context, _ Options, _ release, _ releaseAsset, _ string) error {
+	updateVerifyGitHubAttestations = func(
+		_ context.Context,
+		_ Options,
+		_ release,
+		_ releaseAsset,
+		_ string,
+	) error {
 		return nil
 	}
 	updateExtractCandidate = func(_ string, _ string, _ int64, _ string) (string, func(), error) {

@@ -51,27 +51,34 @@ func TestCheckFailureReport(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			temporaryDirectory := t.TempDir()
-			environment := map[string]string{
-				"GO_MK_CI_PRIMARY_COMMAND":   testCase.primaryCommand,
-				"GO_MK_CI_PRIMARY_OUTCOME":   testCase.primaryOutcome,
-				"GO_MK_CI_PRIMARY_REPORT":    filepath.Join(temporaryDirectory, "primary.out"),
-				"GO_MK_CI_SECONDARY_COMMAND": testCase.secondaryCommand,
-				"GO_MK_CI_SECONDARY_OUTCOME": testCase.secondaryOutcome,
-				"GO_MK_CI_SECONDARY_REPORT":  filepath.Join(temporaryDirectory, "secondary.out"),
-			}
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				temporaryDirectory := t.TempDir()
+				environment := map[string]string{
+					"GO_MK_CI_PRIMARY_COMMAND":   testCase.primaryCommand,
+					"GO_MK_CI_PRIMARY_OUTCOME":   testCase.primaryOutcome,
+					"GO_MK_CI_PRIMARY_REPORT":    filepath.Join(temporaryDirectory, "primary.out"),
+					"GO_MK_CI_SECONDARY_COMMAND": testCase.secondaryCommand,
+					"GO_MK_CI_SECONDARY_OUTCOME": testCase.secondaryOutcome,
+					"GO_MK_CI_SECONDARY_REPORT": filepath.Join(
+						temporaryDirectory,
+						"secondary.out",
+					),
+				}
 
-			runWorkflowScript(t, primaryScript, environment, testCase.primaryOutcome)
-			runWorkflowScript(t, secondaryScript, environment, testCase.secondaryOutcome)
-			output, err := workflowScriptOutput(reportScript, environment)
-			if err == nil {
-				t.Fatalf("report command succeeded, want nonzero\noutput:\n%s", output)
-			}
-			if got := string(output); got != testCase.wantOutput {
-				t.Fatalf("report output = %q, want %q", got, testCase.wantOutput)
-			}
-		})
+				runWorkflowScript(t, primaryScript, environment, testCase.primaryOutcome)
+				runWorkflowScript(t, secondaryScript, environment, testCase.secondaryOutcome)
+				output, err := workflowScriptOutput(reportScript, environment)
+				if err == nil {
+					t.Fatalf("report command succeeded, want nonzero\noutput:\n%s", output)
+				}
+
+				if got := string(output); got != testCase.wantOutput {
+					t.Fatalf("report output = %q, want %q", got, testCase.wantOutput)
+				}
+			},
+		)
 	}
 }
 
@@ -89,6 +96,7 @@ func runWorkflowScript(t *testing.T, script string, environment map[string]strin
 	if outcome == "failure" && err == nil {
 		t.Fatalf("check command succeeded, want failure\noutput:\n%s", output)
 	}
+
 	if outcome == "success" && err != nil {
 		t.Fatalf("check command failed: %v\noutput:\n%s", err, output)
 	}
@@ -97,6 +105,7 @@ func runWorkflowScript(t *testing.T, script string, environment map[string]strin
 func workflowScriptOutput(script string, environment map[string]string) ([]byte, error) {
 	command := exec.Command("bash", "-c", script)
 	command.Env = testProcessEnvironment(environment)
+
 	return command.CombinedOutput()
 }
 
@@ -107,20 +116,25 @@ func workflowStepScript(t *testing.T, name string) string {
 	if err != nil {
 		t.Fatalf("read %s: %v", workflowPath, err)
 	}
+
 	step := workflowStep(t, string(workflowBytes), name)
 	marker := "        run: |\n"
 	start := strings.Index(step, marker)
 	if start < 0 {
 		t.Fatalf("%s has no inline shell block:\n%s", name, step)
 	}
+
 	lines := strings.Split(step[start+len(marker):], "\n")
+
 	scriptLines := make([]string, 0, len(lines))
 	for _, line := range lines {
 		if !strings.HasPrefix(line, "          ") {
 			break
 		}
+
 		scriptLines = append(scriptLines, strings.TrimPrefix(line, "          "))
 	}
+
 	return strings.Join(scriptLines, "\n")
 }
 
@@ -131,10 +145,12 @@ func workflowStep(t *testing.T, workflow string, name string) string {
 	if start < 0 {
 		t.Fatalf("workflow missing step %q", name)
 	}
+
 	remainder := workflow[start+len(marker):]
 	next := strings.Index(remainder, "\n      - ")
 	if next < 0 {
 		return workflow[start:]
 	}
+
 	return workflow[start : start+len(marker)+next]
 }

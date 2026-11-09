@@ -21,12 +21,14 @@ func runResolveBin() int {
 	if len(os.Args) > 2 {
 		commandName = resolveBinCommand(os.Args[2])
 	}
+
 	switch commandName {
 	case resolveBinCommandBin:
 		if err := resolveEngineBinary(); err != nil {
 			writeStderr("go-mk: " + err.Error() + "\n")
 			return 1
 		}
+
 		return 0
 	case resolveBinCommandSelectedBin:
 		path, err := selectedEngineBinaryPath()
@@ -34,9 +36,11 @@ func runResolveBin() int {
 			writeStderr("go-mk: " + err.Error() + "\n")
 			return 1
 		}
+
 		if path != "" {
 			writeStdout(path + "\n")
 		}
+
 		return 0
 	default:
 		writeStderr(fmt.Sprintf("go-mk resolve-bin: unknown command %s\n", commandName))
@@ -49,11 +53,14 @@ func resolveEngineBinary() error {
 		if !executableFile(configured) {
 			return fmt.Errorf("%s not executable", configured)
 		}
+
 		if missingRequiredFlags(configured) {
 			return fmt.Errorf("%s does not support the required capabilities", configured)
 		}
+
 		return nil
 	}
+
 	outputPath := engineBinaryOutputPath()
 	repoPath := strings.TrimSpace(os.Getenv("GO_MK_BUILD_REPO"))
 	if repoPath != "" {
@@ -61,6 +68,7 @@ func resolveEngineBinary() error {
 			writeStderr(fmt.Sprintf("go-mk: build repo %s not present; skipping\n", repoPath))
 			return nil
 		}
+
 		rebuildReason := ""
 		if !executableFile(outputPath) {
 			rebuildReason = "missing cached binary"
@@ -71,11 +79,14 @@ func resolveEngineBinary() error {
 		} else if missingRequiredFlags(outputPath) {
 			rebuildReason = "cached binary missing required capabilities"
 		}
+
 		if rebuildReason != "" {
 			return buildEngineFromRepo(repoPath, outputPath)
 		}
+
 		return nil
 	}
+
 	return installEngineBinary(outputPath)
 }
 
@@ -83,10 +94,12 @@ func selectedEngineBinaryPath() (string, error) {
 	if configured := strings.TrimSpace(os.Getenv("GO_MK_BIN")); configured != "" {
 		return configured, nil
 	}
+
 	outputPath := engineBinaryOutputPath()
 	if executableFile(outputPath) {
 		return outputPath, nil
 	}
+
 	return "", nil
 }
 
@@ -95,9 +108,11 @@ func engineBinaryOutputPath() string {
 	if root == "" {
 		root = strings.TrimSpace(os.Getenv("GO_MK_ROOT"))
 	}
+
 	if root == "" {
 		return filepath.Join(".make", "go-mk")
 	}
+
 	return filepath.Join(root, ".make", "go-mk")
 }
 
@@ -106,16 +121,23 @@ func buildEngineFromRepo(repoPath string, outputPath string) error {
 	if packagePath == "" {
 		packagePath = "./cmd/go-mk"
 	}
+
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
 		return err
 	}
+
 	tmpFile, err := os.CreateTemp(filepath.Dir(outputPath), filepath.Base(outputPath)+".*")
 	if err != nil {
 		return err
 	}
+
 	tmpPath := tmpFile.Name()
 	_ = tmpFile.Close()
-	slog.Info("resolve-bin build from repo", slog.String("repo", repoPath), slog.String("output", outputPath))
+	slog.Info(
+		"resolve-bin build from repo",
+		slog.String("repo", repoPath),
+		slog.String("output", outputPath),
+	)
 	cmd := exec.Command("go", "build", "-o", tmpPath, packagePath)
 	cmd.Dir = repoPath
 	cmd.Env = os.Environ()
@@ -123,12 +145,15 @@ func buildEngineFromRepo(repoPath string, outputPath string) error {
 	if err != nil {
 		_ = os.Remove(tmpPath)
 		slog.Error("resolve-bin dev build failed", slog.Any("err", err))
+
 		return fmt.Errorf("dev build failed: %w\n%s", err, output)
 	}
+
 	if err := os.Rename(tmpPath, outputPath); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
 	}
+
 	return nil
 }
 
@@ -147,14 +172,17 @@ func installEngineBinary(outputPath string) error {
 	if installSpec == "" {
 		installSpec = "goodkind.io/go-makefile/cmd/go-mk@main"
 	}
+
 	slog.Info("resolve-bin install binary", slog.String("spec", installSpec))
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
 		return err
 	}
+
 	staging, err := os.MkdirTemp(filepath.Dir(outputPath), ".go-mk-install.")
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = os.RemoveAll(staging) }()
 
 	cmd := exec.Command("go", "install", installSpec)
@@ -163,6 +191,7 @@ func installEngineBinary(outputPath string) error {
 		writeStderr(string(output))
 		return cmdErr
 	}
+
 	binaryName := filepath.Base(strings.SplitN(installSpec, "@", 2)[0])
 	// Rename replaces the directory entry itself, so a symlink an earlier
 	// version left at the output path is destroyed rather than written through.
@@ -174,6 +203,7 @@ func sourceNewerThanEngine(repoPath string, outputPath string) bool {
 	if err != nil {
 		return true
 	}
+
 	binaryTime := info.ModTime()
 	catalogRoot := filepath.Join(repoPath, "cmd", "go-mk", "help_examples")
 	roots := []string{
@@ -183,25 +213,34 @@ func sourceNewerThanEngine(repoPath string, outputPath string) bool {
 		filepath.Join(repoPath, "go.sum"),
 	}
 	newer := false
+
 	for _, root := range roots {
-		_ = filepath.Walk(root, func(path string, fileInfo os.FileInfo, walkErr error) error {
-			if walkErr != nil || fileInfo == nil || fileInfo.IsDir() {
-				return walkErr
-			}
-			name := fileInfo.Name()
-			isCatalog := filepath.Dir(path) == catalogRoot && strings.HasSuffix(name, ".json")
-			if !isCatalog && !strings.HasSuffix(name, ".go") && name != "go.mod" && name != "go.sum" {
+		_ = filepath.Walk(
+			root,
+			func(path string, fileInfo os.FileInfo, walkErr error) error {
+				if walkErr != nil || fileInfo == nil || fileInfo.IsDir() {
+					return walkErr
+				}
+
+				name := fileInfo.Name()
+				isCatalog := filepath.Dir(path) == catalogRoot && strings.HasSuffix(name, ".json")
+				if !isCatalog && !strings.HasSuffix(name, ".go") && name != "go.mod" &&
+					name != "go.sum" {
+					return nil
+				}
+
+				if fileInfo.ModTime().After(binaryTime) {
+					newer = true
+				}
+
 				return nil
-			}
-			if fileInfo.ModTime().After(binaryTime) {
-				newer = true
-			}
-			return nil
-		})
+			},
+		)
 		if newer {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -212,6 +251,7 @@ func missingRequiredFlags(binaryPath string) bool {
 	if err != nil {
 		return true
 	}
+
 	return !strings.Contains(string(output), "write-batch")
 }
 
@@ -220,6 +260,7 @@ func executableFile(path string) bool {
 	if err != nil {
 		return false
 	}
+
 	return info.Mode().IsRegular() && info.Mode()&0o111 != 0
 }
 
@@ -228,5 +269,6 @@ func isSymlink(path string) bool {
 	if err != nil {
 		return false
 	}
+
 	return info.Mode()&os.ModeSymlink != 0
 }

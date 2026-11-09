@@ -49,18 +49,26 @@ func TestRenderFailedRunShowsFindingsOnce(t *testing.T) {
 	if !strings.Contains(got, "  lint-gocyclo   FAILED  (1 new finding)\n") {
 		t.Errorf("missing failed status row:\n%s", got)
 	}
-	if !strings.Contains(got, "    internal/foo/bar.go:42:1\n      gocyclo: complexity 21 over 20 in bigFunc\n") {
+
+	if !strings.Contains(
+		got,
+		"    internal/foo/bar.go:42:1\n      gocyclo: complexity 21 over 20 in bigFunc\n",
+	) {
 		t.Errorf("missing indented findings:\n%s", got)
 	}
+
 	if !strings.Contains(got, "    Fix: run the baseline refresh and re-run the gate.\n") {
 		t.Errorf("missing fix line:\n%s", got)
 	}
+
 	if !strings.HasSuffix(got, "  1 check failed: lint-gocyclo\n") {
 		t.Errorf("missing single verdict footer:\n%s", got)
 	}
+
 	if strings.Contains(got, "Diagnostics:") {
 		t.Errorf("diagnostics must be suppressed on failure:\n%s", got)
 	}
+
 	if strings.Count(got, "gocyclo: complexity 21 over 20 in bigFunc") != 1 {
 		t.Errorf("finding must appear exactly once:\n%s", got)
 	}
@@ -93,9 +101,11 @@ func TestRenderAdvisoryShowsFindingsWithoutFailingVerdict(t *testing.T) {
 	if !strings.Contains(got, "  govulncheck  ADVISORY\n") {
 		t.Fatalf("missing advisory status row:\n%s", got)
 	}
+
 	if !strings.Contains(got, "  GO-2026-1234 affects example/package\n") {
 		t.Fatalf("missing advisory findings:\n%s", got)
 	}
+
 	if !strings.HasSuffix(got, "  All blocking checks passed.\n") {
 		t.Fatalf("advisory verdict is unclear:\n%s", got)
 	}

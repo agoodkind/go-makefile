@@ -22,26 +22,33 @@ func RunUpdateCommand(
 	if err := flagSet.Parse(args); err != nil {
 		return 1
 	}
+
 	if flagSet.NArg() != 0 {
 		fmt.Fprintf(stderr, "unexpected argument: %s\n", flagSet.Arg(0))
 		return 1
 	}
+
 	if *checkOnly {
 		result, err := Check(ctx, options)
 		if err != nil {
 			fmt.Fprintf(stderr, "error: %v\n", err)
 			return 1
 		}
+
 		printCheckResult(stdout, result)
+
 		return 0
 	}
+
 	options.DryRun = options.DryRun || *dryRun
 	result, err := Apply(ctx, options)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
+
 	printApplyResult(stdout, result)
+
 	return 0
 }
 
@@ -56,6 +63,9 @@ func printApplyResult(stdout io.Writer, result ApplyResult) {
 	fmt.Fprintf(stdout, "applied: %t\n", result.Applied)
 	fmt.Fprintf(stdout, "dry_run: %t\n", result.DryRun)
 	if result.LaunchCheckSkipped {
-		fmt.Fprintln(stdout, "launch_check: skipped (dry run leaves the install directory untouched)")
+		fmt.Fprintln(
+			stdout,
+			"launch_check: skipped (dry run leaves the install directory untouched)",
+		)
 	}
 }

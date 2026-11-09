@@ -24,6 +24,7 @@ func TestReadModulePathAllowsTrailingComment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readModulePath returned error: %v", err)
 	}
+
 	if modulePath != "goodkind.io/commented" {
 		t.Fatalf("readModulePath = %q, want %q", modulePath, "goodkind.io/commented")
 	}
@@ -33,64 +34,85 @@ func TestScaffoldRendersCanonicalFiles(t *testing.T) {
 	repoRoot := testRepoRoot(t)
 	canonicalMakefile := mustReadFile(t, filepath.Join(repoRoot, "templates", "Makefile.tmpl"))
 	canonicalBootstrap := scaffoldGoldenBootstrap(t, repoRoot)
+
 	for _, layout := range []string{"library", "binary"} {
-		t.Run(layout, func(t *testing.T) {
-			repoDir := t.TempDir()
-			scaffoldGoldenEnvironment(t, repoDir)
-			initGitRepo(t, repoDir)
-			writeScaffoldTestGoMod(t, repoDir, "example.com/canonical")
-			context := scaffoldContext{Layout: layout}
-			if layout == "binary" {
-				mustMkdirAll(t, filepath.Join(repoDir, "cmd", "canonical"))
-				mustMkdirAll(t, filepath.Join(repoDir, "internal", "version"))
-				context.Binary = "canonical"
-				context.Cmd = "./cmd/canonical"
-				context.Vpkg = "example.com/canonical/internal/version"
-			}
-			t.Chdir(repoDir)
-			runScaffoldForTest(t, scaffoldOptions{
-				forceLibrary: layout == "library",
-				forceBinary:  layout == "binary",
-				yes:          true,
-			})
-			want := scaffoldGoldenRender(t, canonicalMakefile, context)
-			if got := mustReadFile(t, filepath.Join(repoDir, "Makefile")); got != want {
-				t.Fatalf("scaffold Makefile differs from canonical rendering\nwant:\n%s\ngot:\n%s", want, got)
-			}
-			assertFileText(t, filepath.Join(repoDir, "bootstrap.mk"), canonicalBootstrap)
-		})
+		t.Run(
+			layout,
+			func(t *testing.T) {
+				repoDir := t.TempDir()
+				scaffoldGoldenEnvironment(t, repoDir)
+				initGitRepo(t, repoDir)
+				writeScaffoldTestGoMod(t, repoDir, "example.com/canonical")
+				context := scaffoldContext{Layout: layout}
+				if layout == "binary" {
+					mustMkdirAll(t, filepath.Join(repoDir, "cmd", "canonical"))
+					mustMkdirAll(t, filepath.Join(repoDir, "internal", "version"))
+					context.Binary = "canonical"
+					context.Cmd = "./cmd/canonical"
+					context.Vpkg = "example.com/canonical/internal/version"
+				}
+
+				t.Chdir(repoDir)
+				runScaffoldForTest(
+					t,
+					scaffoldOptions{
+						forceLibrary: layout == "library",
+						forceBinary:  layout == "binary",
+						yes:          true,
+					},
+				)
+				want := scaffoldGoldenRender(t, canonicalMakefile, context)
+				if got := mustReadFile(t, filepath.Join(repoDir, "Makefile")); got != want {
+					t.Fatalf(
+						"scaffold Makefile differs from canonical rendering\nwant:\n%s\ngot:\n%s",
+						want,
+						got,
+					)
+				}
+
+				assertFileText(t, filepath.Join(repoDir, "bootstrap.mk"), canonicalBootstrap)
+			},
+		)
 	}
 }
 
 func scaffoldGoldenBootstrap(t *testing.T, repoRoot string) string {
 	t.Helper()
 	canonical := mustReadFile(t, filepath.Join(repoRoot, "bootstrap.mk"))
+
 	return string(consumerBootstrapMk([]byte(canonical)))
 }
 
 func scaffoldGoldenRender(t *testing.T, canonical string, context scaffoldContext) string {
 	t.Helper()
-	tmpl, err := template.New("canonical").Delims("[[", "]]").Option("missingkey=error").Parse(canonical)
+	tmpl, err := template.New("canonical").Delims("[[", "]]").Option("missingkey=error").Parse(
+		canonical,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var output bytes.Buffer
 	if err := tmpl.Execute(&output, context); err != nil {
 		t.Fatal(err)
 	}
+
 	return output.String()
 }
 
 func scaffoldGoldenEnvironment(t *testing.T, tempDir string) {
 	t.Helper()
+
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
 		if key != "PATH" && key != "SystemRoot" {
 			t.Setenv(key, "")
 		}
 	}
+
 	gitConfig := filepath.Join(tempDir, "gitconfig")
 	writeScaffoldTestFile(t, gitConfig, "")
+
 	for key, value := range map[string]string{
 		"HOME":                tempDir,
 		"XDG_CACHE_HOME":      filepath.Join(tempDir, "cache"),
@@ -109,6 +131,7 @@ func scaffoldGoldenEnvironment(t *testing.T, tempDir string) {
 	} {
 		t.Setenv(key, value)
 	}
+
 	// Go telemetry can start a child that writes after the scaffold returns.
 	if output, err := exec.Command("go", "telemetry", "off").CombinedOutput(); err != nil {
 		t.Fatalf("disable Go telemetry: %v\n%s", err, output)
@@ -127,9 +150,11 @@ func TestConsumerBootstrapMkKeepsRecipeHashComments(t *testing.T) {
 	if strings.Contains(stripped, "makefile comment") {
 		t.Fatalf("stripped makefile comment:\n%s", stripped)
 	}
+
 	if !strings.Contains(stripped, "\t# shell comment in recipe") {
 		t.Fatalf("dropped tab-indented recipe comment:\n%s", stripped)
 	}
+
 	if !strings.Contains(stripped, "\techo start") || !strings.Contains(stripped, "\techo end") {
 		t.Fatalf("dropped recipe commands:\n%s", stripped)
 	}
@@ -143,6 +168,7 @@ func TestConsumerBootstrapMkStripsSpaceIndentedComments(t *testing.T) {
 	if strings.Contains(stripped, "space indented makefile comment") {
 		t.Fatalf("kept space-indented makefile comment:\n%s", stripped)
 	}
+
 	if !strings.Contains(stripped, "FOO := 1") || !strings.Contains(stripped, "BAR := 2") {
 		t.Fatalf("dropped assignments:\n%s", stripped)
 	}
@@ -161,12 +187,15 @@ func TestConsumerBootstrapMkTracksNestedDefines(t *testing.T) {
 	if strings.Contains(stripped, "makefile comment") {
 		t.Fatalf("stripped makefile comment:\n%s", stripped)
 	}
+
 	if !strings.Contains(stripped, "# outer before nested") {
 		t.Fatalf("dropped outer hash before nested define:\n%s", stripped)
 	}
+
 	if !strings.Contains(stripped, "# inner hash") {
 		t.Fatalf("dropped nested define hash:\n%s", stripped)
 	}
+
 	if !strings.Contains(stripped, "# outer after nested") {
 		t.Fatalf("dropped outer hash after nested endef:\n%s", stripped)
 	}
@@ -181,9 +210,11 @@ func TestConsumerBootstrapMkIgnoresRecipeDefine(t *testing.T) {
 	if !strings.Contains(stripped, "\tdefine FOO") {
 		t.Fatalf("dropped recipe define:\n%s", stripped)
 	}
+
 	if strings.Contains(stripped, "makefile comment after recipe define") {
 		t.Fatalf("recipe define left comment stripping off:\n%s", stripped)
 	}
+
 	if !strings.Contains(stripped, "FOO := 1") {
 		t.Fatalf("dropped assignment after recipe define:\n%s", stripped)
 	}
@@ -202,9 +233,11 @@ func TestConsumerBootstrapMkKeepsDefineHashComments(t *testing.T) {
 	if strings.Contains(stripped, "makefile comment") {
 		t.Fatalf("stripped makefile comment:\n%s", stripped)
 	}
+
 	if !strings.Contains(stripped, "# unindented in define") {
 		t.Fatalf("dropped unindented define comment:\n%s", stripped)
 	}
+
 	if !strings.Contains(stripped, "  # space indented in define") {
 		t.Fatalf("dropped space-indented define comment:\n%s", stripped)
 	}
@@ -218,6 +251,7 @@ func TestReconcileBootstrapMkWritesStrippedCopy(t *testing.T) {
 	if err := reconcileBootstrapMk(&stdout); err != nil {
 		t.Fatalf("reconcileBootstrapMk returned error: %v", err)
 	}
+
 	if stdout.String() != "created bootstrap.mk\n" {
 		t.Fatalf("stdout = %q, want created message", stdout.String())
 	}
@@ -238,15 +272,18 @@ func TestReconcileBootstrapMkSkipsWhenCurrent(t *testing.T) {
 	if err := reconcileBootstrapMk(&firstStdout); err != nil {
 		t.Fatalf("first reconcileBootstrapMk returned error: %v", err)
 	}
+
 	before := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk"))
 
 	var secondStdout bytes.Buffer
 	if err := reconcileBootstrapMk(&secondStdout); err != nil {
 		t.Fatalf("second reconcileBootstrapMk returned error: %v", err)
 	}
+
 	if secondStdout.String() != "skipping bootstrap.mk (already current)\n" {
 		t.Fatalf("stdout = %q, want skip message", secondStdout.String())
 	}
+
 	if after := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk")); after != before {
 		t.Fatalf("second run changed bootstrap.mk\nbefore:\n%s\nafter:\n%s", before, after)
 	}
@@ -265,6 +302,7 @@ func TestReconcileBootstrapMkUpdatesCommentedCanonical(t *testing.T) {
 	if err := reconcileBootstrapMk(&stdout); err != nil {
 		t.Fatalf("reconcileBootstrapMk returned error: %v", err)
 	}
+
 	if stdout.String() != "updated bootstrap.mk\n" {
 		t.Fatalf("stdout = %q, want updated message", stdout.String())
 	}
@@ -283,6 +321,7 @@ func TestReconcileBootstrapMkResetsMode(t *testing.T) {
 	if err := os.WriteFile("bootstrap.mk", []byte("stale\n"), 0o755); err != nil {
 		t.Fatalf("write stale bootstrap.mk: %v", err)
 	}
+
 	if err := os.Chmod("bootstrap.mk", 0o444); err != nil {
 		t.Fatalf("chmod 0444: %v", err)
 	}
@@ -291,6 +330,7 @@ func TestReconcileBootstrapMkResetsMode(t *testing.T) {
 	if err := reconcileBootstrapMk(&stdout); err != nil {
 		t.Fatalf("reconcileBootstrapMk returned error: %v", err)
 	}
+
 	if stdout.String() != "updated bootstrap.mk\n" {
 		t.Fatalf("stdout = %q, want updated message", stdout.String())
 	}
@@ -299,6 +339,7 @@ func TestReconcileBootstrapMkResetsMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat bootstrap.mk: %v", err)
 	}
+
 	if perm := info.Mode().Perm(); perm != 0o644 {
 		t.Fatalf("bootstrap.mk mode = %04o, want 0644", perm)
 	}
@@ -312,6 +353,7 @@ func TestReconcileBootstrapMkResetsModeWhenCurrent(t *testing.T) {
 	if err := reconcileBootstrapMk(&firstStdout); err != nil {
 		t.Fatalf("first reconcileBootstrapMk returned error: %v", err)
 	}
+
 	if err := os.Chmod("bootstrap.mk", 0o444); err != nil {
 		t.Fatalf("chmod 0444: %v", err)
 	}
@@ -320,6 +362,7 @@ func TestReconcileBootstrapMkResetsModeWhenCurrent(t *testing.T) {
 	if err := reconcileBootstrapMk(&stdout); err != nil {
 		t.Fatalf("reconcileBootstrapMk returned error: %v", err)
 	}
+
 	if stdout.String() != "updated bootstrap.mk\n" {
 		t.Fatalf("stdout = %q, want updated message", stdout.String())
 	}
@@ -328,6 +371,7 @@ func TestReconcileBootstrapMkResetsModeWhenCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat bootstrap.mk: %v", err)
 	}
+
 	if perm := info.Mode().Perm(); perm != 0o644 {
 		t.Fatalf("bootstrap.mk mode = %04o, want 0644", perm)
 	}
@@ -342,11 +386,17 @@ func TestReconcileBootstrapMkSkipsEngineRepo(t *testing.T) {
 	if err := reconcileBootstrapMk(&stdout); err != nil {
 		t.Fatalf("reconcileBootstrapMk returned error: %v", err)
 	}
+
 	if stdout.String() != "skipping bootstrap.mk (go-makefile engine repo)\n" {
 		t.Fatalf("stdout = %q, want engine-repo skip message", stdout.String())
 	}
+
 	if after := mustReadFile(t, filepath.Join(repoRoot, "bootstrap.mk")); after != before {
-		t.Fatalf("engine-repo reconcile changed bootstrap.mk\nbefore:\n%s\nafter:\n%s", before, after)
+		t.Fatalf(
+			"engine-repo reconcile changed bootstrap.mk\nbefore:\n%s\nafter:\n%s",
+			before,
+			after,
+		)
 	}
 }
 
@@ -360,9 +410,11 @@ func TestScaffoldCommandDispatches(t *testing.T) {
 	if err := root.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("ExecuteContext(scaffold) error: %v", err)
 	}
+
 	if recordedExit != 0 {
 		t.Fatalf("recordedExit = %d, want 0", recordedExit)
 	}
+
 	assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
 	assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "DO NOT MODIFY")
 }
@@ -373,13 +425,21 @@ func TestBootstrapAliasDispatches(t *testing.T) {
 	t.Chdir(repoDir)
 
 	root := newRootCommand()
-	root.SetArgs([]string{"bootstrap", "--module", "goodkind.io/bootstrap-alias", "--library", "--yes"})
+	root.SetArgs([]string{
+		"bootstrap",
+		"--module",
+		"goodkind.io/bootstrap-alias",
+		"--library",
+		"--yes",
+	})
 	if err := root.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("ExecuteContext(bootstrap) error: %v", err)
 	}
+
 	if recordedExit != 0 {
 		t.Fatalf("recordedExit = %d, want 0", recordedExit)
 	}
+
 	assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
 	assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "DO NOT MODIFY")
 }
@@ -403,11 +463,13 @@ func TestReconcileGoModToolsStripsManagedTools(t *testing.T) {
 	}
 
 	contents := mustReadFile(t, filepath.Join(repoDir, "go.mod"))
+
 	for _, managed := range goMakefileManagedTools {
 		if strings.Contains(contents, managed) {
 			t.Fatalf("managed tool directive %q was not removed\ngo.mod:\n%s", managed, contents)
 		}
 	}
+
 	if !strings.Contains(contents, "github.com/bufbuild/buf/cmd/buf") {
 		t.Fatalf("project-specific tool directive was removed\ngo.mod:\n%s", contents)
 	}
@@ -418,6 +480,7 @@ func TestReconcileGoModToolsStripsManagedTools(t *testing.T) {
 	if err := reconcileGoModTools(&secondStdout); err != nil {
 		t.Fatalf("second reconcileGoModTools returned error: %v", err)
 	}
+
 	if after := mustReadFile(t, filepath.Join(repoDir, "go.mod")); after != before {
 		t.Fatalf("second run changed go.mod\nbefore:\n%s\nafter:\n%s", before, after)
 	}
@@ -426,969 +489,867 @@ func TestReconcileGoModToolsStripsManagedTools(t *testing.T) {
 func TestScaffoldScenarios(t *testing.T) {
 	repoRoot := testRepoRoot(t)
 
-	t.Run("new binary repo", func(t *testing.T) {
-		repoDir := filepath.Join(t.TempDir(), "binary")
-		mustMkdirAll(t, repoDir)
-		initGitRepo(t, repoDir)
-		setGitRemote(t, repoDir, "git@github.com:agoodkind/bootstrap-probe.git")
-		t.Chdir(repoDir)
+	t.Run(
+		"new binary repo",
+		func(t *testing.T) {
+			repoDir := filepath.Join(t.TempDir(), "binary")
+			mustMkdirAll(t, repoDir)
+			initGitRepo(t, repoDir)
+			setGitRemote(t, repoDir, "git@github.com:agoodkind/bootstrap-probe.git")
+			t.Chdir(repoDir)
 
-		runScaffoldForTest(t, scaffoldOptions{
-			modulePath:  "goodkind.io/bootstrap-probe",
-			forceBinary: true,
-			yes:         true,
-		})
+			runScaffoldForTest(
+				t,
+				scaffoldOptions{
+					modulePath:  "goodkind.io/bootstrap-probe",
+					forceBinary: true,
+					yes:         true,
+				},
+			)
 
-		assertFileExists(t, filepath.Join(repoDir, "go.mod"))
-		assertFileExists(t, filepath.Join(repoDir, "Makefile"))
-		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
-		assertFileDoesNotExist(t, filepath.Join(repoDir, "install.sh"))
-		assertFileExists(t, filepath.Join(repoDir, ".gitignore"))
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		assertFileExists(t, ciWorkflow)
-		assertFileContains(t, ciWorkflow, "branches: ['**']")
-		assertFileContains(t, ciWorkflow, "agoodkind/go-makefile/.github/workflows/_ci.yml@main")
-		// The scaffolded release builds without cgo, which is also the CI
-		// default, so the first run gives the CI caller no cgo input at all.
-		assertFileNotContains(t, ciWorkflow, "cgo:")
-		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
-		assertFileExists(t, releaseWorkflow)
-		assertFileContains(t, releaseWorkflow, "agoodkind/go-makefile/.github/workflows/_release.yml@main")
-		assertFileContains(t, releaseWorkflow, "id-token: write")
-		assertFileContains(t, releaseWorkflow, "attestations: write")
-		assertFileContains(t, releaseWorkflow, "      binary: bootstrap-probe")
-		assertScaffoldTrackedFilesAbsent(t, repoDir)
-		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "BINARY := bootstrap-probe")
-		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk go-release.mk")
-		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "GO_MK_BOOTSTRAP_FETCHED := 1")
-		assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "DO NOT MODIFY")
-		assertFileNotContains(t, filepath.Join(repoDir, "bootstrap.mk"), "tiny shim")
-		assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
-		assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
-		runMakeHelp(t, repoDir, repoRoot)
-	})
+			assertFileExists(t, filepath.Join(repoDir, "go.mod"))
+			assertFileExists(t, filepath.Join(repoDir, "Makefile"))
+			assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
+			assertFileDoesNotExist(t, filepath.Join(repoDir, "install.sh"))
+			assertFileExists(t, filepath.Join(repoDir, ".gitignore"))
+			ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+			assertFileExists(t, ciWorkflow)
+			assertFileContains(t, ciWorkflow, "branches: ['**']")
+			assertFileContains(
+				t,
+				ciWorkflow,
+				"agoodkind/go-makefile/.github/workflows/_ci.yml@main",
+			)
+			// The scaffolded release builds without cgo, which is also the CI
+			// default, so the first run gives the CI caller no cgo input at all.
+			assertFileNotContains(t, ciWorkflow, "cgo:")
+			releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+			assertFileExists(t, releaseWorkflow)
+			assertFileContains(
+				t,
+				releaseWorkflow,
+				"agoodkind/go-makefile/.github/workflows/_release.yml@main",
+			)
+			assertFileContains(t, releaseWorkflow, "id-token: write")
+			assertFileContains(t, releaseWorkflow, "attestations: write")
+			assertFileContains(t, releaseWorkflow, "      binary: bootstrap-probe")
+			assertScaffoldTrackedFilesAbsent(t, repoDir)
+			assertFileContains(t, filepath.Join(repoDir, "Makefile"), "BINARY := bootstrap-probe")
+			assertFileContains(
+				t,
+				filepath.Join(repoDir, "Makefile"),
+				"GO_MK_MODULES := go-build.mk go-release.mk",
+			)
+			assertFileContains(
+				t,
+				filepath.Join(repoDir, "bootstrap.mk"),
+				"GO_MK_BOOTSTRAP_FETCHED := 1",
+			)
+			assertFileContains(t, filepath.Join(repoDir, "bootstrap.mk"), "DO NOT MODIFY")
+			assertFileNotContains(t, filepath.Join(repoDir, "bootstrap.mk"), "tiny shim")
+			assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
+			assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
+			runMakeHelp(t, repoDir, repoRoot)
+		},
+	)
 
-	t.Run("new library repo", func(t *testing.T) {
-		repoDir := filepath.Join(t.TempDir(), "library")
-		mustMkdirAll(t, repoDir)
-		t.Chdir(repoDir)
+	t.Run(
+		"new library repo",
+		func(t *testing.T) {
+			repoDir := filepath.Join(t.TempDir(), "library")
+			mustMkdirAll(t, repoDir)
+			t.Chdir(repoDir)
 
-		runScaffoldForTest(t, scaffoldOptions{
-			modulePath:   "goodkind.io/bootstrap-library",
-			forceLibrary: true,
-			yes:          true,
-		})
+			runScaffoldForTest(
+				t,
+				scaffoldOptions{
+					modulePath:   "goodkind.io/bootstrap-library",
+					forceLibrary: true,
+					yes:          true,
+				},
+			)
 
-		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "LIBRARY := 1")
-		assertFileContains(t, filepath.Join(repoDir, "Makefile"), "GO_MK_MODULES := go-build.mk")
-		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
-		assertFileDoesNotExist(t, filepath.Join(repoDir, "install.sh"))
-		assertScaffoldTrackedFilesAbsent(t, repoDir)
-		assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
-	})
+			assertFileContains(t, filepath.Join(repoDir, "Makefile"), "LIBRARY := 1")
+			assertFileContains(
+				t,
+				filepath.Join(repoDir, "Makefile"),
+				"GO_MK_MODULES := go-build.mk",
+			)
+			assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
+			assertFileDoesNotExist(t, filepath.Join(repoDir, "install.sh"))
+			assertScaffoldTrackedFilesAbsent(t, repoDir)
+			assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
+		},
+	)
 
-	t.Run("custom Makefile is preserved", func(t *testing.T) {
-		repoDir := filepath.Join(t.TempDir(), "custom")
-		mustMkdirAll(t, repoDir)
-		writeScaffoldTestGoMod(t, repoDir, "goodkind.io/custom")
-		writeScaffoldTestFile(t, filepath.Join(repoDir, "Makefile"), "custom:\n\t@echo custom\n")
-		originalMakefile := mustReadFile(t, filepath.Join(repoDir, "Makefile"))
-		t.Chdir(repoDir)
+	t.Run(
+		"custom Makefile is preserved",
+		func(t *testing.T) {
+			repoDir := filepath.Join(t.TempDir(), "custom")
+			mustMkdirAll(t, repoDir)
+			writeScaffoldTestGoMod(t, repoDir, "goodkind.io/custom")
+			writeScaffoldTestFile(
+				t,
+				filepath.Join(repoDir, "Makefile"),
+				"custom:\n\t@echo custom\n",
+			)
+			originalMakefile := mustReadFile(t, filepath.Join(repoDir, "Makefile"))
+			t.Chdir(repoDir)
 
-		runScaffoldForTest(t, scaffoldOptions{yes: true})
+			runScaffoldForTest(t, scaffoldOptions{yes: true})
 
-		if currentMakefile := mustReadFile(t, filepath.Join(repoDir, "Makefile")); currentMakefile != originalMakefile {
-			t.Fatalf("custom Makefile changed\nbefore:\n%s\nafter:\n%s", originalMakefile, currentMakefile)
-		}
-		assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
-		assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
-		assertScaffoldTrackedFilesAbsent(t, repoDir)
-		assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
-	})
+			if currentMakefile := mustReadFile(
+				t,
+				filepath.Join(repoDir, "Makefile"),
+			); currentMakefile != originalMakefile {
+				t.Fatalf(
+					"custom Makefile changed\nbefore:\n%s\nafter:\n%s",
+					originalMakefile,
+					currentMakefile,
+				)
+			}
 
-	t.Run("generated rerun is stable", func(t *testing.T) {
-		repoDir := filepath.Join(t.TempDir(), "rerun")
-		mustMkdirAll(t, repoDir)
-		initGitRepo(t, repoDir)
-		setGitRemote(t, repoDir, "git@github.com:agoodkind/rerun.git")
-		t.Chdir(repoDir)
+			assertFileExists(t, filepath.Join(repoDir, "bootstrap.mk"))
+			assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
+			assertScaffoldTrackedFilesAbsent(t, repoDir)
+			assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
+		},
+	)
 
-		runScaffoldForTest(t, scaffoldOptions{
-			modulePath:  "goodkind.io/rerun",
-			forceBinary: true,
-			yes:         true,
-		})
+	t.Run(
+		"generated rerun is stable",
+		func(t *testing.T) {
+			repoDir := filepath.Join(t.TempDir(), "rerun")
+			mustMkdirAll(t, repoDir)
+			initGitRepo(t, repoDir)
+			setGitRemote(t, repoDir, "git@github.com:agoodkind/rerun.git")
+			t.Chdir(repoDir)
 
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
-		beforeMakefile := mustReadFile(t, filepath.Join(repoDir, "Makefile"))
-		beforeBootstrap := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk"))
-		beforeGitignore := mustReadFile(t, filepath.Join(repoDir, ".gitignore"))
-		beforeCIWorkflow := mustReadFile(t, ciWorkflow)
-		beforeReleaseWorkflow := mustReadFile(t, releaseWorkflow)
+			runScaffoldForTest(
+				t,
+				scaffoldOptions{
+					modulePath:  "goodkind.io/rerun",
+					forceBinary: true,
+					yes:         true,
+				},
+			)
 
-		runScaffoldForTest(t, scaffoldOptions{
-			modulePath:  "goodkind.io/rerun",
-			forceBinary: true,
-			yes:         true,
-		})
+			ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+			releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+			beforeMakefile := mustReadFile(t, filepath.Join(repoDir, "Makefile"))
+			beforeBootstrap := mustReadFile(t, filepath.Join(repoDir, "bootstrap.mk"))
+			beforeGitignore := mustReadFile(t, filepath.Join(repoDir, ".gitignore"))
+			beforeCIWorkflow := mustReadFile(t, ciWorkflow)
+			beforeReleaseWorkflow := mustReadFile(t, releaseWorkflow)
 
-		assertFileText(t, filepath.Join(repoDir, "Makefile"), beforeMakefile)
-		assertFileText(t, filepath.Join(repoDir, "bootstrap.mk"), beforeBootstrap)
-		assertFileText(t, filepath.Join(repoDir, ".gitignore"), beforeGitignore)
-		assertFileText(t, ciWorkflow, beforeCIWorkflow)
-		assertFileText(t, releaseWorkflow, beforeReleaseWorkflow)
-	})
+			runScaffoldForTest(
+				t,
+				scaffoldOptions{
+					modulePath:  "goodkind.io/rerun",
+					forceBinary: true,
+					yes:         true,
+				},
+			)
 
-	t.Run("custom ci.yml is preserved", func(t *testing.T) {
-		repoDir := filepath.Join(t.TempDir(), "custom-ci")
-		mustMkdirAll(t, repoDir)
-		writeScaffoldTestGoMod(t, repoDir, "goodkind.io/custom-ci")
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		mustMkdirAll(t, filepath.Dir(ciWorkflow))
-		customWorkflow := "name: CI\non:\n  push:\n    branches: [main]\njobs:\n  custom:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo custom\n"
-		writeScaffoldTestFile(t, ciWorkflow, customWorkflow)
-		t.Chdir(repoDir)
+			assertFileText(t, filepath.Join(repoDir, "Makefile"), beforeMakefile)
+			assertFileText(t, filepath.Join(repoDir, "bootstrap.mk"), beforeBootstrap)
+			assertFileText(t, filepath.Join(repoDir, ".gitignore"), beforeGitignore)
+			assertFileText(t, ciWorkflow, beforeCIWorkflow)
+			assertFileText(t, releaseWorkflow, beforeReleaseWorkflow)
+		},
+	)
 
-		runScaffoldForTest(t, scaffoldOptions{yes: true})
+	t.Run(
+		"custom ci.yml is preserved",
+		func(t *testing.T) {
+			repoDir := filepath.Join(t.TempDir(), "custom-ci")
+			mustMkdirAll(t, repoDir)
+			writeScaffoldTestGoMod(t, repoDir, "goodkind.io/custom-ci")
+			ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+			mustMkdirAll(t, filepath.Dir(ciWorkflow))
+			customWorkflow := "name: CI\non:\n  push:\n    branches: [main]\njobs:\n  custom:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo custom\n"
+			writeScaffoldTestFile(t, ciWorkflow, customWorkflow)
+			t.Chdir(repoDir)
 
-		assertFileText(t, ciWorkflow, customWorkflow)
-	})
+			runScaffoldForTest(t, scaffoldOptions{yes: true})
 
-	t.Run("generated Makefile is repaired", func(t *testing.T) {
-		repoDir := filepath.Join(t.TempDir(), "repair")
-		mustMkdirAll(t, repoDir)
-		t.Chdir(repoDir)
+			assertFileText(t, ciWorkflow, customWorkflow)
+		},
+	)
 
-		runScaffoldForTest(t, scaffoldOptions{
-			modulePath:  "goodkind.io/repair",
-			forceBinary: true,
-			yes:         true,
-		})
+	t.Run(
+		"generated Makefile is repaired",
+		func(t *testing.T) {
+			repoDir := filepath.Join(t.TempDir(), "repair")
+			mustMkdirAll(t, repoDir)
+			t.Chdir(repoDir)
 
-		makefilePath := filepath.Join(repoDir, "Makefile")
-		withoutInclude := strings.ReplaceAll(mustReadFile(t, makefilePath), "include bootstrap.mk\n", "")
-		writeScaffoldTestFile(t, makefilePath, withoutInclude)
+			runScaffoldForTest(
+				t,
+				scaffoldOptions{
+					modulePath:  "goodkind.io/repair",
+					forceBinary: true,
+					yes:         true,
+				},
+			)
 
-		runScaffoldForTest(t, scaffoldOptions{
-			modulePath:  "goodkind.io/repair",
-			forceBinary: true,
-			yes:         true,
-		})
+			makefilePath := filepath.Join(repoDir, "Makefile")
+			withoutInclude := strings.ReplaceAll(
+				mustReadFile(t, makefilePath),
+				"include bootstrap.mk\n",
+				"",
+			)
+			writeScaffoldTestFile(t, makefilePath, withoutInclude)
 
-		assertFileContains(t, makefilePath, "include bootstrap.mk")
-	})
+			runScaffoldForTest(
+				t,
+				scaffoldOptions{
+					modulePath:  "goodkind.io/repair",
+					forceBinary: true,
+					yes:         true,
+				},
+			)
 
-	t.Run("baseline files are unignored", func(t *testing.T) {
-		repoDir := filepath.Join(t.TempDir(), "unignored")
-		mustMkdirAll(t, repoDir)
-		initGitRepo(t, repoDir)
-		t.Setenv("GOLANGCI_LINT_BASELINE", "baselines/golangci.txt")
-		writeScaffoldTestFile(t, filepath.Join(repoDir, ".gitignore"), "*.txt\nbaselines/\n.*\n")
-		t.Chdir(repoDir)
+			assertFileContains(t, makefilePath, "include bootstrap.mk")
+		},
+	)
 
-		runScaffoldForTest(t, scaffoldOptions{
-			modulePath:   "goodkind.io/unignored",
-			forceLibrary: true,
-			yes:          true,
-		})
+	t.Run(
+		"baseline files are unignored",
+		func(t *testing.T) {
+			repoDir := filepath.Join(t.TempDir(), "unignored")
+			mustMkdirAll(t, repoDir)
+			initGitRepo(t, repoDir)
+			t.Setenv("GOLANGCI_LINT_BASELINE", "baselines/golangci.txt")
+			writeScaffoldTestFile(
+				t,
+				filepath.Join(repoDir, ".gitignore"),
+				"*.txt\nbaselines/\n.*\n",
+			)
+			t.Chdir(repoDir)
 
-		assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
-		for _, trackedFile := range configuredScaffoldTrackedFiles() {
-			assertPathNotGitIgnored(t, repoDir, trackedFile)
-		}
-	})
+			runScaffoldForTest(
+				t,
+				scaffoldOptions{
+					modulePath:   "goodkind.io/unignored",
+					forceLibrary: true,
+					yes:          true,
+				},
+			)
+
+			assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
+
+			for _, trackedFile := range configuredScaffoldTrackedFiles() {
+				assertPathNotGitIgnored(t, repoDir, trackedFile)
+			}
+		},
+	)
 }
 
 func TestReconcileReleaseWorkflow(t *testing.T) {
-	t.Run("scaffolds when absent", func(t *testing.T) {
-		repoDir := t.TempDir()
-		t.Chdir(repoDir)
+	t.Run(
+		"scaffolds when absent",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			t.Chdir(repoDir)
 
-		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
-			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
-		}
+			var stdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("", &stdout); err != nil {
+				t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
-		assertFileExists(t, releaseWorkflow)
-		assertFileContains(t, releaseWorkflow, "agoodkind/go-makefile/.github/workflows/_release.yml@main")
-		assertFileContains(t, releaseWorkflow, "contents: write")
-		assertFileContains(t, releaseWorkflow, "id-token: write")
-		assertFileContains(t, releaseWorkflow, "attestations: write")
-		assertFileContains(t, releaseWorkflow, "secrets: inherit")
+			releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+			assertFileExists(t, releaseWorkflow)
+			assertFileContains(
+				t,
+				releaseWorkflow,
+				"agoodkind/go-makefile/.github/workflows/_release.yml@main",
+			)
+			assertFileContains(t, releaseWorkflow, "contents: write")
+			assertFileContains(t, releaseWorkflow, "id-token: write")
+			assertFileContains(t, releaseWorkflow, "attestations: write")
+			assertFileContains(t, releaseWorkflow, "secrets: inherit")
 
-		before := mustReadFile(t, releaseWorkflow)
-		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
-			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
-		}
-		assertFileText(t, releaseWorkflow, before)
-	})
+			before := mustReadFile(t, releaseWorkflow)
+			var secondStdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
+				t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-	t.Run("scaffolds binary input when absent", func(t *testing.T) {
-		repoDir := t.TempDir()
-		t.Chdir(repoDir)
+			assertFileText(t, releaseWorkflow, before)
+		},
+	)
 
-		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("agent-gate", &stdout); err != nil {
-			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
-		}
+	t.Run(
+		"scaffolds binary input when absent",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			t.Chdir(repoDir)
 
-		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
-		assertFileContains(t, releaseWorkflow, "    with:\n      binary: agent-gate\n")
+			var stdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("agent-gate", &stdout); err != nil {
+				t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-		before := mustReadFile(t, releaseWorkflow)
-		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("agent-gate", &secondStdout); err != nil {
-			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
-		}
-		assertFileText(t, releaseWorkflow, before)
-	})
+			releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+			assertFileContains(t, releaseWorkflow, "    with:\n      binary: agent-gate\n")
 
-	t.Run("repairs missing permissions in place", func(t *testing.T) {
-		repoDir := t.TempDir()
-		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
-		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
-		drifted := "name: Release\n\n" +
-			"on:\n" +
-			"  push:\n" +
-			"    tags: ['v*']\n\n" +
-			"jobs:\n" +
-			"  release:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: write\n" +
-			"    with:\n" +
-			"      cgo: true\n" +
-			"    secrets: inherit\n"
-		writeScaffoldTestFile(t, releaseWorkflow, drifted)
-		t.Chdir(repoDir)
+			before := mustReadFile(t, releaseWorkflow)
+			var secondStdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("agent-gate", &secondStdout); err != nil {
+				t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
-			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
-		}
+			assertFileText(t, releaseWorkflow, before)
+		},
+	)
 
-		repaired := mustReadFile(t, releaseWorkflow)
-		expected := "name: Release\n\n" +
-			"on:\n" +
-			"  push:\n" +
-			"    tags: ['v*']\n\n" +
-			"jobs:\n" +
-			"  release:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: write\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"    with:\n" +
-			"      cgo: true\n" +
-			"    secrets: inherit\n"
-		if repaired != expected {
-			t.Fatalf("repaired release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
-		}
+	t.Run(
+		"repairs missing permissions in place",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+			mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+			drifted := "name: Release\n\n" +
+				"on:\n" +
+				"  push:\n" +
+				"    tags: ['v*']\n\n" +
+				"jobs:\n" +
+				"  release:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: write\n" +
+				"    with:\n" +
+				"      cgo: true\n" +
+				"    secrets: inherit\n"
+			writeScaffoldTestFile(t, releaseWorkflow, drifted)
+			t.Chdir(repoDir)
 
-		// Idempotent: a second run leaves the repaired file byte-identical.
-		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
-			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
-		}
-		assertFileText(t, releaseWorkflow, expected)
-	})
+			var stdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("", &stdout); err != nil {
+				t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-	t.Run("repairs missing binary input in place", func(t *testing.T) {
-		repoDir := t.TempDir()
-		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
-		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
-		drifted := "name: Release\n\n" +
-			"jobs:\n" +
-			"  release:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: write\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"    with:\n" +
-			"      cgo: true\n" +
-			"    secrets: inherit\n"
-		writeScaffoldTestFile(t, releaseWorkflow, drifted)
-		t.Chdir(repoDir)
+			repaired := mustReadFile(t, releaseWorkflow)
+			expected := "name: Release\n\n" +
+				"on:\n" +
+				"  push:\n" +
+				"    tags: ['v*']\n\n" +
+				"jobs:\n" +
+				"  release:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: write\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    with:\n" +
+				"      cgo: true\n" +
+				"    secrets: inherit\n"
+			if repaired != expected {
+				t.Fatalf("repaired release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+			}
 
-		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("agent-gate", &stdout); err != nil {
-			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
-		}
+			// Idempotent: a second run leaves the repaired file byte-identical.
+			var secondStdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
+				t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-		expected := "name: Release\n\n" +
-			"jobs:\n" +
-			"  release:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: write\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"    with:\n" +
-			"      cgo: true\n" +
-			"      binary: agent-gate\n" +
-			"    secrets: inherit\n"
-		if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
-			t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
-		}
+			assertFileText(t, releaseWorkflow, expected)
+		},
+	)
 
-		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("agent-gate", &secondStdout); err != nil {
-			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
-		}
-		assertFileText(t, releaseWorkflow, expected)
-	})
+	t.Run(
+		"repairs missing binary input in place",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+			mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+			drifted := "name: Release\n\n" +
+				"jobs:\n" +
+				"  release:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: write\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    with:\n" +
+				"      cgo: true\n" +
+				"    secrets: inherit\n"
+			writeScaffoldTestFile(t, releaseWorkflow, drifted)
+			t.Chdir(repoDir)
 
-	t.Run("adds permissions block when job has none", func(t *testing.T) {
-		repoDir := t.TempDir()
-		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
-		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
-		withoutPermissions := "name: Release\n\n" +
-			"jobs:\n" +
-			"  release:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    secrets: inherit\n"
-		writeScaffoldTestFile(t, releaseWorkflow, withoutPermissions)
-		t.Chdir(repoDir)
+			var stdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("agent-gate", &stdout); err != nil {
+				t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
-			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
-		}
+			expected := "name: Release\n\n" +
+				"jobs:\n" +
+				"  release:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: write\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    with:\n" +
+				"      cgo: true\n" +
+				"      binary: agent-gate\n" +
+				"    secrets: inherit\n"
+			if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
+				t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+			}
 
-		expected := "name: Release\n\n" +
-			"jobs:\n" +
-			"  release:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: write\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"    secrets: inherit\n"
-		if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
-			t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
-		}
-	})
+			var secondStdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("agent-gate", &secondStdout); err != nil {
+				t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-	t.Run("custom release.yml is preserved", func(t *testing.T) {
-		repoDir := t.TempDir()
-		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
-		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
-		custom := "name: Release\non:\n  push:\n    tags: ['v*']\njobs:\n  release:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo release\n"
-		writeScaffoldTestFile(t, releaseWorkflow, custom)
-		t.Chdir(repoDir)
+			assertFileText(t, releaseWorkflow, expected)
+		},
+	)
 
-		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
-			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
-		}
+	t.Run(
+		"adds permissions block when job has none",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+			mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+			withoutPermissions := "name: Release\n\n" +
+				"jobs:\n" +
+				"  release:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    secrets: inherit\n"
+			writeScaffoldTestFile(t, releaseWorkflow, withoutPermissions)
+			t.Chdir(repoDir)
 
-		assertFileText(t, releaseWorkflow, custom)
-	})
+			var stdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("", &stdout); err != nil {
+				t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-	t.Run("scalar write-all permissions is left untouched", func(t *testing.T) {
-		repoDir := t.TempDir()
-		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
-		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
-		scalar := "name: Release\n\n" +
-			"jobs:\n" +
-			"  release:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    permissions: write-all\n" +
-			"    secrets: inherit\n"
-		writeScaffoldTestFile(t, releaseWorkflow, scalar)
-		t.Chdir(repoDir)
+			expected := "name: Release\n\n" +
+				"jobs:\n" +
+				"  release:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: write\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    secrets: inherit\n"
+			if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
+				t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+			}
+		},
+	)
 
-		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
-			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
-		}
+	t.Run(
+		"custom release.yml is preserved",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+			mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+			custom := "name: Release\non:\n  push:\n    tags: ['v*']\njobs:\n  release:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo release\n"
+			writeScaffoldTestFile(t, releaseWorkflow, custom)
+			t.Chdir(repoDir)
 
-		// A second permissions key would be invalid YAML, so the caller stays byte-identical.
-		assertFileText(t, releaseWorkflow, scalar)
-		if strings.Count(mustReadFile(t, releaseWorkflow), "permissions") != 1 {
-			t.Fatalf("scalar caller gained a duplicate permissions key\ncontents:\n%s", mustReadFile(t, releaseWorkflow))
-		}
+			var stdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("", &stdout); err != nil {
+				t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
-			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
-		}
-		assertFileText(t, releaseWorkflow, scalar)
-	})
+			assertFileText(t, releaseWorkflow, custom)
+		},
+	)
 
-	t.Run("inline-map permissions is left untouched", func(t *testing.T) {
-		repoDir := t.TempDir()
-		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
-		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
-		inline := "name: Release\n\n" +
-			"jobs:\n" +
-			"  release:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    permissions: { contents: write }\n" +
-			"    secrets: inherit\n"
-		writeScaffoldTestFile(t, releaseWorkflow, inline)
-		t.Chdir(repoDir)
+	t.Run(
+		"scalar write-all permissions is left untouched",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+			mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+			scalar := "name: Release\n\n" +
+				"jobs:\n" +
+				"  release:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    permissions: write-all\n" +
+				"    secrets: inherit\n"
+			writeScaffoldTestFile(t, releaseWorkflow, scalar)
+			t.Chdir(repoDir)
 
-		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
-			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
-		}
+			var stdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("", &stdout); err != nil {
+				t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-		assertFileText(t, releaseWorkflow, inline)
-		if strings.Count(mustReadFile(t, releaseWorkflow), "permissions") != 1 {
-			t.Fatalf("inline-map caller gained a duplicate permissions key\ncontents:\n%s", mustReadFile(t, releaseWorkflow))
-		}
+			// A second permissions key would be invalid YAML, so the caller stays byte-identical.
+			assertFileText(t, releaseWorkflow, scalar)
+			if strings.Count(mustReadFile(t, releaseWorkflow), "permissions") != 1 {
+				t.Fatalf(
+					"scalar caller gained a duplicate permissions key\ncontents:\n%s",
+					mustReadFile(t, releaseWorkflow),
+				)
+			}
 
-		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
-			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
-		}
-		assertFileText(t, releaseWorkflow, inline)
-	})
+			var secondStdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
+				t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-	t.Run("wrong-value block permission is upgraded", func(t *testing.T) {
-		repoDir := t.TempDir()
-		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
-		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
-		wrongValue := "name: Release\n\n" +
-			"jobs:\n" +
-			"  release:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: read\n" +
-			"    secrets: inherit\n"
-		writeScaffoldTestFile(t, releaseWorkflow, wrongValue)
-		t.Chdir(repoDir)
+			assertFileText(t, releaseWorkflow, scalar)
+		},
+	)
 
-		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
-			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
-		}
+	t.Run(
+		"inline-map permissions is left untouched",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+			mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+			inline := "name: Release\n\n" +
+				"jobs:\n" +
+				"  release:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    permissions: { contents: write }\n" +
+				"    secrets: inherit\n"
+			writeScaffoldTestFile(t, releaseWorkflow, inline)
+			t.Chdir(repoDir)
 
-		expected := "name: Release\n\n" +
-			"jobs:\n" +
-			"  release:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: write\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"    secrets: inherit\n"
-		if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
-			t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
-		}
+			var stdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("", &stdout); err != nil {
+				t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-		// Idempotent: the corrected caller stays byte-identical on a second run.
-		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
-			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
-		}
-		assertFileText(t, releaseWorkflow, expected)
-	})
+			assertFileText(t, releaseWorkflow, inline)
+			if strings.Count(mustReadFile(t, releaseWorkflow), "permissions") != 1 {
+				t.Fatalf(
+					"inline-map caller gained a duplicate permissions key\ncontents:\n%s",
+					mustReadFile(t, releaseWorkflow),
+				)
+			}
 
-	t.Run("nested with binary key is ignored", func(t *testing.T) {
-		repoDir := t.TempDir()
-		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
-		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
-		nested := "name: Release\n\n" +
-			"jobs:\n" +
-			"  release:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    with:\n" +
-			"      metadata:\n" +
-			"        binary: nested\n" +
-			"      cgo: true\n" +
-			"    secrets: inherit\n"
-		writeScaffoldTestFile(t, releaseWorkflow, nested)
-		t.Chdir(repoDir)
+			var secondStdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
+				t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("agent-gate", &stdout); err != nil {
-			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
-		}
+			assertFileText(t, releaseWorkflow, inline)
+		},
+	)
 
-		expected := "name: Release\n\n" +
-			"jobs:\n" +
-			"  release:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: write\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"    with:\n" +
-			"      metadata:\n" +
-			"        binary: nested\n" +
-			"      cgo: true\n" +
-			"      binary: agent-gate\n" +
-			"    secrets: inherit\n"
-		if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
-			t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
-		}
-	})
+	t.Run(
+		"wrong-value block permission is upgraded",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+			mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+			wrongValue := "name: Release\n\n" +
+				"jobs:\n" +
+				"  release:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: read\n" +
+				"    secrets: inherit\n"
+			writeScaffoldTestFile(t, releaseWorkflow, wrongValue)
+			t.Chdir(repoDir)
 
-	t.Run("repairs every reusable-release job in a multi-job caller", func(t *testing.T) {
-		repoDir := t.TempDir()
-		releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
-		mustMkdirAll(t, filepath.Dir(releaseWorkflow))
-		// A caller with two reusable-release jobs, each missing id-token: write and
-		// attestations: write. Both jobs must be repaired, not only the first.
-		drifted := "name: Release\n\n" +
-			"jobs:\n" +
-			"  linux:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: write\n" +
-			"    secrets: inherit\n" +
-			"  darwin:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: write\n" +
-			"    secrets: inherit\n"
-		writeScaffoldTestFile(t, releaseWorkflow, drifted)
-		t.Chdir(repoDir)
+			var stdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("", &stdout); err != nil {
+				t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-		var stdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("", &stdout); err != nil {
-			t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
-		}
+			expected := "name: Release\n\n" +
+				"jobs:\n" +
+				"  release:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: write\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    secrets: inherit\n"
+			if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
+				t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+			}
 
-		expected := "name: Release\n\n" +
-			"jobs:\n" +
-			"  linux:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: write\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"    secrets: inherit\n" +
-			"  darwin:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: write\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"    secrets: inherit\n"
-		if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
-			t.Fatalf("multi-job release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
-		}
+			// Idempotent: the corrected caller stays byte-identical on a second run.
+			var secondStdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
+				t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+			}
 
-		// Idempotent: a second run leaves both repaired jobs byte-identical.
-		var secondStdout bytes.Buffer
-		if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
-			t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
-		}
-		assertFileText(t, releaseWorkflow, expected)
-	})
+			assertFileText(t, releaseWorkflow, expected)
+		},
+	)
+
+	t.Run(
+		"nested with binary key is ignored",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+			mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+			nested := "name: Release\n\n" +
+				"jobs:\n" +
+				"  release:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    with:\n" +
+				"      metadata:\n" +
+				"        binary: nested\n" +
+				"      cgo: true\n" +
+				"    secrets: inherit\n"
+			writeScaffoldTestFile(t, releaseWorkflow, nested)
+			t.Chdir(repoDir)
+
+			var stdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("agent-gate", &stdout); err != nil {
+				t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+			}
+
+			expected := "name: Release\n\n" +
+				"jobs:\n" +
+				"  release:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: write\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    with:\n" +
+				"      metadata:\n" +
+				"        binary: nested\n" +
+				"      cgo: true\n" +
+				"      binary: agent-gate\n" +
+				"    secrets: inherit\n"
+			if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
+				t.Fatalf("release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+			}
+		},
+	)
+
+	t.Run(
+		"repairs every reusable-release job in a multi-job caller",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			releaseWorkflow := filepath.Join(repoDir, ".github", "workflows", "release.yml")
+			mustMkdirAll(t, filepath.Dir(releaseWorkflow))
+			// A caller with two reusable-release jobs, each missing id-token: write and
+			// attestations: write. Both jobs must be repaired, not only the first.
+			drifted := "name: Release\n\n" +
+				"jobs:\n" +
+				"  linux:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: write\n" +
+				"    secrets: inherit\n" +
+				"  darwin:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: write\n" +
+				"    secrets: inherit\n"
+			writeScaffoldTestFile(t, releaseWorkflow, drifted)
+			t.Chdir(repoDir)
+
+			var stdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("", &stdout); err != nil {
+				t.Fatalf("reconcileReleaseWorkflow returned error: %v", err)
+			}
+
+			expected := "name: Release\n\n" +
+				"jobs:\n" +
+				"  linux:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: write\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    secrets: inherit\n" +
+				"  darwin:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: write\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    secrets: inherit\n"
+			if repaired := mustReadFile(t, releaseWorkflow); repaired != expected {
+				t.Fatalf("multi-job release.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+			}
+
+			// Idempotent: a second run leaves both repaired jobs byte-identical.
+			var secondStdout bytes.Buffer
+			if err := reconcileReleaseWorkflow("", &secondStdout); err != nil {
+				t.Fatalf("second reconcileReleaseWorkflow returned error: %v", err)
+			}
+
+			assertFileText(t, releaseWorkflow, expected)
+		},
+	)
 }
 
 func TestReconcileCIWorkflow(t *testing.T) {
-	t.Run("scaffolds when absent with signing grants", func(t *testing.T) {
-		repoDir := t.TempDir()
-		t.Chdir(repoDir)
+	t.Run(
+		"scaffolds when absent with signing grants",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			t.Chdir(repoDir)
 
-		var stdout bytes.Buffer
-		if err := reconcileCIWorkflow(&stdout); err != nil {
-			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
-		}
+			var stdout bytes.Buffer
+			if err := reconcileCIWorkflow(&stdout); err != nil {
+				t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+			}
 
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		assertFileExists(t, ciWorkflow)
-		assertFileContains(t, ciWorkflow, "agoodkind/go-makefile/.github/workflows/_ci.yml@main")
-		assertFileContains(t, ciWorkflow, "attestations: write")
-		assertFileContains(t, ciWorkflow, "secrets: inherit")
+			ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+			assertFileExists(t, ciWorkflow)
+			assertFileContains(
+				t,
+				ciWorkflow,
+				"agoodkind/go-makefile/.github/workflows/_ci.yml@main",
+			)
+			assertFileContains(t, ciWorkflow, "attestations: write")
+			assertFileContains(t, ciWorkflow, "secrets: inherit")
 
-		before := mustReadFile(t, ciWorkflow)
-		var secondStdout bytes.Buffer
-		if err := reconcileCIWorkflow(&secondStdout); err != nil {
-			t.Fatalf("second reconcileCIWorkflow returned error: %v", err)
-		}
-		assertFileText(t, ciWorkflow, before)
-	})
+			before := mustReadFile(t, ciWorkflow)
+			var secondStdout bytes.Buffer
+			if err := reconcileCIWorkflow(&secondStdout); err != nil {
+				t.Fatalf("second reconcileCIWorkflow returned error: %v", err)
+			}
 
-	t.Run("repairs missing grants in place", func(t *testing.T) {
-		repoDir := t.TempDir()
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		mustMkdirAll(t, filepath.Dir(ciWorkflow))
-		drifted := "name: CI\n\n" +
-			"on:\n" +
-			"  push:\n" +
-			"    branches: ['**']\n\n" +
-			"jobs:\n" +
-			"  go:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: read\n" +
-			"      id-token: write\n" +
-			"    with:\n" +
-			"      apt_packages: libpcre2-dev\n"
-		writeScaffoldTestFile(t, ciWorkflow, drifted)
-		t.Chdir(repoDir)
+			assertFileText(t, ciWorkflow, before)
+		},
+	)
 
-		var stdout bytes.Buffer
-		if err := reconcileCIWorkflow(&stdout); err != nil {
-			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
-		}
-
-		// attestations is appended to the permissions block; secrets: inherit is
-		// inserted right after the uses line. contents: read is never rewritten.
-		expected := "name: CI\n\n" +
-			"on:\n" +
-			"  push:\n" +
-			"    branches: ['**']\n\n" +
-			"jobs:\n" +
-			"  go:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
-			"    secrets: inherit\n" +
-			"    permissions:\n" +
-			"      contents: read\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"    with:\n" +
-			"      apt_packages: libpcre2-dev\n"
-		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
-			t.Fatalf("repaired ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
-		}
-
-		// Idempotent: a second run leaves the repaired file byte-identical.
-		var secondStdout bytes.Buffer
-		if err := reconcileCIWorkflow(&secondStdout); err != nil {
-			t.Fatalf("second reconcileCIWorkflow returned error: %v", err)
-		}
-		assertFileText(t, ciWorkflow, expected)
-	})
-
-	t.Run("adds permissions block and secrets when job has none", func(t *testing.T) {
-		repoDir := t.TempDir()
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		mustMkdirAll(t, filepath.Dir(ciWorkflow))
-		withoutGrants := "name: CI\n\n" +
-			"jobs:\n" +
-			"  go:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n"
-		writeScaffoldTestFile(t, ciWorkflow, withoutGrants)
-		t.Chdir(repoDir)
-
-		var stdout bytes.Buffer
-		if err := reconcileCIWorkflow(&stdout); err != nil {
-			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
-		}
-
-		expected := "name: CI\n\n" +
-			"jobs:\n" +
-			"  go:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
-			"    secrets: inherit\n" +
-			"    permissions:\n" +
-			"      contents: read\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n"
-		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
-			t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
-		}
-	})
-
-	t.Run("block missing contents gets contents read added", func(t *testing.T) {
-		repoDir := t.TempDir()
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		mustMkdirAll(t, filepath.Dir(ciWorkflow))
-		missingContents := "name: CI\n\n" +
-			"jobs:\n" +
-			"  go:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
-			"    permissions:\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"    secrets: inherit\n"
-		writeScaffoldTestFile(t, ciWorkflow, missingContents)
-		t.Chdir(repoDir)
-
-		var stdout bytes.Buffer
-		if err := reconcileCIWorkflow(&stdout); err != nil {
-			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
-		}
-
-		// A permissions block that omits contents would leave contents at none
-		// and break checkout, so contents: read is appended.
-		expected := "name: CI\n\n" +
-			"jobs:\n" +
-			"  go:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
-			"    permissions:\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"      contents: read\n" +
-			"    secrets: inherit\n"
-		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
-			t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
-		}
-	})
-
-	t.Run("already-current caller is untouched", func(t *testing.T) {
-		repoDir := t.TempDir()
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		mustMkdirAll(t, filepath.Dir(ciWorkflow))
-		current := "name: CI\n\n" +
-			"jobs:\n" +
-			"  go:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: read\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"    secrets: inherit\n" +
-			"    with:\n" +
-			"      apt_packages: libpcre2-dev\n"
-		writeScaffoldTestFile(t, ciWorkflow, current)
-		t.Chdir(repoDir)
-
-		var stdout bytes.Buffer
-		if err := reconcileCIWorkflow(&stdout); err != nil {
-			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
-		}
-		assertFileText(t, ciWorkflow, current)
-	})
-
-	t.Run("comment under uses stays attached", func(t *testing.T) {
-		repoDir := t.TempDir()
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		mustMkdirAll(t, filepath.Dir(ciWorkflow))
-		commented := "name: CI\n\n" +
-			"jobs:\n" +
-			"  go:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
-			"    # documents the reusable CI caller\n" +
-			"    permissions:\n" +
-			"      contents: read\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n"
-		writeScaffoldTestFile(t, ciWorkflow, commented)
-		t.Chdir(repoDir)
-
-		var stdout bytes.Buffer
-		if err := reconcileCIWorkflow(&stdout); err != nil {
-			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
-		}
-
-		// secrets: inherit lands after the comment block, keeping the comment
-		// attached to the uses line it documents.
-		expected := "name: CI\n\n" +
-			"jobs:\n" +
-			"  go:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
-			"    # documents the reusable CI caller\n" +
-			"    secrets: inherit\n" +
-			"    permissions:\n" +
-			"      contents: read\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n"
-		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
-			t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
-		}
-	})
-
-	t.Run("repairs every reusable-CI job in a multi-job caller", func(t *testing.T) {
-		repoDir := t.TempDir()
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		mustMkdirAll(t, filepath.Dir(ciWorkflow))
-		// A caller with two reusable-CI jobs, each missing attestations: write and
-		// secrets: inherit. Both jobs must be repaired, not only the first.
-		drifted := "name: CI\n\n" +
-			"jobs:\n" +
-			"  scripts:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: read\n" +
-			"      id-token: write\n" +
-			"    with:\n" +
-			"      go_version_file: scripts/go.mod\n" +
-			"      working_directory: scripts\n\n" +
-			"  mwan-go:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: read\n" +
-			"      id-token: write\n" +
-			"    with:\n" +
-			"      go_version_file: mwan/go/go.mod\n" +
-			"      working_directory: mwan/go\n"
-		writeScaffoldTestFile(t, ciWorkflow, drifted)
-		t.Chdir(repoDir)
-
-		var stdout bytes.Buffer
-		if err := reconcileCIWorkflow(&stdout); err != nil {
-			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
-		}
-
-		expected := "name: CI\n\n" +
-			"jobs:\n" +
-			"  scripts:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
-			"    secrets: inherit\n" +
-			"    permissions:\n" +
-			"      contents: read\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"    with:\n" +
-			"      go_version_file: scripts/go.mod\n" +
-			"      working_directory: scripts\n\n" +
-			"  mwan-go:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
-			"    secrets: inherit\n" +
-			"    permissions:\n" +
-			"      contents: read\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"    with:\n" +
-			"      go_version_file: mwan/go/go.mod\n" +
-			"      working_directory: mwan/go\n"
-		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
-			t.Fatalf("multi-job ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
-		}
-
-		// Idempotent: a second run leaves both repaired jobs byte-identical.
-		var secondStdout bytes.Buffer
-		if err := reconcileCIWorkflow(&secondStdout); err != nil {
-			t.Fatalf("second reconcileCIWorkflow returned error: %v", err)
-		}
-		assertFileText(t, ciWorkflow, expected)
-	})
-
-	t.Run("copies release cgo into the ci caller", func(t *testing.T) {
-		repoDir := t.TempDir()
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		mustMkdirAll(t, filepath.Dir(ciWorkflow))
-		writeScaffoldTestFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"), releaseCallerWithCgo(".", "true"))
-		current := "name: CI\n\n" +
-			"jobs:\n" +
-			"  go:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: read\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"    secrets: inherit\n" +
-			"    with:\n" +
-			"      apt_packages: libpcre2-dev\n"
-		writeScaffoldTestFile(t, ciWorkflow, current)
-		t.Chdir(repoDir)
-
-		var stdout bytes.Buffer
-		if err := reconcileCIWorkflow(&stdout); err != nil {
-			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
-		}
-
-		// A release built with cgo would otherwise be compiled with the CI
-		// workflow's cgo-off default, so the caller gains the release's value.
-		expected := current + "      cgo: true\n"
-		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
-			t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
-		}
-
-		var secondStdout bytes.Buffer
-		if err := reconcileCIWorkflow(&secondStdout); err != nil {
-			t.Fatalf("second reconcileCIWorkflow returned error: %v", err)
-		}
-		assertFileText(t, ciWorkflow, expected)
-	})
-
-	t.Run("leaves a caller that inherits the release cgo", func(t *testing.T) {
-		repoDir := t.TempDir()
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		mustMkdirAll(t, filepath.Dir(ciWorkflow))
-		writeScaffoldTestFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"), releaseCallerWithCgo(".", "false"))
-		current := "name: CI\n\n" +
-			"jobs:\n" +
-			"  go:\n" +
-			"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
-			"    permissions:\n" +
-			"      contents: read\n" +
-			"      id-token: write\n" +
-			"      attestations: write\n" +
-			"    secrets: inherit\n"
-		writeScaffoldTestFile(t, ciWorkflow, current)
-		t.Chdir(repoDir)
-
-		var stdout bytes.Buffer
-		if err := reconcileCIWorkflow(&stdout); err != nil {
-			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
-		}
-		assertFileText(t, ciWorkflow, current)
-	})
-
-	t.Run("scaffolds the ci caller with release cgo when absent", func(t *testing.T) {
-		repoDir := t.TempDir()
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		mustMkdirAll(t, filepath.Dir(ciWorkflow))
-		writeScaffoldTestFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"), releaseCallerWithCgo(".", "true"))
-		t.Chdir(repoDir)
-
-		var stdout bytes.Buffer
-		if err := reconcileCIWorkflow(&stdout); err != nil {
-			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
-		}
-		assertFileContains(t, ciWorkflow, "      attestations: write\n    with:\n      cgo: true\n    secrets: inherit\n")
-
-		before := mustReadFile(t, ciWorkflow)
-		var secondStdout bytes.Buffer
-		if err := reconcileCIWorkflow(&secondStdout); err != nil {
-			t.Fatalf("second reconcileCIWorkflow returned error: %v", err)
-		}
-		assertFileText(t, ciWorkflow, before)
-	})
-
-	t.Run("matches release cgo by working directory", func(t *testing.T) {
-		repoDir := t.TempDir()
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		mustMkdirAll(t, filepath.Dir(ciWorkflow))
-		writeScaffoldTestFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"), releaseCallerWithCgo("mwan/go", "true"))
-		callerJob := func(name string, workingDirectory string) string {
-			return "  " + name + ":\n" +
+	t.Run(
+		"repairs missing grants in place",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+			mustMkdirAll(t, filepath.Dir(ciWorkflow))
+			drifted := "name: CI\n\n" +
+				"on:\n" +
+				"  push:\n" +
+				"    branches: ['**']\n\n" +
+				"jobs:\n" +
+				"  go:\n" +
 				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
 				"    permissions:\n" +
 				"      contents: read\n" +
 				"      id-token: write\n" +
-				"      attestations: write\n" +
-				"    secrets: inherit\n" +
 				"    with:\n" +
-				"      working_directory: " + workingDirectory + "\n"
-		}
-		current := "name: CI\n\njobs:\n" + callerJob("scripts", "scripts") + "\n" + callerJob("mwan-go", "mwan/go")
-		writeScaffoldTestFile(t, ciWorkflow, current)
-		t.Chdir(repoDir)
+				"      apt_packages: libpcre2-dev\n"
+			writeScaffoldTestFile(t, ciWorkflow, drifted)
+			t.Chdir(repoDir)
 
-		var stdout bytes.Buffer
-		if err := reconcileCIWorkflow(&stdout); err != nil {
-			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
-		}
+			var stdout bytes.Buffer
+			if err := reconcileCIWorkflow(&stdout); err != nil {
+				t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+			}
 
-		// Only the job that builds the released module takes the release's cgo;
-		// the scripts module has no release job and keeps the CI default.
-		expected := "name: CI\n\njobs:\n" + callerJob("scripts", "scripts") + "\n" + callerJob("mwan-go", "mwan/go") + "      cgo: true\n"
-		if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
-			t.Fatalf("multi-job ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
-		}
-	})
+			// attestations is appended to the permissions block; secrets: inherit is
+			// inserted right after the uses line. contents: read is never rewritten.
+			expected := "name: CI\n\n" +
+				"on:\n" +
+				"  push:\n" +
+				"    branches: ['**']\n\n" +
+				"jobs:\n" +
+				"  go:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+				"    secrets: inherit\n" +
+				"    permissions:\n" +
+				"      contents: read\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    with:\n" +
+				"      apt_packages: libpcre2-dev\n"
+			if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+				t.Fatalf("repaired ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+			}
 
-	t.Run("release without cgo resets an explicit ci cgo", func(t *testing.T) {
-		repoDir := t.TempDir()
-		ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
-		mustMkdirAll(t, filepath.Dir(ciWorkflow))
-		writeScaffoldTestFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"),
-			"name: Release\n\n"+
-				"jobs:\n"+
-				"  release:\n"+
-				"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n"+
-				"    permissions:\n"+
-				"      contents: write\n"+
-				"      id-token: write\n"+
-				"      attestations: write\n"+
-				"    secrets: inherit\n")
-		callerWithCgo := func(value string) string {
-			return "name: CI\n\n" +
+			// Idempotent: a second run leaves the repaired file byte-identical.
+			var secondStdout bytes.Buffer
+			if err := reconcileCIWorkflow(&secondStdout); err != nil {
+				t.Fatalf("second reconcileCIWorkflow returned error: %v", err)
+			}
+
+			assertFileText(t, ciWorkflow, expected)
+		},
+	)
+
+	t.Run(
+		"adds permissions block and secrets when job has none",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+			mustMkdirAll(t, filepath.Dir(ciWorkflow))
+			withoutGrants := "name: CI\n\n" +
+				"jobs:\n" +
+				"  go:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n"
+			writeScaffoldTestFile(t, ciWorkflow, withoutGrants)
+			t.Chdir(repoDir)
+
+			var stdout bytes.Buffer
+			if err := reconcileCIWorkflow(&stdout); err != nil {
+				t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+			}
+
+			expected := "name: CI\n\n" +
+				"jobs:\n" +
+				"  go:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+				"    secrets: inherit\n" +
+				"    permissions:\n" +
+				"      contents: read\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n"
+			if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+				t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+			}
+		},
+	)
+
+	t.Run(
+		"block missing contents gets contents read added",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+			mustMkdirAll(t, filepath.Dir(ciWorkflow))
+			missingContents := "name: CI\n\n" +
+				"jobs:\n" +
+				"  go:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+				"    permissions:\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    secrets: inherit\n"
+			writeScaffoldTestFile(t, ciWorkflow, missingContents)
+			t.Chdir(repoDir)
+
+			var stdout bytes.Buffer
+			if err := reconcileCIWorkflow(&stdout); err != nil {
+				t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+			}
+
+			// A permissions block that omits contents would leave contents at none
+			// and break checkout, so contents: read is appended.
+			expected := "name: CI\n\n" +
+				"jobs:\n" +
+				"  go:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+				"    permissions:\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"      contents: read\n" +
+				"    secrets: inherit\n"
+			if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+				t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+			}
+		},
+	)
+
+	t.Run(
+		"already-current caller is untouched",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+			mustMkdirAll(t, filepath.Dir(ciWorkflow))
+			current := "name: CI\n\n" +
 				"jobs:\n" +
 				"  go:\n" +
 				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
@@ -1398,17 +1359,331 @@ func TestReconcileCIWorkflow(t *testing.T) {
 				"      attestations: write\n" +
 				"    secrets: inherit\n" +
 				"    with:\n" +
-				"      cgo: " + value + "\n"
-		}
-		writeScaffoldTestFile(t, ciWorkflow, callerWithCgo("true"))
-		t.Chdir(repoDir)
+				"      apt_packages: libpcre2-dev\n"
+			writeScaffoldTestFile(t, ciWorkflow, current)
+			t.Chdir(repoDir)
 
-		var stdout bytes.Buffer
-		if err := reconcileCIWorkflow(&stdout); err != nil {
-			t.Fatalf("reconcileCIWorkflow returned error: %v", err)
-		}
-		assertFileText(t, ciWorkflow, callerWithCgo("false"))
-	})
+			var stdout bytes.Buffer
+			if err := reconcileCIWorkflow(&stdout); err != nil {
+				t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+			}
+
+			assertFileText(t, ciWorkflow, current)
+		},
+	)
+
+	t.Run(
+		"comment under uses stays attached",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+			mustMkdirAll(t, filepath.Dir(ciWorkflow))
+			commented := "name: CI\n\n" +
+				"jobs:\n" +
+				"  go:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+				"    # documents the reusable CI caller\n" +
+				"    permissions:\n" +
+				"      contents: read\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n"
+			writeScaffoldTestFile(t, ciWorkflow, commented)
+			t.Chdir(repoDir)
+
+			var stdout bytes.Buffer
+			if err := reconcileCIWorkflow(&stdout); err != nil {
+				t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+			}
+
+			// secrets: inherit lands after the comment block, keeping the comment
+			// attached to the uses line it documents.
+			expected := "name: CI\n\n" +
+				"jobs:\n" +
+				"  go:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+				"    # documents the reusable CI caller\n" +
+				"    secrets: inherit\n" +
+				"    permissions:\n" +
+				"      contents: read\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n"
+			if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+				t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+			}
+		},
+	)
+
+	t.Run(
+		"repairs every reusable-CI job in a multi-job caller",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+			mustMkdirAll(t, filepath.Dir(ciWorkflow))
+			// A caller with two reusable-CI jobs, each missing attestations: write and
+			// secrets: inherit. Both jobs must be repaired, not only the first.
+			drifted := "name: CI\n\n" +
+				"jobs:\n" +
+				"  scripts:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: read\n" +
+				"      id-token: write\n" +
+				"    with:\n" +
+				"      go_version_file: scripts/go.mod\n" +
+				"      working_directory: scripts\n\n" +
+				"  mwan-go:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: read\n" +
+				"      id-token: write\n" +
+				"    with:\n" +
+				"      go_version_file: mwan/go/go.mod\n" +
+				"      working_directory: mwan/go\n"
+			writeScaffoldTestFile(t, ciWorkflow, drifted)
+			t.Chdir(repoDir)
+
+			var stdout bytes.Buffer
+			if err := reconcileCIWorkflow(&stdout); err != nil {
+				t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+			}
+
+			expected := "name: CI\n\n" +
+				"jobs:\n" +
+				"  scripts:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+				"    secrets: inherit\n" +
+				"    permissions:\n" +
+				"      contents: read\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    with:\n" +
+				"      go_version_file: scripts/go.mod\n" +
+				"      working_directory: scripts\n\n" +
+				"  mwan-go:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+				"    secrets: inherit\n" +
+				"    permissions:\n" +
+				"      contents: read\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    with:\n" +
+				"      go_version_file: mwan/go/go.mod\n" +
+				"      working_directory: mwan/go\n"
+			if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+				t.Fatalf("multi-job ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+			}
+
+			// Idempotent: a second run leaves both repaired jobs byte-identical.
+			var secondStdout bytes.Buffer
+			if err := reconcileCIWorkflow(&secondStdout); err != nil {
+				t.Fatalf("second reconcileCIWorkflow returned error: %v", err)
+			}
+
+			assertFileText(t, ciWorkflow, expected)
+		},
+	)
+
+	t.Run(
+		"copies release cgo into the ci caller",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+			mustMkdirAll(t, filepath.Dir(ciWorkflow))
+			writeScaffoldTestFile(
+				t,
+				filepath.Join(repoDir, ".github", "workflows", "release.yml"),
+				releaseCallerWithCgo(".", "true"),
+			)
+			current := "name: CI\n\n" +
+				"jobs:\n" +
+				"  go:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: read\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    secrets: inherit\n" +
+				"    with:\n" +
+				"      apt_packages: libpcre2-dev\n"
+			writeScaffoldTestFile(t, ciWorkflow, current)
+			t.Chdir(repoDir)
+
+			var stdout bytes.Buffer
+			if err := reconcileCIWorkflow(&stdout); err != nil {
+				t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+			}
+
+			// A release built with cgo would otherwise be compiled with the CI
+			// workflow's cgo-off default, so the caller gains the release's value.
+			expected := current + "      cgo: true\n"
+			if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+				t.Fatalf("ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+			}
+
+			var secondStdout bytes.Buffer
+			if err := reconcileCIWorkflow(&secondStdout); err != nil {
+				t.Fatalf("second reconcileCIWorkflow returned error: %v", err)
+			}
+
+			assertFileText(t, ciWorkflow, expected)
+		},
+	)
+
+	t.Run(
+		"leaves a caller that inherits the release cgo",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+			mustMkdirAll(t, filepath.Dir(ciWorkflow))
+			writeScaffoldTestFile(
+				t,
+				filepath.Join(repoDir, ".github", "workflows", "release.yml"),
+				releaseCallerWithCgo(".", "false"),
+			)
+			current := "name: CI\n\n" +
+				"jobs:\n" +
+				"  go:\n" +
+				"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+				"    permissions:\n" +
+				"      contents: read\n" +
+				"      id-token: write\n" +
+				"      attestations: write\n" +
+				"    secrets: inherit\n"
+			writeScaffoldTestFile(t, ciWorkflow, current)
+			t.Chdir(repoDir)
+
+			var stdout bytes.Buffer
+			if err := reconcileCIWorkflow(&stdout); err != nil {
+				t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+			}
+
+			assertFileText(t, ciWorkflow, current)
+		},
+	)
+
+	t.Run(
+		"scaffolds the ci caller with release cgo when absent",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+			mustMkdirAll(t, filepath.Dir(ciWorkflow))
+			writeScaffoldTestFile(
+				t,
+				filepath.Join(repoDir, ".github", "workflows", "release.yml"),
+				releaseCallerWithCgo(".", "true"),
+			)
+			t.Chdir(repoDir)
+
+			var stdout bytes.Buffer
+			if err := reconcileCIWorkflow(&stdout); err != nil {
+				t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+			}
+
+			assertFileContains(
+				t,
+				ciWorkflow,
+				"      attestations: write\n    with:\n      cgo: true\n    secrets: inherit\n",
+			)
+
+			before := mustReadFile(t, ciWorkflow)
+			var secondStdout bytes.Buffer
+			if err := reconcileCIWorkflow(&secondStdout); err != nil {
+				t.Fatalf("second reconcileCIWorkflow returned error: %v", err)
+			}
+
+			assertFileText(t, ciWorkflow, before)
+		},
+	)
+
+	t.Run(
+		"matches release cgo by working directory",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+			mustMkdirAll(t, filepath.Dir(ciWorkflow))
+			writeScaffoldTestFile(
+				t,
+				filepath.Join(repoDir, ".github", "workflows", "release.yml"),
+				releaseCallerWithCgo("mwan/go", "true"),
+			)
+			callerJob := func(name string, workingDirectory string) string {
+				return "  " + name + ":\n" +
+					"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+					"    permissions:\n" +
+					"      contents: read\n" +
+					"      id-token: write\n" +
+					"      attestations: write\n" +
+					"    secrets: inherit\n" +
+					"    with:\n" +
+					"      working_directory: " + workingDirectory + "\n"
+			}
+			current := "name: CI\n\njobs:\n" + callerJob("scripts", "scripts") + "\n" + callerJob(
+				"mwan-go",
+				"mwan/go",
+			)
+			writeScaffoldTestFile(t, ciWorkflow, current)
+			t.Chdir(repoDir)
+
+			var stdout bytes.Buffer
+			if err := reconcileCIWorkflow(&stdout); err != nil {
+				t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+			}
+
+			// Only the job that builds the released module takes the release's cgo;
+			// the scripts module has no release job and keeps the CI default.
+			expected := "name: CI\n\njobs:\n" + callerJob("scripts", "scripts") + "\n" + callerJob(
+				"mwan-go",
+				"mwan/go",
+			) + "      cgo: true\n"
+			if repaired := mustReadFile(t, ciWorkflow); repaired != expected {
+				t.Fatalf("multi-job ci.yml mismatch\nwant:\n%s\ngot:\n%s", expected, repaired)
+			}
+		},
+	)
+
+	t.Run(
+		"release without cgo resets an explicit ci cgo",
+		func(t *testing.T) {
+			repoDir := t.TempDir()
+			ciWorkflow := filepath.Join(repoDir, ".github", "workflows", "ci.yml")
+			mustMkdirAll(t, filepath.Dir(ciWorkflow))
+			writeScaffoldTestFile(
+				t,
+				filepath.Join(repoDir, ".github", "workflows", "release.yml"),
+				"name: Release\n\n"+
+					"jobs:\n"+
+					"  release:\n"+
+					"    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main\n"+
+					"    permissions:\n"+
+					"      contents: write\n"+
+					"      id-token: write\n"+
+					"      attestations: write\n"+
+					"    secrets: inherit\n",
+			)
+			callerWithCgo := func(value string) string {
+				return "name: CI\n\n" +
+					"jobs:\n" +
+					"  go:\n" +
+					"    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main\n" +
+					"    permissions:\n" +
+					"      contents: read\n" +
+					"      id-token: write\n" +
+					"      attestations: write\n" +
+					"    secrets: inherit\n" +
+					"    with:\n" +
+					"      cgo: " + value + "\n"
+			}
+			writeScaffoldTestFile(t, ciWorkflow, callerWithCgo("true"))
+			t.Chdir(repoDir)
+
+			var stdout bytes.Buffer
+			if err := reconcileCIWorkflow(&stdout); err != nil {
+				t.Fatalf("reconcileCIWorkflow returned error: %v", err)
+			}
+
+			assertFileText(t, ciWorkflow, callerWithCgo("false"))
+		},
+	)
 }
 
 // releaseCallerWithCgo renders a release caller whose single job builds
@@ -1443,8 +1718,14 @@ func runScaffoldForTestOutput(t *testing.T, options scaffoldOptions) (string, st
 	options.stdout = &stdout
 	options.stderr = &stderr
 	if err := runScaffold(options); err != nil {
-		t.Fatalf("runScaffold returned error: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+		t.Fatalf(
+			"runScaffold returned error: %v\nstdout:\n%s\nstderr:\n%s",
+			err,
+			stdout.String(),
+			stderr.String(),
+		)
 	}
+
 	return stdout.String(), stderr.String()
 }
 
@@ -1492,16 +1773,24 @@ func assertPathNotGitIgnored(t *testing.T, repoDir string, filePath string) {
 	if err == nil {
 		t.Fatalf("%s is still gitignored", filePath)
 	}
+
 	var exitError *exec.ExitError
 	if !errors.As(err, &exitError) {
 		t.Fatalf("git check-ignore %s: %v", filePath, err)
 	}
+
 	if exitError.ExitCode() != 1 {
 		output, outputErr := exec.Command("git", "check-ignore", "-v", filePath).CombinedOutput()
 		if outputErr != nil {
 			t.Fatalf("git check-ignore -v %s: %v", filePath, outputErr)
 		}
-		t.Fatalf("git check-ignore %s returned exit code %d\noutput:\n%s", filePath, exitError.ExitCode(), string(output))
+
+		t.Fatalf(
+			"git check-ignore %s returned exit code %d\noutput:\n%s",
+			filePath,
+			exitError.ExitCode(),
+			string(output),
+		)
 	}
 }
 
@@ -1511,6 +1800,7 @@ func assertFileExists(t *testing.T, filePath string) {
 	if err != nil {
 		t.Fatalf("stat %s: %v", filePath, err)
 	}
+
 	if info.IsDir() {
 		t.Fatalf("%s is a directory, want file", filePath)
 	}
@@ -1529,6 +1819,7 @@ func assertFileMode(t *testing.T, filePath string, expectedMode os.FileMode) {
 	if err != nil {
 		t.Fatalf("stat %s: %v", filePath, err)
 	}
+
 	actualMode := info.Mode().Perm()
 	if actualMode != expectedMode {
 		t.Fatalf("%s mode = %o, want %o", filePath, actualMode, expectedMode)
@@ -1553,6 +1844,7 @@ func assertFileNotContains(t *testing.T, filePath string, unexpectedText string)
 
 func assertScaffoldTrackedFilesAbsent(t *testing.T, repoDir string) {
 	t.Helper()
+
 	for _, trackedFile := range configuredScaffoldTrackedFiles() {
 		filePath := filepath.Join(repoDir, trackedFile)
 		if _, err := os.Stat(filePath); !os.IsNotExist(err) {
@@ -1564,6 +1856,7 @@ func assertScaffoldTrackedFilesAbsent(t *testing.T, repoDir string) {
 func assertGitignoreContainsScaffoldEntries(t *testing.T, repoDir string, baselineFiles []string) {
 	t.Helper()
 	gitignorePath := filepath.Join(repoDir, ".gitignore")
+
 	for _, entry := range scaffoldGitignoreEntries(baselineFiles) {
 		assertFileContains(t, gitignorePath, entry)
 	}
@@ -1582,10 +1875,12 @@ func assertFilesEqual(t *testing.T, expectedPath string, actualPath string) {
 	if err != nil {
 		t.Fatalf("read %s: %v", expectedPath, err)
 	}
+
 	actualContents, err := os.ReadFile(actualPath)
 	if err != nil {
 		t.Fatalf("read %s: %v", actualPath, err)
 	}
+
 	if !bytes.Equal(expectedContents, actualContents) {
 		t.Fatalf("files differ: %s %s", expectedPath, actualPath)
 	}
@@ -1597,6 +1892,7 @@ func mustReadFile(t *testing.T, filePath string) string {
 	if err != nil {
 		t.Fatalf("read %s: %v", filePath, err)
 	}
+
 	return string(contents)
 }
 
@@ -1609,7 +1905,11 @@ func writeScaffoldTestFile(t *testing.T, filePath string, contents string) {
 
 func writeScaffoldTestGoMod(t *testing.T, repoDir string, modulePath string) {
 	t.Helper()
-	writeScaffoldTestFile(t, filepath.Join(repoDir, "go.mod"), "module "+modulePath+"\n\ngo 1.26.4\n")
+	writeScaffoldTestFile(
+		t,
+		filepath.Join(repoDir, "go.mod"),
+		"module "+modulePath+"\n\ngo 1.26.4\n",
+	)
 }
 
 func mustMkdirAll(t *testing.T, directoryPath string) {
@@ -1630,5 +1930,6 @@ func testFilePath(t *testing.T) string {
 	if !ok {
 		t.Fatal("runtime.Caller(0) failed")
 	}
+
 	return filePath
 }

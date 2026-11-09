@@ -44,15 +44,19 @@ func readLines(path string) ([]string, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
+
 		return nil, err
 	}
+
 	if len(data) == 0 {
 		return nil, nil
 	}
+
 	text := strings.TrimSuffix(string(data), "\n")
 	if text == "" {
 		return nil, nil
 	}
+
 	return strings.Split(text, "\n"), nil
 }
 
@@ -70,13 +74,18 @@ func PlanComponent(component Component, now string) (PlannedWrite, error) {
 	if err != nil {
 		return PlannedWrite{}, err
 	}
+
 	findingsLines, err := readLines(component.FindingsFile)
 	if err != nil {
 		return PlannedWrite{}, err
 	}
 
 	oldKeys, err := baselineKeySet(
-		oldLines, component.Label, component.ExcludePattern, component.ScopePattern)
+		oldLines,
+		component.Label,
+		component.ExcludePattern,
+		component.ScopePattern,
+	)
 	if err != nil {
 		return PlannedWrite{}, err
 	}
@@ -94,14 +103,24 @@ func PlanComponent(component Component, now string) (PlannedWrite, error) {
 	}
 
 	newKeys, err := baselineKeySet(
-		body, component.Label, component.ExcludePattern, component.ScopePattern)
+		body,
+		component.Label,
+		component.ExcludePattern,
+		component.ScopePattern,
+	)
 	if err != nil {
 		return PlannedWrite{}, err
 	}
 
 	stats := computeStats(
-		component.Label, component.BaselineFile, component.ScopePattern,
-		findingsLines, oldKeys, newKeys)
+		component.Label,
+		component.BaselineFile,
+		component.ScopePattern,
+		findingsLines,
+		oldKeys,
+		newKeys,
+	)
+
 	return PlannedWrite{
 		Stats:    stats,
 		Path:     component.BaselineFile,

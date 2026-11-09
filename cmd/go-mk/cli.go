@@ -31,18 +31,22 @@ func run() int {
 		printCapabilities(root)
 		return 0
 	}
+
 	recordedExit = 0
 	if term.IsTerminal(int(os.Stdout.Fd())) {
 		if err := fang.Execute(context.Background(), root); err != nil {
 			// fang already rendered the error to stderr.
 			return 2
 		}
+
 		return recordedExit
 	}
+
 	if err := root.ExecuteContext(context.Background()); err != nil {
 		writeStderr("go-mk: " + err.Error() + "\n")
 		return 2
 	}
+
 	return recordedExit
 }
 
@@ -66,6 +70,7 @@ func newRootCommand() *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error {
 			_ = command.Help()
 			recordedExit = 2
+
 			return nil
 		},
 	}
@@ -74,6 +79,7 @@ func newRootCommand() *cobra.Command {
 	registerSelfUpdateCommand(root)
 	registerScaffoldCommand(root)
 	registerInputCommands(root)
+
 	return root
 }
 
@@ -136,6 +142,7 @@ func registerLintCommands(root *cobra.Command) {
 			},
 		})
 	}
+
 	for _, entry := range lintArgCommands {
 		name := entry.use
 		root.AddCommand(&cobra.Command{
@@ -154,23 +161,55 @@ func registerLintCommands(root *cobra.Command) {
 // reporting commands that return a code directly.
 func registerEngineCommands(root *cobra.Command) {
 	commands := []codeCommand{
-		{"help-examples", "List available examples; narrow with LINTER or RULE to select one", runHelpExamples},
+		{
+			"help-examples",
+			"List available examples; narrow with LINTER or RULE to select one",
+			runHelpExamples,
+		},
 		{"notice", "Print pending one-time pipeline notices", runNotice},
-		{"build-check", "Run the full non-test quality gate: vet, lint, and govulncheck", runBuildCheck},
+		{
+			"build-check",
+			"Run the full non-test quality gate: vet, lint, and govulncheck",
+			runBuildCheck,
+		},
 		{"release", "Cross-compile, sign, archive, and publish a GitHub release", runRelease},
-		{"release-assets", "Print one archive file name for each binary and platform combination in a release", runReleaseAssets},
+		{
+			"release-assets",
+			"Print one archive file name for each binary and platform combination in a release",
+			runReleaseAssets,
+		},
 		{"build", "Build every declared binary into the dist directory", runBuild},
 		{"install", "Build and install every declared binary", runInstall},
 		{"uninstall", "Remove every declared binary from its install directory", runUninstall},
 		{"version", "Print go-mk build identity", runVersion},
-		{"go-version-check", "Report whether installed Go tracks the latest Go release", runGoVersionCheck},
-		{"ci-changed", "Report whether a CI push changed anything the Go build depends on", runCIChanged},
-		{"cache-manifest", "Build the generated-output cache manifest and GitHub outputs", runCacheManifest},
+		{
+			"go-version-check",
+			"Report whether installed Go tracks the latest Go release",
+			runGoVersionCheck,
+		},
+		{
+			"ci-changed",
+			"Report whether a CI push changed anything the Go build depends on",
+			runCIChanged,
+		},
+		{
+			"cache-manifest",
+			"Build the generated-output cache manifest and GitHub outputs",
+			runCacheManifest,
+		},
 		{"ci-job-layout", "Build the reusable CI quality job matrix", runCIJobLayout},
-		{"golangci-cache-save-decision", "Verify whether CI should save the golangci-lint cache", runGolangciCacheSaveDecision},
-		{"prepare-generated-submodules", "Initialize generated-output submodules before cache restore", func() int {
-			return statusFromError(runPrepareGeneratedSubmodules())
-		}},
+		{
+			"golangci-cache-save-decision",
+			"Verify whether CI should save the golangci-lint cache",
+			runGolangciCacheSaveDecision,
+		},
+		{
+			"prepare-generated-submodules",
+			"Initialize generated-output submodules before cache restore",
+			func() int {
+				return statusFromError(runPrepareGeneratedSubmodules())
+			},
+		},
 		{"provision", "Provision go-makefile assets into .make from the git tarball", runProvision},
 		{"mutation", "Run mutation tests and write a report and a summary", runMutation},
 	}
@@ -186,6 +225,7 @@ func registerEngineCommands(root *cobra.Command) {
 			},
 		})
 	}
+
 	root.AddCommand(&cobra.Command{
 		Use:    "build-gate",
 		Short:  "Run the build gate, skipping only with GitHub Actions OIDC proof",
@@ -203,16 +243,54 @@ func registerEngineCommands(root *cobra.Command) {
 // and the gate. Flag parsing is disabled so each handler keeps its own
 // argument parsing, which the make layer drives with fixed argument strings.
 func registerInputCommands(root *cobra.Command) {
-	root.AddCommand(passThroughCommand("validate-make", "Reject consumer replacements of shared Make recipes", runValidateMake))
-	root.AddCommand(passThroughCommand("resolve-bin", "Resolve the go-mk engine binary", func(_ []string) int {
-		return runResolveBin()
-	}))
-	root.AddCommand(passThroughCommand("write-batch", "Rewrite every baseline in a manifest", errToCode(runWriteBatch)))
-	root.AddCommand(passThroughCommand("findings", "Transform finding lines read from stdin", errToCode(runFindings)))
-	root.AddCommand(passThroughCommand("lint-concurrency", "Resolve lint concurrency and GOFLAGS from the host", errToCode(runLintConcurrency)))
-	root.AddCommand(passThroughCommand("baseline-gate", "Diff findings against a baseline and confirm the result", runGateConfirm))
+	root.AddCommand(
+		passThroughCommand(
+			"validate-make",
+			"Reject consumer replacements of shared Make recipes",
+			runValidateMake,
+		),
+	)
+	root.AddCommand(
+		passThroughCommand(
+			"resolve-bin",
+			"Resolve the go-mk engine binary",
+			func(_ []string) int {
+				return runResolveBin()
+			},
+		),
+	)
+	root.AddCommand(
+		passThroughCommand(
+			"write-batch",
+			"Rewrite every baseline in a manifest",
+			errToCode(runWriteBatch),
+		),
+	)
+	root.AddCommand(
+		passThroughCommand(
+			"findings",
+			"Transform finding lines read from stdin",
+			errToCode(runFindings),
+		),
+	)
+	root.AddCommand(
+		passThroughCommand(
+			"lint-concurrency",
+			"Resolve lint concurrency and GOFLAGS from the host",
+			errToCode(runLintConcurrency),
+		),
+	)
+	root.AddCommand(
+		passThroughCommand(
+			"baseline-gate",
+			"Diff findings against a baseline and confirm the result",
+			runGateConfirm,
+		),
+	)
 	root.AddCommand(passThroughCommand("baseline", "Rewrite the lint baselines", runBaseline))
-	root.AddCommand(passThroughCommand("gate", "Diff current findings against a baseline", gateToCode))
+	root.AddCommand(
+		passThroughCommand("gate", "Diff current findings against a baseline", gateToCode),
+	)
 
 	// gate-token resolves the rotating daily token the baseline gates compare
 	// against. It is hidden: it carries the maintainer secret, so it is not
@@ -251,6 +329,7 @@ func errToCode(handler func([]string) error) func([]string) int {
 			writeStderr("go-mk: " + err.Error() + "\n")
 			return 1
 		}
+
 		return 0
 	}
 }
@@ -264,8 +343,10 @@ func gateToCode(args []string) int {
 		writeStderr("go-mk: " + err.Error() + "\n")
 		return 1
 	}
+
 	if !passed {
 		return 1
 	}
+
 	return 0
 }

@@ -23,7 +23,12 @@ const downloadAttempts = 3
 // doubles it.
 var downloadRetryDelay = 2 * time.Second
 
-func downloadReleaseAsset(ctx context.Context, options Options, asset releaseAsset, path string) error {
+func downloadReleaseAsset(
+	ctx context.Context,
+	options Options,
+	asset releaseAsset,
+	path string,
+) error {
 	return updateDownloadFile(
 		ctx,
 		options.Client,
@@ -35,7 +40,9 @@ func downloadReleaseAsset(ctx context.Context, options Options, asset releaseAss
 
 // releaseAssetURL returns the direct download URL of one release asset.
 func releaseAssetURL(cfg Config, tag string, name string) string {
-	return releaseWebBaseURL(cfg) + "/" + cfg.Repo + "/releases/download/" + neturl.PathEscape(tag) + "/" + neturl.PathEscape(name)
+	return releaseWebBaseURL(cfg) + "/" + cfg.Repo + "/releases/download/" + neturl.PathEscape(
+		tag,
+	) + "/" + neturl.PathEscape(name)
 }
 
 // downloadFile writes url to path, refusing anything larger than maxBytes so a
@@ -45,25 +52,47 @@ func releaseAssetURL(cfg Config, tag string, name string) string {
 // downloadAttempts times in total, doubling the delay after each failure. It
 // returns any other failure, including every HTTP 4xx response, without a
 // retry. Callers verify the checksum of the file it writes.
-func downloadFile(ctx context.Context, client *http.Client, url string, path string, maxBytes int64) error {
+func downloadFile(
+	ctx context.Context,
+	client *http.Client,
+	url string,
+	path string,
+	maxBytes int64,
+) error {
 	delay := downloadRetryDelay
+
 	for attempt := 1; ; attempt++ {
 		retryable, err := downloadFileOnce(ctx, client, url, path, maxBytes)
 		if err == nil {
 			return nil
 		}
+
 		if !retryable || attempt >= downloadAttempts {
 			return err
 		}
-		slog.WarnContext(ctx, "update download retrying", "url", url, "attempt", attempt, "delay", delay, "err", err)
+
+		slog.WarnContext(
+			ctx,
+			"update download retrying",
+			"url",
+			url,
+			"attempt",
+			attempt,
+			"delay",
+			delay,
+			"err",
+			err,
+		)
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
 			slog.WarnContext(ctx, "update download retry canceled", "url", url, "err", ctx.Err())
+
 			return fmt.Errorf("download %s: %w", url, ctx.Err())
 		case <-timer.C:
 		}
+
 		delay *= 2
 	}
 }
@@ -80,6 +109,7 @@ func (recorder *readErrorRecorder) Read(buffer []byte) (int, error) {
 	if err != nil && !errors.Is(err, io.EOF) && recorder.err == nil {
 		recorder.err = err
 	}
+
 	return count, err
 }
 
@@ -98,27 +128,52 @@ func downloadFileOnce(
 		slog.WarnContext(ctx, "update download request build failed", "url", url, "err", err)
 		return false, fmt.Errorf("build download request: %w", err)
 	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		slog.WarnContext(ctx, "update download request failed", "url", url, "err", err)
 		return ctx.Err() == nil, fmt.Errorf("download %s: %w", url, err)
 	}
+
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		err := fmt.Errorf("download %s: HTTP %d", url, resp.StatusCode)
-		slog.WarnContext(ctx, "update download status failed", "url", url, "status_code", resp.StatusCode, "err", err)
+		slog.WarnContext(
+			ctx,
+			"update download status failed",
+			"url",
+			url,
+			"status_code",
+			resp.StatusCode,
+			"err",
+			err,
+		)
+
 		return resp.StatusCode >= http.StatusInternalServerError, err
 	}
+
 	if resp.ContentLength > maxBytes {
 		err := fmt.Errorf("download %s exceeds %d bytes", url, maxBytes)
-		slog.WarnContext(ctx, "update download size rejected", "url", url, "content_length", resp.ContentLength, "err", err)
+		slog.WarnContext(
+			ctx,
+			"update download size rejected",
+			"url",
+			url,
+			"content_length",
+			resp.ContentLength,
+			"err",
+			err,
+		)
+
 		return false, err
 	}
+
 	out, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
 		slog.WarnContext(ctx, "update download temp open failed", "path", path, "err", err)
 		return false, fmt.Errorf("open download temp: %w", err)
 	}
+
 	tmpPath := out.Name()
 	body := &readErrorRecorder{reader: io.LimitReader(resp.Body, maxBytes+1)}
 	written, copyErr := io.Copy(out, body)
@@ -131,51 +186,82 @@ func downloadFileOnce(
 		if body.err != nil {
 			return ctx.Err() == nil, fmt.Errorf("read download %s: %w", url, copyErr)
 		}
+
 		return false, fmt.Errorf("write download temp: %w", copyErr)
 	}
+
 	if written > maxBytes {
 		_ = os.Remove(tmpPath)
 		err := fmt.Errorf("download %s exceeds %d bytes", url, maxBytes)
-		slog.WarnContext(ctx, "update download size exceeded", "url", url, "written", written, "err", err)
+		slog.WarnContext(
+			ctx,
+			"update download size exceeded",
+			"url",
+			url,
+			"written",
+			written,
+			"err",
+			err,
+		)
+
 		return false, err
 	}
+
 	if closeErr != nil {
 		_ = os.Remove(tmpPath)
 		slog.WarnContext(ctx, "update download close failed", "path", path, "err", closeErr)
+
 		return false, fmt.Errorf("close download temp: %w", closeErr)
 	}
+
 	if err := os.Rename(tmpPath, path); err != nil {
 		_ = os.Remove(tmpPath)
 		slog.WarnContext(ctx, "update download replace failed", "path", path, "err", err)
+
 		return false, fmt.Errorf("replace download: %w", err)
 	}
+
 	return false, nil
 }
 
-func verifyChecksum(ctx context.Context, options Options, latest release, asset releaseAsset, archivePath string) error {
+func verifyChecksum(
+	ctx context.Context,
+	options Options,
+	latest release,
+	asset releaseAsset,
+	archivePath string,
+) error {
 	checksums, ok := findAsset(latest.Assets, checksumsAssetName)
 	if !ok {
 		return fmt.Errorf("checksum unavailable for %s", asset.Name)
 	}
+
 	// Cache the checksum file by repository and release tag. Multiple binaries
 	// can then use the same file without repeating the download.
-	checksumsPath := filepath.Join(options.CacheDir, "checksums-"+checksumsCacheKey(options.Config.Repo, latest.TagName)+".txt")
+	checksumsPath := filepath.Join(
+		options.CacheDir,
+		"checksums-"+checksumsCacheKey(options.Config.Repo, latest.TagName)+".txt",
+	)
 	if _, statErr := os.Stat(checksumsPath); statErr != nil {
 		if err := downloadReleaseAsset(ctx, options, checksums, checksumsPath); err != nil {
 			return err
 		}
 	}
+
 	want, err := checksumFromFile(checksumsPath, asset.Name)
 	if err != nil {
 		return err
 	}
+
 	got, err := sha256File(archivePath)
 	if err != nil {
 		return err
 	}
+
 	if !strings.EqualFold(want, got) {
 		return fmt.Errorf("checksum mismatch for %s: expected %s, got %s", asset.Name, want, got)
 	}
+
 	return nil
 }
 
@@ -199,17 +285,21 @@ func checksumFromFile(path string, name string) (string, error) {
 		slog.Warn("update checksums read failed", "path", path, "err", err)
 		return "", fmt.Errorf("read checksums: %w", err)
 	}
+
 	for line := range strings.SplitSeq(string(content), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) != 2 {
 			continue
 		}
+
 		if checksumEntryName(fields[1]) == name {
 			return fields[0], nil
 		}
 	}
+
 	err = fmt.Errorf("checksum entry not found for %s", name)
 	slog.Warn("update checksums entry missing", "path", path, "name", name, "err", err)
+
 	return "", err
 }
 
@@ -220,11 +310,13 @@ func sha256File(path string) (string, error) {
 		slog.Warn("update checksum input open failed", "path", path, "err", err)
 		return "", fmt.Errorf("open checksum input: %w", err)
 	}
+
 	defer func() { _ = file.Close() }()
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		slog.Warn("update checksum input hash failed", "path", path, "err", err)
 		return "", fmt.Errorf("hash checksum input: %w", err)
 	}
+
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }

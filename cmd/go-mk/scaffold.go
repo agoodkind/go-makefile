@@ -28,7 +28,7 @@ var scaffoldAssetFS embed.FS
 var scaffoldBinaryNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 const (
-	defaultScaffoldVanityRoot = "goodkind.io"
+	defaultScaffoldVanityRoot  = "goodkind.io"
 	goMakefileEngineModule     = "goodkind.io/go-makefile"
 	makefileAssetPath          = "scaffold_assets/Makefile.tmpl"
 	bootstrapMkAssetPath       = "scaffold_assets/bootstrap.mk"
@@ -89,14 +89,26 @@ func registerScaffoldCommand(root *cobra.Command) {
 			options.stdout = os.Stdout
 			options.stderr = os.Stderr
 			recordedExit = statusFromError(runScaffold(options))
+
 			return nil
 		},
 	}
 	command.Flags().StringVar(&options.modulePath, "module", "", "module path for go mod init")
-	command.Flags().StringVar(&options.vanityRoot, "vanity", "", "vanity import root for inferred modules")
+	command.Flags().StringVar(
+		&options.vanityRoot,
+		"vanity",
+		"",
+		"vanity import root for inferred modules",
+	)
 	command.Flags().BoolVar(&options.forceLibrary, "library", false, "force library layout")
 	command.Flags().BoolVar(&options.forceBinary, "binary", false, "force binary layout")
-	command.Flags().BoolVarP(&options.yes, "yes", "y", false, "accept inferred values without prompting")
+	command.Flags().BoolVarP(
+		&options.yes,
+		"yes",
+		"y",
+		false,
+		"accept inferred values without prompting",
+	)
 	root.AddCommand(command)
 }
 
@@ -105,56 +117,75 @@ func runScaffold(options scaffoldOptions) error {
 	if options.stdout == nil {
 		options.stdout = io.Discard
 	}
+
 	if options.stderr == nil {
 		options.stderr = io.Discard
 	}
+
 	if options.stdin == nil {
 		options.stdin = os.Stdin
 	}
+
 	if options.forceLibrary && options.forceBinary {
 		return errors.New("--library and --binary are mutually exclusive")
 	}
+
 	modulePath, err := ensureGoModule(options)
 	if err != nil {
 		return err
 	}
+
 	layout, err := resolveScaffoldLayout(options)
 	if err != nil {
 		return err
 	}
+
 	context, err := buildScaffoldContext(modulePath, layout)
 	if err != nil {
 		return err
 	}
+
 	releaseBinary := releaseWorkflowBinary(context)
 	if releaseBinary != "" && !isSafeScaffoldBinaryName(releaseBinary) {
-		fmt.Fprintf(options.stderr, "warning: unsafe BINARY %q; skipping release workflow binary input\n", releaseBinary)
+		fmt.Fprintf(
+			options.stderr,
+			"warning: unsafe BINARY %q; skipping release workflow binary input\n",
+			releaseBinary,
+		)
 		releaseBinary = ""
 	}
+
 	futureTrackedFiles := scaffoldManagedTrackedFiles(options.stderr)
 	printScaffoldSummary(options.stdout, modulePath, context)
 	if err := reconcileMakefile(context, options.stdout, options.stderr); err != nil {
 		return err
 	}
+
 	if err := reconcileBootstrapMk(options.stdout); err != nil {
 		return err
 	}
+
 	// The release caller is reconciled first because the CI caller copies its
 	// cgo value, so a new repo's first run already agrees with its release.
 	if err := reconcileReleaseWorkflow(releaseBinary, options.stdout); err != nil {
 		return err
 	}
+
 	if err := reconcileCIWorkflow(options.stdout); err != nil {
 		return err
 	}
+
 	warnIfLocalGolangCI(options.stderr)
 	if err := reconcileGitignore(futureTrackedFiles, options.stdout); err != nil {
 		return err
 	}
+
 	if err := reconcileGoModTools(options.stdout); err != nil {
 		return err
 	}
+
 	printScaffoldDone(options.stdout)
+
 	return nil
 }
 
@@ -162,20 +193,30 @@ func ensureGoModule(options scaffoldOptions) (string, error) {
 	if fileExists("go.mod") {
 		return readModulePath("go.mod")
 	}
+
 	modulePath, err := resolveNewModulePath(options)
 	if err != nil {
 		return "", err
 	}
+
 	if strings.TrimSpace(modulePath) == "" {
 		return "", errors.New("module path is empty")
 	}
+
 	if _, err := exec.LookPath("go"); err != nil {
 		return "", errors.New("go command not found on PATH")
 	}
+
 	fmt.Fprintf(options.stdout, "running: go mod init %s\n", modulePath)
-	if err := runScaffoldProcess("go", []string{"mod", "init", modulePath}, options.stdout, options.stderr); err != nil {
+	if err := runScaffoldProcess(
+		"go",
+		[]string{"mod", "init", modulePath},
+		options.stdout,
+		options.stderr,
+	); err != nil {
 		return "", err
 	}
+
 	return readModulePath("go.mod")
 }
 
@@ -183,22 +224,33 @@ func resolveNewModulePath(options scaffoldOptions) (string, error) {
 	if strings.TrimSpace(options.modulePath) != "" {
 		return strings.TrimSpace(options.modulePath), nil
 	}
+
 	if modulePath := strings.TrimSpace(os.Getenv("GO_MODULE_PATH")); modulePath != "" {
 		return modulePath, nil
 	}
+
 	inferred, err := inferModulePath(resolveVanityRoot(options))
 	if err != nil {
 		return "", err
 	}
+
 	if inferred == "" {
-		return "", errors.New("no go.mod found and could not infer a module path. Pass --module=<path> or set GO_MODULE_PATH")
+		return "", errors.New(
+			"no go.mod found and could not infer a module path. Pass --module=<path> or set GO_MODULE_PATH",
+		)
 	}
+
 	if term.IsTerminal(int(options.stdin.Fd())) && !options.yes {
 		return promptWithDefault("module path", inferred, options.stdin, options.stderr)
 	}
+
 	if !options.yes {
-		return "", fmt.Errorf("no go.mod and stdin is not a TTY. Pass --module=<path>, set GO_MODULE_PATH, or add --yes to accept inferred value: %s", inferred)
+		return "", fmt.Errorf(
+			"no go.mod and stdin is not a TTY. Pass --module=<path>, set GO_MODULE_PATH, or add --yes to accept inferred value: %s",
+			inferred,
+		)
 	}
+
 	return inferred, nil
 }
 
@@ -206,9 +258,11 @@ func resolveVanityRoot(options scaffoldOptions) string {
 	if strings.TrimSpace(options.vanityRoot) != "" {
 		return strings.TrimSpace(options.vanityRoot)
 	}
+
 	if vanityRoot := strings.TrimSpace(os.Getenv("GO_VANITY_ROOT")); vanityRoot != "" {
 		return vanityRoot
 	}
+
 	return defaultScaffoldVanityRoot
 }
 
@@ -222,14 +276,17 @@ func inferModulePath(vanityRoot string) (string, error) {
 			}
 		}
 	}
+
 	workingDirectory, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
+
 	baseName := filepath.Base(workingDirectory)
 	if vanityRoot != "" && baseName != "" && baseName != string(filepath.Separator) {
 		return vanityRoot + "/" + baseName, nil
 	}
+
 	return "", nil
 }
 
@@ -238,8 +295,10 @@ func normalizeGitRemote(remoteURL string) string {
 	if strings.HasPrefix(remoteURL, "git@") && strings.Contains(remoteURL, ":") {
 		pathPart := strings.TrimPrefix(remoteURL, "git@")
 		pathPart = strings.Replace(pathPart, ":", "/", 1)
+
 		return strings.TrimSuffix(strings.TrimSuffix(pathPart, "/"), ".git")
 	}
+
 	if strings.HasPrefix(remoteURL, "http://") ||
 		strings.HasPrefix(remoteURL, "https://") ||
 		strings.HasPrefix(remoteURL, "ssh://") {
@@ -247,11 +306,14 @@ func normalizeGitRemote(remoteURL string) string {
 		if schemeIndex := strings.Index(pathPart, "://"); schemeIndex >= 0 {
 			pathPart = pathPart[schemeIndex+len("://"):]
 		}
+
 		if userIndex := strings.Index(pathPart, "@"); userIndex >= 0 {
 			pathPart = pathPart[userIndex+1:]
 		}
+
 		return strings.TrimSuffix(strings.TrimSuffix(pathPart, "/"), ".git")
 	}
+
 	return ""
 }
 
@@ -262,10 +324,16 @@ func isInsideGitWorkTree() bool {
 	if err := command.Run(); err != nil {
 		return false
 	}
+
 	return true
 }
 
-func promptWithDefault(question string, defaultValue string, stdin *os.File, stderr io.Writer) (string, error) {
+func promptWithDefault(
+	question string,
+	defaultValue string,
+	stdin *os.File,
+	stderr io.Writer,
+) (string, error) {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err == nil {
 		defer func() { _ = tty.Close() }()
@@ -274,13 +342,16 @@ func promptWithDefault(question string, defaultValue string, stdin *os.File, std
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			return "", readErr
 		}
+
 		return defaultedAnswer(answer, defaultValue), nil
 	}
+
 	fmt.Fprintf(stderr, "%s [%s]: ", question, defaultValue)
 	answer, readErr := bufio.NewReader(stdin).ReadString('\n')
 	if readErr != nil && !errors.Is(readErr, io.EOF) {
 		return "", readErr
 	}
+
 	return defaultedAnswer(answer, defaultValue), nil
 }
 
@@ -289,6 +360,7 @@ func defaultedAnswer(answer string, defaultValue string) string {
 	if answer == "" {
 		return defaultValue
 	}
+
 	return answer
 }
 
@@ -297,7 +369,9 @@ func readModulePath(filePath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	defer func() { _ = file.Close() }()
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
@@ -305,9 +379,11 @@ func readModulePath(filePath string) (string, error) {
 			return fields[1], nil
 		}
 	}
+
 	if err := scanner.Err(); err != nil {
 		return "", err
 	}
+
 	return "", errors.New("could not read module from go.mod")
 }
 
@@ -315,23 +391,29 @@ func resolveScaffoldLayout(options scaffoldOptions) (string, error) {
 	if options.forceLibrary {
 		return "library", nil
 	}
+
 	if options.forceBinary {
 		return "binary", nil
 	}
+
 	directories, err := immediateSubdirectories("cmd")
 	if err != nil {
 		return "", err
 	}
+
 	if len(directories) > 0 {
 		return "binary", nil
 	}
+
 	rootMain, err := directoryBuildsCommand(".")
 	if err != nil {
 		return "", err
 	}
+
 	if rootMain {
 		return "binary", nil
 	}
+
 	return "library", nil
 }
 
@@ -344,10 +426,16 @@ func directoryBuildsCommand(dir string) (bool, error) {
 	if errors.As(err, &noGo) {
 		return false, nil
 	}
+
 	if err != nil {
-		slog.Error("scaffold read root package", slog.String("dir", dir), slog.String("err", err.Error()))
+		slog.Error(
+			"scaffold read root package",
+			slog.String("dir", dir),
+			slog.String("err", err.Error()),
+		)
 		return false, fmt.Errorf("read the Go package in %s: %w", dir, err)
 	}
+
 	return pkg.IsCommand(), nil
 }
 
@@ -359,12 +447,14 @@ func buildScaffoldContext(modulePath string, layout string) (scaffoldContext, er
 	if layout != "binary" {
 		return context, nil
 	}
+
 	binaryName := path.Base(modulePath)
 	cmdPath := "./cmd/" + binaryName
 	directories, err := immediateSubdirectories("cmd")
 	if err != nil {
 		return scaffoldContext{}, err
 	}
+
 	if directoryExists(filepath.Join("cmd", binaryName)) {
 		cmdPath = "./cmd/" + binaryName
 	} else if len(directories) == 1 {
@@ -375,15 +465,18 @@ func buildScaffoldContext(modulePath string, layout string) (scaffoldContext, er
 		if err != nil {
 			return scaffoldContext{}, err
 		}
+
 		if rootMain {
 			cmdPath = "."
 		}
 	}
+
 	context.Binary = binaryName
 	context.Cmd = cmdPath
 	if directoryExists(filepath.Join("internal", "version")) {
 		context.Vpkg = modulePath + "/internal/version"
 	}
+
 	return context, nil
 }
 
@@ -394,6 +487,7 @@ func printScaffoldSummary(writer io.Writer, modulePath string, context scaffoldC
 		fmt.Fprintf(writer, "binary:  %s\n", context.Binary)
 		fmt.Fprintf(writer, "cmd:     %s\n", context.Cmd)
 	}
+
 	fmt.Fprintln(writer)
 }
 
@@ -403,33 +497,48 @@ func reconcileMakefile(context scaffoldContext, stdout io.Writer, stderr io.Writ
 	if err != nil {
 		return err
 	}
+
 	if !fileExists("Makefile") {
 		if err := os.WriteFile("Makefile", []byte(rendered), 0o644); err != nil {
 			return err
 		}
+
 		fmt.Fprintf(stdout, "created Makefile (%s)\n", context.Layout)
+
 		return nil
 	}
+
 	existingBytes, err := os.ReadFile("Makefile")
 	if err != nil {
 		return err
 	}
+
 	if string(existingBytes) == rendered {
 		fmt.Fprintln(stdout, "skipping Makefile (already current)")
 		return nil
 	}
+
 	if isClearlyGeneratedMakefile(string(existingBytes)) {
 		if err := os.WriteFile("Makefile", []byte(rendered), 0o644); err != nil {
 			return err
 		}
+
 		fmt.Fprintf(stdout, "updated Makefile (%s)\n", context.Layout)
+
 		return nil
 	}
+
 	absolutePath, err := filepath.Abs("Makefile")
 	if err != nil {
 		absolutePath = "Makefile"
 	}
-	fmt.Fprintf(stderr, "warning: %s exists and appears customized; leaving it unchanged\n", absolutePath)
+
+	fmt.Fprintf(
+		stderr,
+		"warning: %s exists and appears customized; leaving it unchanged\n",
+		absolutePath,
+	)
+
 	return nil
 }
 
@@ -438,17 +547,20 @@ func renderMakefile(context scaffoldContext) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	tmpl, err := template.New("Makefile.tmpl").
-		Delims("[[", "]]").
-		Option("missingkey=error").
-		Parse(string(templateBytes))
+
+	tmpl, err := template.New("Makefile.tmpl").Delims("[[", "]]").Option("missingkey=error").
+		Parse(
+			string(templateBytes),
+		)
 	if err != nil {
 		return "", err
 	}
+
 	var output bytes.Buffer
 	if err := tmpl.Execute(&output, context); err != nil {
 		return "", err
 	}
+
 	return output.String(), nil
 }
 
@@ -457,22 +569,28 @@ func isClearlyGeneratedMakefile(content string) bool {
 	if !strings.HasPrefix(content, generatedMakefileFirstLine) {
 		return false
 	}
+
 	sawManagedLine := false
+
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+
 		if line == "include bootstrap.mk" || line == ".DEFAULT_GOAL := check" {
 			sawManagedLine = true
 			continue
 		}
+
 		if !isGeneratedAssignment(line) {
 			return false
 		}
+
 		sawManagedLine = true
 	}
+
 	return sawManagedLine
 }
 
@@ -481,6 +599,7 @@ func isGeneratedAssignment(line string) bool {
 	if !ok {
 		return false
 	}
+
 	switch generatedMakefileKey(strings.TrimSpace(key)) {
 	case generatedKeyBinary,
 		generatedKeyCmd,
@@ -497,6 +616,7 @@ func releaseWorkflowBinary(context scaffoldContext) string {
 	if binary, ok := readMakefileAssignment("Makefile", "BINARY"); ok {
 		return binary
 	}
+
 	return context.Binary
 }
 
@@ -509,25 +629,32 @@ func readMakefileAssignment(filePath string, key string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+
 	defer func() { _ = file.Close() }()
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+
 		name, value, ok := strings.Cut(line, ":=")
 		if !ok {
 			name, value, ok = strings.Cut(line, "=")
 		}
+
 		if !ok || strings.TrimSpace(name) != key {
 			continue
 		}
+
 		return strings.TrimSpace(value), true
 	}
+
 	if err := scanner.Err(); err != nil {
 		return "", false
 	}
+
 	return "", false
 }
 
@@ -535,13 +662,16 @@ func isGoMakefileEngineRepo() bool {
 	if !fileExists("cmd/go-mk/scaffold_assets/bootstrap.mk") {
 		return false
 	}
+
 	if !fileExists("go.mod") {
 		return false
 	}
+
 	modulePath, err := readModulePath("go.mod")
 	if err != nil {
 		return false
 	}
+
 	return modulePath == goMakefileEngineModule
 }
 
@@ -549,45 +679,56 @@ func consumerBootstrapMk(canonical []byte) []byte {
 	scanner := bufio.NewScanner(bytes.NewReader(canonical))
 	var lines []string
 	defineDepth := 0
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "\t") {
 			lines = append(lines, line)
 			continue
 		}
+
 		fields := strings.Fields(line)
 		if len(fields) > 0 && fields[0] == "define" {
 			defineDepth++
 			lines = append(lines, line)
 			continue
 		}
+
 		if len(fields) == 1 && fields[0] == "endef" && defineDepth > 0 {
 			defineDepth--
 			lines = append(lines, line)
 			continue
 		}
+
 		if defineDepth == 0 && strings.HasPrefix(strings.TrimLeft(line, " "), "#") {
 			continue
 		}
+
 		lines = append(lines, line)
 	}
+
 	if err := scanner.Err(); err != nil {
 		return canonical
 	}
+
 	var collapsed []string
 	prevBlank := false
+
 	for _, line := range lines {
 		isBlank := strings.TrimSpace(line) == ""
 		if isBlank && prevBlank {
 			continue
 		}
+
 		collapsed = append(collapsed, line)
 		prevBlank = isBlank
 	}
+
 	body := strings.TrimRight(strings.Join(collapsed, "\n"), "\n")
 	if body == "" {
 		return []byte(consumerBootstrapMkHeader + "\n")
 	}
+
 	return []byte(consumerBootstrapMkHeader + "\n" + body + "\n")
 }
 
@@ -598,6 +739,7 @@ func writeConsumerBootstrapMk(contents []byte) error {
 			return err
 		}
 	}
+
 	return os.WriteFile("bootstrap.mk", contents, 0o644)
 }
 
@@ -607,41 +749,54 @@ func reconcileBootstrapMk(stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+
 	if isGoMakefileEngineRepo() {
 		fmt.Fprintln(stdout, "skipping bootstrap.mk (go-makefile engine repo)")
 		return nil
 	}
+
 	consumerContents := consumerBootstrapMk(contents)
 	if !fileExists("bootstrap.mk") {
 		if err := writeConsumerBootstrapMk(consumerContents); err != nil {
 			return err
 		}
+
 		fmt.Fprintln(stdout, "created bootstrap.mk")
+
 		return nil
 	}
+
 	existing, err := os.ReadFile("bootstrap.mk")
 	if err != nil {
 		return err
 	}
+
 	if bytes.Equal(existing, consumerContents) {
 		info, err := os.Stat("bootstrap.mk")
 		if err != nil {
 			return err
 		}
+
 		if info.Mode().Perm() == 0o644 {
 			fmt.Fprintln(stdout, "skipping bootstrap.mk (already current)")
 			return nil
 		}
+
 		if err := os.Chmod("bootstrap.mk", 0o644); err != nil {
 			return err
 		}
+
 		fmt.Fprintln(stdout, "updated bootstrap.mk")
+
 		return nil
 	}
+
 	if err := writeConsumerBootstrapMk(consumerContents); err != nil {
 		return err
 	}
+
 	fmt.Fprintln(stdout, "updated bootstrap.mk")
+
 	return nil
 }
 
@@ -662,40 +817,58 @@ func reconcileCIWorkflow(stdout io.Writer) error {
 	if releaseErr != nil {
 		return releaseErr
 	}
+
 	if !fileExists(ciWorkflowPath) {
 		contents, err := scaffoldAssetFS.ReadFile(ciWorkflowAssetPath)
 		if err != nil {
 			return err
 		}
+
 		rendered, _ := syncCallerCgo(string(contents), releaseCgo)
 		if err := os.MkdirAll(filepath.Dir(ciWorkflowPath), 0o755); err != nil {
 			return err
 		}
+
 		if err := os.WriteFile(ciWorkflowPath, []byte(rendered), 0o644); err != nil {
 			return err
 		}
+
 		fmt.Fprintln(stdout, "created .github/workflows/ci.yml")
+
 		return nil
 	}
+
 	existing, err := os.ReadFile(ciWorkflowPath)
 	if err != nil {
 		return err
 	}
+
 	if !strings.Contains(string(existing), ciReusableWorkflowRef) {
-		fmt.Fprintln(stdout, "skipping .github/workflows/ci.yml (exists; leaving consumer workflow unchanged)")
+		fmt.Fprintln(
+			stdout,
+			"skipping .github/workflows/ci.yml (exists; leaving consumer workflow unchanged)",
+		)
 		return nil
 	}
-	repaired, permsChanged := repairCallerPermissions(string(existing), ciReusableWorkflowRef, ciCallerPermissions)
+
+	repaired, permsChanged := repairCallerPermissions(
+		string(existing),
+		ciReusableWorkflowRef,
+		ciCallerPermissions,
+	)
 	repaired, secretsChanged := ensureSecretsInherit(repaired, ciReusableWorkflowRef)
 	repaired, cgoChanged := syncCallerCgo(repaired, releaseCgo)
 	if !permsChanged && !secretsChanged && !cgoChanged {
 		fmt.Fprintln(stdout, "skipping .github/workflows/ci.yml (already current)")
 		return nil
 	}
+
 	if err := os.WriteFile(ciWorkflowPath, []byte(repaired), 0o644); err != nil {
 		return err
 	}
+
 	fmt.Fprintln(stdout, "updated .github/workflows/ci.yml")
+
 	return nil
 }
 
@@ -745,34 +918,47 @@ func reconcileReleaseWorkflow(releaseBinary string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
+
 		rendered, _ := repairReleaseBinaryInput(string(contents), releaseBinary)
 		if err := os.MkdirAll(filepath.Dir(releaseWorkflowPath), 0o755); err != nil {
 			return err
 		}
+
 		if err := os.WriteFile(releaseWorkflowPath, []byte(rendered), 0o644); err != nil {
 			return err
 		}
+
 		fmt.Fprintln(stdout, "created .github/workflows/release.yml")
+
 		return nil
 	}
+
 	existing, err := os.ReadFile(releaseWorkflowPath)
 	if err != nil {
 		return err
 	}
+
 	if !strings.Contains(string(existing), releaseReusableWorkflowRef) {
-		fmt.Fprintln(stdout, "skipping .github/workflows/release.yml (exists; leaving consumer workflow unchanged)")
+		fmt.Fprintln(
+			stdout,
+			"skipping .github/workflows/release.yml (exists; leaving consumer workflow unchanged)",
+		)
 		return nil
 	}
+
 	repaired, permissionsChanged := repairReleasePermissions(string(existing))
 	repaired, binaryChanged := repairReleaseBinaryInput(repaired, releaseBinary)
 	if !permissionsChanged && !binaryChanged {
 		fmt.Fprintln(stdout, "skipping .github/workflows/release.yml (already current)")
 		return nil
 	}
+
 	if err := os.WriteFile(releaseWorkflowPath, []byte(repaired), 0o644); err != nil {
 		return err
 	}
+
 	fmt.Fprintln(stdout, "updated .github/workflows/release.yml")
+
 	return nil
 }
 
@@ -787,18 +973,22 @@ func repairReleaseBinaryInput(content string, releaseBinary string) (string, boo
 	if releaseBinary == "" {
 		return content, false
 	}
+
 	lineEnding := "\n"
 	if strings.Contains(content, "\r\n") {
 		lineEnding = "\r\n"
 	}
+
 	lines := strings.Split(content, lineEnding)
 	indices := allUsesLineIndices(lines, releaseReusableWorkflowRef)
 	changed := false
+
 	for cursor := len(indices) - 1; cursor >= 0; cursor-- {
 		var did bool
 		lines, did = upsertJobWithEntryAt(lines, indices[cursor], "binary", releaseBinary)
 		changed = changed || did
 	}
+
 	return strings.Join(lines, lineEnding), changed
 }
 
@@ -814,34 +1004,43 @@ func releaseCgoByWorkingDirectory() (map[string]string, error) {
 	if !fileExists(releaseWorkflowPath) {
 		return releaseCgo, nil
 	}
+
 	contents, err := os.ReadFile(releaseWorkflowPath)
 	if err != nil {
 		return nil, err
 	}
+
 	lines := strings.Split(strings.ReplaceAll(string(contents), "\r\n", "\n"), "\n")
 	unresolved := map[string]bool{}
+
 	for _, usesIndex := range allUsesLineIndices(lines, releaseReusableWorkflowRef) {
 		entries, ok := jobWithEntries(lines, usesIndex)
 		if !ok {
 			continue
 		}
+
 		workingDirectory := path.Clean(entries[workingDirectoryInputKey])
 		cgoValue, present := entries[cgoInputKey]
 		if !present {
 			cgoValue = "false"
 		}
+
 		if cgoValue != "true" && cgoValue != "false" {
 			unresolved[workingDirectory] = true
 			continue
 		}
+
 		if recorded, seen := releaseCgo[workingDirectory]; seen && recorded != cgoValue {
 			unresolved[workingDirectory] = true
 		}
+
 		releaseCgo[workingDirectory] = cgoValue
 	}
+
 	for workingDirectory := range unresolved {
 		delete(releaseCgo, workingDirectory)
 	}
+
 	return releaseCgo, nil
 }
 
@@ -860,30 +1059,37 @@ func syncCallerCgo(content string, releaseCgo map[string]string) (string, bool) 
 	if strings.Contains(content, "\r\n") {
 		lineEnding = "\r\n"
 	}
+
 	lines := strings.Split(content, lineEnding)
 	indices := allUsesLineIndices(lines, ciReusableWorkflowRef)
 	changed := false
+
 	for cursor := len(indices) - 1; cursor >= 0; cursor-- {
 		usesIndex := indices[cursor]
 		entries, ok := jobWithEntries(lines, usesIndex)
 		if !ok {
 			continue
 		}
+
 		releaseValue, matched := releaseCgo[path.Clean(entries[workingDirectoryInputKey])]
 		if !matched {
 			continue
 		}
+
 		effectiveValue, present := entries[cgoInputKey]
 		if !present {
 			effectiveValue = ciCgoInputDefault
 		}
+
 		if effectiveValue == releaseValue {
 			continue
 		}
+
 		var did bool
 		lines, did = upsertJobWithEntryAt(lines, usesIndex, cgoInputKey, releaseValue)
 		changed = changed || did
 	}
+
 	return strings.Join(lines, lineEnding), changed
 }
 
@@ -898,36 +1104,46 @@ func jobWithEntries(lines []string, usesIndex int) (map[string]string, bool) {
 	if jobHeaderIndex < 0 {
 		return nil, false
 	}
+
 	jobEnd := jobBodyEndIndex(lines, usesIndex, leadingSpaceCount(lines[jobHeaderIndex]))
 	entries := map[string]string{}
 	withIndex := jobChildKeyLineIndex(lines, jobHeaderIndex+1, jobEnd, usesIndent, "with")
 	if withIndex < 0 {
 		return entries, true
 	}
+
 	if !isBlockFormKey(lines[withIndex]) {
 		return nil, false
 	}
+
 	childIndent := -1
+
 	for index := withIndex + 1; index < jobEnd; index++ {
 		if isBlankOrCommentLine(lines[index]) {
 			continue
 		}
+
 		indent := leadingSpaceCount(lines[index])
 		if indent <= usesIndent {
 			break
 		}
+
 		if childIndent < 0 {
 			childIndent = indent
 		}
+
 		if indent != childIndent {
 			continue
 		}
+
 		key, value, found := strings.Cut(strings.TrimSpace(lines[index]), ":")
 		if !found {
 			continue
 		}
+
 		entries[strings.TrimSpace(key)] = workflowScalarValue(value)
 	}
+
 	return entries, true
 }
 
@@ -938,18 +1154,25 @@ func workflowScalarValue(value string) string {
 	if commentIndex := strings.Index(value, " #"); commentIndex >= 0 {
 		value = strings.TrimSpace(value[:commentIndex])
 	}
+
 	return strings.Trim(value, `"'`)
 }
 
 // upsertJobWithEntryAt sets key to value in the with block of the job whose uses
 // line sits at usesIndex, creating the with block when the job has none. A with
 // key in the scalar or inline-map form is left untouched.
-func upsertJobWithEntryAt(lines []string, usesIndex int, key string, value string) ([]string, bool) {
+func upsertJobWithEntryAt(
+	lines []string,
+	usesIndex int,
+	key string,
+	value string,
+) ([]string, bool) {
 	usesIndent := leadingSpaceCount(lines[usesIndex])
 	jobHeaderIndex := jobHeaderIndexAbove(lines, usesIndex, usesIndent)
 	if jobHeaderIndex < 0 {
 		return lines, false
 	}
+
 	jobIndent := leadingSpaceCount(lines[jobHeaderIndex])
 	jobEnd := jobBodyEndIndex(lines, usesIndex, jobIndent)
 	withIndex := jobChildKeyLineIndex(lines, jobHeaderIndex+1, jobEnd, usesIndent, "with")
@@ -957,13 +1180,22 @@ func upsertJobWithEntryAt(lines []string, usesIndex int, key string, value strin
 		if !isBlockFormKey(lines[withIndex]) {
 			return lines, false
 		}
+
 		return insertOrUpdateBlockEntryLines(lines, withIndex, jobEnd, usesIndent, key, value)
 	}
+
 	insertAt := usesIndex + 1
-	permissionsIndex := jobChildKeyLineIndex(lines, jobHeaderIndex+1, jobEnd, usesIndent, "permissions")
+	permissionsIndex := jobChildKeyLineIndex(
+		lines,
+		jobHeaderIndex+1,
+		jobEnd,
+		usesIndent,
+		"permissions",
+	)
 	if permissionsIndex >= 0 && isBlockFormPermissions(lines[permissionsIndex]) {
 		insertAt = blockEndIndex(lines, permissionsIndex, jobEnd, usesIndent)
 	}
+
 	indentStep := usesIndent - jobIndent
 	childIndent := usesIndent + indentStep
 	block := []string{
@@ -974,6 +1206,7 @@ func upsertJobWithEntryAt(lines []string, usesIndex int, key string, value strin
 	updated = append(updated, lines[:insertAt]...)
 	updated = append(updated, block...)
 	updated = append(updated, lines[insertAt:]...)
+
 	return updated, true
 }
 
@@ -989,37 +1222,57 @@ func upsertJobWithEntryAt(lines []string, usesIndex int, key string, value strin
 // as write-all already covers every scope and surgically editing a non-block
 // form risks corrupting the mapping. Every other byte is left identical. The
 // second return value reports whether any key was inserted or rewritten.
-func repairCallerPermissions(content string, usesRef string, permissions []workflowPermission) (string, bool) {
+func repairCallerPermissions(
+	content string,
+	usesRef string,
+	permissions []workflowPermission,
+) (string, bool) {
 	lineEnding := "\n"
 	if strings.Contains(content, "\r\n") {
 		lineEnding = "\r\n"
 	}
+
 	lines := strings.Split(content, lineEnding)
 	indices := allUsesLineIndices(lines, usesRef)
 	changed := false
+
 	for cursor := len(indices) - 1; cursor >= 0; cursor-- {
 		var did bool
 		lines, did = repairCallerPermissionsAt(lines, indices[cursor], permissions)
 		changed = changed || did
 	}
+
 	return strings.Join(lines, lineEnding), changed
 }
 
-func repairCallerPermissionsAt(lines []string, usesIndex int, permissions []workflowPermission) ([]string, bool) {
+func repairCallerPermissionsAt(
+	lines []string,
+	usesIndex int,
+	permissions []workflowPermission,
+) ([]string, bool) {
 	usesIndent := leadingSpaceCount(lines[usesIndex])
 	jobHeaderIndex := jobHeaderIndexAbove(lines, usesIndex, usesIndent)
 	if jobHeaderIndex < 0 {
 		return lines, false
 	}
+
 	jobIndent := leadingSpaceCount(lines[jobHeaderIndex])
 	jobEnd := jobBodyEndIndex(lines, usesIndex, jobIndent)
 	permissionsIndex := permissionsLineIndex(lines, jobHeaderIndex+1, jobEnd, usesIndent)
 	if permissionsIndex < 0 {
-		return insertPermissionsBlockLines(lines, usesIndex, usesIndent, usesIndent-jobIndent, permissions), true
+		return insertPermissionsBlockLines(
+			lines,
+			usesIndex,
+			usesIndent,
+			usesIndent-jobIndent,
+			permissions,
+		), true
 	}
+
 	if !isBlockFormPermissions(lines[permissionsIndex]) {
 		return lines, false
 	}
+
 	return insertMissingPermissionsLines(lines, permissionsIndex, jobEnd, usesIndent, permissions)
 }
 
@@ -1029,12 +1282,14 @@ func repairCallerPermissionsAt(lines []string, usesIndex int, permissions []work
 // repaired, not only the first.
 func allUsesLineIndices(lines []string, usesRef string) []int {
 	var indices []int
+
 	for index, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "uses:") && strings.Contains(trimmed, usesRef) {
 			indices = append(indices, index)
 		}
 	}
+
 	return indices
 }
 
@@ -1043,10 +1298,12 @@ func jobHeaderIndexAbove(lines []string, fromIndex int, childIndent int) int {
 		if isBlankOrCommentLine(lines[index]) {
 			continue
 		}
+
 		if leadingSpaceCount(lines[index]) < childIndent {
 			return index
 		}
 	}
+
 	return -1
 }
 
@@ -1055,10 +1312,12 @@ func jobBodyEndIndex(lines []string, fromIndex int, jobIndent int) int {
 		if isBlankOrCommentLine(lines[index]) {
 			continue
 		}
+
 		if leadingSpaceCount(lines[index]) <= jobIndent {
 			return index
 		}
 	}
+
 	return len(lines)
 }
 
@@ -1066,16 +1325,24 @@ func permissionsLineIndex(lines []string, startIndex int, endIndex int, jobChild
 	return jobChildKeyLineIndex(lines, startIndex, endIndex, jobChildIndent, "permissions")
 }
 
-func jobChildKeyLineIndex(lines []string, startIndex int, endIndex int, jobChildIndent int, wantKey string) int {
+func jobChildKeyLineIndex(
+	lines []string,
+	startIndex int,
+	endIndex int,
+	jobChildIndent int,
+	wantKey string,
+) int {
 	for index := startIndex; index < endIndex; index++ {
 		if leadingSpaceCount(lines[index]) != jobChildIndent {
 			continue
 		}
+
 		key, _, found := strings.Cut(strings.TrimSpace(lines[index]), ":")
 		if found && strings.TrimSpace(key) == wantKey {
 			return index
 		}
 	}
+
 	return -1
 }
 
@@ -1099,11 +1366,14 @@ func blockEndIndex(lines []string, blockIndex int, jobEnd int, parentIndent int)
 			index++
 			continue
 		}
+
 		if leadingSpaceCount(lines[index]) <= parentIndent {
 			break
 		}
+
 		index++
 	}
+
 	return index
 }
 
@@ -1116,22 +1386,27 @@ func insertOrUpdateBlockEntryLines(
 	value string,
 ) ([]string, bool) {
 	childIndent := -1
+
 	insertAt := blockIndex + 1
 	for index := blockIndex + 1; index < jobEnd; index++ {
 		if isBlankOrCommentLine(lines[index]) {
 			continue
 		}
+
 		indent := leadingSpaceCount(lines[index])
 		if indent <= parentIndent {
 			break
 		}
+
 		if childIndent < 0 {
 			childIndent = indent
 		}
+
 		insertAt = index + 1
 		if indent != childIndent {
 			continue
 		}
+
 		childKey, _, _ := strings.Cut(strings.TrimSpace(lines[index]), ":")
 		if strings.TrimSpace(childKey) == key {
 			updated := append([]string(nil), lines...)
@@ -1139,82 +1414,120 @@ func insertOrUpdateBlockEntryLines(
 			if updated[index] == corrected {
 				return updated, false
 			}
+
 			updated[index] = corrected
+
 			return updated, true
 		}
 	}
+
 	if childIndent < 0 {
 		childIndent = parentIndent + 2
 	}
+
 	entry := strings.Repeat(" ", childIndent) + key + ": " + value
 	updated := make([]string, 0, len(lines)+1)
 	updated = append(updated, lines[:insertAt]...)
 	updated = append(updated, entry)
 	updated = append(updated, lines[insertAt:]...)
+
 	return updated, true
 }
 
-func insertPermissionsBlockLines(lines []string, usesIndex int, jobChildIndent int, indentStep int, permissions []workflowPermission) []string {
+func insertPermissionsBlockLines(
+	lines []string,
+	usesIndex int,
+	jobChildIndent int,
+	indentStep int,
+	permissions []workflowPermission,
+) []string {
 	childIndent := jobChildIndent + indentStep
 	block := []string{strings.Repeat(" ", jobChildIndent) + "permissions:"}
+
 	for _, permission := range permissions {
 		block = append(block, strings.Repeat(" ", childIndent)+permission.key+": "+permission.value)
 	}
+
 	updated := make([]string, 0, len(lines)+len(block))
 	updated = append(updated, lines[:usesIndex+1]...)
 	updated = append(updated, block...)
 	updated = append(updated, lines[usesIndex+1:]...)
+
 	return updated
 }
 
-func insertMissingPermissionsLines(lines []string, permissionsIndex int, jobEnd int, jobChildIndent int, permissions []workflowPermission) ([]string, bool) {
+func insertMissingPermissionsLines(
+	lines []string,
+	permissionsIndex int,
+	jobEnd int,
+	jobChildIndent int,
+	permissions []workflowPermission,
+) ([]string, bool) {
 	presentIndex := map[string]int{}
 	childIndent := -1
+
 	lastChildIndex := permissionsIndex
 	for index := permissionsIndex + 1; index < jobEnd; index++ {
 		if isBlankOrCommentLine(lines[index]) {
 			continue
 		}
+
 		indent := leadingSpaceCount(lines[index])
 		if indent <= jobChildIndent {
 			break
 		}
+
 		if childIndent < 0 {
 			childIndent = indent
 		}
+
 		key, _, _ := strings.Cut(strings.TrimSpace(lines[index]), ":")
 		presentIndex[strings.TrimSpace(key)] = index
 		lastChildIndex = index
 	}
+
 	if childIndent < 0 {
 		childIndent = jobChildIndent + 2
 	}
+
 	updated := append([]string(nil), lines...)
 	changed := false
+
 	for _, permission := range permissions {
 		index, ok := presentIndex[permission.key]
 		if !ok {
 			continue
 		}
-		corrected := strings.Repeat(" ", leadingSpaceCount(updated[index])) + permission.key + ": " + permission.value
+
+		corrected := strings.Repeat(
+			" ",
+			leadingSpaceCount(updated[index]),
+		) + permission.key + ": " + permission.value
 		if updated[index] != corrected {
 			updated[index] = corrected
 			changed = true
 		}
 	}
+
 	insertions := make([]string, 0, len(permissions))
 	for _, permission := range permissions {
 		if _, ok := presentIndex[permission.key]; !ok {
-			insertions = append(insertions, strings.Repeat(" ", childIndent)+permission.key+": "+permission.value)
+			insertions = append(
+				insertions,
+				strings.Repeat(" ", childIndent)+permission.key+": "+permission.value,
+			)
 		}
 	}
+
 	if len(insertions) == 0 {
 		return updated, changed
 	}
+
 	result := make([]string, 0, len(updated)+len(insertions))
 	result = append(result, updated[:lastChildIndex+1]...)
 	result = append(result, insertions...)
 	result = append(result, updated[lastChildIndex+1:]...)
+
 	return result, true
 }
 
@@ -1230,14 +1543,17 @@ func ensureSecretsInherit(content string, usesRef string) (string, bool) {
 	if strings.Contains(content, "\r\n") {
 		lineEnding = "\r\n"
 	}
+
 	lines := strings.Split(content, lineEnding)
 	indices := allUsesLineIndices(lines, usesRef)
 	changed := false
+
 	for cursor := len(indices) - 1; cursor >= 0; cursor-- {
 		var did bool
 		lines, did = ensureSecretsInheritAt(lines, indices[cursor])
 		changed = changed || did
 	}
+
 	return strings.Join(lines, lineEnding), changed
 }
 
@@ -1247,17 +1563,21 @@ func ensureSecretsInheritAt(lines []string, usesIndex int) ([]string, bool) {
 	if jobHeaderIndex < 0 {
 		return lines, false
 	}
+
 	jobIndent := leadingSpaceCount(lines[jobHeaderIndex])
+
 	jobEnd := jobBodyEndIndex(lines, usesIndex, jobIndent)
 	for index := jobHeaderIndex + 1; index < jobEnd; index++ {
 		if leadingSpaceCount(lines[index]) != usesIndent {
 			continue
 		}
+
 		key, _, found := strings.Cut(strings.TrimSpace(lines[index]), ":")
 		if found && strings.TrimSpace(key) == "secrets" {
 			return lines, false
 		}
 	}
+
 	// Insert after the uses line and any contiguous comment or blank lines that
 	// document it, so a comment block stays attached to uses rather than being
 	// split from it.
@@ -1265,22 +1585,27 @@ func ensureSecretsInheritAt(lines []string, usesIndex int) ([]string, bool) {
 	for insertAt < jobEnd && isBlankOrCommentLine(lines[insertAt]) {
 		insertAt++
 	}
+
 	secretsLine := strings.Repeat(" ", usesIndent) + "secrets: inherit"
 	updated := make([]string, 0, len(lines)+1)
 	updated = append(updated, lines[:insertAt]...)
 	updated = append(updated, secretsLine)
 	updated = append(updated, lines[insertAt:]...)
+
 	return updated, true
 }
 
 func leadingSpaceCount(line string) int {
 	count := 0
+
 	for _, character := range line {
 		if character != ' ' {
 			break
 		}
+
 		count++
 	}
+
 	return count
 }
 
@@ -1305,24 +1630,33 @@ func configuredAppliedNoticesFile() string {
 func configuredScaffoldTrackedFiles() []string {
 	trackedFiles := append([]string{}, configuredBaselineFiles()...)
 	trackedFiles = append(trackedFiles, configuredAppliedNoticesFile())
+
 	return trackedFiles
 }
 
 func scaffoldManagedTrackedFiles(stderr io.Writer) []string {
 	managedFiles := make([]string, 0, len(configuredScaffoldTrackedFiles()))
+
 	seen := make(map[string]bool, len(configuredScaffoldTrackedFiles()))
 	for _, trackedFile := range configuredScaffoldTrackedFiles() {
 		managedPath, ok := sanitizeScaffoldManagedPath(trackedFile)
 		if !ok {
-			fmt.Fprintf(stderr, "warning: scaffold skips non-repo tracked file %s; keep it tracked manually\n", trackedFile)
+			fmt.Fprintf(
+				stderr,
+				"warning: scaffold skips non-repo tracked file %s; keep it tracked manually\n",
+				trackedFile,
+			)
 			continue
 		}
+
 		if seen[managedPath] {
 			continue
 		}
+
 		seen[managedPath] = true
 		managedFiles = append(managedFiles, managedPath)
 	}
+
 	return managedFiles
 }
 
@@ -1331,27 +1665,35 @@ func sanitizeScaffoldManagedPath(filePath string) (string, bool) {
 	if trimmedPath == "" {
 		return "", false
 	}
+
 	cleanPath := filepath.Clean(trimmedPath)
 	if filepath.IsAbs(cleanPath) {
 		return "", false
 	}
+
 	if cleanPath == "." || cleanPath == ".." {
 		return "", false
 	}
+
 	if strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) {
 		return "", false
 	}
+
 	normalizedPath := path.Clean(filepath.ToSlash(cleanPath))
 	if normalizedPath == "." || normalizedPath == ".." || strings.HasPrefix(normalizedPath, "../") {
 		return "", false
 	}
+
 	return normalizedPath, true
 }
 
 func warnIfLocalGolangCI(stderr io.Writer) {
 	slog.Info("scaffold inspect golangci config")
 	if fileExists(".golangci.yml") {
-		fmt.Fprintln(stderr, "warning: .golangci.yml exists in project root. The central go-makefile/golangci.yml fetched into .make/golangci.yml is the canonical config; the per-repo file is ignored by GOLANGCI_LINT_FLAGS. Remove it or move overrides upstream into go-makefile.")
+		fmt.Fprintln(
+			stderr,
+			"warning: .golangci.yml exists in project root. The central go-makefile/golangci.yml fetched into .make/golangci.yml is the canonical config; the per-repo file is ignored by GOLANGCI_LINT_FLAGS. Remove it or move overrides upstream into go-makefile.",
+		)
 	}
 }
 
@@ -1359,33 +1701,46 @@ func reconcileGitignore(trackedFiles []string, stdout io.Writer) error {
 	slog.Info("scaffold reconcile gitignore")
 	managedEntries := scaffoldGitignoreEntries(trackedFiles)
 	if !fileExists(".gitignore") {
-		if err := os.WriteFile(".gitignore", []byte(strings.Join(managedEntries, "\n")+"\n"), 0o644); err != nil {
+		if err := os.WriteFile(
+			".gitignore",
+			[]byte(strings.Join(managedEntries, "\n")+"\n"),
+			0o644,
+		); err != nil {
 			return err
 		}
+
 		fmt.Fprintln(stdout, "created .gitignore")
+
 		return nil
 	}
+
 	contents, err := os.ReadFile(".gitignore")
 	if err != nil {
 		return err
 	}
+
 	missingEntries := missingGitignoreEntries(string(contents), managedEntries)
 	if len(missingEntries) == 0 {
 		return nil
 	}
+
 	var builder strings.Builder
 	builder.Write(contents)
 	if len(contents) > 0 && !strings.HasSuffix(string(contents), "\n") {
 		builder.WriteString("\n")
 	}
+
 	for _, entry := range missingEntries {
 		builder.WriteString(entry)
 		builder.WriteString("\n")
 	}
+
 	if err := os.WriteFile(".gitignore", []byte(builder.String()), 0o644); err != nil {
 		return err
 	}
+
 	fmt.Fprintln(stdout, "updated .gitignore")
+
 	return nil
 }
 
@@ -1413,30 +1768,43 @@ func reconcileGoModTools(stdout io.Writer) error {
 	if !fileExists("go.mod") {
 		return nil
 	}
+
 	declared, err := goModToolDirectives()
 	if err != nil {
 		return err
 	}
+
 	managed := make(map[string]bool, len(goMakefileManagedTools))
 	for _, toolPath := range goMakefileManagedTools {
 		managed[toolPath] = true
 	}
+
 	dropArgs := []string{"mod", "edit"}
 	droppedCount := 0
+
 	for _, toolPath := range declared {
 		if !managed[toolPath] {
 			continue
 		}
+
 		dropArgs = append(dropArgs, "-droptool="+toolPath)
 		droppedCount++
 	}
+
 	if droppedCount == 0 {
 		return nil
 	}
+
 	if err := exec.Command("go", dropArgs...).Run(); err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "removed %d go-makefile-managed tool directive(s) from go.mod; run `go mod tidy` to prune their dependencies\n", droppedCount)
+
+	fmt.Fprintf(
+		stdout,
+		"removed %d go-makefile-managed tool directive(s) from go.mod; run `go mod tidy` to prune their dependencies\n",
+		droppedCount,
+	)
+
 	return nil
 }
 
@@ -1448,6 +1816,7 @@ func goModToolDirectives() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	var parsed struct {
 		Tool []struct {
 			Path string `json:"Path"`
@@ -1456,10 +1825,12 @@ func goModToolDirectives() ([]string, error) {
 	if err := json.Unmarshal(output, &parsed); err != nil {
 		return nil, err
 	}
+
 	toolPaths := make([]string, 0, len(parsed.Tool))
 	for _, tool := range parsed.Tool {
 		toolPaths = append(toolPaths, tool.Path)
 	}
+
 	return toolPaths, nil
 }
 
@@ -1473,15 +1844,18 @@ func scaffoldGitignoreEntries(trackedFiles []string) []string {
 		"go.work":     true,
 		"go.work.sum": true,
 	}
+
 	for _, trackedFile := range trackedFiles {
 		for _, entry := range gitignoreAllowlistEntries(trackedFile) {
 			if seen[entry] {
 				continue
 			}
+
 			seen[entry] = true
 			entries = append(entries, entry)
 		}
 	}
+
 	return entries
 }
 
@@ -1489,18 +1863,22 @@ func gitignoreAllowlistEntries(filePath string) []string {
 	pathParts := strings.Split(path.Clean(filePath), "/")
 	entries := make([]string, 0, len(pathParts))
 	currentPath := ""
+
 	for index, pathPart := range pathParts {
 		if currentPath == "" {
 			currentPath = pathPart
 		} else {
 			currentPath += "/" + pathPart
 		}
+
 		if index < len(pathParts)-1 {
 			entries = append(entries, "!"+currentPath+"/")
 			continue
 		}
+
 		entries = append(entries, "!"+currentPath)
 	}
+
 	return entries
 }
 
@@ -1510,8 +1888,10 @@ func missingGitignoreEntries(contents string, entries []string) []string {
 		if hasLine(contents, entry) {
 			continue
 		}
+
 		missingEntries = append(missingEntries, entry)
 	}
+
 	return missingEntries
 }
 
@@ -1522,6 +1902,7 @@ func hasLine(contents string, expected string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -1529,17 +1910,32 @@ func printScaffoldDone(writer io.Writer) {
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "done.")
 	fmt.Fprintln(writer)
-	fmt.Fprintln(writer, "Lint and build are centralized in go-makefile. The canonical entry points are:")
+	fmt.Fprintln(
+		writer,
+		"Lint and build are centralized in go-makefile. The canonical entry points are:",
+	)
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "  make build   vet + full lint chain + govulncheck, then go build")
 	fmt.Fprintln(writer, "  make test    run tests")
 	fmt.Fprintln(writer, "  make fmt     apply gofumpt + goimports")
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Commit Makefile, bootstrap.mk, .github/workflows/ci.yml, and .gitignore.")
-	fmt.Fprintln(writer, "Commit baseline files or .go-mk-applied-notices only after a baseline or notice run creates them.")
-	fmt.Fprintln(writer, "Run 'make help' for the full target list, including per-linter sub-targets")
-	fmt.Fprintln(writer, "and baseline-refresh targets. Do not add project-local lint, deadcode, audit,")
-	fmt.Fprintln(writer, "or staticcheck targets; doing so splits enforcement and lets agents bypass")
+	fmt.Fprintln(
+		writer,
+		"Commit baseline files or .go-mk-applied-notices only after a baseline or notice run creates them.",
+	)
+	fmt.Fprintln(
+		writer,
+		"Run 'make help' for the full target list, including per-linter sub-targets",
+	)
+	fmt.Fprintln(
+		writer,
+		"and baseline-refresh targets. Do not add project-local lint, deadcode, audit,",
+	)
+	fmt.Fprintln(
+		writer,
+		"or staticcheck targets; doing so splits enforcement and lets agents bypass",
+	)
 	fmt.Fprintln(writer, "the central rules.")
 }
 
@@ -1548,15 +1944,18 @@ func immediateSubdirectories(directoryPath string) ([]string, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
+
 	if err != nil {
 		return nil, err
 	}
+
 	directories := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			directories = append(directories, entry.Name())
 		}
 	}
+
 	return directories, nil
 }
 
@@ -1565,6 +1964,7 @@ func directoryExists(directoryPath string) bool {
 	if err != nil {
 		return false
 	}
+
 	return info.IsDir()
 }
 
@@ -1573,6 +1973,7 @@ func fileExists(filePath string) bool {
 	if err != nil {
 		return false
 	}
+
 	return !info.IsDir()
 }
 
@@ -1581,6 +1982,7 @@ func runScaffoldProcess(name string, args []string, stdout io.Writer, stderr io.
 	command := exec.Command(name, args...)
 	command.Stdout = stdout
 	command.Stderr = stderr
+
 	return command.Run()
 }
 

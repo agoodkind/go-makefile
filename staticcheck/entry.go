@@ -45,7 +45,8 @@ func runCommandEntry(pass *analysis.Pass) (any, error) {
 	check := &entryCheck{Pass: pass, standardPackages: make(map[string]bool)}
 
 	for _, file := range pass.Files {
-		if isTestFile(fileName(pass, file.Pos())) || isGeneratedTestMainFile(file, fileName(pass, file.Pos())) {
+		if isTestFile(fileName(pass, file.Pos())) ||
+			isGeneratedTestMainFile(file, fileName(pass, file.Pos())) {
 			continue
 		}
 
@@ -162,7 +163,8 @@ func entryAssignment(pass *entryCheck, node *ast.AssignStmt, handling bool) bool
 	}
 
 	for _, value := range node.Rhs {
-		if _, call := value.(*ast.CallExpr); !call && (!handling || !entryInteger(pass.TypesInfo.TypeOf(value))) {
+		if _, call := value.(*ast.CallExpr); !call &&
+			(!handling || !entryInteger(pass.TypesInfo.TypeOf(value))) {
 			return false
 		}
 
@@ -177,9 +179,19 @@ func entryAssignment(pass *entryCheck, node *ast.AssignStmt, handling bool) bool
 func entryCondition(pass *entryCheck, expression ast.Expr) bool {
 	switch node := expression.(type) {
 	case *ast.BinaryExpr:
-		operators := []token.Token{token.EQL, token.NEQ, token.LSS, token.GTR, token.LEQ, token.GEQ, token.LAND, token.LOR}
+		operators := []token.Token{
+			token.EQL,
+			token.NEQ,
+			token.LSS,
+			token.GTR,
+			token.LEQ,
+			token.GEQ,
+			token.LAND,
+			token.LOR,
+		}
 
-		return slices.Contains(operators, node.Op) && entryCondition(pass, node.X) && entryCondition(pass, node.Y)
+		return slices.Contains(operators, node.Op) && entryCondition(pass, node.X) &&
+			entryCondition(pass, node.Y)
 	case *ast.UnaryExpr:
 		return node.Op == token.NOT && entryCondition(pass, node.X)
 	default:
@@ -196,7 +208,8 @@ func entryExpression(pass *entryCheck, expression ast.Expr, handling bool) bool 
 	case *ast.ParenExpr:
 		return entryExpression(pass, node.X, handling)
 	case *ast.CallExpr:
-		if selector, ok := node.Fun.(*ast.SelectorExpr); ok && !entryExpression(pass, selector.X, false) {
+		if selector, ok := node.Fun.(*ast.SelectorExpr); ok &&
+			!entryExpression(pass, selector.X, false) {
 			return false
 		}
 
@@ -210,8 +223,10 @@ func entryExpression(pass *entryCheck, expression ast.Expr, handling bool) bool 
 			name := path + "." + function.Name()
 			allowed := " errors.Is errors.As errors.Join fmt.Errorf os.Exit "
 			logging := path == "log/slog" && slices.Contains(
-				strings.Fields("Debug Info Warn Error Log LogAttrs DebugContext InfoContext WarnContext ErrorContext "+
-					"Any String Int Int64 Uint64 Bool Duration Float64 Time Group GroupAttrs"),
+				strings.Fields(
+					"Debug Info Warn Error Log LogAttrs DebugContext InfoContext WarnContext ErrorContext "+
+						"Any String Int Int64 Uint64 Bool Duration Float64 Time Group GroupAttrs",
+				),
 				function.Name(),
 			)
 			if !logging && !strings.Contains(allowed, " "+name+" ") {

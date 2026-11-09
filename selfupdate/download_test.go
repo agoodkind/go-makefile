@@ -10,9 +10,11 @@ import (
 )
 
 func TestDownloadFileDoesNotUseFixedTempPath(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		_, _ = writer.Write([]byte("downloaded"))
-	}))
+	server := httptest.NewServer(
+		http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			_, _ = writer.Write([]byte("downloaded"))
+		}),
+	)
 	t.Cleanup(server.Close)
 
 	targetPath := filepath.Join(t.TempDir(), "asset.tar.gz")
@@ -21,10 +23,17 @@ func TestDownloadFileDoesNotUseFixedTempPath(t *testing.T) {
 		t.Fatalf("WriteFile() error: %v", err)
 	}
 
-	err := downloadFile(context.Background(), server.Client(), server.URL, targetPath, defaultMaxDownloadBytes)
+	err := downloadFile(
+		context.Background(),
+		server.Client(),
+		server.URL,
+		targetPath,
+		defaultMaxDownloadBytes,
+	)
 	if err != nil {
 		t.Fatalf("downloadFile() error: %v", err)
 	}
+
 	assertFileBytes(t, targetPath, []byte("downloaded"))
 	assertFileBytes(t, fixedTempPath, []byte("sentinel"))
 }

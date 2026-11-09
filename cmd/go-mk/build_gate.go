@@ -22,8 +22,11 @@ func runBuildGate() int {
 // proves the separate reusable-workflow gate job is responsible for it.
 func runBuildGateWith(config buildGateConfig) int {
 	if config.proofValid() {
-		config.stdout("build-gate: GitHub Actions OIDC proof verified; inline gates are covered by the CI gate job\n")
+		config.stdout(
+			"build-gate: GitHub Actions OIDC proof verified; inline gates are covered by the CI gate job\n",
+		)
 		return 0
 	}
+
 	return config.buildCheck()
 }

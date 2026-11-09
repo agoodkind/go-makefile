@@ -47,32 +47,49 @@ func runRTASyntheticMarkerCall(pass *analysis.Pass) (any, error) {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		commentLines := collectConfessionalCommentLines(pass.Fset, file)
 		if len(commentLines) == 0 {
 			continue
 		}
-		ast.Inspect(file, func(node ast.Node) bool {
-			call, ok := discardedMethodCall(node)
-			if !ok {
+
+		ast.Inspect(
+			file,
+			func(node ast.Node) bool {
+				call, ok := discardedMethodCall(node)
+				if !ok {
+					return true
+				}
+
+				if _, isExprStmt := node.(*ast.ExprStmt); isExprStmt &&
+					!callHasResultValue(pass, call) {
+					return true
+				}
+
+				methodName, recvType, ok := resolveCalledMethod(pass, call)
+				if !ok {
+					return true
+				}
+
+				callLine := pass.Fset.Position(call.Pos()).Line
+				if !commentLineWithinDistance(commentLines, callLine, 5) {
+					return true
+				}
+
+				reportAtf(
+					pass,
+					file,
+					call.Pos(),
+					"[RTA002] discarded call to method %q on %q with adjacent deadcode/RTA/reachability comment; this is a self-confessed reachability bypass. Drop the call and the alibi, or document why the call is load-bearing in a way that does not name the deadcode analyzer",
+					methodName,
+					formatType(recvType),
+				)
+
 				return true
-			}
-			if _, isExprStmt := node.(*ast.ExprStmt); isExprStmt && !callHasResultValue(pass, call) {
-				return true
-			}
-			methodName, recvType, ok := resolveCalledMethod(pass, call)
-			if !ok {
-				return true
-			}
-			callLine := pass.Fset.Position(call.Pos()).Line
-			if !commentLineWithinDistance(commentLines, callLine, 5) {
-				return true
-			}
-			reportAtf(pass, file, call.Pos(),
-				"[RTA002] discarded call to method %q on %q with adjacent deadcode/RTA/reachability comment; this is a self-confessed reachability bypass. Drop the call and the alibi, or document why the call is load-bearing in a way that does not name the deadcode analyzer",
-				methodName, formatType(recvType))
-			return true
-		})
+			},
+		)
 	}
+
 	return nil, nil
 }
 
@@ -92,22 +109,27 @@ func discardedMethodCall(node ast.Node) (*ast.CallExpr, bool) {
 		if !isUnderscoreAssign(n) {
 			return nil, false
 		}
+
 		return callExprIfMethodCall(n.Rhs[0])
 	case *ast.ExprStmt:
 		call, ok := callExprIfMethodCall(n.X)
 		if !ok {
 			return nil, false
 		}
+
 		return call, true
 	case *ast.ValueSpec:
 		if !valueSpecIsUnderscoreOnly(n) {
 			return nil, false
 		}
+
 		if len(n.Values) != 1 {
 			return nil, false
 		}
+
 		return callExprIfMethodCall(n.Values[0])
 	}
+
 	return nil, false
 }
 
@@ -115,13 +137,16 @@ func callHasResultValue(pass *analysis.Pass, call *ast.CallExpr) bool {
 	if pass.TypesInfo == nil {
 		return true
 	}
+
 	tv, ok := pass.TypesInfo.Types[call]
 	if !ok || tv.Type == nil {
 		return true
 	}
+
 	if tuple, isTuple := tv.Type.(*types.Tuple); isTuple {
 		return tuple.Len() > 0
 	}
+
 	return true
 }
 
@@ -129,6 +154,7 @@ func valueSpecIsUnderscoreOnly(spec *ast.ValueSpec) bool {
 	if len(spec.Names) != 1 {
 		return false
 	}
+
 	return spec.Names[0].Name == "_"
 }
 
@@ -136,7 +162,9 @@ func isUnderscoreAssign(assign *ast.AssignStmt) bool {
 	if len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
 		return false
 	}
+
 	ident, ok := assign.Lhs[0].(*ast.Ident)
+
 	return ok && ident.Name == "_"
 }
 
@@ -145,9 +173,11 @@ func callExprIfMethodCall(expr ast.Expr) (*ast.CallExpr, bool) {
 	if !ok {
 		return nil, false
 	}
+
 	if _, ok := call.Fun.(*ast.SelectorExpr); !ok {
 		return nil, false
 	}
+
 	return call, true
 }
 
@@ -159,13 +189,16 @@ func resolveCalledMethod(pass *analysis.Pass, call *ast.CallExpr) (string, types
 	if !ok {
 		return "", nil, false
 	}
+
 	methodName := sel.Sel.Name
 	if pass.TypesInfo == nil {
 		return methodName, nil, true
 	}
+
 	if recvType := pass.TypesInfo.TypeOf(sel.X); recvType != nil {
 		return methodName, recvType, true
 	}
+
 	return methodName, nil, true
 }
 
@@ -173,11 +206,13 @@ func formatType(t types.Type) string {
 	if t == nil {
 		return "(unknown type)"
 	}
+
 	return t.String()
 }
 
 func collectConfessionalCommentLines(fset *token.FileSet, file *ast.File) map[int]struct{} {
 	lines := map[int]struct{}{}
+
 	for _, group := range file.Comments {
 		for _, c := range group.List {
 			if rtaConfessionalCommentPattern.MatchString(c.Text) {
@@ -185,6 +220,7 @@ func collectConfessionalCommentLines(fset *token.FileSet, file *ast.File) map[in
 			}
 		}
 	}
+
 	return lines
 }
 
@@ -194,6 +230,7 @@ func commentLineWithinDistance(lines map[int]struct{}, target int, window int) b
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -201,5 +238,6 @@ func abs(x int) int {
 	if x < 0 {
 		return -x
 	}
+
 	return x
 }

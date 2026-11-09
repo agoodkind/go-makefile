@@ -66,8 +66,10 @@ func registerSelfUpdateCommand(root *cobra.Command) {
 			if options.daemon {
 				runGoMkSelfUpdateScheduler(command.Context())
 				recordedExit = 0
+
 				return nil
 			}
+
 			recordedExit = runSelfUpdateCommandFunc(
 				command.Context(),
 				goMkSelfUpdateOptions(),
@@ -75,12 +77,23 @@ func registerSelfUpdateCommand(root *cobra.Command) {
 				os.Stdout,
 				os.Stderr,
 			)
+
 			return nil
 		},
 	}
 	command.Flags().BoolVar(&options.check, "check", false, "check for a go-mk update")
-	command.Flags().BoolVar(&options.dryRun, "dry-run", false, "stage and verify without replacing go-mk")
-	command.Flags().BoolVar(&options.daemon, "daemon", false, "run the background self-update scheduler")
+	command.Flags().BoolVar(
+		&options.dryRun,
+		"dry-run",
+		false,
+		"stage and verify without replacing go-mk",
+	)
+	command.Flags().BoolVar(
+		&options.daemon,
+		"daemon",
+		false,
+		"run the background self-update scheduler",
+	)
 	command.AddCommand(newSelfUpdateWatchCommand())
 	command.AddCommand(newSelfUpdateInstallServiceCommand())
 	root.AddCommand(command)
@@ -94,6 +107,7 @@ func newSelfUpdateWatchCommand() *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error {
 			runGoMkSelfUpdateScheduler(command.Context())
 			recordedExit = 0
+
 			return nil
 		},
 	}
@@ -106,7 +120,9 @@ func newSelfUpdateInstallServiceCommand() *cobra.Command {
 		Short: "Install the go-mk self-update scheduler as a user service",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			recordedExit = statusFromError(runSelfUpdateInstallServiceCommand(options, runtime.GOOS))
+			recordedExit = statusFromError(
+				runSelfUpdateInstallServiceCommand(options, runtime.GOOS),
+			)
 			return nil
 		},
 	}
@@ -118,6 +134,7 @@ func newSelfUpdateInstallServiceCommand() *cobra.Command {
 	command.Flags().StringVar(&options.unitPath, "unit-path", "", "systemd user unit path")
 	command.Flags().StringVar(&options.restartSec, "restart-sec", "", "systemd RestartSec value")
 	command.Flags().StringArrayVar(&options.env, "env", nil, "service environment KEY=VALUE")
+
 	return command
 }
 
@@ -126,54 +143,67 @@ func selfUpdateCommandArgs(options selfUpdateCommandOptions) []string {
 	if options.check {
 		args = append(args, "--check")
 	}
+
 	if options.dryRun {
 		args = append(args, "--dry-run")
 	}
+
 	return args
 }
 
 func runGoMkSelfUpdateScheduler(ctx context.Context) {
-	runSelfUpdateSchedulerFunc(ctx, selfupdate.SchedulerHooks{
-		Enabled: func() bool {
-			return !envFalse("GO_MK_SELFUPDATE_ENABLED")
+	runSelfUpdateSchedulerFunc(
+		ctx,
+		selfupdate.SchedulerHooks{
+			Enabled: func() bool {
+				return !envFalse("GO_MK_SELFUPDATE_ENABLED")
+			},
+			Mode: func() string {
+				mode := strings.TrimSpace(os.Getenv("GO_MK_SELFUPDATE_MODE"))
+				if mode == "" {
+					return selfupdate.ModeApply
+				}
+
+				return mode
+			},
+			Options: func() selfupdate.Options {
+				return goMkSelfUpdateOptions()
+			},
+			StopForRelaunch: func() {
+				slog.InfoContext(ctx, "go-mk selfupdate scheduler stopping for relaunch")
+			},
+			Log: slog.Default(),
 		},
-		Mode: func() string {
-			mode := strings.TrimSpace(os.Getenv("GO_MK_SELFUPDATE_MODE"))
-			if mode == "" {
-				return selfupdate.ModeApply
-			}
-			return mode
-		},
-		Options: func() selfupdate.Options {
-			return goMkSelfUpdateOptions()
-		},
-		StopForRelaunch: func() {
-			slog.InfoContext(ctx, "go-mk selfupdate scheduler stopping for relaunch")
-		},
-		Log: slog.Default(),
-	})
+	)
 }
 
-func runSelfUpdateInstallServiceCommand(options selfUpdateInstallServiceOptions, goos string) error {
+func runSelfUpdateInstallServiceCommand(
+	options selfUpdateInstallServiceOptions,
+	goos string,
+) error {
 	programPath, err := selfUpdateProgramPath(options.programPath)
 	if err != nil {
 		return err
 	}
+
 	arguments := []string{"selfupdate", "watch"}
 	environment, err := selfupdate.ParseEnvironmentPairs(options.env)
 	if err != nil {
 		return err
 	}
+
 	switch selfUpdateServicePlatform(goos) {
 	case selfUpdateServicePlatformDarwin:
 		plistPath, logPath, pathErr := selfUpdateLaunchdPaths(options)
 		if pathErr != nil {
 			return pathErr
 		}
+
 		label := options.label
 		if label == "" {
 			label = goMkSelfUpdateLaunchd
 		}
+
 		return installLaunchdSelfUpdateServiceFunc(selfupdate.LaunchdServiceOptions{
 			Label:       label,
 			ProgramPath: programPath,
@@ -190,10 +220,12 @@ func runSelfUpdateInstallServiceCommand(options selfUpdateInstallServiceOptions,
 		if pathErr != nil {
 			return pathErr
 		}
+
 		restartSec := options.restartSec
 		if restartSec == "" {
 			restartSec = "30"
 		}
+
 		return installSystemdSelfUpdateServiceFunc(selfupdate.SystemdUserServiceOptions{
 			Unit:        unit,
 			ProgramPath: programPath,
@@ -214,11 +246,13 @@ func selfUpdateProgramPath(configured string) (string, error) {
 	if strings.TrimSpace(configured) != "" {
 		return configured, nil
 	}
+
 	path, err := currentExecutablePathFunc()
 	if err != nil {
 		slog.Warn("go-mk selfupdate executable path resolve failed", "err", err)
 		return "", fmt.Errorf("resolve go-mk executable: %w", err)
 	}
+
 	return path, nil
 }
 
@@ -228,14 +262,17 @@ func selfUpdateLaunchdPaths(options selfUpdateInstallServiceOptions) (string, st
 		slog.Warn("go-mk selfupdate launchd home resolve failed", "err", err)
 		return "", "", fmt.Errorf("resolve home directory: %w", err)
 	}
+
 	plistPath := options.plistPath
 	if plistPath == "" {
 		plistPath = filepath.Join(home, "Library", "LaunchAgents", goMkSelfUpdateLaunchd+".plist")
 	}
+
 	logPath := options.logPath
 	if logPath == "" {
 		logPath = filepath.Join(home, "Library", "Logs", "go-mk-selfupdate.log")
 	}
+
 	return plistPath, logPath, nil
 }
 
@@ -245,14 +282,17 @@ func selfUpdateSystemdPaths(options selfUpdateInstallServiceOptions) (string, st
 		slog.Warn("go-mk selfupdate systemd home resolve failed", "err", err)
 		return "", "", fmt.Errorf("resolve home directory: %w", err)
 	}
+
 	unit := options.unit
 	if unit == "" {
 		unit = goMkSelfUpdateSystemdUnit
 	}
+
 	unitPath := options.unitPath
 	if unitPath == "" {
 		unitPath = filepath.Join(home, ".config", "systemd", "user", unit)
 	}
+
 	return unit, unitPath, nil
 }
 
@@ -276,13 +316,16 @@ func currentGoMkBuildHash() string {
 	if hash := strings.TrimSpace(version.BinHash); hash != "" {
 		return hash
 	}
+
 	executableHash, err := currentExecutableHashFunc()
 	if err == nil && executableHash.digest != "" {
 		return executableHash.digest
 	}
+
 	if buildTime := strings.TrimSpace(version.BuildTime); buildTime != "" {
 		return buildTime
 	}
+
 	return "unknown"
 }
 
@@ -291,6 +334,7 @@ func currentGoMkDirty() bool {
 	if err == nil {
 		return dirty
 	}
+
 	return version.Version == "dev" || version.Version == "unknown"
 }
 
@@ -299,6 +343,7 @@ func defaultedBuildInfo(value string, fallback string) string {
 	if trimmed == "" {
 		return fallback
 	}
+
 	return trimmed
 }
 
@@ -307,6 +352,7 @@ func selfUpdateAuthToken() string {
 	if token != "" {
 		return token
 	}
+
 	return strings.TrimSpace(os.Getenv("GH_TOKEN"))
 }
 
@@ -320,5 +366,6 @@ func runVersion() int {
 	fmt.Fprintf(os.Stdout, "commit: %s\n", defaultedBuildInfo(version.Commit, "unknown"))
 	fmt.Fprintf(os.Stdout, "dirty: %t\n", currentGoMkDirty())
 	fmt.Fprintf(os.Stdout, "build_hash: %s\n", currentGoMkBuildHash())
+
 	return 0
 }

@@ -26,22 +26,32 @@ func TestStaticcheckExtraGo127GenericMethods(t *testing.T) {
 
 	fixture := t.TempDir()
 	writeFixtureFile(t, fixture, "go.mod", "module example.com/genericmethod\n\ngo 1.27.1\n")
-	writeFixtureFile(t, fixture, "value/value.go", `package value
+	writeFixtureFile(
+		t,
+		fixture,
+		"value/value.go",
+		`package value
 
 type Number int
 
 func (number Number) Add[T ~int](other T) T {
 	return T(number) + other
 }
-`)
-	writeFixtureFile(t, fixture, "consumer.go", `package consumer
+`,
+	)
+	writeFixtureFile(
+		t,
+		fixture,
+		"consumer.go",
+		`package consumer
 
 import "example.com/genericmethod/value"
 
 func Sum() int {
 	return value.Number(2).Add(3)
 }
-`)
+`,
+	)
 	compile := exec.Command("go", "test", "./...")
 	compile.Dir = fixture
 	if output, err := compile.CombinedOutput(); err != nil {
@@ -54,10 +64,15 @@ func Sum() int {
 		t.Fatalf("analyze generic-method fixture: %v\n%s", err, output)
 	}
 
-	writeFixtureFile(t, fixture, "loose.go", `package consumer
+	writeFixtureFile(
+		t,
+		fixture,
+		"loose.go",
+		`package consumer
 
 func Loose(input any) {}
-`)
+`,
+	)
 	analyze = exec.Command(binary, "-no_any_or_empty_interface", ".")
 	analyze.Dir = fixture
 	output, err := analyze.CombinedOutput()
@@ -65,6 +80,7 @@ func Loose(input any) {}
 	if !errors.As(err, &exitError) || exitError.ExitCode() != 3 {
 		t.Fatalf("analyzer exit = %v, want diagnostic exit 3\n%s", err, output)
 	}
+
 	if !strings.Contains(string(output), "loose.go:3:18: do not use any") {
 		t.Fatalf("analyzer did not report the loose parameter:\n%s", output)
 	}
@@ -77,6 +93,7 @@ func writeFixtureFile(t *testing.T, directory, name, content string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}

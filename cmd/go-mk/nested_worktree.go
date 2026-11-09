@@ -45,33 +45,45 @@ func nestedWorktreeRoots() (map[string]struct{}, error) {
 	if isTruthy(os.Getenv("GO_MK_LINT_INCLUDE_NESTED_WORKTREES")) {
 		return map[string]struct{}{}, nil
 	}
+
 	roots := map[string]struct{}{}
-	walkErr := filepath.WalkDir(".", func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			if entry != nil && entry.IsDir() {
-				return filepath.SkipDir
+	walkErr := filepath.WalkDir(
+		".",
+		func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				if entry != nil && entry.IsDir() {
+					return filepath.SkipDir
+				}
+
+				return nil
 			}
-			return nil
-		}
-		if entry.Name() != ".git" {
-			return nil
-		}
-		parent := filepath.Dir(path)
-		if parent == "." {
-			if entry.IsDir() {
-				return filepath.SkipDir
+
+			if entry.Name() != ".git" {
+				return nil
 			}
-			return nil
-		}
-		roots["./"+filepath.ToSlash(parent)] = struct{}{}
-		return filepath.SkipDir
-	})
+
+			parent := filepath.Dir(path)
+			if parent == "." {
+				if entry.IsDir() {
+					return filepath.SkipDir
+				}
+
+				return nil
+			}
+
+			roots["./"+filepath.ToSlash(parent)] = struct{}{}
+
+			return filepath.SkipDir
+		},
+	)
 	if walkErr != nil {
 		return nil, walkErr
 	}
+
 	if len(roots) > 0 {
 		logNestedWorktreeRoots(roots)
 	}
+
 	return roots, nil
 }
 
@@ -83,6 +95,7 @@ func logNestedWorktreeRoots(roots map[string]struct{}) {
 	for root := range roots {
 		sorted = append(sorted, root)
 	}
+
 	slices.Sort(sorted)
 	slog.Info("lint skip nested worktrees", slog.Any("roots", sorted))
 }
@@ -91,11 +104,13 @@ func logNestedWorktreeRoots(roots map[string]struct{}) {
 // paths. Both p and roots are expected to use the "./<path>" form.
 func pathInAnyRoot(p string, roots map[string]struct{}) bool {
 	normalized := normalizePathForRootMatch(p)
+
 	for root := range roots {
 		if normalized == root || strings.HasPrefix(normalized, root+"/") {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -106,9 +121,11 @@ func normalizePathForRootMatch(p string) string {
 	if p == "." || strings.HasPrefix(p, "./") {
 		return p
 	}
+
 	if strings.HasPrefix(p, "/") {
 		return p
 	}
+
 	return "./" + p
 }
 
@@ -119,13 +136,16 @@ func dropPathsUnderNestedWorktrees(paths []string, roots map[string]struct{}) []
 	if len(roots) == 0 {
 		return paths
 	}
+
 	kept := make([]string, 0, len(paths))
 	for _, p := range paths {
 		if pathInAnyRoot(p, roots) {
 			continue
 		}
+
 		kept = append(kept, p)
 	}
+
 	return kept
 }
 
@@ -143,29 +163,38 @@ func expandedPackageTargets(targets []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if len(roots) == 0 {
 		return targets, nil
 	}
+
 	if !slices.Contains(targets, "./...") {
 		return targets, nil
 	}
+
 	pkgs, err := listFilteredPackages(roots)
 	if err != nil {
 		return nil, err
 	}
+
 	result := make([]string, 0, len(targets)+len(pkgs))
 	expanded := false
+
 	for _, t := range targets {
 		if t == "./..." {
 			if !expanded {
 				result = append(result, pkgs...)
 				expanded = true
 			}
+
 			continue
 		}
+
 		result = append(result, t)
 	}
+
 	slices.Sort(result)
+
 	return slices.Compact(result), nil
 }
 
@@ -192,14 +221,17 @@ func listFilteredPackages(roots map[string]struct{}) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	packages, err := unmarshalListedPackages(out)
 	if err != nil {
 		return nil, err
 	}
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, err
 	}
+
 	pkgs := make([]string, 0, len(packages))
 	for _, pkg := range packages {
 		if !pkg.hasFiles() {
@@ -208,21 +240,31 @@ func listFilteredPackages(roots map[string]struct{}) ([]string, error) {
 			// first is dropped; anything else fails the listing so a
 			// malformed source cannot slip past every gate unanalyzed.
 			if !packageAbsentFromTarget(pkg) {
-				return nil, fmt.Errorf("lint: cannot load package in %s: %s", pkg.Dir, pkg.errorText())
+				return nil, fmt.Errorf(
+					"lint: cannot load package in %s: %s",
+					pkg.Dir,
+					pkg.errorText(),
+				)
 			}
+
 			continue
 		}
+
 		rel, relErr := filepath.Rel(cwd, pkg.Dir)
 		if relErr != nil {
 			continue
 		}
+
 		relTarget := "./" + filepath.ToSlash(rel)
 		if pathInAnyRoot(relTarget, roots) {
 			continue
 		}
+
 		pkgs = append(pkgs, relTarget)
 	}
+
 	slices.Sort(pkgs)
+
 	return slices.Compact(pkgs), nil
 }
 
@@ -260,6 +302,7 @@ func (p listedPackage) errorText() string {
 	if p.Error == nil {
 		return "no Go files and no reported error"
 	}
+
 	return p.Error.Err
 }
 
@@ -271,10 +314,13 @@ func packageAbsentFromTarget(pkg listedPackage) bool {
 	if len(pkg.InvalidGoFiles) > 0 {
 		return false
 	}
+
 	if pkg.Error == nil {
 		return len(pkg.IgnoredGoFiles) > 0
 	}
+
 	message := pkg.Error.Err
+
 	return strings.Contains(message, "build constraints exclude all Go files") ||
 		strings.Contains(message, "no Go files")
 }
@@ -283,16 +329,20 @@ func packageAbsentFromTarget(pkg listedPackage) bool {
 // that `go list -json` writes.
 func unmarshalListedPackages(out []byte) ([]listedPackage, error) {
 	packages := make([]listedPackage, 0, 64)
+
 	decoder := json.NewDecoder(bytes.NewReader(out))
 	for decoder.More() {
 		var pkg listedPackage
 		if err := decoder.Decode(&pkg); err != nil {
 			wrapped := fmt.Errorf("lint: decode go list output: %w", err)
 			slog.Error("lint decode go list output failed", slog.Any("err", wrapped))
+
 			return nil, wrapped
 		}
+
 		packages = append(packages, pkg)
 	}
+
 	return packages, nil
 }
 

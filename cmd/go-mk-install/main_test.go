@@ -21,7 +21,9 @@ func TestRunInstallerInstallsRequestedReleaseAndExecsPostInstallArgs(t *testing.
 		if ctx.Err() != context.Canceled {
 			t.Fatalf("install context error = %v, want canceled", ctx.Err())
 		}
+
 		installOptions = options
+
 		return selfupdate.InstallReleaseBinaryResult{
 			Tag:         "v1.2.3",
 			AssetName:   "agent-gate_darwin_arm64.tar.gz",
@@ -31,6 +33,7 @@ func TestRunInstallerInstallsRequestedReleaseAndExecsPostInstallArgs(t *testing.
 	execInstalledBinaryFunc = func(path string, args []string) error {
 		execPath = path
 		execArgs = append([]string{}, args...)
+
 		return nil
 	}
 
@@ -41,10 +44,14 @@ func TestRunInstallerInstallsRequestedReleaseAndExecsPostInstallArgs(t *testing.
 	exitCode := runInstaller(
 		ctx,
 		[]string{
-			"--repo", "agoodkind/agent-gate",
-			"--binary", "agent-gate",
-			"--bin-dir", "/tmp/bin",
-			"--version", "v1.2.3",
+			"--repo",
+			"agoodkind/agent-gate",
+			"--binary",
+			"agent-gate",
+			"--bin-dir",
+			"/tmp/bin",
+			"--version",
+			"v1.2.3",
 			"--",
 			"configure",
 			"--force",
@@ -56,27 +63,35 @@ func TestRunInstallerInstallsRequestedReleaseAndExecsPostInstallArgs(t *testing.
 	if exitCode != 0 {
 		t.Fatalf("runInstaller() = %d, want 0\nstderr:\n%s", exitCode, stderr.String())
 	}
+
 	if installOptions.Options.Config.Repo != "agoodkind/agent-gate" {
 		t.Fatalf("install repo = %q", installOptions.Options.Config.Repo)
 	}
+
 	if installOptions.Options.Config.Binary != "agent-gate" {
 		t.Fatalf("install binary = %q", installOptions.Options.Config.Binary)
 	}
+
 	if installOptions.Version != "v1.2.3" {
 		t.Fatalf("install version = %q", installOptions.Version)
 	}
+
 	if installOptions.Channel != selfupdate.ReleaseChannelRolling {
 		t.Fatalf("install channel = %q, want rolling", installOptions.Channel)
 	}
+
 	if installOptions.BinDir != "/tmp/bin" {
 		t.Fatalf("install bin dir = %q", installOptions.BinDir)
 	}
+
 	if execPath != "/tmp/bin/agent-gate" {
 		t.Fatalf("exec path = %q", execPath)
 	}
+
 	if len(execArgs) != 2 || execArgs[0] != "configure" || execArgs[1] != "--force" {
 		t.Fatalf("exec args = %#v", execArgs)
 	}
+
 	if !bytes.Contains(stdout.Bytes(), []byte("installed: /tmp/bin/agent-gate\n")) {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
@@ -97,8 +112,10 @@ func TestRunInstallerRejectsRemovedRequireAttestationFlag(t *testing.T) {
 	exitCode := runInstaller(
 		context.Background(),
 		[]string{
-			"--repo", "agoodkind/agent-gate",
-			"--binary", "agent-gate",
+			"--repo",
+			"agoodkind/agent-gate",
+			"--binary",
+			"agent-gate",
 			"--require-attestation",
 		},
 		&stdout,
@@ -108,9 +125,14 @@ func TestRunInstallerRejectsRemovedRequireAttestationFlag(t *testing.T) {
 	if exitCode != 1 {
 		t.Fatalf("runInstaller() = %d, want 1", exitCode)
 	}
-	if !bytes.Contains(stderr.Bytes(), []byte("flag provided but not defined: -require-attestation")) {
+
+	if !bytes.Contains(
+		stderr.Bytes(),
+		[]byte("flag provided but not defined: -require-attestation"),
+	) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
+
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
@@ -121,14 +143,21 @@ func TestRunInstallerRequiresRepoAndBinary(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	exitCode := runInstaller(context.Background(), []string{"--repo", "agoodkind/agent-gate"}, &stdout, &stderr)
+	exitCode := runInstaller(
+		context.Background(),
+		[]string{"--repo", "agoodkind/agent-gate"},
+		&stdout,
+		&stderr,
+	)
 
 	if exitCode != 1 {
 		t.Fatalf("runInstaller() = %d, want 1", exitCode)
 	}
+
 	if !bytes.Contains(stderr.Bytes(), []byte("--binary is required")) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
+
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}

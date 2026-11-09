@@ -45,17 +45,21 @@ func runWrappedErrorWithoutSlog(pass *analysis.Pass) (any, error) {
 		if !shouldAnalyzeFile(pass, file) {
 			continue
 		}
+
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {
 				continue
 			}
+
 			if isPureCodecOrIOFunc(pass, fn) {
 				continue
 			}
+
 			analyzeFuncForWrappedReturns(pass, file, fn)
 		}
 	}
+
 	return nil, nil
 }
 
@@ -64,17 +68,30 @@ func analyzeFuncForWrappedReturns(pass *analysis.Pass, file *ast.File, fn *ast.F
 	if hasSlog {
 		return
 	}
-	ast.Inspect(fn.Body, func(node ast.Node) bool {
-		ret, ok := node.(*ast.ReturnStmt)
-		if !ok {
+
+	ast.Inspect(
+		fn.Body,
+		func(node ast.Node) bool {
+			ret, ok := node.(*ast.ReturnStmt)
+			if !ok {
+				return true
+			}
+
+			if !returnWrapsError(ret) {
+				return true
+			}
+
+			reportAtf(
+				pass,
+				file,
+				ret.Pos(),
+				"function %s returns a wrapped error without an accompanying slog.Error/Warn; log before returning, or rename to a stdlib codec/io shape (Marshal*/Unmarshal*/Read/Write/etc.) if this is a pure encoder",
+				fn.Name.Name,
+			)
+
 			return true
-		}
-		if !returnWrapsError(ret) {
-			return true
-		}
-		reportAtf(pass, file, ret.Pos(), "function %s returns a wrapped error without an accompanying slog.Error/Warn; log before returning, or rename to a stdlib codec/io shape (Marshal*/Unmarshal*/Read/Write/etc.) if this is a pure encoder", fn.Name.Name)
-		return true
-	})
+		},
+	)
 }
 
 // returnWrapsError returns true if any return value in `ret` is a
@@ -89,10 +106,12 @@ func returnWrapsError(ret *ast.ReturnStmt) bool {
 		if !ok {
 			continue
 		}
+
 		recv, name, ok := selectorName(call.Fun)
 		if !ok {
 			continue
 		}
+
 		switch {
 		case recv == "fmt" && name == "Errorf":
 			if errorfWrapsError(call) {
@@ -102,6 +121,7 @@ func returnWrapsError(ret *ast.ReturnStmt) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -109,10 +129,12 @@ func errorfWrapsError(call *ast.CallExpr) bool {
 	if len(call.Args) < 2 {
 		return false
 	}
+
 	format, ok := stringLiteral(call.Args[0])
 	if !ok {
 		return false
 	}
+
 	return strings.Contains(format, "%w") || strings.Contains(format, "%v")
 }
 
@@ -120,21 +142,29 @@ func funcContainsSlogErrorOrWarn(body *ast.BlockStmt) bool {
 	if body == nil {
 		return false
 	}
+
 	found := false
-	ast.Inspect(body, func(node ast.Node) bool {
-		if found {
-			return false
-		}
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
+	ast.Inspect(
+		body,
+		func(node ast.Node) bool {
+			if found {
+				return false
+			}
+
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+
+			if isErrorOrWarnSlogCall(call) {
+				found = true
+				return false
+			}
+
 			return true
-		}
-		if isErrorOrWarnSlogCall(call) {
-			found = true
-			return false
-		}
-		return true
-	})
+		},
+	)
+
 	return found
 }
 
@@ -143,16 +173,20 @@ func isErrorOrWarnSlogCall(call *ast.CallExpr) bool {
 	if !ok {
 		return false
 	}
+
 	switch name {
 	case "Error", "ErrorContext", "Warn", "WarnContext":
 		return isLikelyLoggerReceiver(receiver)
 	}
+
 	if name == "LogAttrs" && isLikelyLoggerReceiver(receiver) && len(call.Args) >= 2 {
 		return exprContains(call.Args[1], "LevelError") || exprContains(call.Args[1], "LevelWarn")
 	}
+
 	if receiver == "slog" && name == "Log" && len(call.Args) >= 2 {
 		return exprContains(call.Args[1], "LevelError") || exprContains(call.Args[1], "LevelWarn")
 	}
+
 	return false
 }
 
@@ -189,21 +223,26 @@ func isPureCodecOrIOFunc(pass *analysis.Pass, fn *ast.FuncDecl) bool {
 	if fn == nil || fn.Name == nil || pass.TypesInfo == nil {
 		return false
 	}
+
 	obj := pass.TypesInfo.Defs[fn.Name]
 	if obj == nil {
 		return false
 	}
+
 	sig, ok := obj.Type().(*types.Signature)
 	if !ok {
 		return false
 	}
+
 	name := fn.Name.Name
 	if strings.HasPrefix(name, "Marshal") {
 		return matchesMarshalShape(sig)
 	}
+
 	if strings.HasPrefix(name, "Unmarshal") {
 		return matchesUnmarshalShape(sig)
 	}
+
 	switch name {
 	case "Read", "Write":
 		return matchesReadWriteShape(sig)
@@ -222,6 +261,7 @@ func isPureCodecOrIOFunc(pass *analysis.Pass, fn *ast.FuncDecl) bool {
 	case "WriteRune":
 		return matchesWriteRuneShape(sig)
 	}
+
 	return false
 }
 
@@ -325,6 +365,7 @@ func isByteSlice(t types.Type) bool {
 	if !ok {
 		return false
 	}
+
 	return isBasicKind(s.Elem(), types.Byte) || isBasicKind(s.Elem(), types.Uint8)
 }
 
@@ -333,6 +374,7 @@ func isBasicKind(t types.Type, kind types.BasicKind) bool {
 	if !ok {
 		return false
 	}
+
 	return b.Kind() == kind
 }
 
@@ -341,7 +383,9 @@ func isErrorType(t types.Type) bool {
 	if !ok {
 		return false
 	}
+
 	obj := named.Obj()
+
 	return obj != nil && obj.Pkg() == nil && obj.Name() == "error"
 }
 
@@ -350,9 +394,11 @@ func isNamedType(t types.Type, pkgName, typeName string) bool {
 	if !ok {
 		return false
 	}
+
 	obj := named.Obj()
 	if obj == nil || obj.Name() != typeName {
 		return false
 	}
+
 	return obj.Pkg() != nil && obj.Pkg().Name() == pkgName
 }

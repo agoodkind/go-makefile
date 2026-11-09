@@ -25,10 +25,14 @@ const minimumPrefix = 3
 
 // Go's filename constraints include past and present build targets.
 var (
-	goSystems = strings.Fields("aix android darwin dragonfly freebsd hurd illumos ios js linux nacl " +
-		"netbsd openbsd plan9 solaris wasip1 windows zos")
-	goProcessors = strings.Fields("386 amd64 amd64p32 arm armbe arm64 arm64be loong64 mips mipsle mips64 mips64le " +
-		"mips64p32 mips64p32le ppc ppc64 ppc64le riscv riscv64 s390 s390x sparc sparc64 wasm")
+	goSystems = strings.Fields(
+		"aix android darwin dragonfly freebsd hurd illumos ios js linux nacl " +
+			"netbsd openbsd plan9 solaris wasip1 windows zos",
+	)
+	goProcessors = strings.Fields(
+		"386 amd64 amd64p32 arm armbe arm64 arm64be loong64 mips mipsle mips64 mips64le " +
+			"mips64p32 mips64p32le ppc ppc64 ppc64le riscv riscv64 s390 s390x sparc sparc64 wasm",
+	)
 )
 
 type siblingFile struct {
@@ -62,7 +66,11 @@ func runFilenamePrefix(pass *analysis.Pass) (any, error) {
 func reportSiblingFiles(pass *analysis.Pass, directory string) error {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
-		slog.Error("list sibling Go files", slog.String("directory", directory), slog.Any("err", err))
+		slog.Error(
+			"list sibling Go files",
+			slog.String("directory", directory),
+			slog.Any("err", err),
+		)
 
 		return fmt.Errorf("list sibling Go files: %w", err)
 	}
@@ -70,7 +78,8 @@ func reportSiblingFiles(pass *analysis.Pass, directory string) error {
 	files := make([]siblingFile, 0, len(entries))
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || filepath.Ext(name) != ".go" || strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".") {
+		if entry.IsDir() || filepath.Ext(name) != ".go" || strings.HasPrefix(name, "_") ||
+			strings.HasPrefix(name, ".") {
 			continue
 		}
 
@@ -97,7 +106,13 @@ func reportSiblingFiles(pass *analysis.Pass, directory string) error {
 		physical := pass.Fset.AddFile(path, -1, parsed.Size())
 		physical.SetLines(parsed.Lines())
 		position := physical.Pos(parsed.Offset(syntax.Name.Pos()))
-		pass.Reportf(position, "filenameprefix: %s repeats prefix %q; use directory %q", file.name, prefix, prefix)
+		pass.Reportf(
+			position,
+			"filenameprefix: %s repeats prefix %q; use directory %q",
+			file.name,
+			prefix,
+			prefix,
+		)
 	}
 
 	return nil
@@ -126,7 +141,8 @@ func directoryPrefix(stem string, files []siblingFile) string {
 		}
 
 		common = strings.TrimRight(common, "_-.")
-		if utf8.RuneCountInString(common) >= minimumPrefix && (prefix == "" || len(common) < len(prefix)) {
+		if utf8.RuneCountInString(common) >= minimumPrefix &&
+			(prefix == "" || len(common) < len(prefix)) {
 			prefix = common
 		}
 	}

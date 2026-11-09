@@ -42,6 +42,7 @@ func runCIChangedCapture(t *testing.T, config ciChangedConfig) (int, string, str
 	if err != nil {
 		t.Fatalf("read output file: %v", err)
 	}
+
 	return status, out.String(), string(data)
 }
 
@@ -180,12 +181,15 @@ func TestDecideChanged(t *testing.T) {
 		},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			changed, reason := decideChanged(testCase.inputs)
-			if changed != testCase.changed {
-				t.Fatalf("decideChanged = %v (%s), want %v", changed, reason, testCase.changed)
-			}
-		})
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				changed, reason := decideChanged(testCase.inputs)
+				if changed != testCase.changed {
+					t.Fatalf("decideChanged = %v (%s), want %v", changed, reason, testCase.changed)
+				}
+			},
+		)
 	}
 }
 
@@ -200,12 +204,15 @@ func TestRunCIChangedFailsSafeOnNonPushEvent(t *testing.T) {
 
 func TestRunCIChangedFailsSafeOnNewBranch(t *testing.T) {
 	for _, base := range []string{"", zeroSHA} {
-		t.Run("base="+base, func(t *testing.T) {
-			fixture := ciGitFixtureNew(t)
-			config := ciGitFixtureConfig(fixture)
-			config.base = base
-			ciGitFixtureAssert(t, config, true, "no base commit (new branch)")
-		})
+		t.Run(
+			"base="+base,
+			func(t *testing.T) {
+				fixture := ciGitFixtureNew(t)
+				config := ciGitFixtureConfig(fixture)
+				config.base = base
+				ciGitFixtureAssert(t, config, true, "no base commit (new branch)")
+			},
+		)
 	}
 }
 
@@ -225,51 +232,68 @@ func TestRunCIChangedExactBaseSkipsAncestryCheck(t *testing.T) {
 }
 
 func TestRunCIChangedFeatureBranchUsesMergeBaseDiff(t *testing.T) {
-	t.Run("earlier feature input change", func(t *testing.T) {
-		fixture := ciGitFixtureNew(t)
-		ciGitFixtureGit(t, fixture.root, "checkout", "-b", "feature")
-		ciGitFixtureWrite(t, fixture.root, "assets/input.txt", "Feature input.\n")
-		before := ciGitFixtureCommit(t, fixture.root)
-		ciGitFixtureWrite(t, fixture.root, "docs/guide.md", "Feature documentation.\n")
-		ciGitFixtureCommit(t, fixture.root)
-		config := ciGitFixtureConfig(fixture)
-		config.base = before
-		config.refName = "feature"
-		ciGitFixtureAssert(t, config, true, "Go build input changed: assets/input.txt")
-	})
-	t.Run("trunk input change excluded", func(t *testing.T) {
-		fixture := ciGitFixtureNew(t)
-		ciGitFixtureGit(t, fixture.root, "branch", "feature")
-		ciGitFixtureWrite(t, fixture.root, "assets/input.txt", "Trunk input.\n")
-		ciGitFixtureCommit(t, fixture.root)
-		ciGitFixtureGit(t, fixture.root, "push", "origin", "main")
-		ciGitFixtureGit(t, fixture.root, "fetch", "origin")
-		ciGitFixtureGit(t, fixture.root, "checkout", "feature")
-		ciGitFixtureWrite(t, fixture.root, "docs/guide.md", "Feature documentation.\n")
-		ciGitFixtureCommit(t, fixture.root)
-		config := ciGitFixtureConfig(fixture)
-		config.refName = "feature"
-		ciGitFixtureAssert(t, config, false, "no Go-relevant changes")
-	})
+	t.Run(
+		"earlier feature input change",
+		func(t *testing.T) {
+			fixture := ciGitFixtureNew(t)
+			ciGitFixtureGit(t, fixture.root, "checkout", "-b", "feature")
+			ciGitFixtureWrite(t, fixture.root, "assets/input.txt", "Feature input.\n")
+			before := ciGitFixtureCommit(t, fixture.root)
+			ciGitFixtureWrite(t, fixture.root, "docs/guide.md", "Feature documentation.\n")
+			ciGitFixtureCommit(t, fixture.root)
+			config := ciGitFixtureConfig(fixture)
+			config.base = before
+			config.refName = "feature"
+			ciGitFixtureAssert(t, config, true, "Go build input changed: assets/input.txt")
+		},
+	)
+	t.Run(
+		"trunk input change excluded",
+		func(t *testing.T) {
+			fixture := ciGitFixtureNew(t)
+			ciGitFixtureGit(t, fixture.root, "branch", "feature")
+			ciGitFixtureWrite(t, fixture.root, "assets/input.txt", "Trunk input.\n")
+			ciGitFixtureCommit(t, fixture.root)
+			ciGitFixtureGit(t, fixture.root, "push", "origin", "main")
+			ciGitFixtureGit(t, fixture.root, "fetch", "origin")
+			ciGitFixtureGit(t, fixture.root, "checkout", "feature")
+			ciGitFixtureWrite(t, fixture.root, "docs/guide.md", "Feature documentation.\n")
+			ciGitFixtureCommit(t, fixture.root)
+			config := ciGitFixtureConfig(fixture)
+			config.refName = "feature"
+			ciGitFixtureAssert(t, config, false, "no Go-relevant changes")
+		},
+	)
 }
 
 func TestRunCIChangedTrunkPushUsesBeforeAfterDiff(t *testing.T) {
-	t.Run("earlier input change excluded", func(t *testing.T) {
-		fixture := ciGitFixtureNew(t)
-		ciGitFixtureWrite(t, fixture.root, "assets/input.txt", "Earlier input.\n")
-		before := ciGitFixtureCommit(t, fixture.root)
-		ciGitFixtureWrite(t, fixture.root, "docs/guide.md", "Trunk documentation.\n")
-		ciGitFixtureCommit(t, fixture.root)
-		config := ciGitFixtureConfig(fixture)
-		config.base = before
-		ciGitFixtureAssert(t, config, false, "no Go-relevant changes")
-	})
-	t.Run("current embedded input change", func(t *testing.T) {
-		fixture := ciGitFixtureNew(t)
-		ciGitFixtureWrite(t, fixture.root, "assets/input.txt", "Current input.\n")
-		ciGitFixtureCommit(t, fixture.root)
-		ciGitFixtureAssert(t, ciGitFixtureConfig(fixture), true, "Go build input changed: assets/input.txt")
-	})
+	t.Run(
+		"earlier input change excluded",
+		func(t *testing.T) {
+			fixture := ciGitFixtureNew(t)
+			ciGitFixtureWrite(t, fixture.root, "assets/input.txt", "Earlier input.\n")
+			before := ciGitFixtureCommit(t, fixture.root)
+			ciGitFixtureWrite(t, fixture.root, "docs/guide.md", "Trunk documentation.\n")
+			ciGitFixtureCommit(t, fixture.root)
+			config := ciGitFixtureConfig(fixture)
+			config.base = before
+			ciGitFixtureAssert(t, config, false, "no Go-relevant changes")
+		},
+	)
+	t.Run(
+		"current embedded input change",
+		func(t *testing.T) {
+			fixture := ciGitFixtureNew(t)
+			ciGitFixtureWrite(t, fixture.root, "assets/input.txt", "Current input.\n")
+			ciGitFixtureCommit(t, fixture.root)
+			ciGitFixtureAssert(
+				t,
+				ciGitFixtureConfig(fixture),
+				true,
+				"Go build input changed: assets/input.txt",
+			)
+		},
+	)
 }
 
 func TestRunCIChangedFailsSafeWhenMergeBaseMissing(t *testing.T) {
@@ -305,7 +329,12 @@ func TestRunCIChangedFailsSafeOnGoListError(t *testing.T) {
 	ciGitFixtureWrite(t, fixture.root, "docs/guide.md", "Updated documentation.\n")
 	ciGitFixtureCommit(t, fixture.root)
 	// The diff excludes go.mod to distinguish go list errors from build configuration changes.
-	ciGitFixtureWrite(t, fixture.root, "go.mod", "module example.invalid/ci-fixture\n\ngo invalid\n")
+	ciGitFixtureWrite(
+		t,
+		fixture.root,
+		"go.mod",
+		"module example.invalid/ci-fixture\n\ngo invalid\n",
+	)
 	ciGitFixtureAssert(t, ciGitFixtureConfig(fixture), true, "go list failed")
 }
 
@@ -419,13 +448,16 @@ func IsolatedTestEnvironment(root string, overrides map[string]string) []string 
 		"GOTOOLCHAIN":         "local",
 		"CGO_ENABLED":         "0",
 	}
+
 	for key, value := range overrides {
 		values[key] = value
 	}
+
 	environment := make([]string, 0, len(values))
 	for key, value := range values {
 		environment = append(environment, key+"="+value)
 	}
+
 	return environment
 }
 
@@ -436,37 +468,49 @@ func ciGitFixtureNew(t *testing.T) ciGitFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	globalConfig := filepath.Join(directory, "gitconfig")
 	if err := os.WriteFile(globalConfig, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	environment := IsolatedTestEnvironment(directory, map[string]string{
-		"GIT_CONFIG_COUNT":    "0",
-		"GIT_TERMINAL_PROMPT": "0",
-		"GIT_ALLOW_PROTOCOL":  "file",
-		"GOCACHE":             filepath.Join(directory, "go-cache"),
-		"GOMODCACHE":          filepath.Join(directory, "go-mod-cache"),
-		"GOFLAGS":             "",
-		"GOWORK":              "off",
-		"GOPROXY":             "off",
-		"GO111MODULE":         "on",
-		"TEST_TELEMETRY_DIR":  filepath.Join(directory, "telemetry"),
-	})
+
+	environment := IsolatedTestEnvironment(
+		directory,
+		map[string]string{
+			"GIT_CONFIG_COUNT":    "0",
+			"GIT_TERMINAL_PROMPT": "0",
+			"GIT_ALLOW_PROTOCOL":  "file",
+			"GOCACHE":             filepath.Join(directory, "go-cache"),
+			"GOMODCACHE":          filepath.Join(directory, "go-mod-cache"),
+			"GOFLAGS":             "",
+			"GOWORK":              "off",
+			"GOPROXY":             "off",
+			"GO111MODULE":         "on",
+			"TEST_TELEMETRY_DIR":  filepath.Join(directory, "telemetry"),
+		},
+	)
 	for _, entry := range environment {
 		key, value, _ := strings.Cut(entry, "=")
 		// This fixture inherits PATH and CGO_ENABLED from the test process.
 		if key == "PATH" || key == "CGO_ENABLED" {
 			continue
 		}
+
 		t.Setenv(key, value)
 	}
+
 	// Go telemetry children can write after go list exits.
 	ciGitFixtureWrite(t, directory, "telemetry/mode", "off\n")
 	root := filepath.Join(directory, "repo")
 	ciGitFixtureGit(t, directory, "init", "--initial-branch=main", root)
 	ciGitFixtureGit(t, root, "config", "commit.gpgsign", "false")
 	ciGitFixtureWrite(t, root, "go.mod", "module example.invalid/ci-fixture\n\ngo 1.20\n")
-	ciGitFixtureWrite(t, root, "fixture.go", "package fixture\n\nimport _ \"embed\"\n\n//go:embed assets/input.txt\nvar Input string\n")
+	ciGitFixtureWrite(
+		t,
+		root,
+		"fixture.go",
+		"package fixture\n\nimport _ \"embed\"\n\n//go:embed assets/input.txt\nvar Input string\n",
+	)
 	ciGitFixtureWrite(t, root, "assets/input.txt", "initial input\n")
 	ciGitFixtureWrite(t, root, "docs/guide.md", "Initial documentation.\n")
 	base := ciGitFixtureCommit(t, root)
@@ -476,6 +520,7 @@ func ciGitFixtureNew(t *testing.T) ciGitFixture {
 	ciGitFixtureGit(t, root, "push", "origin", "main")
 	ciGitFixtureGit(t, root, "fetch", "origin")
 	t.Chdir(root)
+
 	return ciGitFixture{root: root, base: base, binary: binary}
 }
 
@@ -487,6 +532,7 @@ func ciGitFixtureGit(t *testing.T, directory string, args ...string) string {
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, output)
 	}
+
 	return strings.TrimSpace(string(output))
 }
 
@@ -496,6 +542,7 @@ func ciGitFixtureWrite(t *testing.T, root, name, content string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -505,6 +552,7 @@ func ciGitFixtureCommit(t *testing.T, root string) string {
 	t.Helper()
 	ciGitFixtureGit(t, root, "add", "--all")
 	ciGitFixtureGit(t, root, "-c", "commit.gpgsign=false", "commit", "-m", "Update fixture files")
+
 	return ciGitFixtureGit(t, root, "rev-parse", "HEAD")
 }
 
@@ -536,6 +584,7 @@ func ciGitFixtureConfig(fixture ciGitFixture) ciGitFixtureOptions {
 
 func ciGitFixtureAssert(t *testing.T, config ciGitFixtureOptions, changed bool, reason string) {
 	t.Helper()
+
 	outputFile := filepath.Join(t.TempDir(), "github_output.txt")
 	for key, value := range map[string]string{
 		"GO_MK_EVENT_NAME":         config.eventName,
@@ -551,6 +600,7 @@ func ciGitFixtureAssert(t *testing.T, config ciGitFixtureOptions, changed bool, 
 	} {
 		t.Setenv(key, value)
 	}
+
 	command := exec.Command(config.binary, "ci-changed")
 	command.Dir = config.root
 	var stdout, stderr strings.Builder
@@ -559,18 +609,27 @@ func ciGitFixtureAssert(t *testing.T, config ciGitFixtureOptions, changed bool, 
 	if err := command.Run(); err != nil {
 		t.Fatalf("ci-changed: %v\n%s", err, stderr.String())
 	}
+
 	data, err := os.ReadFile(outputFile)
 	if err != nil {
 		t.Fatalf("read output file: %v", err)
 	}
+
 	output := string(data)
 	wantOutput := "changed=false\n"
 	if changed {
 		wantOutput = "changed=true\n"
 	}
+
 	if output != wantOutput || !strings.Contains(stdout.String(), reason) {
-		t.Fatalf("output=%q stdout=%q, want output=%q reason=%q\nstderr=%s",
-			output, stdout.String(), wantOutput, reason, stderr.String())
+		t.Fatalf(
+			"output=%q stdout=%q, want output=%q reason=%q\nstderr=%s",
+			output,
+			stdout.String(),
+			wantOutput,
+			reason,
+			stderr.String(),
+		)
 	}
 }
 
@@ -582,6 +641,7 @@ func ciGitFixtureDiverge(t *testing.T, fixture ciGitFixture) string {
 	ciGitFixtureGit(t, fixture.root, "checkout", "main")
 	ciGitFixtureWrite(t, fixture.root, "docs/guide.md", "Main documentation.\n")
 	ciGitFixtureCommit(t, fixture.root)
+
 	return side
 }
 
@@ -591,6 +651,16 @@ func ciGitFixtureSubmodule(t *testing.T, fixture ciGitFixture) string {
 	ciGitFixtureGit(t, fixture.root, "init", "--initial-branch=main", path)
 	ciGitFixtureWrite(t, path, "README.md", "Initial dependency.\n")
 	ciGitFixtureCommit(t, path)
-	ciGitFixtureGit(t, fixture.root, "-c", "protocol.file.allow=always", "submodule", "add", path, "third_party/dependency")
+	ciGitFixtureGit(
+		t,
+		fixture.root,
+		"-c",
+		"protocol.file.allow=always",
+		"submodule",
+		"add",
+		path,
+		"third_party/dependency",
+	)
+
 	return ciGitFixtureCommit(t, fixture.root)
 }

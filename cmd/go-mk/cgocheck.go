@@ -46,9 +46,11 @@ func cgoDisabled() bool {
 // that ships a working pure-Go fallback rather than a stub.
 func cgoOptionalAllowlist() map[string]bool {
 	allow := map[string]bool{}
+
 	for _, importPath := range strings.Fields(os.Getenv("GO_MK_CGO_OPTIONAL")) {
 		allow[importPath] = true
 	}
+
 	return allow
 }
 
@@ -58,6 +60,7 @@ func cgoStubTargets() []string {
 	if cmd := strings.TrimSpace(os.Getenv("CMD")); cmd != "" {
 		return []string{cmd}
 	}
+
 	return []string{"./..."}
 }
 
@@ -71,11 +74,14 @@ func filterCgoRequiringPackages(packages []cgoListPackage, allow map[string]bool
 		if pkg.Standard || len(pkg.CgoFiles) == 0 {
 			continue
 		}
+
 		if allow[pkg.ImportPath] {
 			continue
 		}
+
 		found = append(found, pkg.ImportPath)
 	}
+
 	return found
 }
 
@@ -97,14 +103,21 @@ func cgoRequiringPackages(targets []string) ([]string, error) {
 	cmd.Stdout = &out
 	cmd.Stderr = &errOut
 	if err := cmd.Run(); err != nil {
-		wrapped := fmt.Errorf("cgo-stub: go list failed: %w: %s", err, strings.TrimSpace(errOut.String()))
+		wrapped := fmt.Errorf(
+			"cgo-stub: go list failed: %w: %s",
+			err,
+			strings.TrimSpace(errOut.String()),
+		)
 		slog.Error("cgo-stub go list failed", slog.Any("err", wrapped))
+
 		return nil, wrapped
 	}
+
 	packages, err := decodeGoListPackages(&out)
 	if err != nil {
 		return nil, err
 	}
+
 	return filterCgoRequiringPackages(packages, cgoOptionalAllowlist()), nil
 }
 
@@ -115,16 +128,20 @@ func cgoRequiringPackages(targets []string) ([]string, error) {
 // packages or a wrapped error on malformed output.
 func decodeGoListPackages(reader io.Reader) ([]cgoListPackage, error) {
 	packages := make([]cgoListPackage, 0, 64)
+
 	decoder := json.NewDecoder(reader)
 	for decoder.More() {
 		var pkg cgoListPackage
 		if err := decoder.Decode(&pkg); err != nil {
 			wrapped := fmt.Errorf("cgo-stub: decode go list output: %w", err)
 			slog.Error("cgo-stub decode failed", slog.Any("err", wrapped))
+
 			return nil, wrapped
 		}
+
 		packages = append(packages, pkg)
 	}
+
 	return packages, nil
 }
 
@@ -134,13 +151,16 @@ func checkCgoStub() error {
 	if !cgoDisabled() {
 		return nil
 	}
+
 	packages, err := cgoRequiringPackages(cgoStubTargets())
 	if err != nil {
 		return err
 	}
+
 	if len(packages) == 0 {
 		return nil
 	}
+
 	return fmt.Errorf(
 		"CGO_ENABLED=0 but the build graph requires cgo: %s. "+
 			"Building these with cgo disabled ships a stubbed or non-functional binary. "+
@@ -153,8 +173,13 @@ func checkCgoStub() error {
 // runCgoStubCheckStep wraps checkCgoStub as a captured build-check step.
 func runCgoStubCheckStep() (report.StepResult, int) {
 	if err := checkCgoStub(); err != nil {
-		return report.StepResult{Name: "cgo-stub", Status: report.StatusFailed, Findings: splitOutputLines(err.Error())}, 1
+		return report.StepResult{
+			Name:     "cgo-stub",
+			Status:   report.StatusFailed,
+			Findings: splitOutputLines(err.Error()),
+		}, 1
 	}
+
 	return report.StepResult{Name: "cgo-stub", Status: report.StatusOK}, 0
 }
 
@@ -176,8 +201,12 @@ func releaseCgoEnabled(binary releaseBinary) bool {
 // target (a freebsd release built on a linux runner) is judged against the
 // target's graph rather than the runner host's.
 func releaseCgoRequiringPackages(mainPkg, goos, goarch string) ([]string, error) {
-	slog.Info("cgo-stub run go list for release target",
-		slog.String("pkg", mainPkg), slog.String("goos", goos), slog.String("goarch", goarch))
+	slog.Info(
+		"cgo-stub run go list for release target",
+		slog.String("pkg", mainPkg),
+		slog.String("goos", goos),
+		slog.String("goarch", goarch),
+	)
 	args := []string{"list", "-e", "-deps", "-json", mainPkg}
 	cmd := exec.Command("go", args...)
 	cmd.Env = platformListEnv(os.Environ(), goos, goarch)
@@ -188,15 +217,24 @@ func releaseCgoRequiringPackages(mainPkg, goos, goarch string) ([]string, error)
 	cmd.Stdout = &out
 	cmd.Stderr = &errOut
 	if err := cmd.Run(); err != nil {
-		wrapped := fmt.Errorf("cgo-stub: go list %s for %s/%s failed: %w: %s",
-			mainPkg, goos, goarch, err, strings.TrimSpace(errOut.String()))
+		wrapped := fmt.Errorf(
+			"cgo-stub: go list %s for %s/%s failed: %w: %s",
+			mainPkg,
+			goos,
+			goarch,
+			err,
+			strings.TrimSpace(errOut.String()),
+		)
 		slog.Error("cgo-stub go list failed", slog.Any("err", wrapped))
+
 		return nil, wrapped
 	}
+
 	packages, err := decodeGoListPackages(&out)
 	if err != nil {
 		return nil, err
 	}
+
 	return filterCgoRequiringPackages(packages, cgoOptionalAllowlist()), nil
 }
 
@@ -221,44 +259,64 @@ const unsupportedCgoPlatform = "darwin/amd64"
 func checkReleaseCgoStub(cfg releaseConfig) error {
 	findings := make([]string, 0)
 	tolerated := make([]string, 0)
+
 	for _, platform := range cfg.platforms {
 		goos, goarch, ok := strings.Cut(platform, "/")
 		if !ok {
 			return fmt.Errorf("cgo-stub: malformed platform %q (want os/arch)", platform)
 		}
+
 		for _, binary := range releaseBinaries(cfg) {
 			if !binary.buildsFor(platform) {
 				continue
 			}
+
 			if releaseCgoEnabled(binary) {
 				continue
 			}
+
 			packages, err := releaseCgoRequiringPackages(binary.mainPkg, goos, goarch)
 			if err != nil {
 				return err
 			}
+
 			if len(packages) == 0 {
 				continue
 			}
-			finding := fmt.Sprintf("%s (%s): %s", binary.name, platform, strings.Join(packages, ", "))
+
+			finding := fmt.Sprintf(
+				"%s (%s): %s",
+				binary.name,
+				platform,
+				strings.Join(packages, ", "),
+			)
 			if platform == unsupportedCgoPlatform {
 				tolerated = append(tolerated, finding)
 				continue
 			}
+
 			findings = append(findings, finding)
 		}
 	}
+
 	if len(tolerated) > 0 {
 		// INFO keeps this record in the .make/logs JSONL files without adding a
 		// second stderr line next to the one warning below.
-		slog.Info("cgo-stub tolerated findings on an unsupported platform",
-			slog.String("platform", unsupportedCgoPlatform), slog.Int("findings", len(tolerated)))
-		writeStderr("go-mk: " + unsupportedCgoPlatform + " is unsupported; publishing without the cgo its build graph requires, so these binaries may not work there: " +
-			strings.Join(tolerated, "; ") + "\n")
+		slog.Info(
+			"cgo-stub tolerated findings on an unsupported platform",
+			slog.String("platform", unsupportedCgoPlatform),
+			slog.Int("findings", len(tolerated)),
+		)
+		writeStderr(
+			"go-mk: " + unsupportedCgoPlatform + " is unsupported; publishing without the cgo its build graph requires, so these binaries may not work there: " +
+				strings.Join(tolerated, "; ") + "\n",
+		)
 	}
+
 	if len(findings) == 0 {
 		return nil
 	}
+
 	return fmt.Errorf(
 		"CGO_ENABLED=0 but the build graph requires cgo: %s. "+
 			"Building these with cgo disabled ships a stubbed or non-functional binary. "+

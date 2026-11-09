@@ -20,7 +20,11 @@ func TestBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
 	requireWorkflowContains(t, restore, "uses: actions/cache/restore@v6")
 	requireWorkflowContains(t, restore, "path: ~/.ccache")
 	requireWorkflowContains(t, restore, darwinCcacheWorkflowKey())
-	requireWorkflowContains(t, restore, "ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-")
+	requireWorkflowContains(
+		t,
+		restore,
+		"ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-",
+	)
 
 	configure := buildWorkflowStep(t, workflow, "Configure darwin cross compilers")
 	requireWorkflowContains(t, configure, `echo "CCACHE_DIR=${HOME}/.ccache"`)
@@ -31,8 +35,16 @@ func TestBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
 	// ccache interposes through masquerade symlinks so GO_MK_CC stays a single
 	// word; consumer dep recipes may invoke "$CC" as one word and a two-word
 	// value fails there with exit 127.
-	requireWorkflowContains(t, configure, `ln -sf "${ccache_bin}" "${wrapper_dir}/${{ matrix.cc }}"`)
-	requireWorkflowContains(t, configure, `ln -sf "${ccache_bin}" "${wrapper_dir}/${{ matrix.cxx }}"`)
+	requireWorkflowContains(
+		t,
+		configure,
+		`ln -sf "${ccache_bin}" "${wrapper_dir}/${{ matrix.cc }}"`,
+	)
+	requireWorkflowContains(
+		t,
+		configure,
+		`ln -sf "${ccache_bin}" "${wrapper_dir}/${{ matrix.cxx }}"`,
+	)
 	requireWorkflowContains(t, configure, `echo "${wrapper_dir}" >> "${GITHUB_PATH}"`)
 	requireWorkflowContains(t, configure, `echo "GO_MK_CC=${{ matrix.cc }}"`)
 	requireWorkflowContains(t, configure, `echo "GO_MK_CXX=${{ matrix.cxx }}"`)
@@ -42,11 +54,20 @@ func TestBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
 	requireWorkflowContains(t, show, "if: inputs.cgo")
 
 	save := buildWorkflowStep(t, workflow, "Save darwin ccache")
-	requireWorkflowContains(t, save, "if: matrix.cc != '' && inputs.cgo && steps.darwin-ccache-restore.outputs.cache-hit != 'true'")
+	requireWorkflowContains(
+		t,
+		save,
+		"if: matrix.cc != '' && inputs.cgo && steps.darwin-ccache-restore.outputs.cache-hit != 'true'",
+	)
 	requireWorkflowContains(t, save, "uses: actions/cache/save@v6")
 	requireWorkflowContains(t, save, "path: ~/.ccache")
 
-	requireWorkflowOrder(t, workflow, "      - name: Configure darwin cross compilers", "      - name: Build go-mk cache manifest")
+	requireWorkflowOrder(
+		t,
+		workflow,
+		"      - name: Configure darwin cross compilers",
+		"      - name: Build go-mk cache manifest",
+	)
 	// Match the "Compile" step exactly with a trailing newline, so the assertion
 	// does not accidentally anchor on another step name.
 	requireWorkflowOrder(t, workflow, "      - name: Compile\n", "      - name: Save darwin ccache")
@@ -61,14 +82,25 @@ func TestBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
 func TestBuildWorkflowCcacheKeysAreReusable(t *testing.T) {
 	workflow := readBuildWorkflow(t)
 
-	for _, runScoped := range []string{"github.run_id", "github.run_attempt", "github.run_number", "github.sha"} {
+	for _, runScoped := range []string{
+		"github.run_id",
+		"github.run_attempt",
+		"github.run_number",
+		"github.sha",
+	} {
 		for _, line := range strings.Split(workflow, "\n") {
 			trimmed := strings.TrimSpace(line)
-			if !strings.HasPrefix(trimmed, "key: ccache-") && !strings.HasPrefix(trimmed, "ccache-") {
+			if !strings.HasPrefix(trimmed, "key: ccache-") &&
+				!strings.HasPrefix(trimmed, "ccache-") {
 				continue
 			}
+
 			if strings.Contains(trimmed, runScoped) {
-				t.Errorf("compiler-cache key carries %s, so it can never be hit:\n%s", runScoped, trimmed)
+				t.Errorf(
+					"compiler-cache key carries %s, so it can never be hit:\n%s",
+					runScoped,
+					trimmed,
+				)
 			}
 		}
 	}
@@ -88,16 +120,19 @@ func TestBuildWorkflowCcacheKeysTrackSubmodulePins(t *testing.T) {
 	requireWorkflowContains(t, fingerprint, "git submodule status --recursive")
 
 	keyCount := 0
+
 	for _, line := range strings.Split(workflow, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "key: ccache-") {
 			continue
 		}
+
 		keyCount++
 		if !strings.Contains(trimmed, "steps.submodule-pins.outputs.digest") {
 			t.Errorf("compiler-cache key does not track submodule pins:\n%s", trimmed)
 		}
 	}
+
 	if keyCount == 0 {
 		t.Fatal("workflow declares no compiler-cache key")
 	}
@@ -116,15 +151,36 @@ func TestCIWorkflowCompilesWithCallerCgo(t *testing.T) {
 	releaseWorkflow := readReusableWorkflow(t, "_release.yml")
 
 	ciDefault := workflowInputDefault(t, ciWorkflow, "cgo")
-	if releaseDefault := workflowInputDefault(t, releaseWorkflow, "cgo"); ciDefault != releaseDefault {
-		t.Fatalf("_ci.yml cgo default = %q, _release.yml cgo default = %q, want equal", ciDefault, releaseDefault)
-	}
-	if ciDefault != ciCgoInputDefault {
-		t.Fatalf("_ci.yml cgo default = %q, scaffold ciCgoInputDefault = %q, want equal", ciDefault, ciCgoInputDefault)
+	if releaseDefault := workflowInputDefault(
+		t,
+		releaseWorkflow,
+		"cgo",
+	); ciDefault != releaseDefault {
+		t.Fatalf(
+			"_ci.yml cgo default = %q, _release.yml cgo default = %q, want equal",
+			ciDefault,
+			releaseDefault,
+		)
 	}
 
-	requireWorkflowContains(t, workflowJob(t, ciWorkflow, "compile"), "      cgo: ${{ inputs.cgo }}\n")
-	requireWorkflowContains(t, workflowJob(t, releaseWorkflow, "compile"), "      cgo: ${{ inputs.cgo }}\n")
+	if ciDefault != ciCgoInputDefault {
+		t.Fatalf(
+			"_ci.yml cgo default = %q, scaffold ciCgoInputDefault = %q, want equal",
+			ciDefault,
+			ciCgoInputDefault,
+		)
+	}
+
+	requireWorkflowContains(
+		t,
+		workflowJob(t, ciWorkflow, "compile"),
+		"      cgo: ${{ inputs.cgo }}\n",
+	)
+	requireWorkflowContains(
+		t,
+		workflowJob(t, releaseWorkflow, "compile"),
+		"      cgo: ${{ inputs.cgo }}\n",
+	)
 }
 
 func readBuildWorkflow(t *testing.T) string {
@@ -139,6 +195,7 @@ func readReusableWorkflow(t *testing.T, name string) string {
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
+
 	return string(data)
 }
 
@@ -150,20 +207,25 @@ func workflowInputDefault(t *testing.T, workflow string, name string) string {
 	if inputsStart < 0 {
 		t.Fatal("workflow declares no workflow_call inputs")
 	}
+
 	marker := "\n      " + name + ":\n"
 	start := strings.Index(workflow[inputsStart:], marker)
 	if start < 0 {
 		t.Fatalf("workflow missing input %q", name)
 	}
+
 	for _, line := range strings.Split(workflow[inputsStart+start+len(marker):], "\n") {
 		if strings.TrimSpace(line) != "" && leadingSpaceCount(line) <= 6 {
 			break
 		}
+
 		if value, found := strings.CutPrefix(strings.TrimSpace(line), "default:"); found {
 			return strings.TrimSpace(value)
 		}
 	}
+
 	t.Fatalf("workflow input %q has no default", name)
+
 	return ""
 }
 
@@ -175,13 +237,17 @@ func workflowJob(t *testing.T, workflow string, name string) string {
 	if start < 0 {
 		t.Fatalf("workflow missing job %q", name)
 	}
+
 	var body strings.Builder
+
 	for _, line := range strings.Split(workflow[start+len(marker):], "\n") {
 		if strings.TrimSpace(line) != "" && leadingSpaceCount(line) <= 2 {
 			break
 		}
+
 		body.WriteString(line + "\n")
 	}
+
 	return body.String()
 }
 
@@ -192,11 +258,13 @@ func buildWorkflowStep(t *testing.T, workflow string, name string) string {
 	if start < 0 {
 		t.Fatalf("workflow missing step %q", name)
 	}
+
 	remainder := workflow[start+len(marker):]
 	next := strings.Index(remainder, "\n      - ")
 	if next < 0 {
 		return workflow[start:]
 	}
+
 	return workflow[start : start+len(marker)+next]
 }
 
@@ -213,10 +281,12 @@ func requireWorkflowOrder(t *testing.T, workflow string, before string, after st
 	if beforeIndex < 0 {
 		t.Fatalf("workflow missing %q", before)
 	}
+
 	afterIndex := strings.Index(workflow, after)
 	if afterIndex < 0 {
 		t.Fatalf("workflow missing %q", after)
 	}
+
 	if beforeIndex >= afterIndex {
 		t.Fatalf("workflow has %q after %q", before, after)
 	}

@@ -107,7 +107,14 @@ func Run(
 	}
 
 	flags := strings.Fields(os.Getenv("GOLANGCI_LINT_FLAGS"))
-	fix := []string{"run", "--fix", "--enable-only=wsl_v5", "--new-from-patch", patch, "--whole-files"}
+	fix := []string{
+		"run",
+		"--fix",
+		"--enable-only=wsl_v5",
+		"--new-from-patch",
+		patch,
+		"--whole-files",
+	}
 	if err := run(binary, slices.Concat(fix, flags, packages)); err != nil {
 		return failure("format whitespace", err)
 	}
