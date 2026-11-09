@@ -41,7 +41,7 @@ func TestStaticcheckExtraBaselinesOlderTestFindingsOnce(t *testing.T) {
 		t,
 		consumerDir,
 		appliedNoticeFile,
-	); applied != "1\n2\n3\n14\n15\n16\n" {
+	); applied != "1\n2\n3\n14\n15\n16\n18\n" {
 		t.Fatalf("applied notices = %q, want notices 1, 2, 3, 14, 15, and 16", applied)
 	}
 

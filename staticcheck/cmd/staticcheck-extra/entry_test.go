@@ -73,7 +73,10 @@ func run() error {
 }
 func main() { _ = run() }`,
 		},
-		"loop": {source: `func main() { for {} }`, reject: true},
+		"loop":     {source: `func main() { for {} }`, reject: true},
+		"grouped":  {source: `func work(first, second int) { for {} }`, reject: true},
+		"expanded": {source: `func work(first int, second int) { for {} }`, reject: true},
+		"changed":  {source: `func work(first int, second string) { for {} }`, reject: true},
 		"parse": {
 			source: `import "flag"
 func main() { flag.Parse() }`,
@@ -153,5 +156,23 @@ func init() { for {} }`,
 
 	if !strings.Contains(filepath.ToSlash(string(output)), "/cmd/main.go:") {
 		t.Fatalf("root command implementation did not receive a diagnostic:\n%s", output)
+	}
+
+	identities := make(map[string]string)
+
+	for line := range strings.SplitSeq(filepath.ToSlash(string(output)), "\n") {
+		for _, name := range []string{"grouped", "expanded", "changed"} {
+			if strings.Contains(line, "/cmd/"+name+"/") {
+				_, identity, found := strings.Cut(line, "[id=")
+				if found {
+					identities[name] = identity
+				}
+			}
+		}
+	}
+
+	if identities["grouped"] == "" || identities["grouped"] != identities["expanded"] ||
+		identities["grouped"] == identities["changed"] {
+		t.Fatalf("declaration identities do not preserve formatting-only changes: %v", identities)
 	}
 }

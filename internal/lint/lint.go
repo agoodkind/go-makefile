@@ -15,6 +15,7 @@
 package lint
 
 import (
+	"go/token"
 	"os"
 	"path"
 	"regexp"
@@ -31,6 +32,11 @@ import (
 //
 //	STATICCHECK_EXTRA_FLAGS="-first" STATICCHECK_EXTRA_TEST_FLAGS="-second"
 func StaticcheckFlagsText() string {
+	scope := os.Getenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN")
+	if analyzer, exact := strings.CutSuffix(scope, ":"); exact && token.IsIdentifier(analyzer) {
+		return "-" + analyzer
+	}
+
 	return strings.TrimSpace(
 		os.Getenv("STATICCHECK_EXTRA_FLAGS") + " " + os.Getenv("STATICCHECK_EXTRA_TEST_FLAGS"),
 	)

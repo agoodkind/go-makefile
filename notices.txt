@@ -21,3 +21,4 @@
 15	INTRODUCED=2026-11-07T21:44:09-08:00 GATE=staticcheck-extra PATTERN=filenameprefix:	Group repeated filename prefixes in a shared directory.
 16	INTRODUCED=2026-11-07T21:44:09-08:00 GATE=staticcheck-extra PATTERN=argumentlines:	Put wrapped arguments and callback declaration parameters on separate lines.
 17	INTRODUCED=2026-11-07T21:44:09-08:00 GATE=golangci LINTER=wsl_v5	Apply the shared whitespace settings with make fmt.
+18	INTRODUCED=2026-11-07T21:44:09-08:00 GATE=staticcheck-extra PATTERN=commandentry:	Refresh historical command-entry identities after parameter layout normalization.

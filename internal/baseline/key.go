@@ -5,7 +5,11 @@
 // replaced, and committed consumer baselines depend on that format.
 package baseline
 
-import "regexp"
+import (
+	"regexp"
+
+	"goodkind.io/go-makefile/internal/findings"
+)
 
 // lineColPattern matches the first :LINE:COL: coordinate in a finding. It is the
 // Go equivalent of the awk /:[0-9]+:[0-9]+:/ match, and RE2 leftmost matching
@@ -37,5 +41,5 @@ func collapseLineCol(line string) string {
 // statistics use the same key. The key needs no pwd or cwd prefix removal: the
 // capture step normalizes each path before a finding arrives here.
 func Key(finding string) string {
-	return collapseLineCol(stripDotDot(finding))
+	return findings.ErrorExpressionKey(collapseLineCol(stripDotDot(finding)))
 }
