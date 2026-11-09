@@ -481,9 +481,18 @@ func (planner *layoutPlanner) projectedPrefix(position token.Pos) string {
 	offset := planner.tokens.Offset(position)
 
 	start := bytes.LastIndexByte(planner.source[:offset], '\n') + 1
-	for _, edit := range planner.edits {
-		if edit.start < start && edit.end >= start && edit.end <= offset {
-			start = bytes.LastIndexByte(planner.source[:edit.start], '\n') + 1
+	// Include earlier edits exposed when another edit removes a line break.
+	for {
+		previous := start
+
+		for _, edit := range planner.edits {
+			if edit.start < start && edit.end >= start && edit.end <= offset {
+				start = bytes.LastIndexByte(planner.source[:edit.start], '\n') + 1
+			}
+		}
+
+		if start == previous {
+			break
 		}
 	}
 
