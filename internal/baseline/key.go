@@ -23,6 +23,7 @@ func stripDotDot(line string) string {
 	for len(line) >= 3 && line[:3] == "../" {
 		line = line[3:]
 	}
+
 	return line
 }
 
@@ -34,6 +35,7 @@ func collapseLineCol(line string) string {
 	if loc == nil {
 		return line
 	}
+
 	return line[:loc[0]] + ":::" + line[loc[1]:]
 }
 
@@ -41,5 +43,7 @@ func collapseLineCol(line string) string {
 // statistics use the same key. The key needs no pwd or cwd prefix removal: the
 // capture step normalizes each path before a finding arrives here.
 func Key(finding string) string {
-	return findings.ErrorExpressionKey(collapseLineCol(stripDotDot(finding)))
+	return findings.SourceLocationKey(
+		findings.ErrorExpressionKey(collapseLineCol(stripDotDot(finding))),
+	)
 }
