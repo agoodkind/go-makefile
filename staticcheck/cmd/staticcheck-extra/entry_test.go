@@ -88,6 +88,8 @@ func init() { for {} }`, reject: true},
 		writeFixtureFile(t, fixture, "cmd/"+name+"/"+filename, header+test.source+"\n")
 	}
 
+	writeFixtureFile(t, fixture, "cmd/main.go", "package main\nfunc main() { for {} }\n")
+
 	check := exec.CommandContext(t.Context(), binary, "-commandentry", "./...")
 	check.Dir = fixture
 	output, err := check.CombinedOutput()
@@ -105,5 +107,9 @@ func init() { for {} }`, reject: true},
 
 	if !strings.Contains(string(output), ":2]") {
 		t.Fatalf("duplicate declarations did not receive distinct identities:\n%s", output)
+	}
+
+	if !strings.Contains(filepath.ToSlash(string(output)), "/cmd/main.go:") {
+		t.Fatalf("root command implementation did not receive a diagnostic:\n%s", output)
 	}
 }

@@ -38,7 +38,7 @@ func runCommandEntry(pass *analysis.Pass) (any, error) {
 		path = strings.TrimPrefix(path, pass.Module.Path+"/")
 	}
 
-	if !strings.HasPrefix(path, "cmd/") {
+	if path != "cmd" && !strings.HasPrefix(path, "cmd/") {
 		return nil, nil
 	}
 
