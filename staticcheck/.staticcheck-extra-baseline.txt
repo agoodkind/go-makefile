@@ -1,4 +1,4 @@
-# staticcheck-extra: generated_at=2026-11-09T03:05:27Z
+# staticcheck-extra: generated_at=2026-11-09T10:17:46Z
 common.go:278:17: argumentlines: separate wrapped arguments or callback parameters [id=93d63f08dc26add866929b85145ae1b4-1]	# staticcheck-extra:first_added=2026-11-08T17:37:53Z last_seen=2026-11-08T17:37:53Z
 grpc_method_name_literal.go:132:13: argumentlines: separate wrapped arguments or callback parameters [id=8e22f313b92b25f746f06cac28228140-1]	# staticcheck-extra:first_added=2026-11-08T17:37:53Z last_seen=2026-11-08T17:37:53Z
 grpc_method_name_literal.go:81:16: argumentlines: separate wrapped arguments or callback parameters [id=25f2649589dfbeed4ca624803eb917f8-1]	# staticcheck-extra:first_added=2026-11-08T17:37:53Z last_seen=2026-11-08T17:37:53Z

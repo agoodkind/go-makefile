@@ -30,6 +30,7 @@ type entryCheck struct {
 	*analysis.Pass
 
 	standardPackages map[string]bool
+	buildContext     build.Context
 }
 
 func runCommandEntry(pass *analysis.Pass) (any, error) {
@@ -42,7 +43,16 @@ func runCommandEntry(pass *analysis.Pass) (any, error) {
 		return nil, nil
 	}
 
-	check := &entryCheck{Pass: pass, standardPackages: make(map[string]bool)}
+	buildContext, err := commandEntryBuildContext()
+	if err != nil {
+		return nil, err
+	}
+
+	check := &entryCheck{
+		Pass:             pass,
+		standardPackages: make(map[string]bool),
+		buildContext:     buildContext,
+	}
 
 	for _, file := range pass.Files {
 		if isTestFile(fileName(pass, file.Pos())) ||
@@ -251,7 +261,7 @@ func (check *entryCheck) standardPackage(path string) bool {
 		return standard
 	}
 
-	metadata, err := build.Default.Import(path, "", build.FindOnly)
+	metadata, err := check.buildContext.Import(path, "", build.FindOnly)
 	standard := err == nil && metadata.Goroot
 	check.standardPackages[path] = standard
 
