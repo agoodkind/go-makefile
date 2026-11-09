@@ -30,5 +30,9 @@ func readMakeProcess(identifier int) (makeProcessInvocation, error) {
 			environment = append(environment, string(entry))
 		}
 	}
-	return makeProcessInvocation{executable: executable, arguments: arguments, environment: environment}, nil
+	return makeProcessInvocation{
+		executable:  executable,
+		arguments:   arguments,
+		environment: environment,
+	}, nil
 }
