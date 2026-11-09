@@ -305,23 +305,14 @@ func captureGolangciScope(rawPath, findingsPath string, mode captureMode) error 
 // scopeLines keeps only the lines matching the scope pattern, mirroring
 // go_mk_scope_file. An empty pattern is the pass-through case.
 func scopeLines(lines []string, scopePattern string) []string {
-	if scopePattern == "" {
-		return lines
+	_, scopeRegexp, err := compilePatterns("", scopePattern)
+	if err != nil {
+		slog.Error("invalid lint scope", slog.String("scope", scopePattern), slog.Any("error", err))
+
+		return nil
 	}
 
-	regexpValue, _, err := compilePatterns("", scopePattern)
-	if err != nil || regexpValue == nil {
-		return lines
-	}
-
-	kept := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if regexpValue.MatchString(line) {
-			kept = append(kept, line)
-		}
-	}
-
-	return kept
+	return lint.ScopeLines(lines, scopeRegexp)
 }
 
 // runLintFormat delegates the complete formatter comparison.

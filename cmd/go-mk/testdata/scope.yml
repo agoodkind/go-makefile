@@ -1,0 +1,10 @@
+version: "2"
+linters:
+  default: none
+  enable: [revive, mnd]
+  settings:
+    revive:
+      rules:
+        - name: file-length-limit
+          arguments:
+            - max: 1000
