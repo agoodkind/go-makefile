@@ -1,0 +1,25 @@
+package widget
+
+type firstStore struct { offset int }
+
+//go:noinline
+func (store firstStore) read(first, second int) int {
+	total := first + second
+	for index := 0; index < 5; index++ { total += index }
+	if total > store.offset { return total + store.offset }
+	return total
+}
+
+func (store firstStore) write(first, second int) []int {
+	values := []int{first, second, store.offset, first + second, first - second, first * second, first / (second + 1), first % (second + 1)}
+	for index := range values { values[index] += store.offset }
+	return values
+}
+
+func (store firstStore) remove(first, second int) bool {
+	switch first {
+	case second: return true
+	case store.offset: return false
+	default: return first + second > 7
+	}
+}
