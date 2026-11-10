@@ -27,7 +27,7 @@ func TestNoticeRecordsProductionFindingsForAnotherPlatform(t *testing.T) {
 	}
 
 	baseline := readConsumerFile(t, consumer, baselineFileName)
-	if !strings.Contains(baseline, "cmd/tool/work_linux.go:2:1: commandentry:") {
+	if !strings.Contains(baseline, "cmd/tool/work_linux.go:3:1: commandentry:") {
 		t.Fatalf("historical Linux declaration is missing from the baseline:\n%s", baseline)
 	}
 }
