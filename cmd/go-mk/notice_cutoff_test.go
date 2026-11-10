@@ -22,7 +22,7 @@ func TestNoticeRejectsFindingsCommittedAfterItsEffectiveDate(t *testing.T) {
 		t.Run(
 			scenario.name,
 			func(t *testing.T) {
-				consumerDir := newConsumerRepository(t, beforeNoticeDate)
+				consumerDir := newDatedConsumerRepository(t)
 				contents := assertionFreeTest
 				if scenario.file == "widget/widget_test.go" {
 					contents = readConsumerFile(
@@ -110,7 +110,7 @@ func TestNoticeRejectsLaterSubtestsWithTheSameDiagnostic(t *testing.T) {
 		t.Run(
 			scenario.name,
 			func(t *testing.T) {
-				consumerDir := newConsumerRepository(t, beforeNoticeDate)
+				consumerDir := newDatedConsumerRepository(t)
 				writeConsumerFile(t, consumerDir, "widget/subtests_test.go", oldSource)
 				runConsumerGit(t, consumerDir, beforeNoticeDate, "add", "widget/subtests_test.go")
 				runConsumerGit(
@@ -159,7 +159,7 @@ func TestNoticeRejectsLaterSubtestsWithTheSameDiagnostic(t *testing.T) {
 }
 
 func TestNoticePreparesHistoricalGeneratedSource(t *testing.T) {
-	consumerDir := newConsumerRepository(t, beforeNoticeDate)
+	consumerDir := newDatedConsumerRepository(t)
 	makefile := "GO_MK_GENERATE := generate-widget\n" + readConsumerFile(
 		t,
 		consumerDir,
@@ -212,7 +212,7 @@ func TestNoticePreparesHistoricalGeneratedSource(t *testing.T) {
 }
 
 func TestNoticeDoesNotApplyWhenHistoricalSourceDoesNotBuild(t *testing.T) {
-	consumerDir := newConsumerRepository(t, beforeNoticeDate)
+	consumerDir := newDatedConsumerRepository(t)
 	original := readConsumerFile(t, consumerDir, "widget/widget.go")
 	writeConsumerFile(
 		t,
@@ -260,7 +260,7 @@ func TestNoticeDoesNotApplyWhenHistoricalSourceDoesNotBuild(t *testing.T) {
 }
 
 func TestNoticePreservesExplicitMakefile(t *testing.T) {
-	consumerDir := newConsumerRepository(t, beforeNoticeDate)
+	consumerDir := newDatedConsumerRepository(t)
 	makefile := readConsumerFile(t, consumerDir, "Makefile")
 	writeConsumerFile(t, consumerDir, "pipeline.mk", makefile)
 	if err := os.Remove(filepath.Join(consumerDir, "Makefile")); err != nil {
@@ -397,4 +397,33 @@ func TestDocStructureNoticeRejectsChangedAndNewComments(t *testing.T) {
 	if current := readConsumerFile(t, consumerDir, baselineFileName); current != baseline {
 		t.Fatalf("the applied notice changed its baseline:\n%s", current)
 	}
+}
+
+// Dated notice tests exclude the separate upgrade acceptance policy.
+func newDatedConsumerRepository(t *testing.T) string {
+	t.Helper()
+	consumer := newConsumerRepository(t, beforeNoticeDate)
+	registry, err := os.ReadFile(filepath.Join("..", "..", "notices.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var dated strings.Builder
+
+	for _, line := range strings.Split(string(registry), "\n") {
+		if !strings.Contains(line, "UPGRADE=1") {
+			dated.WriteString(line + "\n")
+		}
+	}
+
+	writeConsumerFile(t, consumer, ".make/dated-notices.txt", dated.String())
+	makefile := readConsumerFile(t, consumer, "Makefile")
+	writeConsumerFile(
+		t,
+		consumer,
+		"Makefile",
+		makefile+"\n_GO_MK_NOTICES_FILE := .make/dated-notices.txt\n",
+	)
+
+	return consumer
 }

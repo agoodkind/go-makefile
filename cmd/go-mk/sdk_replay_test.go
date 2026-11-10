@@ -6,7 +6,7 @@ import (
 )
 
 func TestCommandEntryReplayPreservesTheOriginalCutoff(t *testing.T) {
-	consumerDir := newConsumerRepository(t, beforeNoticeDate)
+	consumerDir := newDatedConsumerRepository(t)
 	const original = "package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"original\") }\n"
 
 	for _, path := range []string{"cmd/old/main.go", "cmd/changed/main.go"} {
