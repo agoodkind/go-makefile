@@ -41,7 +41,7 @@ on:
           and Quality jobs, and single runs one Checks job.
         required: false
         type: string
-        default: parallel
+        default: single
       go_version_file:
         description: >-
           Path to the consumer's go.mod file. Defaults to the repository root
