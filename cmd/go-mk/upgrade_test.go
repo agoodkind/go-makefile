@@ -14,8 +14,9 @@ import (
 )
 
 func TestUpgradeNoticesPreservePassingConsumerBuild(t *testing.T) {
-	consumer := newConsumerRepository(t, beforeNoticeDate)
 	engine := gomk.BuiltTestEngine(t)
+	t.Setenv("TMPDIR", t.TempDir())
+	consumer := newConsumerRepository(t, beforeNoticeDate)
 	repository, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -25,6 +26,13 @@ func TestUpgradeNoticesPreservePassingConsumerBuild(t *testing.T) {
 	writeConsumerFile(t, consumer, "widget/widget.go", original)
 	writeConsumerFile(t, consumer, ".make/upgrade.yml", upgradeFixture(t, "legacy.yml"))
 	writeConsumerFile(t, consumer, ".make/notices.txt", "")
+	const retained = "widget/platform_windows.go:8:1: Function 'Windows' is too long (4 > 3) (funlen)\t# golangci-lint:first_added=2026-01-01T00:00:00Z last_seen=2026-01-01T00:00:00Z\n"
+	writeConsumerFile(
+		t,
+		consumer,
+		".golangci-lint-baseline.txt",
+		"# Existing platform baseline.\n"+retained,
+	)
 	runConsumerGit(t, consumer, afterNoticeDate, "add", "widget/widget.go")
 	runConsumerGit(t, consumer, afterNoticeDate, "commit", "-qm", "Record the passing consumer")
 	arguments := []string{
@@ -75,6 +83,13 @@ func TestUpgradeNoticesPreservePassingConsumerBuild(t *testing.T) {
 		t.Fatalf("formatting-induced file size finding was not baselined:\n%s", baseline)
 	}
 
+	if !strings.Contains(baseline, retained) {
+		t.Fatalf(
+			"upgrade removed or changed an accepted finding outside this platform:\n%s",
+			baseline,
+		)
+	}
+
 	applied := readConsumerFile(t, consumer, appliedNoticeFile)
 	if !strings.Contains(applied, "21\n") || !strings.Contains(applied, "22\n") {
 		t.Fatalf("successful upgrade notices were not recorded: %q", applied)
@@ -112,8 +127,9 @@ func upgradeFixture(t *testing.T, name string) string {
 }
 
 func TestUpgradeNoticeRejectsUncommittedViolation(t *testing.T) {
-	consumer := newConsumerRepository(t, beforeNoticeDate)
 	engine := gomk.BuiltTestEngine(t)
+	t.Setenv("TMPDIR", t.TempDir())
+	consumer := newConsumerRepository(t, beforeNoticeDate)
 	repository, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

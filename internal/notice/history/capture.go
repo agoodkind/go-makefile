@@ -72,8 +72,8 @@ func (check comparison) capturePrepared(ctx context.Context, rawPath, findingsPa
 		return err
 	}
 
-	if os.Getenv(UpgradeEnvironment) == "1" {
-		if err := FormatSource(ctx); err != nil {
+	if check.policy == Upgrade {
+		if err := check.format(); err != nil {
 			return err
 		}
 	}

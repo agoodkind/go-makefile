@@ -53,20 +53,8 @@ func (runner *Runner) apply(
 }
 
 func (runner *Runner) applyScope(ctx context.Context, options settings, value directive) int {
-	previousUpgrade, hadUpgrade := os.LookupEnv(history.UpgradeEnvironment)
-	upgrade := "0"
-	if value.upgrade {
-		upgrade = "1"
-	}
-
-	if err := os.Setenv(history.UpgradeEnvironment, upgrade); err != nil {
-		return failureStatus(fileFailure("select notice source revision", err))
-	}
-
-	defer restoreEnv(history.UpgradeEnvironment, previousUpgrade, hadUpgrade)
-
-	if value.upgrade {
-		if err := history.FormatSource(ctx); err != nil {
+	if value.policy == history.Upgrade {
+		if err := runner.format(); err != nil {
 			return failureStatus(err)
 		}
 	}
@@ -81,6 +69,7 @@ func (runner *Runner) applyScope(ctx context.Context, options settings, value di
 			value.rule,
 			value.introduced,
 			options.staticcheckExclude,
+			value.policy,
 		)
 		if code != 0 {
 			return code
@@ -106,6 +95,7 @@ func (runner *Runner) applyScope(ctx context.Context, options settings, value di
 		value.rule,
 		value.introduced,
 		options.golangciExclude,
+		value.policy,
 	)
 	if code != 0 {
 		return code

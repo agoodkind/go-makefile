@@ -2,6 +2,8 @@ package execution
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -17,6 +19,7 @@ func (runner *Runner) planGolangci(
 	rule string,
 	introduced time.Time,
 	exclude string,
+	policy history.Policy,
 ) (baseline.Component, int) {
 	var component baseline.Component
 	if code := validMode(); code != 0 {
@@ -54,14 +57,14 @@ func (runner *Runner) planGolangci(
 		return component, failureStatus(err)
 	}
 
-	if err := history.RestrictFindings(
+	if err := runner.restrict(
 		ctx,
 		findingsPath,
 		introduced,
 		gate,
 		rule,
-		runner.git,
 		runner.golangci,
+		policy,
 	); err != nil {
 		return component, failureStatus(err)
 	}
@@ -71,7 +74,7 @@ func (runner *Runner) planGolangci(
 		Label:          "golangci-lint",
 		BaselineFile:   envDefault("GOLANGCI_LINT_BASELINE", ".golangci-lint-baseline.txt"),
 		FindingsFile:   findingsPath,
-		Mode:           "sync",
+		Mode:           noticeMode(policy),
 		ExcludePattern: exclude,
 		ScopePattern:   pattern,
 	}
@@ -85,6 +88,7 @@ func (runner *Runner) planStaticcheck(
 	rule string,
 	introduced time.Time,
 	exclude string,
+	policy history.Policy,
 ) (baseline.Component, int) {
 	var component baseline.Component
 	if code := validMode(); code != 0 {
@@ -116,14 +120,14 @@ func (runner *Runner) planStaticcheck(
 		return component, failureStatus(err)
 	}
 
-	if err := history.RestrictFindings(
+	if err := runner.restrict(
 		ctx,
 		findingsPath,
 		introduced,
 		gate,
 		rule,
-		runner.git,
 		runner.staticcheck,
+		policy,
 	); err != nil {
 		return component, failureStatus(err)
 	}
@@ -133,12 +137,64 @@ func (runner *Runner) planStaticcheck(
 		Label:          "staticcheck-extra",
 		BaselineFile:   envDefault("STATICCHECK_EXTRA_BASELINE", ".staticcheck-extra-baseline.txt"),
 		FindingsFile:   findingsPath,
-		Mode:           "sync",
+		Mode:           noticeMode(policy),
 		ExcludePattern: exclude,
 		ScopePattern:   pattern,
 	}
 
 	return component, 0
+}
+
+func (runner *Runner) restrict(
+	ctx context.Context,
+	path string,
+	introduced time.Time,
+	gate string,
+	rule string,
+	capture history.Capture,
+	policy history.Policy,
+) error {
+	if policy == history.Upgrade {
+		if err := history.RestrictUpgradeFindings(
+			ctx,
+			path,
+			gate,
+			rule,
+			runner.git,
+			capture,
+			runner.format,
+		); err != nil {
+			slog.ErrorContext(ctx, "restrict upgrade notice findings", slog.Any("error", err))
+
+			return fmt.Errorf("restrict upgrade notice findings: %w", err)
+		}
+
+		return nil
+	}
+
+	if err := history.RestrictFindings(
+		ctx,
+		path,
+		introduced,
+		gate,
+		rule,
+		runner.git,
+		capture,
+	); err != nil {
+		slog.ErrorContext(ctx, "restrict notice findings", slog.Any("error", err))
+
+		return fmt.Errorf("restrict notice findings: %w", err)
+	}
+
+	return nil
+}
+
+func noticeMode(policy history.Policy) string {
+	if policy == history.Upgrade {
+		return "accept-new"
+	}
+
+	return "sync"
 }
 
 func validMode() int {

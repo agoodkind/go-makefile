@@ -19,6 +19,7 @@ type Runner struct {
 	git         history.GitOutput
 	tools       func() error
 	analyzer    func() int
+	format      func() error
 	golangci    history.Capture
 	staticcheck history.Capture
 	write       func(baseline.Manifest, bool) error
@@ -44,6 +45,7 @@ func New(
 	git history.GitOutput,
 	tools func() error,
 	analyzer func() int,
+	format func() error,
 	golangci history.Capture,
 	staticcheck history.Capture,
 	write func(baseline.Manifest, bool) error,
@@ -52,6 +54,7 @@ func New(
 		git:         git,
 		tools:       tools,
 		analyzer:    analyzer,
+		format:      format,
 		golangci:    golangci,
 		staticcheck: staticcheck,
 		write:       write,
@@ -99,7 +102,14 @@ func (runner *Runner) PlanGolangciDefault(
 	introduced time.Time,
 	exclude string,
 ) (baseline.Component, int) {
-	return runner.planGolangci(context.Background(), gate, rule, introduced, exclude)
+	return runner.planGolangci(
+		context.Background(),
+		gate,
+		rule,
+		introduced,
+		exclude,
+		history.Cutoff,
+	)
 }
 
 // PlanStaticcheckDefault captures one automatic staticcheck scope.
@@ -116,5 +126,12 @@ func (runner *Runner) PlanStaticcheckDefault(
 	introduced time.Time,
 	exclude string,
 ) (baseline.Component, int) {
-	return runner.planStaticcheck(context.Background(), gate, rule, introduced, exclude)
+	return runner.planStaticcheck(
+		context.Background(),
+		gate,
+		rule,
+		introduced,
+		exclude,
+		history.Cutoff,
+	)
 }
