@@ -28,6 +28,7 @@ type directive struct {
 	rule       string
 	pattern    string
 	introduced time.Time
+	upgrade    bool
 }
 
 func parseDirective(value string) directive {
@@ -37,10 +38,13 @@ func parseDirective(value string) directive {
 		rule:       "",
 		pattern:    "",
 		introduced: time.Time{},
+		upgrade:    false,
 	}
 
 	for token := range strings.FieldsSeq(value) {
 		switch {
+		case token == "UPGRADE=1":
+			parsed.upgrade = true
 		case strings.HasPrefix(token, "GATE="):
 			parsed.gate = strings.TrimPrefix(token, "GATE=")
 		case strings.HasPrefix(token, "LINTER="):

@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"goodkind.io/go-makefile/internal/baseline"
+	"goodkind.io/go-makefile/internal/notice/history"
 )
 
 func (runner *Runner) apply(
@@ -52,6 +53,24 @@ func (runner *Runner) apply(
 }
 
 func (runner *Runner) applyScope(ctx context.Context, options settings, value directive) int {
+	previousUpgrade, hadUpgrade := os.LookupEnv(history.UpgradeEnvironment)
+	upgrade := "0"
+	if value.upgrade {
+		upgrade = "1"
+	}
+
+	if err := os.Setenv(history.UpgradeEnvironment, upgrade); err != nil {
+		return failureStatus(fileFailure("select notice source revision", err))
+	}
+
+	defer restoreEnv(history.UpgradeEnvironment, previousUpgrade, hadUpgrade)
+
+	if value.upgrade {
+		if err := history.FormatSource(ctx); err != nil {
+			return failureStatus(err)
+		}
+	}
+
 	if value.gate == staticcheckGate {
 		previous, had := os.LookupEnv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN")
 		_ = os.Setenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN", value.pattern)

@@ -1,8 +1,9 @@
-// Package history restricts automatic notices to findings before their cutoff.
+// Package history compares notice findings with committed consumer source.
 package history
 
 import (
 	"context"
+	"os"
 	"strings"
 	"time"
 
@@ -34,10 +35,11 @@ func (sources sourceCache) identity(finding, root string) (string, error) {
 	return identity, nil
 }
 
-// RestrictFindings keeps only unchanged occurrences before the original cutoff.
+// RestrictFindings keeps unchanged occurrences from the selected revision.
 //
-// Git and analyzer capture execute through the caller's real IO operations.
-// Each historical occurrence can accept only one current occurrence.
+// Ordinary notices use their original cutoff. Upgrade notices compare the
+// committed consumer revision with the working tree after current formatting.
+// Each committed occurrence can accept only one current occurrence.
 //
 // For example:
 //
@@ -76,6 +78,20 @@ func RestrictFindings(
 }
 
 func (check comparison) revision(introduced time.Time) (string, error) {
+	if os.Getenv(UpgradeEnvironment) == "1" {
+		revision, err := check.output(
+			"notice upgrade revision",
+			"rev-parse",
+			"--verify",
+			"HEAD^{commit}",
+		)
+		if err != nil {
+			return "", err
+		}
+
+		return strings.TrimSpace(revision), nil
+	}
+
 	if introduced.IsZero() {
 		return "", errMissingIntroduced
 	}

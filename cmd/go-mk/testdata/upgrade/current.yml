@@ -1,0 +1,25 @@
+version: "2"
+linters:
+  default: none
+  enable: [funlen, revive, wsl_v5]
+  settings:
+    funlen:
+      lines: 3
+      statements: 0
+      ignore-comments: true
+    wsl_v5:
+      default: none
+      enable: [return]
+      allow-whole-block: false
+    revive:
+      rules:
+        - name: file-length-limit
+          arguments:
+            - max: 11
+              skip-comments: true
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [funlen]
+formatters:
+  enable: [gofumpt]

@@ -24,3 +24,5 @@
 18	INTRODUCED=2026-11-07T21:44:09-08:00 GATE=staticcheck-extra PATTERN=commandentry:	Refresh historical command-entry identities after parameter layout normalization.
 19	INTRODUCED=2026-11-07T21:44:09-08:00 GATE=staticcheck-extra PATTERN=commandentry:	Refresh historical commandentry findings after Go SDK discovery repair.
 20	INTRODUCED=2026-11-07T14:59:16-08:00 GATE=golangci LINTER=dupl	Refresh historical duplicate findings after formatting changed their source ranges.
+21	INTRODUCED=2026-11-09T20:29:20-08:00 GATE=golangci PATTERN=.* UPGRADE=1	Apply the current formatters and baseline existing Golangci findings from the committed consumer revision. Later source changes remain subject to lint checks.
+22	INTRODUCED=2026-11-09T20:29:20-08:00 GATE=staticcheck-extra PATTERN=.* UPGRADE=1	Baseline existing custom analyzer findings from the committed consumer revision after formatting. Commit the generated baseline and applied notice records.

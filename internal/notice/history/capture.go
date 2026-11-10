@@ -72,6 +72,12 @@ func (check comparison) capturePrepared(ctx context.Context, rawPath, findingsPa
 		return err
 	}
 
+	if os.Getenv(UpgradeEnvironment) == "1" {
+		if err := FormatSource(ctx); err != nil {
+			return err
+		}
+	}
+
 	if err := check.capture(rawPath, findingsPath); err != nil {
 		return failed("capture historical notice findings", err)
 	}
