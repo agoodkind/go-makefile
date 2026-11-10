@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"goodkind.io/go-makefile/internal/notice"
+	"goodkind.io/go-makefile/internal/notice/history"
 )
 
 const makeDirectory = ".make"
@@ -28,6 +29,7 @@ type directive struct {
 	rule       string
 	pattern    string
 	introduced time.Time
+	policy     history.Policy
 }
 
 func parseDirective(value string) directive {
@@ -37,10 +39,13 @@ func parseDirective(value string) directive {
 		rule:       "",
 		pattern:    "",
 		introduced: time.Time{},
+		policy:     history.Cutoff,
 	}
 
 	for token := range strings.FieldsSeq(value) {
 		switch {
+		case token == "UPGRADE=1":
+			parsed.policy = history.Upgrade
 		case strings.HasPrefix(token, "GATE="):
 			parsed.gate = strings.TrimPrefix(token, "GATE=")
 		case strings.HasPrefix(token, "LINTER="):

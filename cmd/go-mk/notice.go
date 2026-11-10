@@ -28,6 +28,7 @@ func runNoticeFor(onlyGate string) int {
 		loggedGitOutput,
 		runLintTools,
 		runStaticcheckBin,
+		runFmt,
 		captureNoticeGolangciFindings,
 		captureNoticeStaticcheckFindings,
 		writeManifest,

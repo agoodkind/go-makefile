@@ -78,7 +78,7 @@ func TestNoticeRecordsNoBuildErrorsFromAnotherPlatform(t *testing.T) {
 		t,
 		consumerDir,
 		appliedNoticeFile,
-	); applied != "1\n2\n3\n14\n15\n16\n18\n19\n" {
+	); applied != "1\n2\n3\n14\n15\n16\n18\n19\n22\n" {
 		t.Fatalf("applied notices = %q, want all notices", applied)
 	}
 }

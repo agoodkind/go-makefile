@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"goodkind.io/go-makefile/internal/baseline"
+	"goodkind.io/go-makefile/internal/notice/history"
 )
 
 func (runner *Runner) apply(
@@ -52,6 +53,12 @@ func (runner *Runner) apply(
 }
 
 func (runner *Runner) applyScope(ctx context.Context, options settings, value directive) int {
+	if value.policy == history.Upgrade {
+		if err := runner.format(); err != nil {
+			return failureStatus(err)
+		}
+	}
+
 	if value.gate == staticcheckGate {
 		previous, had := os.LookupEnv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN")
 		_ = os.Setenv("STATICCHECK_EXTRA_BASELINE_SCOPE_PATTERN", value.pattern)
@@ -62,6 +69,7 @@ func (runner *Runner) applyScope(ctx context.Context, options settings, value di
 			value.rule,
 			value.introduced,
 			options.staticcheckExclude,
+			value.policy,
 		)
 		if code != 0 {
 			return code
@@ -87,6 +95,7 @@ func (runner *Runner) applyScope(ctx context.Context, options settings, value di
 		value.rule,
 		value.introduced,
 		options.golangciExclude,
+		value.policy,
 	)
 	if code != 0 {
 		return code

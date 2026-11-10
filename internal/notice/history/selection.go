@@ -1,4 +1,4 @@
-// Package history restricts automatic notices to findings before their cutoff.
+// Package history compares notice findings with committed consumer source.
 package history
 
 import (
@@ -16,11 +16,23 @@ type GitOutput func(message string, arguments ...string) (string, error)
 // Capture executes the configured analyzer and writes its captured findings.
 type Capture func(rawPath, findingsPath string) error
 
+// Policy selects the source revision used by an automatic notice.
+type Policy int
+
+const (
+	// Cutoff compares source from before the notice's effective date.
+	Cutoff Policy = iota
+	// Upgrade compares committed source after applying current formatting.
+	Upgrade
+)
+
 type comparison struct {
 	gate    string
 	rule    string
 	git     GitOutput
 	capture Capture
+	policy  Policy
+	format  func() error
 }
 
 type sourceCache map[string]notice.Source
@@ -34,10 +46,10 @@ func (sources sourceCache) identity(finding, root string) (string, error) {
 	return identity, nil
 }
 
-// RestrictFindings keeps only unchanged occurrences before the original cutoff.
+// RestrictFindings keeps unchanged occurrences from the selected revision.
 //
-// Git and analyzer capture execute through the caller's real IO operations.
-// Each historical occurrence can accept only one current occurrence.
+// Ordinary notices use their original cutoff.
+// Each committed occurrence can accept only one current occurrence.
 //
 // For example:
 //
@@ -51,7 +63,48 @@ func RestrictFindings(
 	git GitOutput,
 	capture Capture,
 ) error {
-	check := comparison{gate: gate, rule: rule, git: git, capture: capture}
+	check := comparison{
+		gate:    gate,
+		rule:    rule,
+		git:     git,
+		capture: capture,
+		policy:  Cutoff,
+		format:  nil,
+	}
+
+	return check.restrict(ctx, path, introduced)
+}
+
+// RestrictUpgradeFindings keeps findings from unchanged committed source.
+//
+// The formatter and analyzer use the workflow's actual IO operations. The
+// isolated committed copy receives the same formatting as the working tree.
+//
+// An upgrade runner supplies its existing formatter:
+//
+//	RestrictUpgradeFindings(ctx, path, gate, rule, git, capture, format)
+func RestrictUpgradeFindings(
+	ctx context.Context,
+	path string,
+	gate string,
+	rule string,
+	git GitOutput,
+	capture Capture,
+	format func() error,
+) error {
+	check := comparison{
+		gate:    gate,
+		rule:    rule,
+		git:     git,
+		capture: capture,
+		policy:  Upgrade,
+		format:  format,
+	}
+
+	return check.restrict(ctx, path, time.Time{})
+}
+
+func (check comparison) restrict(ctx context.Context, path string, introduced time.Time) error {
 	revision, err := check.revision(introduced)
 	if err != nil {
 		return err
@@ -76,6 +129,20 @@ func RestrictFindings(
 }
 
 func (check comparison) revision(introduced time.Time) (string, error) {
+	if check.policy == Upgrade {
+		revision, err := check.output(
+			"notice upgrade revision",
+			"rev-parse",
+			"--verify",
+			"HEAD^{commit}",
+		)
+		if err != nil {
+			return "", err
+		}
+
+		return strings.TrimSpace(revision), nil
+	}
+
 	if introduced.IsZero() {
 		return "", errMissingIntroduced
 	}

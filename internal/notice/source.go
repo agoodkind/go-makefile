@@ -26,6 +26,7 @@ type Source struct {
 //
 // Formatting preserves the identity. Code and comment changes alter it.
 // Duplicate reports include every overlapping declaration in both blocks.
+// File-length reports identify the whole file, including reports at EOF.
 //
 // For example:
 //
@@ -68,9 +69,12 @@ func SourceIdentity(sources map[string]Source, finding, root string) (string, er
 		return "", err
 	}
 
-	nodes, err := parsed.nodesAt(line, column)
-	if err != nil {
-		return "", err
+	nodes := []ast.Node{parsed.file}
+	if !strings.Contains(finding, ": file-length-limit:") {
+		nodes, err = parsed.nodesAt(line, column)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	digest, err := parsed.fingerprint(nodes)
