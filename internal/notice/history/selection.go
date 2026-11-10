@@ -48,8 +48,7 @@ func (sources sourceCache) identity(finding, root string) (string, error) {
 
 // RestrictFindings keeps unchanged occurrences from the selected revision.
 //
-// Ordinary notices use their original cutoff. Upgrade notices compare the
-// committed consumer revision with the working tree after current formatting.
+// Ordinary notices use their original cutoff.
 // Each committed occurrence can accept only one current occurrence.
 //
 // For example:
