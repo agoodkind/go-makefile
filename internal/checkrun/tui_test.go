@@ -1,4 +1,4 @@
-package main
+package checkrun
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 )
 
 func TestFinishedCheckViewKeepsStatusTableOnly(t *testing.T) {
-	checks := []check{{name: "check-1"}, {name: "check-2"}}
+	checks := []Check{{Name: "check-1"}, {Name: "check-2"}}
 	model := newCheckModel("go-mk check", len("check-2"), checks)
 	model.steps[0] = stepView{
 		name: "check-1",

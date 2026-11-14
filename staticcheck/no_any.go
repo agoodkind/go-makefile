@@ -245,7 +245,7 @@ func bannedReason(pass *analysis.Pass, t types.Type) string {
 // underlying type: the bare empty interface itself, or an embedded interface
 // that expands to one.
 func interfaceBannedReason(pass *analysis.Pass, x *types.Interface) string {
-	if x.NumMethods() == 0 && x.NumEmbeddeds() == 0 {
+	if x.NumMethods() == 0 && x.NumEmbeddeds() == 0 && !x.IsComparable() {
 		return "any (empty interface)"
 	}
 

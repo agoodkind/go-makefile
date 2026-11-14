@@ -217,6 +217,8 @@ func entryExpression(pass *entryCheck, expression ast.Expr, handling bool) bool 
 		return entryExpression(pass, node.X, handling)
 	case *ast.ParenExpr:
 		return entryExpression(pass, node.X, handling)
+	case *ast.UnaryExpr:
+		return node.Op == token.AND && entryExpression(pass, node.X, handling)
 	case *ast.CallExpr:
 		if selector, ok := node.Fun.(*ast.SelectorExpr); ok &&
 			!entryExpression(pass, selector.X, false) {

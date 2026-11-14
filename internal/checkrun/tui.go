@@ -1,10 +1,4 @@
-// Bubble Tea progress display for a check run on a terminal. The model renders
-// the same report layout the streamed and batch paths produce, with a spinner on
-// the running step, and updates each row to its result as the run reports it. The
-// first frame paints immediately with every step listed and the first one
-// spinning, so the run gives feedback the moment it launches. The final frame
-// keeps the same table height so the renderer can replace it in place.
-package main
+package checkrun
 
 import (
 	"log/slog"
@@ -44,10 +38,20 @@ type checkModel struct {
 
 // newCheckModel builds the model with every step pending and a spinner ready on
 // the first step.
-func newCheckModel(title string, width int, checks []check) *checkModel {
+func newCheckModel(title string, width int, checks []Check) *checkModel {
 	steps := make([]stepView, len(checks))
 	for index, current := range checks {
-		steps[index] = stepView{name: current.name}
+		steps[index] = stepView{
+			name: current.Name,
+			done: false,
+			result: report.StepResult{
+				Name:        "",
+				Status:      report.StatusOK,
+				Note:        "",
+				Findings:    nil,
+				Remediation: "",
+			},
+		}
 	}
 
 	spin := spinner.New()
@@ -57,12 +61,20 @@ func newCheckModel(title string, width int, checks []check) *checkModel {
 }
 
 // Init starts the spinner animation.
+//
+// Bubble Tea invokes this method before processing model updates.
+//
+//	command := model.Init()
 func (m *checkModel) Init() tea.Cmd {
 	return m.spinner.Tick
 }
 
 // Update advances the spinner, records each resolved step, and quits once the
 // run reports it finished or the user interrupts.
+//
+// Each completion message updates one row before the final message quits.
+//
+//	model.Update(gateDoneMsg{index: 0, result: result})
 func (m *checkModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := msg.(type) {
 	case gateDoneMsg:
@@ -87,6 +99,10 @@ func (m *checkModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View renders the title and one status row per step. A finished view keeps the
 // same height as the live view so findings cannot push the live rows into
 // scrollback and leave a duplicate table behind.
+//
+// The view includes the title and status rows without completion findings.
+//
+//	view := model.View()
 func (m *checkModel) View() tea.View {
 	var builder strings.Builder
 	builder.WriteString(m.title)
@@ -115,8 +131,8 @@ func (m *checkModel) row(index int, step stepView, running int) string {
 	return report.Row(m.width, step.name, "")
 }
 
-// firstPendingIndex returns the index of the first not-yet-done step, or -1 when
-// all steps are done.
+// firstPendingIndex returns the first pending step index, or -1 after every
+// step finishes.
 func (m *checkModel) firstPendingIndex() int {
 	for index, step := range m.steps {
 		if !step.done {
@@ -133,8 +149,8 @@ func (m *checkModel) firstPendingIndex() int {
 // cannot drive the terminal (no usable TTY), the run still completes and the
 // report is printed through report.Render, so the output is never lost and the
 // checks are never run twice.
-func runChecksTUI(title string, checks []check) int {
-	width := checkNameWidth(checks)
+func runChecksTUI(title string, checks []Check, stdout func(string)) int {
+	width := NameWidth(checks)
 	model := newCheckModel(title, width, checks)
 	// Standard input/output: Bubble Tea must read the terminal so it consumes the
 	// replies to the capability queries it emits at startup (synchronized-output
@@ -156,7 +172,7 @@ func runChecksTUI(title string, checks []check) int {
 			safeSend(program, runFinishedMsg(status))
 			done <- status
 		}()
-		status = executeChecks(
+		status = Execute(
 			checks,
 			func(index int, result report.StepResult) {
 				results[index] = result
@@ -167,14 +183,14 @@ func runChecksTUI(title string, checks []check) int {
 	_, err := program.Run()
 	status := <-done
 	if err != nil {
-		writeStdout(
+		stdout(
 			report.Render(report.Report{
 				Title: title,
 				Steps: results,
 			}),
 		)
 	} else {
-		writeStdout(checkCompletionDetails(results))
+		stdout(checkCompletionDetails(results))
 	}
 
 	return status
@@ -189,13 +205,13 @@ func checkCompletionDetails(results []report.StepResult) string {
 		builder.WriteString(report.FindingsBlock(result))
 	}
 
-	builder.WriteString(report.Footer(failedStepNames(results), advisoryStepCount(results)))
+	builder.WriteString(report.Footer(FailedNames(results), AdvisoryCount(results)))
 
 	return builder.String()
 }
 
 // safeSend delivers a message to the program, recovering if the program has
-// already stopped so the check runner finishes even when Bubble Tea ended early.
+// already stopped. The check runner can finish after Bubble Tea ends early.
 func safeSend(program *tea.Program, msg tea.Msg) {
 	defer func() { _ = recover() }()
 	program.Send(msg)
