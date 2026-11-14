@@ -199,8 +199,7 @@ GO_BUILD_TARGETS       ?= $(if $(strip $(CMD)),$(CMD),./...)
 GO_TEST_TARGETS        ?= ./...
 GO_TEST_LDFLAGS        ?=
 GO_VET_TARGETS         ?= ./...
-GOVULNCHECK_TARGETS    ?= -version
-$(if $(filter build build-check govulncheck,$(MAKECMDGOALS)),$(info govulncheck: vulnerability scanning is temporarily disabled under moratorium.))
+GOVULNCHECK_TARGETS    ?= ./...
 # v1.8.0 uses golang.org/x/tools v0.50.0, which handles Go 1.27 type analysis.
 GOVULNCHECK_INSTALL    ?= golang.org/x/vuln/cmd/govulncheck@v1.8.0
 GO_INSTALL_FLAGS       ?= $(filter-out -o %,$(GO_BUILD_FLAGS))
@@ -427,7 +426,8 @@ help:
 	@printf '  %-40s %s\n' 'build' 'local build-check, then compile; CI skips inline gate only with OIDC proof'
 	@printf '  %-40s %s\n' 'check' 'unsupported; run make build directly'
 	@printf '  %-40s %s\n' 'lint' 'unsupported; run make build directly'
-	@printf '  %-40s %s\n' 'build-check' 'vet + lint + govulncheck + Go version'
+	@printf '  %-40s %s\n' 'build-check' 'vet + lint + Go version'
+	@printf '  %-40s %s\n' 'govulncheck' 'run vulnerability scanning explicitly'
 	@printf '  %-40s %s\n' 'fmt' 'apply configured Go formatters'
 	@printf '  %-40s %s\n' 'test' 'go test ./...'
 	@printf '  %-40s %s\n' 'mutation MUTATION_PACKAGES=...' 'mutation tests; report and summary under .make'

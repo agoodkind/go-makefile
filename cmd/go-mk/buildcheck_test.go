@@ -31,7 +31,7 @@ func TestGovulncheckInstallationFailureIsAdvisory(t *testing.T) {
 	}
 }
 
-func TestPrepareGovulncheckCheckInstallsBeforeRun(t *testing.T) {
+func TestBuildCheckLeavesGovulncheckStandalone(t *testing.T) {
 	dir, env := govulncheckProject(t)
 	download := exec.Command("go", "mod", "download")
 	download.Dir = filepath.Join(repoRootForTest(t), "staticcheck")
@@ -61,7 +61,9 @@ func TestPrepareGovulncheckCheckInstallsBeforeRun(t *testing.T) {
 	env["STATICCHECK_EXTRA_BUILD_PKG"] = "./cmd/staticcheck-extra"
 	writeFile(t, filepath.Join(dir, ".make", "go-latest-version"), "1.27.1\n")
 	output := govulncheckCommand(t, dir, env, "build-check")
-	govulncheckRequireFindings(t, output)
+	if strings.Contains(output, "govulncheck") {
+		t.Fatalf("build-check ran standalone govulncheck:\n%s", output)
+	}
 	if _, err := os.Stat(filepath.Join(env["GOBIN"], "probe")); err != nil {
 		t.Fatalf("Go did not install the fixture command: %v", err)
 	}
@@ -70,8 +72,8 @@ func TestPrepareGovulncheckCheckInstallsBeforeRun(t *testing.T) {
 	installIndex := strings.Index(records, `"spec":"."`)
 	vetIndex := strings.Index(records, `"tool":"vet"`)
 	runIndex := strings.Index(records, `"tool":"govulncheck"`)
-	if installIndex < 0 || vetIndex < installIndex || runIndex < vetIndex {
-		t.Fatalf("govulncheck installation must precede vet and scanning:\n%s", records)
+	if installIndex < 0 || vetIndex < installIndex || runIndex >= 0 {
+		t.Fatalf("build-check must install lint tools before vet without scanning:\n%s", records)
 	}
 }
 
