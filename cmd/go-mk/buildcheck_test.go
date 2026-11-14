@@ -64,12 +64,12 @@ func TestBuildCheckLeavesGovulncheckStandalone(t *testing.T) {
 	if strings.Contains(output, "govulncheck") {
 		t.Fatalf("build-check ran standalone govulncheck:\n%s", output)
 	}
-	if _, err := os.Stat(filepath.Join(env["GOBIN"], "probe")); err != nil {
+	if _, err := os.Stat(filepath.Join(env["GOBIN"], "install")); err != nil {
 		t.Fatalf("Go did not install the fixture command: %v", err)
 	}
 
 	records := readGoMkLogRecords(t, dir)
-	installIndex := strings.Index(records, `"spec":"."`)
+	installIndex := strings.Index(records, `"spec":"./install"`)
 	vetIndex := strings.Index(records, `"tool":"vet"`)
 	runIndex := strings.Index(records, `"tool":"govulncheck"`)
 	if installIndex < 0 || vetIndex < installIndex || runIndex >= 0 {
