@@ -18,9 +18,9 @@ The `build` job is the required gate. On a releasing repository it rolls up the 
 
 ## The quality layouts
 
-`job_layout` defaults to `parallel`. This mode preserves the nine `Quality / *` jobs: Vet, Test, Golangci Lint, Format, Gocyclo, Deadcode, Staticcheck Extra, Govulncheck, and Go Version.
+`job_layout` defaults to `split`. This mode runs `make test` in `Test` and `make build-check` in `Quality`.
 
-`split` runs `make test` in `Test` and `make build-check` in `Quality`. `single` runs `make build-check` and `make test` in `Checks`. The single job runs both commands before it reports either failure.
+`parallel` runs nine `Quality / *` jobs: Vet, Test, Golangci Lint, Format, Gocyclo, Deadcode, Staticcheck Extra, Govulncheck, and Go Version. `single` runs `make build-check` and `make test` in `Checks`. The single job runs both commands before it reports either failure.
 
 Every layout restores the generated cache that `prepare` warmed. The Golangci Lint job restores and saves its results cache in `parallel`. `Quality` and `Checks` own the same cache in serialized layouts. The cache key and weekly refresh stay identical across layouts.
 
