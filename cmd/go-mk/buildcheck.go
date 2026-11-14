@@ -1,5 +1,5 @@
 // build-check orchestration for go-mk. It runs vet, every lint gate,
-// govulncheck, and the Go version check in one process, collects a StepResult
+// and the Go version check in one process, collects a StepResult
 // for each, and prints one report. It lives in package main, which owns stdout,
 // process execution, and the report; the gates still recurse through make for
 // their dependency setup.
@@ -17,7 +17,7 @@ import (
 	"goodkind.io/go-makefile/internal/vet"
 )
 
-// runBuildCheck runs vet, the lint gates, govulncheck, and the Go version check,
+// runBuildCheck runs vet, the lint gates, and the Go version check,
 // then prints one report. GO_MK_LOG=debug streams each phase for troubleshooting.
 // It returns the exit code, non-zero when any blocking step failed.
 func runBuildCheck() int {
@@ -32,12 +32,10 @@ func runBuildCheck() int {
 		return statusFromError(err)
 	}
 
-	govulncheck := prepareGovulncheckCheck(defaultGovulncheckConfig())
-
-	return runChecks("go-mk build-check", buildCheckChecks(govulncheck))
+	return runChecks("go-mk build-check", buildCheckChecks())
 }
 
-// runBuildCheckRaw streams vet, the gates, govulncheck, and Go version for the
+// runBuildCheckRaw streams vet, the gates, and Go version for the
 // GO_MK_LOG=debug path, mirroring the historical separate-target behaviour.
 func runBuildCheckRaw() int {
 	status := 0
@@ -49,7 +47,6 @@ func runBuildCheckRaw() int {
 		status = code
 	}
 
-	runStandaloneGovulncheck()
 	runGoVersionCheck()
 
 	return status
@@ -63,29 +60,6 @@ func runVetStep() (report.StepResult, int) {
 // runGovulncheckStep installs and runs govulncheck as a captured advisory step.
 func runGovulncheckStep() (report.StepResult, int) {
 	return runGovulncheckStepWith(defaultGovulncheckConfig()), 0
-}
-
-func prepareGovulncheckCheck(config govulncheckConfig) check {
-	installSpec := lintEnvDefault("GOVULNCHECK_INSTALL", defaultGovulncheckInstall)
-	if err := config.install(installSpec); err != nil {
-		result := advisoryToolFailure("govulncheck", "installation failed: "+err.Error())
-
-		return check{
-			name: "govulncheck",
-			run: func() (report.StepResult, int) {
-				return result, 0
-			},
-		}
-	}
-
-	config.install = func(string) error { return nil }
-
-	return check{
-		name: "govulncheck",
-		run: func() (report.StepResult, int) {
-			return runGovulncheckStepWith(config), 0
-		},
-	}
 }
 
 type govulncheckConfig struct {
