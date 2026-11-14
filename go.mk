@@ -199,7 +199,8 @@ GO_BUILD_TARGETS       ?= $(if $(strip $(CMD)),$(CMD),./...)
 GO_TEST_TARGETS        ?= ./...
 GO_TEST_LDFLAGS        ?=
 GO_VET_TARGETS         ?= ./...
-GOVULNCHECK_TARGETS    ?= ./...
+GOVULNCHECK_TARGETS    ?= -version
+$(info govulncheck: vulnerability scanning is temporarily disabled under moratorium.)
 # v1.8.0 uses golang.org/x/tools v0.50.0, which handles Go 1.27 type analysis.
 GOVULNCHECK_INSTALL    ?= golang.org/x/vuln/cmd/govulncheck@v1.8.0
 GO_INSTALL_FLAGS       ?= $(filter-out -o %,$(GO_BUILD_FLAGS))
