@@ -1,0 +1,31 @@
+name: Go checks and build
+description: Run shared Go checks, tests, and builds.
+
+inputs:
+  working-directory:
+    description: Directory containing the module Makefile.
+    default: "."
+  go-version-file:
+    description: File declaring the Go version.
+    default: go.mod
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v7
+      with:
+        go-version-file: ${{ inputs.go-version-file }}
+        cache-dependency-path: ${{ inputs.working-directory }}/go.sum
+
+    - uses: golangci/golangci-lint-action@v9
+      with:
+        version: v2.14.0
+        install-only: true
+        skip-cache: true
+
+    - name: Run checks, tests, and build
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: make build-check test build
