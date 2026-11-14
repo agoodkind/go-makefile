@@ -41,7 +41,7 @@ on:
           and Quality jobs, and single runs one Checks job.
         required: false
         type: string
-        default: single
+        default: split
       go_version_file:
         description: >-
           Path to the consumer's go.mod file. Defaults to the repository root
@@ -470,8 +470,8 @@ jobs:
 
   quality:
     name: ${{ matrix.name }}
-    # The prepared matrix preserves nine parallel checks by default and
-    # condenses them only when the caller selects split or single. Govulncheck
+    # The prepared matrix runs separate Test and Quality jobs by default.
+    # Callers can select parallel or single instead. Govulncheck
     # is advisory only as a standalone parallel job. Every shape restores the
     # generated cache the prepare job warmed.
     needs: [prepare]
