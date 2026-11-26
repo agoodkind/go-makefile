@@ -1,0 +1,32 @@
+name: Publish Darwin cross image
+
+on:
+  push:
+    tags: ['darwin-cross-*']
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    env:
+      IMAGE: ghcr.io/agoodkind/darwin-cross-ccache:${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build image
+        run: docker build --tag "$IMAGE" images/darwin-cross
+      - name: Verify ccache and Darwin compilers
+        run: |
+          docker run --rm --entrypoint ccache "$IMAGE" --version
+          docker run --rm --entrypoint o64-clang "$IMAGE" --version
+          docker run --rm --entrypoint oa64-clang "$IMAGE" --version
+      - name: Sign in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish image
+        run: docker push "$IMAGE"
