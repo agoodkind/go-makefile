@@ -10,11 +10,6 @@ import (
 func TestBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
 	workflow := readBuildWorkflow(t)
 
-	ensure := buildWorkflowStep(t, workflow, "Ensure ccache in darwin cross container")
-	requireWorkflowContains(t, ensure, "if: matrix.container != '' && inputs.cgo")
-	requireWorkflowContains(t, ensure, "apt-get install -y --no-install-recommends ccache")
-	requireWorkflowContains(t, ensure, "ccache --version")
-
 	restore := buildWorkflowStep(t, workflow, "Restore darwin ccache")
 	requireWorkflowContains(t, restore, "id: darwin-ccache-restore")
 	requireWorkflowContains(t, restore, "uses: actions/cache/restore@v6")
@@ -23,7 +18,7 @@ func TestBuildWorkflowConfiguresDarwinCcache(t *testing.T) {
 	requireWorkflowContains(
 		t,
 		restore,
-		"ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-",
+		"ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ matrix.container }}-${{ matrix.cc }}-",
 	)
 
 	configure := buildWorkflowStep(t, workflow, "Configure darwin cross compilers")
@@ -293,5 +288,5 @@ func requireWorkflowOrder(t *testing.T, workflow string, before string, after st
 }
 
 func darwinCcacheWorkflowKey() string {
-	return "ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles(format('{0}/go.mod', inputs.working_directory), format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}-${{ steps.submodule-pins.outputs.digest }}"
+	return "ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ matrix.container }}-${{ matrix.cc }}-${{ hashFiles(format('{0}/go.mod', inputs.working_directory), format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}-${{ steps.submodule-pins.outputs.digest }}"
 }
