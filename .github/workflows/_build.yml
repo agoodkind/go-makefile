@@ -128,14 +128,14 @@ jobs:
                 if [ -n "${DARWIN_RUNNER}" ]; then
                   row=$(jq -nc --arg r "${DARWIN_RUNNER}" '{goos:"darwin",goarch:"amd64",runner:$r,container:"",cc:"",cxx:""}')
                 else
-                  row='{"goos":"darwin","goarch":"amd64","runner":"ubuntu-24.04","container":"ghcr.io/goreleaser/goreleaser-cross:v1.26.3","cc":"o64-clang","cxx":"o64-clang++"}'
+                  row='{"goos":"darwin","goarch":"amd64","runner":"ubuntu-24.04","container":"ghcr.io/agoodkind/darwin-cross-ccache:darwin-cross-v1.27.3-4.1","cc":"o64-clang","cxx":"o64-clang++"}'
                 fi
                 ;;
               darwin/arm64)
                 if [ -n "${DARWIN_RUNNER}" ]; then
                   row=$(jq -nc --arg r "${DARWIN_RUNNER}" '{goos:"darwin",goarch:"arm64",runner:$r,container:"",cc:"",cxx:""}')
                 else
-                  row='{"goos":"darwin","goarch":"arm64","runner":"ubuntu-24.04","container":"ghcr.io/goreleaser/goreleaser-cross:v1.26.3","cc":"oa64-clang","cxx":"oa64-clang++"}'
+                  row='{"goos":"darwin","goarch":"arm64","runner":"ubuntu-24.04","container":"ghcr.io/agoodkind/darwin-cross-ccache:darwin-cross-v1.27.3-4.1","cc":"oa64-clang","cxx":"oa64-clang++"}'
                 fi
                 ;;
               *)
@@ -181,14 +181,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ccache
-      - name: Ensure ccache in darwin cross container
-        if: matrix.container != '' && inputs.cgo
-        run: |
-          if ! command -v ccache >/dev/null 2>&1; then
-            apt-get update
-            apt-get install -y --no-install-recommends ccache
-          fi
-          ccache --version
       - uses: actions/setup-go@v7
         id: setup-go
         with:
@@ -227,8 +219,6 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ~/.ccache
-          # Keep this tag segment aligned if the goreleaser-cross image becomes parameterized.
-          #
           # The key ends at the dependency digest, matching the linux ccache
           # above, so a run whose dependencies are unchanged hits it exactly and
           # the save below is skipped. A run-scoped suffix here could never hit,
@@ -237,9 +227,9 @@ jobs:
           # budget, and eviction reclaims whatever was touched least recently
           # rather than whatever is useless, so entries written once and never
           # read push out the caches that other jobs do read.
-          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-${{ hashFiles(format('{0}/go.mod', inputs.working_directory), format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}-${{ steps.submodule-pins.outputs.digest }}
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ matrix.container }}-${{ matrix.cc }}-${{ hashFiles(format('{0}/go.mod', inputs.working_directory), format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}-${{ steps.submodule-pins.outputs.digest }}
           restore-keys: |
-            ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-goreleaser-cross-v1.26.3-${{ matrix.cc }}-
+            ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ matrix.container }}-${{ matrix.cc }}-
       - name: Configure ccache
         if: matrix.goos == 'linux' && inputs.cgo
         run: |
