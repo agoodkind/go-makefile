@@ -1,8 +1,12 @@
 name: Publish Darwin cross image
 
 on:
-  push:
-    tags: ['darwin-cross-*']
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Container image tag to publish
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -12,7 +16,7 @@ jobs:
   publish:
     runs-on: ubuntu-24.04
     env:
-      IMAGE: ghcr.io/agoodkind/darwin-cross-ccache:${{ github.ref_name }}
+      IMAGE: ghcr.io/agoodkind/darwin-cross-ccache:${{ inputs.image_tag }}
     steps:
       - uses: actions/checkout@v7
       - name: Build image
