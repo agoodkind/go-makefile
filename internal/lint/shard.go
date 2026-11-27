@@ -3,6 +3,8 @@ package lint
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -13,14 +15,18 @@ type testShard struct {
 }
 
 func ciTestTargets(name, definition string) ([]string, error) {
+	slog.Info("select Go packages for CI", slog.String("shard", name))
 	var shards []testShard
 	if err := json.Unmarshal([]byte(definition), &shards); err != nil {
+		slog.Error("decode CI test shards", slog.Any("error", err))
 		return nil, fmt.Errorf("decode CI test shards: %w", err)
 	}
 
 	command := exec.Command("go", "list", "./...")
+	command.Stderr = os.Stderr
 	output, err := command.Output()
 	if err != nil {
+		slog.Error("list CI test packages", slog.Any("error", err))
 		return nil, fmt.Errorf("list Go packages for CI test shards: %w", err)
 	}
 
@@ -46,7 +52,11 @@ func partitionTestPackages(packages []string, shards []testShard) (map[string][]
 		targets[shard.Name] = nil
 		if len(shard.Packages) == 0 {
 			if remainder != "" {
-				return nil, fmt.Errorf("CI test shards %q and %q both select the remaining packages", remainder, shard.Name)
+				return nil, fmt.Errorf(
+					"CI test shards %q and %q both select the remaining packages",
+					remainder,
+					shard.Name,
+				)
 			}
 			remainder = shard.Name
 		}
@@ -59,7 +69,12 @@ func partitionTestPackages(packages []string, shards []testShard) (map[string][]
 				continue
 			}
 			if selected != "" {
-				return nil, fmt.Errorf("Go package %q matches CI test shards %q and %q", path, selected, shard.Name)
+				return nil, fmt.Errorf(
+					"Go package %q matches CI test shards %q and %q",
+					path,
+					selected,
+					shard.Name,
+				)
 			}
 			selected = shard.Name
 		}
