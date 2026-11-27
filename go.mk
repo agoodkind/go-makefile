@@ -515,6 +515,10 @@ ci-changed: go-mk-bin
 
 go-mk-cache-manifest: go-mk-bin
 	@"$(__GO_MK_ENGINE)" cache-manifest
+	@if [ -n "$${GITHUB_OUTPUT:-}" ]; then \
+		printf 'lint_cache_linter=%s\nlint_cache_in_build_check=%s\n' \
+			"$$GOLANGCI_LINT_INSTALL" "$(if $(filter lint-golangci,$(or $(strip $(LINT_GATES)),lint-golangci)),true,false)" >> "$$GITHUB_OUTPUT"; \
+	fi
 
 go-mk-ci-job-layout: go-mk-bin
 	@"$(__GO_MK_ENGINE)" ci-job-layout
