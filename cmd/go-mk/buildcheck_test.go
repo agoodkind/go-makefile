@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -369,6 +370,11 @@ func govulncheckProject(t *testing.T) (string, map[string]string) {
 	}
 	env["TEST_TELEMETRY_DIR"] = filepath.Join(dir, "telemetry")
 	writeFile(t, filepath.Join(env["TEST_TELEMETRY_DIR"], "mode"), "off\n")
+	configDir := env["XDG_CONFIG_HOME"]
+	if runtime.GOOS == "darwin" {
+		configDir = filepath.Join(dir, "Library", "Application Support")
+	}
+	writeFile(t, filepath.Join(configDir, "go", "telemetry", "mode"), "off\n")
 	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/probe\n\ngo 1.24\n")
 	writeFile(
 		t,

@@ -45,7 +45,7 @@ func TestUpgradeNoticesPreservePassingConsumerBuild(t *testing.T) {
 		"GO_MK_NOTICE_MAKEFILE=" + filepath.Join(repository, "go.mk"),
 		"GO_MK_PLATFORMS=" + runtime.GOOS + "/" + runtime.GOARCH,
 		"GOLANGCI_LINT_FLAGS=-c .make/upgrade.yml",
-		"GOLANGCI_LINT_RUN_FLAGS=-c .make/upgrade.yml",
+		"GOLANGCI_LINT_RUN_FLAGS=-c .make/upgrade.yml --allow-parallel-runners",
 		"STATICCHECK_EXTRA_BUILD_REPO=" + filepath.Join(repository, "staticcheck"),
 		"STATICCHECK_EXTRA_BUILD_PKG=./cmd/staticcheck-extra",
 	}
@@ -168,7 +168,7 @@ func TestUpgradeNoticeRejectsUncommittedViolation(t *testing.T) {
 		"GO_MK_NOTICE_MAKEFILE=" + filepath.Join(repository, "go.mk"),
 		"GO_MK_PLATFORMS=" + runtime.GOOS + "/" + runtime.GOARCH,
 		"GOLANGCI_LINT_FLAGS=-c .make/upgrade.yml",
-		"GOLANGCI_LINT_RUN_FLAGS=-c .make/upgrade.yml",
+		"GOLANGCI_LINT_RUN_FLAGS=-c .make/upgrade.yml --allow-parallel-runners",
 	}
 	if output, err := runConsumerMake(consumer, arguments...); err != nil {
 		t.Fatalf("upgrade notice failed: %v\n%s", err, output)

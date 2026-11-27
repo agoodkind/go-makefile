@@ -21,21 +21,19 @@ func TestHistoryRestoresDirectoryAndEnvironmentAfterFailures(t *testing.T) {
 			func(t *testing.T) {
 				consumer := historyFailureConsumer(t, scenario)
 				const findings = "current-findings.txt"
-				writeConsumerFile(t, consumer, findings, "widget/widget.go:3:1: duplicate (dupl)\n")
+				const currentFinding = "fixture.go:3:1: duplicate (dupl)\n"
+				writeConsumerFile(t, consumer, findings, currentFinding)
 
 				aliases := t.TempDir()
-				if err := os.Symlink(
-					builtTestLinter(t),
-					filepath.Join(aliases, "golangci-lint"),
-				); err != nil {
+				executable, err := os.Executable()
+				if err != nil {
 					t.Fatal(err)
 				}
 
-				if err := os.Symlink(
-					builtTestAnalyzer(t, filepath.Join("..", "..")),
-					filepath.Join(aliases, "staticcheck-extra"),
-				); err != nil {
-					t.Fatal(err)
+				for _, name := range []string{"golangci-lint", "staticcheck-extra"} {
+					if err := os.Symlink(executable, filepath.Join(aliases, name)); err != nil {
+						t.Fatal(err)
+					}
 				}
 
 				t.Setenv("PATH", aliases+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -56,6 +54,15 @@ func TestHistoryRestoresDirectoryAndEnvironmentAfterFailures(t *testing.T) {
 
 				captureFailure := errors.New("analyzer failed in the historical checkout")
 				capture := func(_, _ string) error {
+					directory, err := os.Getwd()
+					if err != nil {
+						t.Fatal(err)
+					}
+
+					if directory == workingDirectory {
+						t.Error("capture ran in the current checkout")
+					}
+
 					return captureFailure
 				}
 				err = history.RestrictFindings(
@@ -86,6 +93,10 @@ func TestHistoryRestoresDirectoryAndEnvironmentAfterFailures(t *testing.T) {
 
 				if current, err := os.Getwd(); err != nil || current != workingDirectory {
 					t.Fatalf("historical failure did not restore the current directory: %v", err)
+				}
+
+				if current := readConsumerFile(t, consumer, findings); current != currentFinding {
+					t.Fatalf("historical failure changed the current findings: %q", current)
 				}
 
 				for name, expected := range map[string]string{

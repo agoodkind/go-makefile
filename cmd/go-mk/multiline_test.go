@@ -76,7 +76,7 @@ func TestNoticeBaselinesMultilineGolangciDiagnostics(t *testing.T) {
 		"_GO_MK_NOTICES_FILE=" + noticesPath,
 		"GOLANGCI_LINT=" + linter,
 		"GOLANGCI_LINT_FLAGS=-c .make/golangci.yml",
-		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml",
+		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --allow-parallel-runners",
 		"GOLANGCI_LINT_TARGETS=./widget",
 	}
 	output, err := command.CombinedOutput()
@@ -193,7 +193,7 @@ func TestNoticeExcludesSourceLinesFromBaseline(t *testing.T) {
 		"_GO_MK_NOTICES_FILE=" + noticesPath,
 		"GOLANGCI_LINT=" + linter,
 		"GOLANGCI_LINT_FLAGS=-c .make/golangci.yml",
-		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml",
+		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --allow-parallel-runners",
 		"GOLANGCI_LINT_TARGETS=./widget",
 	}
 	output, err := command.CombinedOutput()
@@ -262,7 +262,7 @@ func TestNoticeRejectsMappedCompileError(t *testing.T) {
 		"_GO_MK_NOTICES_FILE=" + filepath.Join(consumer, "notices.txt"),
 		"GOLANGCI_LINT=" + linter,
 		"GOLANGCI_LINT_FLAGS=-c .make/golangci.yml",
-		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml",
+		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --allow-parallel-runners",
 		"GOLANGCI_LINT_TARGETS=./widget",
 	}
 	output, err := command.CombinedOutput()

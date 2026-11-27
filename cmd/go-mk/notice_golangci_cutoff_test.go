@@ -108,8 +108,10 @@ func TestGolangciNoticeUsesOnlyValidHistoricalFindings(t *testing.T) {
 					"TMPDIR=" + os.Getenv("TMPDIR"),
 					"_GO_MK_ROOT=" + consumerDir,
 					"_GO_MK_NOTICES_FILE=" + filepath.Join(consumerDir, "notices.txt"),
+					"GOLANGCI_LINT=" + builtTestLinter(t),
 					"GOLANGCI_LINT_FLAGS=-c .make/golangci.yml",
-					"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml",
+					"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --allow-parallel-runners",
+					"GOCACHE=" + os.Getenv("GOCACHE"),
 					"GOLANGCI_LINT_TARGETS=./...",
 				}
 				output, err := command.CombinedOutput()

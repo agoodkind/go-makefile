@@ -39,6 +39,8 @@ func TestMakeEntryPoints(t *testing.T) {
 			t.Run(
 				layout+"/"+source,
 				func(t *testing.T) {
+					t.Parallel()
+
 					consumer := t.TempDir()
 					if err := os.WriteFile(
 						filepath.Join(consumer, "go.mod"),
