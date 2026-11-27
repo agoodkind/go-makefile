@@ -598,7 +598,9 @@ jobs:
         with:
           path: ${{ env.GOCACHE }}
           key: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-${{ steps.go-build-generation.outputs.week }}
-          restore-keys: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-
+          restore-keys: |
+            ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-
+            ${{ steps.go-mk-cgo-cache.outputs.cgo_cache_enabled != 'true' && format('{0}-', env.GO_BUILD_KEY) || '' }}
       # Cache the Go tool packages that every quality job installs. A source
       # build of these tools takes most of a minute per job. The key includes
       # the package list, the Go version, and the ISO week. An @latest package
