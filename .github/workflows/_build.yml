@@ -322,7 +322,7 @@ jobs:
       - name: Identify the Go cache generation
         id: go-build-generation
         shell: bash
-        run: printf 'week=%s\nimage=%s\n' "$(date -u +%G-%V)" "${ImageVersion:-}" >> "$GITHUB_OUTPUT"
+        run: printf 'week=%s\nimage=%s\n' "$(date -u +%G-%V)" "${ImageOS:-}" >> "$GITHUB_OUTPUT"
       - name: Cache compiled Go packages
         uses: actions/cache@v6
         env:
