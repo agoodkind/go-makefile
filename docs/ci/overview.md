@@ -26,7 +26,11 @@ Every layout restores the generated cache that `prepare` warmed. The Golangci Li
 
 Every quality job also restores the cgo dependency cache that the compile leg for the same platform saved. Quality jobs never save that cache. The `go_tool_packages` builds share one cache. A cache hit skips the source build of `go_tool_packages`. The cache key includes the package list, the Go version, and the ISO week. The first job in the matrix saves that cache on a miss.
 
-Govulncheck and Go version results use `ADVISORY`. Findings, installation failures, execution failures, lookup failures, and network failures remain visible without failing the command.
+## Make a check advisory
+
+Set `StatusAdvisory` in the [step result](../../internal/report/report.go), include the findings, and return exit status `0`. If the check also runs as a standalone command, print the findings and return `0` there too.
+
+To make only certain lint findings advisory, change the [baseline gate verdict](../../internal/lintgate/lintgate.go). Return a passing verdict with the findings intact when every new finding is advisory. Any blocking finding still fails the gate.
 
 ## The release dry run
 

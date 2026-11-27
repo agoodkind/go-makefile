@@ -2,8 +2,8 @@
 // from scripts/go-mk-common.sh into pure Go. The gate compares the current
 // findings against a saved baseline, keyizing both sides through
 // internal/findings so a line that only shifted position keeps the same
-// identity, and reports any current finding whose key is absent from the
-// baseline as a new finding that fails the gate. The package never touches the
+// identity. The gate reports findings absent from the baseline. Golangci-lint
+// unused findings are advisory. The package never reads the
 // filesystem, the clock, or the process streams: it returns a GateResult and a
 // rendered block of lines, and the command layer in cmd/go-mk owns reading
 // findings, applying the regexps, and printing. The rendered text reproduces
@@ -20,13 +20,13 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 
 	"goodkind.io/go-makefile/internal/findings"
 )
 
-// GateResult is the pure outcome of evaluating one baseline-diff gate. Passed
-// is false exactly when NewFindings is non-empty, mirroring the shell guard
-// that fails the gate when the mapped new-findings file is non-empty.
+// GateResult records the outcome of a baseline comparison. Passed is false
+// when NewFindings includes a blocking finding.
 // NewFindings holds the current finding lines whose key is absent from the
 // baseline, in their original input order. GoneCount is the number of baseline
 // keys absent from the current findings, matching comm -13 over the two
@@ -78,11 +78,21 @@ func Evaluate(
 
 	return GateResult{
 		Gate:        gateName,
-		Passed:      len(newFindings) == 0,
+		Passed:      findingsPass(gateName, newFindings),
 		NewFindings: newFindings,
 		GoneCount:   goneCount,
 		Remediation: remediation,
 	}
+}
+
+func findingsPass(gateName string, lines []string) bool {
+	for _, line := range lines {
+		if gateName != "golangci-lint" || !strings.HasSuffix(line, " (unused)") {
+			return false
+		}
+	}
+
+	return true
 }
 
 // applyFilters drops lines matching the exclude regexp and then keeps only
@@ -176,18 +186,20 @@ func countGoneKeys(currentKeys, baselineKeys map[string]struct{}) int {
 // ---- Render ----
 func Render(result GateResult) []string {
 	if !result.Passed {
-		return renderFailed(result)
+		return renderFindings(result, "FAILED")
+	}
+
+	if len(result.NewFindings) > 0 {
+		return renderFindings(result, "ADVISORY")
 	}
 
 	return renderPassed(result)
 }
 
-// renderFailed builds the FAILED block. The findings.Print output carries its
-// own newlines for the two-line location/message form, so each printed finding
-// is split into the lines it contains to keep one slice element per output line.
-func renderFailed(result GateResult) []string {
+// renderFindings prints the status and findings with one slice element per line.
+func renderFindings(result GateResult, status string) []string {
 	lines := make([]string, 0, len(result.NewFindings)*2+5)
-	lines = append(lines, result.Gate+": FAILED")
+	lines = append(lines, result.Gate+": "+status)
 	lines = append(lines, "  New findings: "+strconv.Itoa(len(result.NewFindings)))
 	lines = append(lines, "")
 	lines = append(lines, "Findings:")
@@ -196,8 +208,9 @@ func renderFailed(result GateResult) []string {
 		lines = append(lines, printedLines(finding)...)
 	}
 
-	lines = append(lines, "")
-	lines = append(lines, "  "+result.Remediation)
+	if !result.Passed {
+		lines = append(lines, "", "  "+result.Remediation)
+	}
 
 	return lines
 }
