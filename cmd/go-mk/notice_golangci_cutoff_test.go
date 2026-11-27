@@ -11,6 +11,8 @@ import (
 )
 
 func TestGolangciNoticeUsesOnlyValidHistoricalFindings(t *testing.T) {
+	t.Parallel()
+
 	engine := gomk.BuiltTestEngine(t)
 
 	for _, scenario := range []struct {

@@ -14,6 +14,8 @@ import (
 const selectedLengthScope = `^widget/(selected|later)[.]go:.*file-length-limit.*\(revive\)$`
 
 func TestAutomaticGolangciScopeKeepsOnlySelectedHistoricalFindings(t *testing.T) {
+	t.Parallel()
+
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 
 	for _, source := range []struct{ file, function string }{
@@ -193,6 +195,7 @@ func executeScopedNotice(t *testing.T, engine, consumer, id, pattern string) str
 		"TMPDIR=" + os.Getenv("TMPDIR"),
 		"_GO_MK_ROOT=" + consumer,
 		"_GO_MK_NOTICES_FILE=" + filepath.Join(consumer, "scoped-notice.txt"),
+		"GOLANGCI_LINT=" + builtTestLinter(t),
 		"GOLANGCI_LINT_FLAGS=-c .make/golangci.yml",
 		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml",
 		"GOLANGCI_LINT_TARGETS=./widget",

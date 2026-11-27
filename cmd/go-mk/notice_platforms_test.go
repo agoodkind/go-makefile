@@ -14,7 +14,9 @@ const (
 // The notice runs in the freebsd pass on every host. That pass does not build
 // the linux test file.
 func TestNoticeRecordsTestFindingsInFilesForAnotherPlatform(t *testing.T) {
-	consumerDir := newConsumerRepository(t, beforeNoticeDate)
+	t.Parallel()
+
+	consumerDir := newConsumerRepositoryWithNotice(t, "2")
 	writeConsumerFile(
 		t,
 		consumerDir,
@@ -54,6 +56,8 @@ func TestNoticeRecordsTestFindingsInFilesForAnotherPlatform(t *testing.T) {
 // For another platform, go-mk analyzes with cgo off, and the cgo package does
 // not build.
 func TestNoticeRecordsNoBuildErrorsFromAnotherPlatform(t *testing.T) {
+	t.Parallel()
+
 	consumerDir := newConsumerRepository(t, beforeNoticeDate)
 	writeConsumerFile(t, consumerDir, "cgoonly/cgoonly.go", cgoOnlyPackage)
 	writeConsumerFile(t, consumerDir, "user/user.go", cgoUserPackage)
@@ -84,12 +88,14 @@ func TestNoticeRecordsNoBuildErrorsFromAnotherPlatform(t *testing.T) {
 }
 
 func TestNoticeStopsWhenAnotherPlatformPackageDoesNotBuild(t *testing.T) {
+	t.Parallel()
+
 	otherOS := "darwin"
 	if runtime.GOOS == "darwin" {
 		otherOS = "linux"
 	}
 
-	consumerDir := newConsumerRepository(t, beforeNoticeDate)
+	consumerDir := newConsumerRepositoryWithNotice(t, "2")
 	writeConsumerFile(t, consumerDir, "cgoonly/cgoonly.go", cgoOnlyPackage)
 	writeConsumerFile(t, consumerDir, "user/user.go", cgoUserPackage)
 	writeConsumerFile(

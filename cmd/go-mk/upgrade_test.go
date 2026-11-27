@@ -14,8 +14,10 @@ import (
 )
 
 func TestUpgradeNoticesPreservePassingConsumerBuild(t *testing.T) {
+	t.Parallel()
+
 	engine := gomk.BuiltTestEngine(t)
-	t.Setenv("TMPDIR", t.TempDir())
+	tempDir := t.TempDir()
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 	repository, err := filepath.Abs("../..")
 	if err != nil {
@@ -38,6 +40,7 @@ func TestUpgradeNoticesPreservePassingConsumerBuild(t *testing.T) {
 	arguments := []string{
 		"build",
 		"GO_MK_BIN=" + engine,
+		"TMPDIR=" + tempDir,
 		"_GO_MK_NOTICES_FILE=" + filepath.Join(consumer, ".make/notices.txt"),
 		"GO_MK_NOTICE_MAKEFILE=" + filepath.Join(repository, "go.mk"),
 		"GO_MK_PLATFORMS=" + runtime.GOOS + "/" + runtime.GOARCH,
@@ -127,8 +130,10 @@ func upgradeFixture(t *testing.T, name string) string {
 }
 
 func TestUpgradeNoticeRejectsUncommittedViolation(t *testing.T) {
+	t.Parallel()
+
 	engine := gomk.BuiltTestEngine(t)
-	t.Setenv("TMPDIR", t.TempDir())
+	tempDir := t.TempDir()
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 	repository, err := filepath.Abs("../..")
 	if err != nil {
@@ -158,6 +163,7 @@ func TestUpgradeNoticeRejectsUncommittedViolation(t *testing.T) {
 	arguments := []string{
 		"go-mk-notice",
 		"GO_MK_BIN=" + engine,
+		"TMPDIR=" + tempDir,
 		"GO_MK_NOTICE_MAKEFILE=" + filepath.Join(repository, "go.mk"),
 		"GO_MK_PLATFORMS=" + runtime.GOOS + "/" + runtime.GOARCH,
 		"GOLANGCI_LINT_FLAGS=-c .make/upgrade.yml",

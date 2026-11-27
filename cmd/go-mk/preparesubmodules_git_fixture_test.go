@@ -18,6 +18,8 @@ type subRepoFixture struct {
 }
 
 func TestPrepareSubmodulesForOutputsInterleavesNestedDiscovery(t *testing.T) {
+	t.Parallel()
+
 	fixture := subRepoColdCheckout(t)
 	parent := filepath.Join(fixture.checkout, "third_party", "gksyntax")
 	subRepoAssertAbsent(t, filepath.Join(parent, ".gitmodules"))
@@ -43,6 +45,8 @@ func TestPrepareSubmodulesForOutputsInterleavesNestedDiscovery(t *testing.T) {
 }
 
 func TestPrepareSubmodulesForOutputsExcludesUnrelatedSubmodule(t *testing.T) {
+	t.Parallel()
+
 	fixture := subRepoColdCheckout(t)
 	parent := filepath.Join(fixture.checkout, "third_party", "gksyntax")
 	subRepoPrepare(t, fixture, "third_party/gksyntax/other/file.go")

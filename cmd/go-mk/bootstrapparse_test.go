@@ -793,6 +793,8 @@ func TestOldBootstrapMkParsesWithCurrentGoMkAndNoGoMkProvision(t *testing.T) {
 // not seed .make/scripts/go-mk-bootstrap.sh, since the acquisition path
 // under test only runs when no cached helper is already on disk.
 func TestHelperAcquisitionBoundedWhenBootstrapURLStalls(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	server.StallUntilCanceled()
 	dir := t.TempDir()

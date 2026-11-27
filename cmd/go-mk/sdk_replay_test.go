@@ -6,6 +6,8 @@ import (
 )
 
 func TestCommandEntryReplayPreservesTheOriginalCutoff(t *testing.T) {
+	t.Parallel()
+
 	consumerDir := newConsumerRepositoryWithNotice(t, "19")
 	const original = "package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"original\") }\n"
 

@@ -19,6 +19,8 @@ import "testing"
 func loopLimit() int { return 3 }
 
 func TestIntegerLoop(t *testing.T) {
+	t.Parallel()
+
 	total := 0
 	for index := 0; index < loopLimit(); index++ {
 		total += index
@@ -32,6 +34,8 @@ func TestIntegerLoop(t *testing.T) {
 // TestNoticeBaselinesMultilineGolangciDiagnostics checks historical and later
 // findings through the real linter.
 func TestNoticeBaselinesMultilineGolangciDiagnostics(t *testing.T) {
+	t.Parallel()
+
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 	engine := gomk.BuiltTestEngine(t)
 
@@ -147,6 +151,8 @@ func unusedMapped() int { return 2 } // input.proto:7: original reference (typec
 // TestNoticeExcludesSourceLinesFromBaseline checks that a notice baselines a
 // located unused finding and excludes its source line.
 func TestNoticeExcludesSourceLinesFromBaseline(t *testing.T) {
+	t.Parallel()
+
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 	engine := gomk.BuiltTestEngine(t)
 
@@ -226,6 +232,8 @@ func TestNoticeExcludesSourceLinesFromBaseline(t *testing.T) {
 // TestNoticeRejectsMappedCompileError checks a source-mapped compiler failure
 // through the real linter before a notice records its baseline.
 func TestNoticeRejectsMappedCompileError(t *testing.T) {
+	t.Parallel()
+
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 	engine := gomk.BuiltTestEngine(t)
 

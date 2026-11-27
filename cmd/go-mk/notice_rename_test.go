@@ -8,6 +8,8 @@ import (
 )
 
 func TestNoticeUsesTheOriginalAdoptionDateAfterAModuleMove(t *testing.T) {
+	t.Parallel()
+
 	repositoryDir := newConsumerRepository(t, beforeNoticeDate)
 	moduleEntries := []string{"go.mod", "widget", ".gitignore", appliedNoticeFile, "Makefile"}
 	if err := os.MkdirAll(filepath.Join(repositoryDir, "gateway"), 0o755); err != nil {

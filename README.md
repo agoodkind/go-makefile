@@ -65,7 +65,9 @@ by one fetched file, `go.mk`.
   because go.mk installs them. By default, `staticcheck-extra` uses a
   verified binary from the shared rolling release; `STATICCHECK_EXTRA_INSTALL`
   selects a source installation. The other `*_INSTALL` variables select tool
-  package versions. Scaffold removes managed tool directives on every run and
+  package versions. Set `GOLANGCI_LINT` to an absolute executable path to use a
+  preinstalled golangci-lint release. It supplies its own formatters. Scaffold
+  removes managed tool directives on every run and
   leaves project-specific tools alone; run `go mod tidy` afterward to prune
   their dependencies.
 - Lint gates diff tool findings against committed baseline files and fail only on

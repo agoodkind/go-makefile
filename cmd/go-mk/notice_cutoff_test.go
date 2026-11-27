@@ -8,6 +8,8 @@ import (
 )
 
 func TestNoticeRejectsFindingsCommittedAfterItsEffectiveDate(t *testing.T) {
+	t.Parallel()
+
 	for _, scenario := range []struct {
 		name       string
 		file       string
@@ -90,6 +92,8 @@ func TestNoticeRejectsFindingsCommittedAfterItsEffectiveDate(t *testing.T) {
 }
 
 func TestNoticeRejectsLaterSubtestsWithTheSameDiagnostic(t *testing.T) {
+	t.Parallel()
+
 	const oldSource = "package widget_test\n\nimport (\"testing\"; \"example.com/consumer/widget\")\n\nfunc TestCases(t *testing.T) {\n\tt.Run(\"old\", func(t *testing.T) { widget.Double(2) })\n}\n"
 	for _, scenario := range []struct {
 		name   string
@@ -159,6 +163,8 @@ func TestNoticeRejectsLaterSubtestsWithTheSameDiagnostic(t *testing.T) {
 }
 
 func TestNoticePreparesHistoricalGeneratedSource(t *testing.T) {
+	t.Parallel()
+
 	consumerDir := newConsumerRepositoryWithNotice(t, "2")
 	makefile := "GO_MK_GENERATE := generate-widget\n" + readConsumerFile(
 		t,
@@ -208,6 +214,8 @@ func TestNoticePreparesHistoricalGeneratedSource(t *testing.T) {
 }
 
 func TestNoticeDoesNotApplyWhenHistoricalSourceDoesNotBuild(t *testing.T) {
+	t.Parallel()
+
 	consumerDir := newConsumerRepositoryWithNotice(t, "2")
 	original := readConsumerFile(t, consumerDir, "widget/widget.go")
 	writeConsumerFile(
@@ -256,6 +264,8 @@ func TestNoticeDoesNotApplyWhenHistoricalSourceDoesNotBuild(t *testing.T) {
 }
 
 func TestNoticePreservesExplicitMakefile(t *testing.T) {
+	t.Parallel()
+
 	consumerDir := newConsumerRepositoryWithNotice(t, "2")
 	makefile := readConsumerFile(t, consumerDir, "Makefile")
 	writeConsumerFile(t, consumerDir, "pipeline.mk", makefile)
@@ -294,6 +304,8 @@ func TestNoticePreservesExplicitMakefile(t *testing.T) {
 }
 
 func TestDocStructureNoticeRejectsChangedAndNewComments(t *testing.T) {
+	t.Parallel()
+
 	consumerDir := newConsumerRepository(t, beforeNoticeDate)
 	writeConsumerFile(
 		t,

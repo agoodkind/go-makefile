@@ -13,6 +13,8 @@ import (
 )
 
 func TestMakeEntryPoints(t *testing.T) {
+	t.Parallel()
+
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -90,12 +92,26 @@ func TestMakeEntryPoints(t *testing.T) {
 						}
 					}
 
-					// Bare Make also provisions the fixture for the rejection cases.
+					gomk.SeedTestEngine(t, consumer)
+					provision := exec.CommandContext(t.Context(), engine, "provision")
+					provision.Dir = consumer
+					provision.Env = append(
+						os.Environ(),
+						"GO_MK_DEV_DIR="+repoRoot,
+						"GO_MK_MODULES=go-build.mk go-release.mk",
+						"_GO_MK_PROVISIONED=",
+					)
+					if output, err := provision.CombinedOutput(); err != nil {
+						t.Fatalf("provision entry-point fixture: %v\n%s", err, output)
+					}
+
 					command := exec.Command("make")
 					command.Dir = consumer
 					command.Env = append(
 						os.Environ(),
-						"GO_MK_DEV_DIR="+repoRoot,
+						"GO_MK_DEV_DIR=",
+						"GO_MK_BIN="+engine,
+						"_GO_MK_PROVISIONED=1",
 						"GOWORK=off",
 						"MAKEFLAGS=",
 					)

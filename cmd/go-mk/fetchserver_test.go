@@ -164,7 +164,7 @@ type fetchServer struct {
 	tarball               []byte
 	etag                  string
 	etagDisabled          bool
-	stall                 time.Duration
+	beforeResponse        func(*http.Request)
 	stallUntilCanceled    bool
 	trickleBytesPerSecond int
 	requests              []fetchRequest
@@ -205,12 +205,6 @@ func (s *fetchServer) SetCommitTree(commit string, files map[string]string) {
 	s.etag = `"` + hex.EncodeToString(digest[:]) + `"`
 }
 
-func (s *fetchServer) Stall(d time.Duration) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	s.stall = d
-}
-
 func (s *fetchServer) StallUntilCanceled() {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -249,7 +243,7 @@ func (s *fetchServer) handle(writer http.ResponseWriter, request *http.Request) 
 	tarball := s.tarball
 	etag := s.etag
 	etagDisabled := s.etagDisabled
-	stall := s.stall
+	beforeResponse := s.beforeResponse
 	stallUntilCanceled := s.stallUntilCanceled
 	trickleBytesPerSecond := s.trickleBytesPerSecond
 	s.mutex.Unlock()
@@ -259,8 +253,8 @@ func (s *fetchServer) handle(writer http.ResponseWriter, request *http.Request) 
 		return
 	}
 
-	if stall > 0 {
-		time.Sleep(stall)
+	if beforeResponse != nil {
+		beforeResponse(request)
 	}
 
 	record := fetchRequest{

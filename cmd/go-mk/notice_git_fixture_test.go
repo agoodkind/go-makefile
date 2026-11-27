@@ -12,6 +12,8 @@ import (
 )
 
 func TestRunNoticeRecordsDirectiveWhenAdoptionIsAfterNotice(t *testing.T) {
+	t.Parallel()
+
 	if runtime.GOOS == "windows" {
 		t.Skip("the Git fixture uses /dev/null")
 	}
@@ -57,6 +59,8 @@ func TestRunNoticeRecordsDirectiveWhenAdoptionIsAfterNotice(t *testing.T) {
 }
 
 func TestLegacyMakefileNoticePreservesEffectiveDate(t *testing.T) {
+	t.Parallel()
+
 	engine := gomk.BuiltTestEngine(t)
 	repository, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
@@ -115,8 +119,7 @@ func TestLegacyMakefileNoticePreservesEffectiveDate(t *testing.T) {
 					filepath.Join(repository, "go.mk"),
 					"GO_MK_DEV_DIR="+repository,
 					"GO_MK_BIN="+engine,
-					"STATICCHECK_EXTRA_BUILD_REPO="+filepath.Join(repository, "staticcheck"),
-					"STATICCHECK_EXTRA_BUILD_PKG=./cmd/staticcheck-extra",
+					"STATICCHECK_EXTRA_BIN="+builtTestAnalyzer(t, repository),
 					"_GO_MK_NOTICES_FILE="+filepath.Join(consumer, ".make/notices.txt"),
 					"GO_MK_NOTICE_MAKEFILE="+filepath.Join(repository, "go.mk"),
 					"staticcheck-extra",
@@ -200,6 +203,8 @@ func writeLegacyMakefile(t *testing.T, consumer, fixture string) {
 }
 
 func TestRunNoticeLeavesDirectiveUnappliedWhenGitHistoryIsBroken(t *testing.T) {
+	t.Parallel()
+
 	engine := gomk.BuiltTestEngine(t)
 	consumer := legacyNoticeRepository(t, "legacy")
 	writeConsumerFile(t, consumer, ".git/HEAD", strings.Repeat("0", 40)+"\n")

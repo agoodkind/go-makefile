@@ -16,6 +16,8 @@ import (
 )
 
 func TestGovulncheckInstallationFailureIsAdvisory(t *testing.T) {
+	t.Parallel()
+
 	dir, env := govulncheckProject(t)
 	env["GOVULNCHECK_INSTALL"] = "example.invalid/unavailable/cmd/govulncheck@v0.0.0"
 	output := govulncheckCommand(t, dir, env, "govulncheck")
@@ -32,6 +34,8 @@ func TestGovulncheckInstallationFailureIsAdvisory(t *testing.T) {
 }
 
 func TestBuildCheckLeavesGovulncheckStandalone(t *testing.T) {
+	t.Parallel()
+
 	dir, env := govulncheckProject(t)
 	download := exec.Command("go", "mod", "download")
 	download.Dir = filepath.Join(repoRootForTest(t), "staticcheck")
@@ -78,6 +82,8 @@ func TestBuildCheckLeavesGovulncheckStandalone(t *testing.T) {
 }
 
 func TestGovulncheckUsesGOBIN(t *testing.T) {
+	t.Parallel()
+
 	dir, env := govulncheckProject(t)
 	govulncheckCopyBinary(t, env["GOBIN"])
 	output := govulncheckCommand(t, dir, env, "govulncheck")
@@ -85,6 +91,8 @@ func TestGovulncheckUsesGOBIN(t *testing.T) {
 }
 
 func TestGovulncheckFallsBackToGOPATHBin(t *testing.T) {
+	t.Parallel()
+
 	dir, env := govulncheckProject(t)
 	env["GOBIN"] = ""
 	env["PATH"] = govulncheckFallbackBin + string(os.PathListSeparator) + os.Getenv("PATH")
@@ -94,6 +102,8 @@ func TestGovulncheckFallsBackToGOPATHBin(t *testing.T) {
 }
 
 func TestGovulncheckUsesFirstGOPATHEntry(t *testing.T) {
+	t.Parallel()
+
 	dir, env := govulncheckProject(t)
 	env["GOBIN"] = ""
 	env["PATH"] = govulncheckFallbackBin + string(os.PathListSeparator) + os.Getenv("PATH")
@@ -153,6 +163,8 @@ func TestGovulncheckGOBINLookupFailureIsAdvisory(t *testing.T) {
 }
 
 func TestGovulncheckFindingsAreAdvisory(t *testing.T) {
+	t.Parallel()
+
 	dir, env := govulncheckProject(t)
 	govulncheckCopyBinary(t, env["GOBIN"])
 	scanner := exec.Command(
@@ -173,6 +185,8 @@ func TestGovulncheckFindingsAreAdvisory(t *testing.T) {
 }
 
 func TestGovulncheckExecutionFailureIsAdvisory(t *testing.T) {
+	t.Parallel()
+
 	dir, env := govulncheckProject(t)
 	govulncheckCopyBinary(t, env["GOBIN"])
 	missing := filepath.Join(dir, "missing-database")
@@ -353,17 +367,8 @@ func govulncheckProject(t *testing.T) (string, map[string]string) {
 		"GOVULNCHECK_INSTALL": ".",
 		"GOVULNCHECK_TARGETS": "./...",
 	}
-	for name, value := range env {
-		t.Setenv(name, value)
-	}
-
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		t.Fatalf("resolve fixture Go telemetry directory: %v", err)
-	}
-
-	// GOTELEMETRY is not settable. The mode file prevents telemetry child processes.
-	writeFile(t, filepath.Join(configDir, "go", "telemetry", "mode"), "off\n")
+	env["TEST_TELEMETRY_DIR"] = filepath.Join(dir, "telemetry")
+	writeFile(t, filepath.Join(env["TEST_TELEMETRY_DIR"], "mode"), "off\n")
 	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/probe\n\ngo 1.24\n")
 	writeFile(
 		t,
@@ -398,8 +403,6 @@ func govulncheckProject(t *testing.T) (string, map[string]string) {
 	env["GOVULNDB"] = (&url.URL{Scheme: "file", Path: database}).String()
 	// The pinned scanner accepts the database through -db and ignores GOVULNDB.
 	env["GOVULNCHECK_TARGETS"] = "-db " + env["GOVULNDB"] + " ./..."
-	t.Setenv("GOVULNDB", env["GOVULNDB"])
-	t.Setenv("GOVULNCHECK_TARGETS", env["GOVULNCHECK_TARGETS"])
 
 	return dir, env
 }

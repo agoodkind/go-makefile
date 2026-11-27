@@ -35,6 +35,13 @@ func TestHistoryRestoresDirectoryAndEnvironmentAfterRealFailures(t *testing.T) {
 
 				aliases := t.TempDir()
 				if err := os.Symlink(
+					builtTestLinter(t),
+					filepath.Join(aliases, "golangci-lint"),
+				); err != nil {
+					t.Fatal(err)
+				}
+
+				if err := os.Symlink(
 					builtTestAnalyzer(t, filepath.Join("..", "..")),
 					filepath.Join(aliases, "staticcheck-extra"),
 				); err != nil {
