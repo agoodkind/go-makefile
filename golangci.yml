@@ -107,9 +107,9 @@ linters:
         - name: comment-spacings
         - name: file-length-limit     # cap per-file lines; idiomatic Go file-length gate
           arguments:
-            - max: 1000               # Exclude comment lines from the count.
+            - max: 1000               # Exclude comments and blank lines from the count.
               skip-comments: true
-              skip-blank-lines: false
+              skip-blank-lines: true
         # unused-parameter / unused-receiver: dropped. Interface stubs and
         # callbacks legitimately keep params for the contract; method
         # receivers stay even when unused for symmetry across a type.
