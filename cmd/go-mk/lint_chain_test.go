@@ -1,10 +1,78 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"goodkind.io/go-makefile/internal/report"
 )
+
+func TestGolangciUnusedFindingsAreAdvisory(t *testing.T) {
+	const unused = "main.go:3:6: func futureCaller is unused (unused)"
+	const errcheck = "main.go:5:2: error return value is not checked (errcheck)"
+	tests := []struct {
+		name     string
+		findings []string
+		status   report.Status
+		exit     int
+	}{
+		{name: "unused only", findings: []string{unused}, status: report.StatusAdvisory, exit: 0},
+		{
+			name:     "unchecked error",
+			findings: []string{unused, errcheck},
+			status:   report.StatusFailed,
+			exit:     1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				t.Chdir(t.TempDir())
+				gateCollecting = true
+				t.Cleanup(func() { gateCollecting = false })
+
+				result, exit := runOneGate(
+					"lint-golangci",
+					func() int {
+						passed, err := runGateAndPrint(
+							"golangci-lint",
+							test.findings,
+							"baseline.txt",
+							"",
+							"",
+							"",
+						)
+						if err != nil {
+							t.Fatal(err)
+						}
+
+						if !passed {
+							return 1
+						}
+
+						return 0
+					},
+				)
+
+				if result.Status != test.status || exit != test.exit {
+					t.Fatalf(
+						"got status %v and exit %d, want %v and %d",
+						result.Status,
+						exit,
+						test.status,
+						test.exit,
+					)
+				}
+
+				if !strings.Contains(strings.Join(result.Findings, "\n"), "(unused)") {
+					t.Errorf("report omitted unused finding: %v", result.Findings)
+				}
+			},
+		)
+	}
+}
 
 func TestGateStepFromMarker(t *testing.T) {
 	pass := gateStep(

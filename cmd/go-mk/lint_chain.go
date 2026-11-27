@@ -8,14 +8,13 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
-	"goodkind.io/go-makefile/internal/findings"
+	"goodkind.io/go-makefile/internal/checkrun"
 	"goodkind.io/go-makefile/internal/lint"
 	"goodkind.io/go-makefile/internal/logsummary"
 	"goodkind.io/go-makefile/internal/report"
@@ -127,9 +126,6 @@ func clearFailedGateFile() {
 	}
 }
 
-// gateStep turns one gate's marker (or, as a fallback, its exit status and
-// captured output) into a StepResult. The gate's detection is untouched: a
-// failing gate's findings come straight from the marker, formatted for display.
 func gateStep(
 	gateName string,
 	marker report.GateMarker,
@@ -137,59 +133,7 @@ func gateStep(
 	status int,
 	rest []string,
 ) report.StepResult {
-	if found {
-		if marker.Passed {
-			return report.StepResult{Name: gateName, Status: report.StatusOK}
-		}
-
-		resultStatus := report.StatusFailed
-		if gateName == "lint-deadcode" {
-			resultStatus = report.StatusAdvisory
-		}
-
-		return report.StepResult{
-			Name:   gateName,
-			Status: resultStatus,
-			Note: fmt.Sprintf(
-				"%d new finding%s",
-				len(marker.Findings),
-				findingPlural(len(marker.Findings)),
-			),
-			Findings:    formatFindings(marker.Findings),
-			Remediation: marker.Remediation,
-		}
-	}
-
-	if status == 0 {
-		return report.StepResult{Name: gateName, Status: report.StatusOK}
-	}
-
-	return report.StepResult{
-		Name:     gateName,
-		Status:   report.StatusFailed,
-		Findings: lint.FilterMakeErrorLines(rest),
-	}
-}
-
-// formatFindings renders each raw finding through findings.Print and splits the
-// result into display lines the report indents under the failing gate.
-func formatFindings(raw []string) []string {
-	out := make([]string, 0, len(raw)*2)
-	for _, finding := range raw {
-		rendered := strings.TrimSuffix(findings.Print(finding, "", ""), "\n")
-		out = append(out, strings.Split(rendered, "\n")...)
-	}
-
-	return out
-}
-
-// findingPlural returns "s" for any count other than one.
-func findingPlural(count int) string {
-	if count == 1 {
-		return ""
-	}
-
-	return "s"
+	return checkrun.GateStep(gateName, marker, found, status, rest)
 }
 
 // splitOutputLines splits captured output into lines, dropping a single

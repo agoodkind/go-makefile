@@ -44,6 +44,8 @@ The action accepts `vet`, `test`, `lint-golangci`, `lint-format`, `lint-gocyclo`
 
 The action restores golangci-lint analysis for `lint-golangci` and for `build-check` when `LINT_GATES` includes that linter. The quality gate manifest reports cache paths and keys. The action uses `go-mk-golangci-cache-save-decision` to verify the lint cache before saving it. All gates can reuse the Go build and module caches configured by the job.
 
+Golangci-lint findings from the `unused` analyzer appear in the report without failing the quality check. Other new Golangci-lint findings still fail the check.
+
 For jobs that compile cgo packages, pass `cgo-toolchain-id` from the compile job that saved the native dependency cache. Set `GO_MK_TARGET_GOOS` and `GO_MK_TARGET_GOARCH` in the environment that runs Make. The gate restores the dependency cache when the manifest reports a matching key.
 
 The action runs Make in the job environment, including inside a GitHub Actions job container. Jobs that start a Docker Compose service can call the same Make targets inside that service. To use the gate cache, set `GO_MK_CI_QUALITY_GATE` to the target and run `make go-mk-quality-gate-manifest`. Make the service's cache paths available at the same absolute paths to the steps that restore and save them. Mount the current step's `GITHUB_OUTPUT` file and set `GITHUB_OUTPUT` inside the service to its mount path.
