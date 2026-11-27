@@ -481,6 +481,8 @@ jobs:
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
       contents: read
+    env:
+      GOCACHE: ${{ github.workspace }}/.make/ci-go-build
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.job_matrix) }}
@@ -503,6 +505,9 @@ jobs:
           sudo apt-get install -y ${{ inputs.apt_packages }}
       - if: needs.prepare.outputs.run == 'true'
         uses: actions/setup-go@v7
+        id: setup-go
+        env:
+          GOCACHE: ${{ runner.temp }}/setup-go-build
         with:
           go-version-file: ${{ inputs.go_version_file }}
           cache-dependency-path: |
@@ -579,6 +584,20 @@ jobs:
         with:
           path: ${{ steps.go-mk-cgo-cache.outputs.cgo_cache_paths }}
           key: go-mk-cgo-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}
+      - name: Identify the Go cache generation
+        if: needs.prepare.outputs.run == 'true'
+        id: go-build-generation
+        shell: bash
+        run: printf 'week=%s\nimage=%s\n' "$(date -u +%G-%V)" "${ImageVersion:-}" >> "$GITHUB_OUTPUT"
+      - name: Cache compiled Go packages
+        if: needs.prepare.outputs.run == 'true'
+        uses: actions/cache@v6
+        env:
+          GO_BUILD_KEY: ${{ format('go-mk-build-v1-{0}-{1}-{2}-{3}-{4}-{5}', runner.os, runner.arch, steps.setup-go.outputs.go-version, steps.go-build-generation.outputs.image, format('quality-{0}-{1}-{2}', inputs.working_directory, inputs.job_layout, strategy.job-index), hashFiles(format('{0}/go.mod', inputs.working_directory), format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory), format('{0}/Makefile', inputs.working_directory), '.gitmodules')) }}
+        with:
+          path: ${{ env.GOCACHE }}
+          key: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-${{ steps.go-build-generation.outputs.week }}
+          restore-keys: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-
       # Cache the Go tool packages that every quality job installs. A source
       # build of these tools takes most of a minute per job. The key includes
       # the package list, the Go version, and the ISO week. An @latest package
@@ -655,18 +674,13 @@ jobs:
       # exists to avoid. A weekly generation refreshes the snapshot on a fixed
       # cadence, and the restore prefix below still matches the previous
       # generation, so a new week starts from the old cache rather than cold.
-      - name: Choose the golangci-lint cache generation
-        id: golangci-cache-generation
-        if: needs.prepare.outputs.run == 'true' && matrix.lint_cache_slug != ''
-        shell: bash
-        run: printf 'week=%s\n' "$(date -u +%G-%V)" >> "${GITHUB_OUTPUT}"
       - name: Restore golangci-lint cache
         id: golangci-cache-restore
         if: needs.prepare.outputs.run == 'true' && matrix.lint_cache_slug != ''
         uses: actions/cache/restore@v6
         with:
           path: ${{ steps.go-mk-cache-prep.outputs.lint_cache_paths }}
-          key: go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}-${{ steps.golangci-cache-generation.outputs.week }}
+          key: go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-${{ hashFiles(inputs.go_version_file, format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}-${{ steps.go-build-generation.outputs.week }}
           restore-keys: |
             go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working_directory }}-${{ matrix.lint_cache_slug }}-${{ inputs.golangci_lint_version }}-
       - name: Run primary checks
