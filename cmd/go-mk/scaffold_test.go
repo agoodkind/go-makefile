@@ -1742,6 +1742,8 @@ func runMakeHelp(t *testing.T, repoDir string, repoRoot string, engine string) {
 	command.Env = testProcessEnvironment(map[string]string{
 		"GO_MK_DEV_DIR": repoRoot,
 		"GO_MK_BIN":     engine,
+		"GOCACHE":       os.Getenv("GOCACHE"),
+		"CGO_ENABLED":   "0",
 	})
 	output, err := command.CombinedOutput()
 	if err != nil {

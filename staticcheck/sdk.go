@@ -30,7 +30,7 @@ func resolveCommandEntryBuildContext(
 	slog.Debug("resolve installed Go SDK for commandentry")
 	root, err := lookupRoot()
 	if err != nil {
-		failure := errors.Join(errCommandEntrySDK, err)
+		failure := fmt.Errorf("%w: %w", errCommandEntrySDK, err)
 		slog.Error("resolve commandentry Go SDK failed", "err", failure)
 
 		return buildContext, failure
