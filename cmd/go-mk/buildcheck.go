@@ -36,8 +36,8 @@ func runBuildCheck() int {
 }
 
 func runBuildCheckShard(shard string) int {
-	if shard == "vet" && os.Getenv("GO_MK_VET_SHARD") == "1/3" {
-		runNotice()
+	if shard == "golangci" {
+		runNoticeFor("golangci")
 	}
 
 	var checks []checkrun.Check
