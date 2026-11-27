@@ -21,18 +21,15 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Select the quality gate
+    - name: Validate the quality gate
       id: gate
       shell: bash
       env:
         GATE: ${{ inputs.gate }}
       run: |
         case "$GATE" in
-          build-check|lint-golangci)
-            printf 'lint=true\ncgo=true\n' >> "$GITHUB_OUTPUT"
-            ;;
-          vet|test|lint-deadcode|staticcheck-extra|govulncheck)
-            printf 'cgo=true\n' >> "$GITHUB_OUTPUT"
+          build-check|vet|test|lint-golangci|lint-deadcode|staticcheck-extra|govulncheck)
+            printf 'uses-cgo=true\n' >> "$GITHUB_OUTPUT"
             ;;
           lint-format|lint-gocyclo|go-version-check)
             ;;
@@ -44,56 +41,68 @@ runs:
 
     - name: Read the Go cache manifest
       id: manifest
-      if: steps.gate.outputs.lint == 'true' || (steps.gate.outputs.cgo == 'true' && inputs.cgo-toolchain-id != '')
+      if: >-
+        inputs.gate == 'lint-golangci' || inputs.gate == 'build-check' ||
+        (steps.gate.outputs.uses-cgo == 'true' && inputs.cgo-toolchain-id != '')
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         GO_MK_ACTION_MAKEFILE: ${{ inputs.makefile }}
         GO_MK_ACTION_COMPOSE_SERVICE: ${{ inputs.compose-service }}
         CGO_TOOLCHAIN_ID: ${{ inputs.cgo-toolchain-id }}
-      run: bash "$GITHUB_ACTION_PATH/run-make.sh" go-mk-cache-manifest "GO_MK_CGO_TOOLCHAIN_ID=$CGO_TOOLCHAIN_ID"
+      run: >-
+        bash "$GITHUB_ACTION_PATH/run-make.sh" go-mk-cache-manifest
+        "GO_MK_CGO_TOOLCHAIN_ID=$CGO_TOOLCHAIN_ID"
 
     - name: Restore cgo dependencies
       if: >-
-        steps.gate.outputs.cgo == 'true' && inputs.cgo-toolchain-id != '' &&
+        inputs.cgo-toolchain-id != '' &&
         steps.manifest.outputs.cgo_cache_enabled == 'true'
       uses: actions/cache/restore@v6
       with:
         path: ${{ steps.manifest.outputs.cgo_cache_paths }}
         key: go-mk-cgo-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.manifest.outputs.cgo_cache_key }}
 
-    - name: Choose the golangci-lint cache key
-      id: lint-key
-      if: steps.gate.outputs.lint == 'true'
+    - name: Prepare the golangci-lint cache
+      id: lint-generation
+      # Skip build-check only when the manifest explicitly excludes golangci-lint.
+      if: >-
+        inputs.gate == 'lint-golangci' ||
+        (inputs.gate == 'build-check' && steps.manifest.outputs.lint_cache_in_build_check != 'false')
       shell: bash
       env:
-        GATE: ${{ inputs.gate }}
         LINT_IN_BUILD_CHECK: ${{ steps.manifest.outputs.lint_cache_in_build_check }}
         CACHE_PATHS: ${{ steps.manifest.outputs.lint_cache_paths }}
         LINTER: ${{ steps.manifest.outputs.lint_cache_linter }}
-        MODULE: ${{ inputs.working-directory }}
-        COMPOSE_SERVICE: ${{ inputs.compose-service }}
-        DEPENDENCY_HASH: ${{ hashFiles(format('{0}/go.mod', inputs.working-directory), format('{0}/go.sum', inputs.working-directory), format('{0}/go.work', inputs.working-directory), format('{0}/go.work.sum', inputs.working-directory)) }}
+        DEPENDENCY_HASH: >-
+          ${{ hashFiles(
+            format('{0}/go.mod', inputs.working-directory),
+            format('{0}/go.sum', inputs.working-directory),
+            format('{0}/go.work', inputs.working-directory),
+            format('{0}/go.work.sum', inputs.working-directory)) }}
       run: |
         : "${LINT_IN_BUILD_CHECK:?Use a go-makefile revision that supports the quality gate action}"
-        if [[ "$GATE" == build-check && "$LINT_IN_BUILD_CHECK" == false ]]; then
-            exit 0
-        fi
         : "${CACHE_PATHS:?The cache manifest must report lint cache paths}"
         : "${LINTER:?The cache manifest must report the golangci-lint install specification}"
         : "${DEPENDENCY_HASH:?Include the module Go dependency files in the checkout}"
         week=$(date -u +%G-%V)
-        prefix="go-mk-golangci-${RUNNER_OS}-${RUNNER_ARCH}-${MODULE}-${COMPOSE_SERVICE}-${LINTER}-"
-        printf 'primary=%s%s-%s\nprefix=%s\n' "$prefix" "$DEPENDENCY_HASH" "$week" "$prefix" >> "$GITHUB_OUTPUT"
+        printf 'week=%s\ndependency-hash=%s\n' "$week" "$DEPENDENCY_HASH" >> "$GITHUB_OUTPUT"
 
     - name: Restore golangci-lint analysis
       id: lint-cache
-      if: steps.lint-key.outputs.primary != ''
+      if: steps.lint-generation.outputs.week != ''
       uses: actions/cache/restore@v6
+      env:
+        CACHE_PREFIX: >-
+          ${{ format('go-mk-golangci-{0}-{1}-{2}-{3}-{4}-',
+            runner.os, runner.arch, inputs.working-directory, inputs.compose-service,
+            steps.manifest.outputs.lint_cache_linter) }}
       with:
         path: ${{ steps.manifest.outputs.lint_cache_paths }}
-        key: ${{ steps.lint-key.outputs.primary }}
-        restore-keys: ${{ steps.lint-key.outputs.prefix }}
+        key: >-
+          ${{ format('{0}{1}-{2}', env.CACHE_PREFIX,
+            steps.lint-generation.outputs.dependency-hash, steps.lint-generation.outputs.week) }}
+        restore-keys: ${{ env.CACHE_PREFIX }}
 
     - name: Run the quality gate
       id: check
@@ -103,8 +112,10 @@ runs:
         GO_MK_ACTION_MAKEFILE: ${{ inputs.makefile }}
         GO_MK_ACTION_COMPOSE_SERVICE: ${{ inputs.compose-service }}
         GATE: ${{ inputs.gate }}
-        REPORT_GOLANGCI_RUN: ${{ steps.lint-key.outputs.primary != '' }}
-      run: bash "$GITHUB_ACTION_PATH/run-make.sh" "$GATE" "GO_MK_CI_REPORT_GOLANGCI_RUN=$REPORT_GOLANGCI_RUN"
+        REPORT_GOLANGCI_RUN: ${{ steps.lint-cache.outcome == 'success' }}
+      run: >-
+        bash "$GITHUB_ACTION_PATH/run-make.sh" "$GATE"
+        "GO_MK_CI_REPORT_GOLANGCI_RUN=$REPORT_GOLANGCI_RUN"
 
     - name: Verify the golangci-lint cache before saving
       id: lint-save
@@ -121,15 +132,16 @@ runs:
         PRIMARY_OUTCOME: ${{ steps.check.outcome }}
         GOLANGCI_RAN: ${{ steps.check.outputs.golangci_ran }}
         CACHE_PATHS: ${{ steps.manifest.outputs.lint_cache_paths }}
-      run: |
-        bash "$GITHUB_ACTION_PATH/run-make.sh" go-mk-golangci-cache-save-decision \
-          "GO_MK_CI_PRIMARY_COMMAND=$PRIMARY_COMMAND" \
-          "GO_MK_CI_PRIMARY_OUTCOME=$PRIMARY_OUTCOME" \
-          "GO_MK_CI_GOLANGCI_RAN=$GOLANGCI_RAN" \
-          "GO_MK_CI_LINT_CACHE_PATHS=$CACHE_PATHS"
+      run: >-
+        bash "$GITHUB_ACTION_PATH/run-make.sh" go-mk-golangci-cache-save-decision
+        "GO_MK_CI_PRIMARY_COMMAND=$PRIMARY_COMMAND"
+        "GO_MK_CI_PRIMARY_OUTCOME=$PRIMARY_OUTCOME"
+        "GO_MK_CI_GOLANGCI_RAN=$GOLANGCI_RAN"
+        "GO_MK_CI_LINT_CACHE_PATHS=$CACHE_PATHS"
 
     - name: Save golangci-lint analysis
-      if: "!cancelled() && steps.lint-save.outputs.save == 'true'"
+      if: >-
+        !cancelled() && steps.lint-save.outputs.save == 'true'
       uses: actions/cache/save@v6
       with:
         path: ${{ steps.manifest.outputs.lint_cache_paths }}
