@@ -32,7 +32,7 @@ func GateStep(
 			remediation = ""
 		}
 
-		if marker.Passed || gateName == "lint-deadcode" {
+		if marker.Passed {
 			resultStatus = report.StatusAdvisory
 		}
 

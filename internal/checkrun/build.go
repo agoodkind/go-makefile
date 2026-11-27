@@ -6,6 +6,11 @@ import (
 	"goodkind.io/go-makefile/internal/logsummary"
 )
 
+const (
+	checkLogEnv     = "GO_MK_LOG"
+	buildCheckTitle = "go-mk build-check"
+)
+
 // Build runs default quality checks without vulnerability scanning.
 //
 // It prepares tools before reporting results.
@@ -23,7 +28,7 @@ func Build(
 	debug func() int,
 ) int {
 	notice()
-	if logsummary.ParseMode(os.Getenv("GO_MK_LOG")) == logsummary.ModeDebug {
+	if logsummary.ParseMode(os.Getenv(checkLogEnv)) == logsummary.ModeDebug {
 		return debug()
 	}
 
@@ -31,12 +36,12 @@ func Build(
 		return statusFromError(err)
 	}
 
-	return execute("go-mk build-check", plan())
+	return execute(buildCheckTitle, plan())
 }
 
 // Raw runs the default checks with each tool's normal output.
 //
-// It combines vet and lint failures. The Go version check remains advisory.
+// It returns a nonzero exit status when a check fails.
 //
 // Example:
 //
@@ -57,7 +62,9 @@ func Raw(
 		status = code
 	}
 
-	version()
+	if code := version(); code != 0 {
+		status = code
+	}
 
 	return status
 }

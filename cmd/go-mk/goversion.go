@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"goodkind.io/go-makefile/internal/checkrun"
 	"goodkind.io/go-makefile/internal/report"
 )
 
@@ -28,56 +29,15 @@ const goVersionEndpoint = "https://go.dev/VERSION?m=text"
 // repeated local builds do not hit the network each time.
 const goLatestCacheTTL = 24 * time.Hour
 
-type goVersionConfig struct {
-	installedVersion func() (string, error)
-	latestVersion    func() (string, error)
-}
-
 func runGoVersionStep() (report.StepResult, int) {
-	return goVersionStepWith(goVersionConfig{
-		installedVersion: installedGoVersion,
-		latestVersion:    latestStableGo,
-	}), 0
-}
-
-func goVersionStepWith(config goVersionConfig) report.StepResult {
-	installedVersion, err := config.installedVersion()
-	if err != nil {
-		return advisoryToolFailure("go-version", err.Error())
-	}
-
-	latestVersion, err := config.latestVersion()
-	if err != nil {
-		return advisoryToolFailure("go-version", err.Error())
-	}
-
-	if compareGoVersions(installedVersion, latestVersion) >= 0 {
-		return report.StepResult{Name: "go-version", Status: report.StatusOK}
-	}
-
-	slog.Warn("go version behind latest stable")
-	findings := []string{
-		"Installed Go " + installedVersion + " is behind the latest stable Go " + latestVersion + ".",
-		"Update the installed Go toolchain when practical.",
-	}
-
-	return report.StepResult{
-		Name:     "go-version",
-		Status:   report.StatusAdvisory,
-		Findings: findings,
-	}
+	return checkrun.Outcome(
+		checkrun.GoVersion(installedGoVersion, latestStableGo, compareGoVersions),
+	)
 }
 
 func runGoVersionCheck() int {
 	result, _ := runGoVersionStep()
-	writeStdout(
-		report.Render(report.Report{
-			Title: "go-mk go-version-check",
-			Steps: []report.StepResult{result},
-		}),
-	)
-
-	return 0
+	return checkrun.PrintStep(checkrun.GoVersionTitle, result, writeStdout)
 }
 
 // installedGoVersion returns the Go version available on PATH without the
