@@ -14,7 +14,7 @@ func TestCommandEntry(t *testing.T) {
 	t.Parallel()
 
 	binary := filepath.Join(t.TempDir(), "staticcheck-extra")
-	build := exec.CommandContext(t.Context(), "go", "build", "-trimpath", "-o", binary, ".")
+	build := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build analyzer: %v\n%s", err, output)
 	}
