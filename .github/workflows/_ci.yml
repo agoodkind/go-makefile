@@ -554,8 +554,8 @@ jobs:
               format('{0}/Makefile', inputs.working_directory), '.gitmodules')) }}
         with:
           path: ${{ github.workspace }}/.make/ci-go-build
-          key: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-${{ steps.go-build-generation.outputs.week }}
-          restore-keys: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-
+          key: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-${{ steps.go-build-generation.outputs.week }}
+          restore-keys: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-
       # The first matrix job saves the tool cache and refreshes @latest packages weekly.
       - name: Choose the Go tool cache key
         id: go-tool-cache-key
