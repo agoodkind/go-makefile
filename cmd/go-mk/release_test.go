@@ -603,8 +603,16 @@ func TestProvisionCgoDepsSkipsWarmCache(t *testing.T) {
 		t.Fatalf("write stamp: %v", err)
 	}
 
-	if directory, err := provisionCgoDeps("darwin", "arm64"); err != nil || directory != pkgConfigDir {
-		t.Fatalf("cached dependency directory = %q, error = %v, want %q", directory, err, pkgConfigDir)
+	if directory, err := provisionCgoDeps(
+		"darwin",
+		"arm64",
+	); err != nil || directory != pkgConfigDir {
+		t.Fatalf(
+			"cached dependency directory = %q, error = %v, want %q",
+			directory,
+			err,
+			pkgConfigDir,
+		)
 	}
 	relProcAssertHook(t, fixture, false)
 	if got := relProcReadFile(t, stampPath); got != "cache-key-1" {
@@ -627,8 +635,16 @@ func TestProvisionCgoDepsSkipsWarmCacheWithTrailingNewlineStamp(t *testing.T) {
 		t.Fatalf("write stamp: %v", err)
 	}
 
-	if directory, err := provisionCgoDeps("darwin", "arm64"); err != nil || directory != pkgConfigDir {
-		t.Fatalf("cached dependency directory = %q, error = %v, want %q", directory, err, pkgConfigDir)
+	if directory, err := provisionCgoDeps(
+		"darwin",
+		"arm64",
+	); err != nil || directory != pkgConfigDir {
+		t.Fatalf(
+			"cached dependency directory = %q, error = %v, want %q",
+			directory,
+			err,
+			pkgConfigDir,
+		)
 	}
 	relProcAssertHook(t, fixture, false)
 	if got := relProcReadFile(t, stampPath); got != "cache-key-1\n" {
@@ -791,8 +807,16 @@ func TestProvisionCgoDepsRunsWhenWarmCacheConditionFails(t *testing.T) {
 					}
 				}
 
-				if directory, err := provisionCgoDeps("darwin", "arm64"); err != nil || directory != pkgConfigDir {
-					t.Fatalf("dependency directory = %q, error = %v, want %q", directory, err, pkgConfigDir)
+				if directory, err := provisionCgoDeps(
+					"darwin",
+					"arm64",
+				); err != nil || directory != pkgConfigDir {
+					t.Fatalf(
+						"dependency directory = %q, error = %v, want %q",
+						directory,
+						err,
+						pkgConfigDir,
+					)
 				}
 				relProcAssertHook(t, fixture, true)
 				if got := relProcReadFile(
