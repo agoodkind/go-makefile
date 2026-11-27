@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	gomk "goodkind.io/go-makefile/cmd/go-mk"
+	"goodkind.io/go-makefile/internal/lint"
 )
 
 const (
@@ -157,16 +158,21 @@ var (
 func builtTestLinter(t *testing.T) string {
 	t.Helper()
 	buildTestLinterOnce.Do(func() {
-		engine := gomk.BuiltTestEngine(t)
-		bin := filepath.Dir(engine)
+		if os.Getenv("GO_MK_TEST_PREINSTALLED_GOLANGCI_LINT") == "true" {
+			testLinterPath, testLinterError = exec.LookPath("golangci-lint")
+			return
+		}
+
+		spec, err := lint.GolangciInstallSpec()
+		if err != nil {
+			testLinterError = err
+			return
+		}
+
+		bin := filepath.Dir(gomk.BuiltTestEngine(t))
 		testLinterPath = filepath.Join(bin, "golangci-lint")
-		command := exec.Command(engine, "lint-tools")
-		command.Env = append(
-			os.Environ(),
-			"GOBIN="+bin,
-			"GOLANGCI_LINT=golangci-lint",
-			"GOWORK=off",
-		)
+		command := exec.Command("go", "install", spec)
+		command.Env = append(os.Environ(), "GOBIN="+bin, "GOWORK=off")
 		if output, err := command.CombinedOutput(); err != nil {
 			testLinterError = fmt.Errorf("install fixture lint tools: %w\n%s", err, output)
 		}

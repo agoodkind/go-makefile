@@ -86,6 +86,8 @@ func TestLegacyMakefileNoticePreservesEffectiveDate(t *testing.T) {
 		t.Run(
 			scenario.name,
 			func(t *testing.T) {
+				t.Parallel()
+
 				consumer := legacyNoticeRepository(t, scenario.fixture)
 				if scenario.fresh {
 					writeLegacyMakefile(t, consumer, "legacy")
@@ -119,6 +121,7 @@ func TestLegacyMakefileNoticePreservesEffectiveDate(t *testing.T) {
 					filepath.Join(repository, "go.mk"),
 					"GO_MK_DEV_DIR="+repository,
 					"GO_MK_BIN="+engine,
+					"GOLANGCI_LINT="+builtTestLinter(t),
 					"STATICCHECK_EXTRA_BIN="+builtTestAnalyzer(t, repository),
 					"_GO_MK_NOTICES_FILE="+filepath.Join(consumer, ".make/notices.txt"),
 					"GO_MK_NOTICE_MAKEFILE="+filepath.Join(repository, "go.mk"),

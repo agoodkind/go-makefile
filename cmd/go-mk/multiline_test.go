@@ -39,10 +39,7 @@ func TestNoticeBaselinesMultilineGolangciDiagnostics(t *testing.T) {
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 	engine := gomk.BuiltTestEngine(t)
 
-	linter, err := exec.LookPath("golangci-lint")
-	if err != nil {
-		t.Fatalf("locate golangci-lint: %v", err)
-	}
+	linter := builtTestLinter(t)
 
 	writeConsumerFile(t, consumer, "widget/range_test.go", multilineLoopSource)
 	runConsumerGit(t, consumer, beforeNoticeDate, "add", ".")
@@ -156,10 +153,7 @@ func TestNoticeExcludesSourceLinesFromBaseline(t *testing.T) {
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 	engine := gomk.BuiltTestEngine(t)
 
-	linter, err := exec.LookPath("golangci-lint")
-	if err != nil {
-		t.Fatalf("locate golangci-lint: %v", err)
-	}
+	linter := builtTestLinter(t)
 
 	writeConsumerFile(t, consumer, "widget/helper.go", excerptSource)
 	runConsumerGit(t, consumer, beforeNoticeDate, "add", ".")
@@ -237,10 +231,7 @@ func TestNoticeRejectsMappedCompileError(t *testing.T) {
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 	engine := gomk.BuiltTestEngine(t)
 
-	linter, err := exec.LookPath("golangci-lint")
-	if err != nil {
-		t.Fatalf("locate golangci-lint: %v", err)
-	}
+	linter := builtTestLinter(t)
 
 	const source = "package widget\n\n//line input.proto:7\nvar Broken = missingMappedValue\n"
 	const configuration = "version: \"2\"\nlinters:\n  default: none\n  enable: [unused]\n"

@@ -94,25 +94,32 @@ func TestGovulncheckUsesGOBIN(t *testing.T) {
 func TestGovulncheckFallsBackToGOPATHBin(t *testing.T) {
 	t.Parallel()
 
-	dir, env := govulncheckProject(t)
-	env["GOBIN"] = ""
-	env["PATH"] = govulncheckFallbackBin + string(os.PathListSeparator) + os.Getenv("PATH")
-	govulncheckCopyBinary(t, filepath.Join(env["GOPATH"], "bin"))
-	output := govulncheckCommand(t, dir, env, "govulncheck")
-	govulncheckRequireFindings(t, output)
-}
-
-func TestGovulncheckUsesFirstGOPATHEntry(t *testing.T) {
-	t.Parallel()
-
-	dir, env := govulncheckProject(t)
-	env["GOBIN"] = ""
-	env["PATH"] = govulncheckFallbackBin + string(os.PathListSeparator) + os.Getenv("PATH")
-	first := env["GOPATH"]
-	env["GOPATH"] = first + string(os.PathListSeparator) + filepath.Join(dir, "second")
-	govulncheckCopyBinary(t, filepath.Join(first, "bin"))
-	output := govulncheckCommand(t, dir, env, "govulncheck")
-	govulncheckRequireFindings(t, output)
+	firstPath := filepath.Join("go", "first")
+	secondPath := filepath.Join("go", "second")
+	for _, paths := range [][]string{{firstPath}, {firstPath, secondPath}} {
+		var binary string
+		result := runGovulncheckStepWith(govulncheckConfig{
+			install: func(string) error { return nil },
+			goPath: func(name string) (string, error) {
+				switch name {
+				case "GOBIN":
+					return "", nil
+				case "GOPATH":
+					return strings.Join(paths, string(os.PathListSeparator)), nil
+				default:
+					return "", fmt.Errorf("unexpected Go environment variable %q", name)
+				}
+			},
+			run: func(name string, _ []string) ([]byte, error) {
+				binary = name
+				return nil, nil
+			},
+		})
+		want := filepath.Join(firstPath, "bin", "govulncheck")
+		if result.Status != report.StatusOK || binary != want {
+			t.Fatalf("GOPATH %v ran %q with status %v, want %q", paths, binary, result.Status, want)
+		}
+	}
 }
 
 func TestGovulncheckEmptyGOPATHIsAdvisory(t *testing.T) {
@@ -203,15 +210,11 @@ func TestGovulncheckExecutionFailureIsAdvisory(t *testing.T) {
 	)
 }
 
-// Go 1.27 computes GOBIN from GOPATH before the engine can use its fallback.
-const govulncheckFallbackToolchain = "go1.26.4"
-
 var (
-	govulncheckToolsOnce   sync.Once
-	govulncheckToolsDir    string
-	govulncheckToolsErr    error
-	govulncheckCaches      []string
-	govulncheckFallbackBin string
+	govulncheckToolsOnce sync.Once
+	govulncheckToolsDir  string
+	govulncheckToolsErr  error
+	govulncheckCaches    []string
 )
 
 func govulncheckTools(t *testing.T) string {
@@ -295,40 +298,7 @@ func govulncheckTools(t *testing.T) string {
 				err,
 				output,
 			)
-			return
 		}
-
-		command = exec.Command("go", "env", "GOROOT")
-		command.Dir = govulncheckToolsDir
-		command.Env = testProcessEnvironment(map[string]string{
-			"HOME":               govulncheckToolsDir,
-			"GOENV":              "off",
-			"GOFLAGS":            "-modcacherw",
-			"TEST_TELEMETRY_DIR": telemetryDir,
-			"GOWORK":             "off",
-			"GOTOOLCHAIN":        govulncheckFallbackToolchain,
-			"GOBIN":              "",
-			"GOPATH":             filepath.Join(govulncheckToolsDir, "go"),
-			"GOMODCACHE":         govulncheckCaches[0],
-			"GOCACHE":            govulncheckCaches[1],
-			"GOPROXY":            "https://proxy.golang.org",
-			"GOSUMDB":            "sum.golang.org",
-		})
-		var stderr strings.Builder
-		command.Stderr = &stderr
-		output, err := command.Output()
-		if err != nil {
-			govulncheckToolsErr = fmt.Errorf(
-				"download fallback Go toolchain %s: %w\n%s",
-				govulncheckFallbackToolchain,
-				err,
-				stderr.String(),
-			)
-
-			return
-		}
-
-		govulncheckFallbackBin = filepath.Join(strings.TrimSpace(string(output)), "bin")
 	})
 	if govulncheckToolsErr != nil {
 		t.Fatalf("prepare real govulncheck: %v", govulncheckToolsErr)

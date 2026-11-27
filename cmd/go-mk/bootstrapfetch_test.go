@@ -86,6 +86,8 @@ func helperFiles() map[string]string {
 }
 
 func TestHelperColdProvisionWritesEveryAsset(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -140,6 +142,8 @@ func TestHelperColdProvisionWritesEveryAsset(t *testing.T) {
 // check without the helper ever having run. Pinning the exact code and the
 // helper's own wording rules that out.
 func TestHelperLeavesAssetsIntactWhenUpstreamIsUnreachable(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	writeAsset(t, dir, "go.mk", "# warm go.mk\n")
 	writeAsset(t, dir, "golangci.yml", "version: \"2\"\n")
@@ -185,6 +189,8 @@ func TestHelperLeavesAssetsIntactWhenUpstreamIsUnreachable(t *testing.T) {
 // correct here, but nothing exercised it. It also asserts the surviving
 // assets are byte-for-byte identical to what was there before the run.
 func TestHelperLeavesAssetsIntactWhenTarballIsIncomplete(t *testing.T) {
+	t.Parallel()
+
 	files := helperFiles()
 	delete(files, "notices.txt")
 	delete(files, "scripts/go-mk-sync.sh")
@@ -251,6 +257,8 @@ func TestHelperLeavesAssetsIntactWhenTarballIsIncomplete(t *testing.T) {
 // replaces a read-only file without error; a directory is the shape it must
 // refuse. A directory also blocks root, so this needs no root skip.
 func TestHelperMidInstallFailureExitsNonZero(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -301,6 +309,8 @@ func TestHelperMidInstallFailureExitsNonZero(t *testing.T) {
 // that directory rather than replacing the link: the asset silently lands
 // somewhere outside .make and the install still reports success for that step.
 func TestHelperRefusesAnAssetPathThatSymlinksToADirectory(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -351,6 +361,8 @@ func TestHelperRefusesAnAssetPathThatSymlinksToADirectory(t *testing.T) {
 // left the recorded ETag in place even though .make now holds local edits that
 // never came from upstream.
 func TestHelperDevDirReplacesItsOwnFileAndClearsState(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -433,6 +445,8 @@ func TestHelperDevDirReplacesItsOwnFileAndClearsState(t *testing.T) {
 // GO_MK_DEV_DIR would send its ETag, receive 304, and treat the half-replaced
 // tree as current upstream content indefinitely.
 func TestHelperDevDirPartialInstallLeavesNoState(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -516,6 +530,8 @@ func TestHelperDevDirPartialInstallLeavesNoState(t *testing.T) {
 // TestHelperFallsBackToCacheWhenStateCannotBeCleared verifies that a failed
 // live update preserves and serves the existing complete tree.
 func TestHelperFallsBackToCacheWhenStateCannotBeCleared(t *testing.T) {
+	t.Parallel()
+
 	if os.Geteuid() == 0 {
 		t.Skip("runs as root, where an unwritable directory cannot block removal")
 	}
@@ -584,6 +600,8 @@ func TestHelperFallsBackToCacheWhenStateCannotBeCleared(t *testing.T) {
 // codeload, two consecutive warm parses moved .make's mtime while every file
 // under it stayed identical.
 func TestHelperTouchesNothingUnderMakeOnNotModified(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -848,6 +866,8 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 }
 
 func TestHelperProvisionedRejectsDirectoryInPlaceOfAsset(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	// Seed every required asset, then replace exactly one with a directory.
 	// Listing the assets by hand here is what made this test pass for the
@@ -890,6 +910,8 @@ func TestHelperProvisionedRejectsDirectoryInPlaceOfAsset(t *testing.T) {
 // main used to return 0 unconditionally afterward, exiting success with an
 // incomplete .make.
 func TestHelperDevDirIncompleteFailsLoudly(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	devDir := t.TempDir()
 	writeDevDirAsset(t, devDir, "go.mk", "# dev go.mk\n")
@@ -1167,6 +1189,8 @@ func copyFile(source string, dest string) error {
 }
 
 func TestHelperColdProvisionRecordsState(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -1201,6 +1225,8 @@ func TestHelperColdProvisionRecordsState(t *testing.T) {
 }
 
 func TestHelperServesDiskWhenUpstreamReturnsNotModified(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -1303,6 +1329,8 @@ func statStateFile(t *testing.T, dir string) os.FileInfo {
 }
 
 func TestHelperReprovisionsWhenUpstreamMoved(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -1348,6 +1376,8 @@ func TestHelperReprovisionsWhenUpstreamMoved(t *testing.T) {
 // rather than validating against content this run never confirmed), warns
 // loudly, and still returns success.
 func TestHelperDegradesWhenUpstreamServesNoETag(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	server.SetETagEnabled(false)
 	dir := t.TempDir()
@@ -1389,6 +1419,8 @@ func TestHelperDegradesWhenUpstreamServesNoETag(t *testing.T) {
 // verified against that leftover etag). The fix must remove the stale
 // state file, not merely skip writing a new one.
 func TestHelperClearsStaleStateWhenUpstreamStopsServingETag(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -1434,6 +1466,8 @@ func TestHelperClearsStaleStateWhenUpstreamStopsServingETag(t *testing.T) {
 // does not match the current ref, forcing a real fetch instead of a
 // conditional probe.
 func TestHelperDoesNotReuseETagAcrossRef(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -1685,6 +1719,8 @@ func TestHelperFallsBackToDiskWhenUpstreamTimesOutAndStateIsStale(t *testing.T) 
 // covers the stall shape, so between the two the suite exercises both ways
 // a real network failure reaches this branch.
 func TestHelperFallsBackToCacheWithFutureTimestamp(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(2*time.Hour).Unix())
@@ -1822,6 +1858,8 @@ func TestHelperCompletesWhenUpstreamTricklesAboveSpeedLimit(t *testing.T) {
 // through to provision, which fails loudly with its own local-cause
 // message when the same broken TMPDIR blocks its staging directory too.
 func TestHelperDoesNotReuseWhenLocalSetupFailsBeforeAnyRequest(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 	warmMake(t, dir)
@@ -1884,6 +1922,8 @@ func TestHelperDoesNotReuseWhenLocalSetupFailsBeforeAnyRequest(t *testing.T) {
 // If-None-Match and must be a real 200, not a 304 the helper then trusts
 // without having downloaded anything this run.
 func TestHelperAlwaysProvisionsUnconditionallyInCI(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 	warmMake(t, dir)
@@ -1941,6 +1981,8 @@ func TestHelperAlwaysProvisionsUnconditionallyInCI(t *testing.T) {
 // soften an unreachable upstream. CI must fail loudly rather than silently
 // serving assets that were never re-validated this run.
 func TestHelperFailsInCIWhenUpstreamIsUnreachableDespiteFreshState(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Unix())
@@ -1966,6 +2008,8 @@ func TestHelperFailsInCIWhenUpstreamIsUnreachableDespiteFreshState(t *testing.T)
 // ordinary conditional-validation behavior, not the unconditional-fetch
 // path meant for a real GitHub Actions job.
 func TestHelperTreatsGithubActionsWithoutRunIdAsLocal(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
