@@ -589,7 +589,7 @@ func TestProvisionCgoDepsRunsHookAndComposesEnv(t *testing.T) {
 }
 
 func TestProvisionCgoDepsSkipsWarmCache(t *testing.T) {
-	engine, fixture := relProcCgoCommandFixture(t)
+	fixture := relProcCgoFixture(t)
 	t.Setenv("GO_MK_CGO_CACHE_HIT", "true")
 	t.Setenv("GO_MK_CGO_CACHE_KEY", "cache-key-1")
 	prefix := filepath.Join(fixture.workDir, ".make", "cgo", "darwin-arm64")
@@ -603,7 +603,9 @@ func TestProvisionCgoDepsSkipsWarmCache(t *testing.T) {
 		t.Fatalf("write stamp: %v", err)
 	}
 
-	relProcRunCgoCompile(t, engine, fixture, "darwin/arm64")
+	if directory, err := provisionCgoDeps("darwin", "arm64"); err != nil || directory != pkgConfigDir {
+		t.Fatalf("cached dependency directory = %q, error = %v, want %q", directory, err, pkgConfigDir)
+	}
 	relProcAssertHook(t, fixture, false)
 	if got := relProcReadFile(t, stampPath); got != "cache-key-1" {
 		t.Fatalf("stamp content = %q, want cache-key-1", got)
@@ -611,7 +613,7 @@ func TestProvisionCgoDepsSkipsWarmCache(t *testing.T) {
 }
 
 func TestProvisionCgoDepsSkipsWarmCacheWithTrailingNewlineStamp(t *testing.T) {
-	engine, fixture := relProcCgoCommandFixture(t)
+	fixture := relProcCgoFixture(t)
 	t.Setenv("GO_MK_CGO_CACHE_HIT", "true")
 	t.Setenv("GO_MK_CGO_CACHE_KEY", "cache-key-1")
 	prefix := filepath.Join(fixture.workDir, ".make", "cgo", "darwin-arm64")
@@ -625,7 +627,9 @@ func TestProvisionCgoDepsSkipsWarmCacheWithTrailingNewlineStamp(t *testing.T) {
 		t.Fatalf("write stamp: %v", err)
 	}
 
-	relProcRunCgoCompile(t, engine, fixture, "darwin/arm64")
+	if directory, err := provisionCgoDeps("darwin", "arm64"); err != nil || directory != pkgConfigDir {
+		t.Fatalf("cached dependency directory = %q, error = %v, want %q", directory, err, pkgConfigDir)
+	}
 	relProcAssertHook(t, fixture, false)
 	if got := relProcReadFile(t, stampPath); got != "cache-key-1\n" {
 		t.Fatalf("stamp content = %q, want cache-key-1 with a newline", got)
@@ -757,7 +761,7 @@ func TestProvisionCgoDepsRunsWhenWarmCacheConditionFails(t *testing.T) {
 		t.Run(
 			testCase.name,
 			func(t *testing.T) {
-				engine, fixture := relProcCgoCommandFixture(t)
+				fixture := relProcCgoFixture(t)
 				t.Setenv("GO_MK_CGO_CACHE_HIT", testCase.cacheHit)
 				t.Setenv("GO_MK_CGO_CACHE_KEY", testCase.cacheKey)
 				prefix := filepath.Join(fixture.workDir, ".make", "cgo", "darwin-arm64")
@@ -787,7 +791,9 @@ func TestProvisionCgoDepsRunsWhenWarmCacheConditionFails(t *testing.T) {
 					}
 				}
 
-				relProcRunCgoCompile(t, engine, fixture, "darwin/arm64")
+				if directory, err := provisionCgoDeps("darwin", "arm64"); err != nil || directory != pkgConfigDir {
+					t.Fatalf("dependency directory = %q, error = %v, want %q", directory, err, pkgConfigDir)
+				}
 				relProcAssertHook(t, fixture, true)
 				if got := relProcReadFile(
 					t,
@@ -836,11 +842,13 @@ func TestProvisionCgoDepsWritesStampAfterSuccess(t *testing.T) {
 }
 
 func TestProvisionCgoDepsDoesNotWriteStampWhenKeyIsEmpty(t *testing.T) {
-	engine, fixture := relProcCgoCommandFixture(t)
+	fixture := relProcCgoFixture(t)
 	t.Setenv("GO_MK_CGO_CACHE_KEY", "")
 	prefix := filepath.Join(fixture.workDir, ".make", "cgo", "linux-amd64")
 
-	relProcRunCgoCompile(t, engine, fixture, "linux/amd64")
+	if _, err := provisionCgoDeps("linux", "amd64"); err != nil {
+		t.Fatal(err)
+	}
 	relProcAssertHook(t, fixture, true)
 	stampPath := filepath.Join(prefix, ".go-mk-cgo-cache-key")
 	if _, err := os.Stat(stampPath); !os.IsNotExist(err) {
@@ -1159,6 +1167,11 @@ func relProcCgoCommandFixture(t *testing.T) (string, relProcFixture) {
 	}
 
 	engine := builtTestEngine(t)
+	cache, err := exec.Command(goPath, "env", "GOCACHE").Output()
+	if err != nil {
+		t.Fatalf("resolve Go build cache: %v", err)
+	}
+
 	buildDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(buildDir, "gitconfig"), nil, 0o600); err != nil {
 		t.Fatalf("write build git config: %v", err)
@@ -1166,7 +1179,7 @@ func relProcCgoCommandFixture(t *testing.T) (string, relProcFixture) {
 
 	for key, value := range map[string]string{
 		"HOME":                buildDir,
-		"GOCACHE":             filepath.Join(filepath.Dir(engine), "release-go-cache"),
+		"GOCACHE":             strings.TrimSpace(string(cache)),
 		"GOPATH":              filepath.Join(buildDir, "go"),
 		"GOMODCACHE":          filepath.Join(buildDir, "modules"),
 		"GOENV":               "off",
