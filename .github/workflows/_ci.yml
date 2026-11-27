@@ -130,6 +130,7 @@ on:
 
 env:
   GH_TOKEN: ${{ github.token }}
+  GO_TEST_TARGETS: -json -count=1 -timeout=20m ./...
 
 jobs:
   prepare:
@@ -544,7 +545,7 @@ jobs:
         shell: bash
         run: printf 'week=%s\nimage=%s\n' "$(date -u +%G-%V)" "${ImageOS:-}" >> "$GITHUB_OUTPUT"
       - name: Cache compiled Go packages
-        if: needs.prepare.outputs.run == 'true'
+        if: needs.prepare.outputs.run == 'true' && matrix.command != 'make test'
         uses: actions/cache@v6
         env:
           GO_BUILD_KEY: >-
