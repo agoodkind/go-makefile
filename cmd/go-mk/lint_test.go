@@ -8,6 +8,25 @@ import (
 	"testing"
 )
 
+func TestLintToolsUsesConfiguredExecutable(t *testing.T) {
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// An installed linter must not require Go or a network connection.
+	t.Setenv("PATH", "")
+	t.Setenv("GOLANGCI_LINT", binary)
+	if err := runLintTools(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("GOLANGCI_LINT", filepath.Join(t.TempDir(), "missing-linter"))
+	if err := runLintTools(); err == nil || !strings.Contains(err.Error(), "is not executable") {
+		t.Fatalf("missing linter error = %v", err)
+	}
+}
+
 // TestExtractFindingsDropsOutOfTree proves the cache-poisoning backstop: a
 // finding whose file does not exist under the worktree root (the laundered
 // sibling-worktree path) is dropped and counted, while a real local finding is

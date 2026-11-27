@@ -131,8 +131,6 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
-    env:
-      GOCACHE: ${{ github.workspace }}/.make/ci-go-build
     steps:
       - uses: actions/checkout@v7
         with:
@@ -154,8 +152,6 @@ jobs:
           sudo apt-get install -y ccache
       - uses: actions/setup-go@v7
         id: setup-go
-        env:
-          GOCACHE: ${{ runner.temp }}/setup-go-build
         with:
           go-version-file: ${{ inputs.working_directory }}/go.mod
           cache-dependency-path: |
@@ -279,11 +275,12 @@ jobs:
               format('{0}/go.work.sum', inputs.working_directory),
               format('{0}/Makefile', inputs.working_directory), '.gitmodules')) }}
         with:
-          path: ${{ env.GOCACHE }}
+          path: ${{ github.workspace }}/.make/ci-go-build
           key: ${{ env.GO_BUILD_KEY }}-${{ inputs.cgo }}-${{ steps.submodule-pins.outputs.digest }}-${{ steps.go-mk-cache.outputs.cgo_cache_key }}-${{ steps.go-build-generation.outputs.week }}
           restore-keys: ${{ env.GO_BUILD_KEY }}-${{ inputs.cgo }}-${{ steps.submodule-pins.outputs.digest }}-${{ steps.go-mk-cache.outputs.cgo_cache_key }}-
       - name: Compile
         env:
+          GOCACHE: ${{ github.workspace }}/.make/ci-go-build
           RELEASE_STAGE: compile
           RELEASE_TAG: ${{ inputs.release_tag }}
           RELEASE_PLATFORMS: ${{ matrix.goos }}/${{ matrix.goarch }}

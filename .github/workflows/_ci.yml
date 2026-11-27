@@ -441,8 +441,6 @@ jobs:
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
       contents: read
-    env:
-      GOCACHE: ${{ github.workspace }}/.make/ci-go-build
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.job_matrix) }}
@@ -464,8 +462,6 @@ jobs:
       - if: needs.prepare.outputs.run == 'true'
         uses: actions/setup-go@v7
         id: setup-go
-        env:
-          GOCACHE: ${{ runner.temp }}/setup-go-build
         with:
           go-version-file: ${{ inputs.go_version_file }}
           cache-dependency-path: |
@@ -557,7 +553,7 @@ jobs:
               format('{0}/go.work.sum', inputs.working_directory),
               format('{0}/Makefile', inputs.working_directory), '.gitmodules')) }}
         with:
-          path: ${{ env.GOCACHE }}
+          path: ${{ github.workspace }}/.make/ci-go-build
           key: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-${{ steps.go-build-generation.outputs.week }}
           restore-keys: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-
       # The first matrix job saves the tool cache and refreshes @latest packages weekly.
@@ -608,6 +604,11 @@ jobs:
           install-only: true
           # go-mk stores analysis outside the action's default cache path.
           skip-cache: true
+      - name: Select installed golangci-lint
+        if: needs.prepare.outputs.run == 'true' && matrix.install_golangci_lint && env.GOLANGCI_LINT == ''
+        run: |
+          golangci_lint="$(command -v golangci-lint)"
+          printf 'GOLANGCI_LINT=%s\n' "$golangci_lint" >> "$GITHUB_ENV"
       # New weekly keys restore the last compatible analysis and allow a fresh save.
       - name: Restore golangci-lint cache
         id: golangci-cache-restore
@@ -623,6 +624,7 @@ jobs:
         if: needs.prepare.outputs.run == 'true'
         continue-on-error: true
         env:
+          GOCACHE: ${{ github.workspace }}/.make/ci-go-build
           GO_MK_CI_PRIMARY_COMMAND: ${{ matrix.command }}
           GO_MK_CI_PRIMARY_REPORT: ${{ runner.temp }}/go-mk-primary-checks.out
           GO_MK_CI_REPORT_GOLANGCI_RUN: ${{ matrix.command == 'make build-check' }}
@@ -635,6 +637,7 @@ jobs:
         if: needs.prepare.outputs.run == 'true' && matrix.secondary_command != '' && steps.primary-checks.outcome != 'skipped'
         continue-on-error: true
         env:
+          GOCACHE: ${{ github.workspace }}/.make/ci-go-build
           GO_MK_CI_SECONDARY_COMMAND: ${{ matrix.secondary_command }}
           GO_MK_CI_SECONDARY_REPORT: ${{ runner.temp }}/go-mk-secondary-checks.out
         run: |
