@@ -5,61 +5,77 @@ import (
 	"strings"
 	"testing"
 
+	"goodkind.io/go-makefile/internal/checkrun"
 	"goodkind.io/go-makefile/internal/report"
 )
 
+const (
+	outdatedGoVersion     = "1.26.4"
+	currentGoVersion      = "1.26.5"
+	goVersionFinding      = "Installed Go " + outdatedGoVersion + " is behind the latest stable Go " + currentGoVersion
+	goVersionLookupError  = "network unavailable"
+	goVersionFindingBreak = "\n"
+	goVersionWantAdvisory = "status = %v, want advisory"
+	goVersionWantOK       = "status = %v, want ok"
+	goVersionWantUpgrade  = "findings = %v, want upgrade notice"
+	goVersionWantError    = "findings = %v, want lookup error"
+)
+
 func TestOutdatedInstalledGoVersionIsAdvisory(t *testing.T) {
-	result := goVersionStepWith(goVersionConfig{
-		installedVersion: func() (string, error) {
-			return "1.26.4", nil
+	result := checkrun.GoVersion(
+		func() (string, error) {
+			return outdatedGoVersion, nil
 		},
-		latestVersion: func() (string, error) {
-			return "1.26.5", nil
+		func() (string, error) {
+			return currentGoVersion, nil
 		},
-	})
+		compareGoVersions,
+	)
 
 	if result.Status != report.StatusAdvisory {
-		t.Fatalf("status = %v, want advisory", result.Status)
+		t.Fatalf(goVersionWantAdvisory, result.Status)
 	}
 
-	if !strings.Contains(
-		strings.Join(result.Findings, "\n"),
-		"Installed Go 1.26.4 is behind the latest stable Go 1.26.5",
-	) {
-		t.Fatalf("findings = %v, want upgrade notice", result.Findings)
+	if !strings.Contains(strings.Join(result.Findings, goVersionFindingBreak), goVersionFinding) {
+		t.Fatalf(goVersionWantUpgrade, result.Findings)
 	}
 }
 
 func TestGoVersionLookupFailureIsAdvisory(t *testing.T) {
-	result := goVersionStepWith(goVersionConfig{
-		installedVersion: func() (string, error) {
-			return "1.26.5", nil
+	result := checkrun.GoVersion(
+		func() (string, error) {
+			return currentGoVersion, nil
 		},
-		latestVersion: func() (string, error) {
-			return "", errors.New("network unavailable")
+		func() (string, error) {
+			return "", errors.New(goVersionLookupError)
 		},
-	})
+		compareGoVersions,
+	)
 
 	if result.Status != report.StatusAdvisory {
-		t.Fatalf("status = %v, want advisory", result.Status)
+		t.Fatalf(goVersionWantAdvisory, result.Status)
 	}
 
-	if !strings.Contains(strings.Join(result.Findings, "\n"), "network unavailable") {
-		t.Fatalf("findings = %v, want lookup error", result.Findings)
+	if !strings.Contains(
+		strings.Join(result.Findings, goVersionFindingBreak),
+		goVersionLookupError,
+	) {
+		t.Fatalf(goVersionWantError, result.Findings)
 	}
 }
 
 func TestCurrentGoVersionIsOK(t *testing.T) {
-	result := goVersionStepWith(goVersionConfig{
-		installedVersion: func() (string, error) {
-			return "1.26.5", nil
+	result := checkrun.GoVersion(
+		func() (string, error) {
+			return currentGoVersion, nil
 		},
-		latestVersion: func() (string, error) {
-			return "1.26.5", nil
+		func() (string, error) {
+			return currentGoVersion, nil
 		},
-	})
+		compareGoVersions,
+	)
 
 	if result.Status != report.StatusOK {
-		t.Fatalf("status = %v, want ok", result.Status)
+		t.Fatalf(goVersionWantOK, result.Status)
 	}
 }

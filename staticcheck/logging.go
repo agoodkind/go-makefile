@@ -41,7 +41,7 @@ func runSlogErrorWithoutErr(pass *analysis.Pass) (any, error) {
 			file,
 			func(node ast.Node) bool {
 				call, ok := node.(*ast.CallExpr)
-				if !ok || !isErrorSlogCall(call) || hasErrAttr(call) {
+				if !ok || !isErrorSlogCall(call) || hasErrAttr(pass, call) {
 					return true
 				}
 
@@ -159,7 +159,7 @@ func isErrorSlogCall(call *ast.CallExpr) bool {
 		exprContains(call.Args[1], "LevelError")
 }
 
-func hasErrAttr(call *ast.CallExpr) bool {
+func hasErrAttr(pass *analysis.Pass, call *ast.CallExpr) bool {
 	for _, arg := range call.Args {
 		found := false
 		ast.Inspect(
@@ -187,7 +187,7 @@ func hasErrAttr(call *ast.CallExpr) bool {
 				}
 
 				if name == "Any" || name == "String" || name == "Attr" {
-					if value, ok := stringLiteral(nested.Args[0]); ok && isErrKey(value) {
+					if value, ok := constantString(pass, nested.Args[0]); ok && isErrKey(value) {
 						found = true
 						return false
 					}
