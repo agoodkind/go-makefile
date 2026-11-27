@@ -44,7 +44,7 @@ ROOT_RELEASE_GO_MK := $(ROOT_GO_MK) GO_MK_MODULES=go-release.mk BINARY=go-mk CMD
 
 .DEFAULT_GOAL := help
 
-.PHONY: build release go-mk-release-assets check lint fmt vet test mutation govulncheck go-version-check build-check ci-changed go-mk-cache-manifest go-mk-ci-job-layout go-mk-golangci-cache-save-decision go-mk-generate \
+.PHONY: build release go-mk-release-assets check lint fmt vet test mutation govulncheck go-version-check build-check ci-changed go-mk-cache-manifest go-mk-ci-job-layout go-mk-quality-gate-manifest go-mk-golangci-cache-save-decision go-mk-generate \
         lint-tools lint-golangci lint-files lint-diff lint-format lint-gocyclo lint-deadcode lint-make-vars staticcheck-extra \
         lint-golangci-baseline lint-golangci-baseline-prune-fixed lint-golangci-baseline-remove-fixed lint-golangci-baseline-accept-new \
         lint-gocyclo-baseline lint-gocyclo-baseline-prune-fixed lint-gocyclo-baseline-remove-fixed lint-gocyclo-baseline-accept-new \
@@ -202,6 +202,9 @@ go-mk-cache-manifest:
 
 go-mk-ci-job-layout:
 	$(ROOT_GO_MK) go-mk-ci-job-layout
+
+go-mk-quality-gate-manifest:
+	$(ROOT_GO_MK) go-mk-quality-gate-manifest
 
 go-mk-platforms:
 	$(ROOT_GO_MK) go-mk-platforms

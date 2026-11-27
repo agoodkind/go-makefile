@@ -1,0 +1,74 @@
+name: Run a go-makefile quality gate
+description: Run one Make target and reuse its cache when available.
+
+inputs:
+  gate:
+    description: Make target to run. See the CI caller documentation for supported gates.
+    required: true
+  working-directory:
+    description: Directory containing the Go module.
+    default: .
+  cgo-toolchain-id:
+    description: Compiler identity from the job that saved the cgo dependency cache.
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Read the quality gate manifest
+      id: manifest
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GO_MK_CI_QUALITY_GATE: ${{ inputs.gate }}
+        GO_MK_CGO_TOOLCHAIN_ID: ${{ inputs.cgo-toolchain-id }}
+      run: make go-mk-quality-gate-manifest
+
+    - name: Restore cgo dependencies
+      if: >-
+        steps.manifest.outputs.restore_cgo == 'true' &&
+        steps.manifest.outputs.cgo_cache_enabled == 'true'
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.manifest.outputs.cgo_cache_paths }}
+        key: go-mk-cgo-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.manifest.outputs.cgo_cache_key }}
+
+    - name: Restore golangci-lint analysis
+      id: lint-cache
+      if: steps.manifest.outputs.lint_cache_key != ''
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.manifest.outputs.lint_cache_paths }}
+        key: ${{ steps.manifest.outputs.lint_cache_key }}
+        restore-keys: ${{ steps.manifest.outputs.lint_cache_restore_key }}
+
+    - name: Run the quality gate
+      id: check
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GATE: ${{ steps.manifest.outputs.quality_gate }}
+        GO_MK_CI_REPORT_GOLANGCI_RUN: ${{ steps.manifest.outputs.lint_cache_key != '' }}
+      run: make -- "${GATE:?Use the same go-makefile revision for the action and Makefile}"
+
+    - name: Verify the golangci-lint cache before saving
+      id: lint-save
+      if: >-
+        !cancelled() && steps.lint-cache.outcome == 'success' &&
+        steps.lint-cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GO_MK_CI_PRIMARY_COMMAND: ${{ steps.manifest.outputs.quality_gate_command }}
+        GO_MK_CI_PRIMARY_OUTCOME: ${{ steps.check.outcome }}
+        GO_MK_CI_GOLANGCI_RAN: ${{ steps.check.outputs.golangci_ran }}
+        GO_MK_CI_LINT_CACHE_PATHS: ${{ steps.manifest.outputs.lint_cache_paths }}
+      run: make go-mk-golangci-cache-save-decision
+
+    - name: Save golangci-lint analysis
+      if: >-
+        !cancelled() && steps.lint-save.outputs.save == 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.manifest.outputs.lint_cache_paths }}
+        key: ${{ steps.lint-cache.outputs.cache-primary-key }}

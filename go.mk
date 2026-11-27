@@ -5,7 +5,7 @@
 	lint-deadcode lint-deadcode-baseline lint-deadcode-baseline-prune-fixed lint-deadcode-baseline-remove-fixed lint-deadcode-baseline-accept-new \
 	staticcheck-extra staticcheck-extra-baseline staticcheck-extra-baseline-prune-fixed staticcheck-extra-baseline-remove-fixed staticcheck-extra-baseline-accept-new staticcheck-extra-bin \
 	baseline baseline-bin baseline-prune-fixed baseline-remove-fixed baseline-accept-new baseline-add-new \
-	go-mk-sync update-go-mk smoke-fetch go-mk-notice go-version-check go-mk-bin ci-changed go-mk-cache-manifest go-mk-ci-job-layout go-mk-platforms go-mk-golangci-cache-save-decision go-mk-prepare-submodules go-mk-generate
+	go-mk-sync update-go-mk smoke-fetch go-mk-notice go-version-check go-mk-bin ci-changed go-mk-cache-manifest go-mk-ci-job-layout go-mk-quality-gate-manifest go-mk-platforms go-mk-golangci-cache-save-decision go-mk-prepare-submodules go-mk-generate
 
 GO_MK_BASE_URL  ?= https://raw.githubusercontent.com/agoodkind/go-makefile/main
 GO_MK_API_REPO  ?= agoodkind/go-makefile
@@ -518,6 +518,9 @@ go-mk-cache-manifest: go-mk-bin
 
 go-mk-ci-job-layout: go-mk-bin
 	@"$(__GO_MK_ENGINE)" ci-job-layout
+
+go-mk-quality-gate-manifest: go-mk-bin
+	@GO_MK_JOB_LAYOUT=quality-gate "$(__GO_MK_ENGINE)" ci-job-layout
 
 # The workflows run this target before go-mk-bin. A new engine command here
 # fails every consumer until proxy.golang.org serves that engine for @main.
