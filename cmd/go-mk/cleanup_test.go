@@ -35,7 +35,7 @@ func TestHistoryRestoresDirectoryAndEnvironmentAfterRealFailures(t *testing.T) {
 
 				aliases := t.TempDir()
 				if err := os.Symlink(
-					filepath.Join(consumer, ".make", "staticcheck-extra"),
+					builtTestAnalyzer(t, filepath.Join("..", "..")),
 					filepath.Join(aliases, "staticcheck-extra"),
 				); err != nil {
 					t.Fatal(err)

@@ -165,6 +165,7 @@ type fetchServer struct {
 	etag                  string
 	etagDisabled          bool
 	stall                 time.Duration
+	stallUntilCanceled    bool
 	trickleBytesPerSecond int
 	requests              []fetchRequest
 	server                *httptest.Server
@@ -175,7 +176,10 @@ func newFetchServer(t *testing.T, files map[string]string) *fetchServer {
 	server := &fetchServer{}
 	server.SetFiles(files)
 	server.server = httptest.NewServer(http.HandlerFunc(server.handle))
-	t.Cleanup(server.server.Close)
+	t.Cleanup(func() {
+		server.server.CloseClientConnections()
+		server.server.Close()
+	})
 	server.URL = server.server.URL
 	return server
 }
@@ -205,6 +209,12 @@ func (s *fetchServer) Stall(d time.Duration) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	s.stall = d
+}
+
+func (s *fetchServer) StallUntilCanceled() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.stallUntilCanceled = true
 }
 
 // Trickle makes a 200 response body write in chunks of bytesPerSecond,
@@ -240,8 +250,14 @@ func (s *fetchServer) handle(writer http.ResponseWriter, request *http.Request) 
 	etag := s.etag
 	etagDisabled := s.etagDisabled
 	stall := s.stall
+	stallUntilCanceled := s.stallUntilCanceled
 	trickleBytesPerSecond := s.trickleBytesPerSecond
 	s.mutex.Unlock()
+
+	if stallUntilCanceled {
+		<-request.Context().Done()
+		return
+	}
 
 	if stall > 0 {
 		time.Sleep(stall)

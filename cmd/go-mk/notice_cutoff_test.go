@@ -22,7 +22,7 @@ func TestNoticeRejectsFindingsCommittedAfterItsEffectiveDate(t *testing.T) {
 		t.Run(
 			scenario.name,
 			func(t *testing.T) {
-				consumerDir := newDatedConsumerRepository(t)
+				consumerDir := newConsumerRepositoryWithNotice(t, "2")
 				contents := assertionFreeTest
 				if scenario.file == "widget/widget_test.go" {
 					contents = readConsumerFile(
@@ -78,9 +78,9 @@ func TestNoticeRejectsFindingsCommittedAfterItsEffectiveDate(t *testing.T) {
 					t,
 					consumerDir,
 					appliedNoticeFile,
-				); applied != "1\n2\n3\n14\n15\n16\n18\n19\n" {
+				); applied != "1\n2\n" {
 					t.Fatalf(
-						"applied notices = %q, want all notices after the historical capture succeeds",
+						"applied notices = %q, want notice 2 after the historical capture succeeds",
 						applied,
 					)
 				}
@@ -110,7 +110,7 @@ func TestNoticeRejectsLaterSubtestsWithTheSameDiagnostic(t *testing.T) {
 		t.Run(
 			scenario.name,
 			func(t *testing.T) {
-				consumerDir := newDatedConsumerRepository(t)
+				consumerDir := newConsumerRepositoryWithNotice(t, "2")
 				writeConsumerFile(t, consumerDir, "widget/subtests_test.go", oldSource)
 				runConsumerGit(t, consumerDir, beforeNoticeDate, "add", "widget/subtests_test.go")
 				runConsumerGit(
@@ -159,7 +159,7 @@ func TestNoticeRejectsLaterSubtestsWithTheSameDiagnostic(t *testing.T) {
 }
 
 func TestNoticePreparesHistoricalGeneratedSource(t *testing.T) {
-	consumerDir := newDatedConsumerRepository(t)
+	consumerDir := newConsumerRepositoryWithNotice(t, "2")
 	makefile := "GO_MK_GENERATE := generate-widget\n" + readConsumerFile(
 		t,
 		consumerDir,
@@ -202,17 +202,13 @@ func TestNoticePreparesHistoricalGeneratedSource(t *testing.T) {
 		t.Fatalf("baseline lacks the historical finding:\n%s", baseline)
 	}
 
-	if applied := readConsumerFile(
-		t,
-		consumerDir,
-		appliedNoticeFile,
-	); applied != "1\n2\n3\n14\n15\n16\n18\n19\n" {
-		t.Fatalf("applied notices = %q, want all notices", applied)
+	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n" {
+		t.Fatalf("applied notices = %q, want notice 2", applied)
 	}
 }
 
 func TestNoticeDoesNotApplyWhenHistoricalSourceDoesNotBuild(t *testing.T) {
-	consumerDir := newDatedConsumerRepository(t)
+	consumerDir := newConsumerRepositoryWithNotice(t, "2")
 	original := readConsumerFile(t, consumerDir, "widget/widget.go")
 	writeConsumerFile(
 		t,
@@ -260,7 +256,7 @@ func TestNoticeDoesNotApplyWhenHistoricalSourceDoesNotBuild(t *testing.T) {
 }
 
 func TestNoticePreservesExplicitMakefile(t *testing.T) {
-	consumerDir := newDatedConsumerRepository(t)
+	consumerDir := newConsumerRepositoryWithNotice(t, "2")
 	makefile := readConsumerFile(t, consumerDir, "Makefile")
 	writeConsumerFile(t, consumerDir, "pipeline.mk", makefile)
 	if err := os.Remove(filepath.Join(consumerDir, "Makefile")); err != nil {
@@ -399,8 +395,7 @@ func TestDocStructureNoticeRejectsChangedAndNewComments(t *testing.T) {
 	}
 }
 
-// Dated notice tests exclude the separate upgrade acceptance policy.
-func newDatedConsumerRepository(t *testing.T) string {
+func newConsumerRepositoryWithNotice(t *testing.T, noticeID string) string {
 	t.Helper()
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 	registry, err := os.ReadFile(filepath.Join("..", "..", "notices.txt"))
@@ -408,22 +403,21 @@ func newDatedConsumerRepository(t *testing.T) string {
 		t.Fatal(err)
 	}
 
-	var dated strings.Builder
-
-	for _, line := range strings.Split(string(registry), "\n") {
-		if !strings.Contains(line, "UPGRADE=1") {
-			dated.WriteString(line + "\n")
+	for line := range strings.SplitSeq(string(registry), "\n") {
+		id, _, _ := strings.Cut(line, "\t")
+		if id == noticeID {
+			writeConsumerFile(t, consumer, ".make/dated-notices.txt", line+"\n")
+			makefile := readConsumerFile(t, consumer, "Makefile")
+			writeConsumerFile(
+				t,
+				consumer,
+				"Makefile",
+				makefile+"\n_GO_MK_NOTICES_FILE := .make/dated-notices.txt\n",
+			)
+			return consumer
 		}
 	}
 
-	writeConsumerFile(t, consumer, ".make/dated-notices.txt", dated.String())
-	makefile := readConsumerFile(t, consumer, "Makefile")
-	writeConsumerFile(
-		t,
-		consumer,
-		"Makefile",
-		makefile+"\n_GO_MK_NOTICES_FILE := .make/dated-notices.txt\n",
-	)
-
-	return consumer
+	t.Fatalf("notice %s is missing from the registry", noticeID)
+	return ""
 }

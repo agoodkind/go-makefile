@@ -794,7 +794,7 @@ func TestOldBootstrapMkParsesWithCurrentGoMkAndNoGoMkProvision(t *testing.T) {
 // under test only runs when no cached helper is already on disk.
 func TestHelperAcquisitionBoundedWhenBootstrapURLStalls(t *testing.T) {
 	server := newFetchServer(t, helperFiles())
-	server.Stall(10 * time.Second)
+	server.StallUntilCanceled()
 	dir := t.TempDir()
 
 	source := filepath.Join(repoRootForTest(t), "bootstrap.mk")
