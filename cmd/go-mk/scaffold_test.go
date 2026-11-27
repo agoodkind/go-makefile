@@ -488,6 +488,7 @@ func TestReconcileGoModToolsStripsManagedTools(t *testing.T) {
 
 func TestScaffoldScenarios(t *testing.T) {
 	repoRoot := testRepoRoot(t)
+	engine := builtTestEngine(t)
 
 	t.Run(
 		"new binary repo",
@@ -549,7 +550,7 @@ func TestScaffoldScenarios(t *testing.T) {
 			assertFileNotContains(t, filepath.Join(repoDir, "bootstrap.mk"), "tiny shim")
 			assertFileContains(t, filepath.Join(repoDir, ".gitignore"), ".make/")
 			assertGitignoreContainsScaffoldEntries(t, repoDir, configuredScaffoldTrackedFiles())
-			runMakeHelp(t, repoDir, repoRoot)
+			runMakeHelp(t, repoDir, repoRoot, engine)
 		},
 	)
 
@@ -1729,7 +1730,7 @@ func runScaffoldForTestOutput(t *testing.T, options scaffoldOptions) (string, st
 	return stdout.String(), stderr.String()
 }
 
-func runMakeHelp(t *testing.T, repoDir string, repoRoot string) {
+func runMakeHelp(t *testing.T, repoDir string, repoRoot string, engine string) {
 	t.Helper()
 	command := exec.Command("make", "help")
 	command.Dir = repoDir
@@ -1738,7 +1739,12 @@ func runMakeHelp(t *testing.T, repoDir string, repoRoot string) {
 	// variable outranks anything set here, and an ambient _GO_MK_PROVISIONED
 	// would make this scaffolded repo fail for a reason unrelated to what the
 	// scenario covers.
-	command.Env = testProcessEnvironment(map[string]string{"GO_MK_DEV_DIR": repoRoot})
+	command.Env = testProcessEnvironment(map[string]string{
+		"GO_MK_DEV_DIR": repoRoot,
+		"GO_MK_BIN":     engine,
+		"GOCACHE":       os.Getenv("GOCACHE"),
+		"CGO_ENABLED":   "0",
+	})
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("make help failed: %v\noutput:\n%s", err, string(output))

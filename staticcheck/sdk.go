@@ -16,30 +16,27 @@ var errCommandEntrySDK = errors.New(
 )
 
 func commandEntryBuildContext() (build.Context, error) {
-	buildContext := build.Default
+	return resolveCommandEntryBuildContext(build.Default, installedGoRoot)
+}
+
+func resolveCommandEntryBuildContext(
+	buildContext build.Context,
+	lookupRoot func() (string, error),
+) (build.Context, error) {
 	if buildContext.GOROOT != "" && commandEntrySDKAvailable(buildContext) {
 		return buildContext, nil
 	}
 
 	slog.Debug("resolve installed Go SDK for commandentry")
-	command := exec.CommandContext(context.Background(), "go", "env", "GOROOT")
-	var stderr bytes.Buffer
-	command.Stderr = &stderr
-
-	output, err := command.Output()
+	root, err := lookupRoot()
 	if err != nil {
-		failure := fmt.Errorf(
-			"%w: go env GOROOT: %w: %s",
-			errCommandEntrySDK,
-			err,
-			strings.TrimSpace(stderr.String()),
-		)
+		failure := fmt.Errorf("%w: %w", errCommandEntrySDK, err)
 		slog.Error("resolve commandentry Go SDK failed", "err", failure)
 
 		return buildContext, failure
 	}
 
-	buildContext.GOROOT = strings.TrimSpace(string(output))
+	buildContext.GOROOT = strings.TrimSpace(root)
 	if buildContext.GOROOT == "" {
 		slog.Error("commandentry Go SDK root is empty", "err", errCommandEntrySDK)
 
@@ -61,6 +58,19 @@ func commandEntryBuildContext() (build.Context, error) {
 	}
 
 	return buildContext, nil
+}
+
+func installedGoRoot() (string, error) {
+	command := exec.CommandContext(context.Background(), "go", "env", "GOROOT")
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+
+	output, err := command.Output()
+	if err != nil {
+		return "", fmt.Errorf("go env GOROOT: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+
+	return string(output), nil
 }
 
 func commandEntrySDKAvailable(buildContext build.Context) bool {

@@ -3,7 +3,6 @@ package main_test
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -425,8 +424,7 @@ func newConsumerRepositoryWithNotice(t *testing.T, noticeID string) string {
 				t,
 				consumer,
 				"Makefile",
-				makefile+"\n_GO_MK_NOTICES_FILE := .make/dated-notices.txt\n"+
-					"GO_MK_PLATFORMS := "+runtime.GOOS+"/"+runtime.GOARCH+"\n",
+				makefile+"\n_GO_MK_NOTICES_FILE := .make/dated-notices.txt\n",
 			)
 			return consumer
 		}

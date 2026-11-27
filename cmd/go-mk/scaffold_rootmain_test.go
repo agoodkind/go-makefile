@@ -6,11 +6,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	gomk "goodkind.io/go-makefile/cmd/go-mk"
 )
 
 const rootModule = "module example.com/rootmain\n\ngo 1.26\n"
 
 func TestScaffoldTreatsARootMainPackageAsABinary(t *testing.T) {
+	t.Parallel()
 	output, makefile := scaffoldModule(
 		t,
 		map[string]string{
@@ -30,6 +33,7 @@ func TestScaffoldTreatsARootMainPackageAsABinary(t *testing.T) {
 }
 
 func TestScaffoldTreatsALibraryWithAnIgnoredGeneratorAsALibrary(t *testing.T) {
+	t.Parallel()
 	output, makefile := scaffoldModule(
 		t,
 		map[string]string{
@@ -49,11 +53,7 @@ func TestScaffoldTreatsALibraryWithAnIgnoredGeneratorAsALibrary(t *testing.T) {
 
 func scaffoldModule(t *testing.T, files map[string]string) (string, string) {
 	t.Helper()
-	engine := filepath.Join(t.TempDir(), "go-mk")
-	build := exec.Command("go", "build", "-o", engine, ".")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build go-mk: %v\n%s", err, output)
-	}
+	engine := gomk.BuiltTestEngine(t)
 
 	repoDir := filepath.Join(t.TempDir(), "rootmain")
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {

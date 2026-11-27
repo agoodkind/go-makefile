@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -120,6 +121,7 @@ func newConsumerRepository(t *testing.T, commitDate string) string {
 		appliedNoticeFile:       "1\n",
 		"Makefile": "GO_MK_DEV_DIR := " + repoRoot + "\n" +
 			"GO_MK_BUILD_REPO :=\n" +
+			"GO_MK_PLATFORMS := " + runtime.GOOS + "/" + runtime.GOARCH + "\n" +
 			"GO_MK_BIN := $(CURDIR)/.make/go-mk\n" +
 			"STATICCHECK_EXTRA_BIN := " + builtTestAnalyzer(t, repoRoot) + "\n" +
 			"GOLANGCI_LINT := " + builtTestLinter(t) + "\n" +

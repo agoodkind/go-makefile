@@ -29,7 +29,7 @@ func TestGoMkPlatformsWritesTheModuleList(t *testing.T) {
 		},
 		{
 			name:      "default list",
-			makeArgs:  nil,
+			makeArgs:  []string{"GO_MK_PLATFORMS="},
 			wantLists: "darwin/amd64 darwin/arm64 linux/amd64 linux/arm64",
 		},
 	}
