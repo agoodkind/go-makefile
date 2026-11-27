@@ -47,6 +47,20 @@ on:
         required: false
         type: string
         default: split
+      test_shards:
+        description: >
+          JSON array of test shards. Each shard has a name and a list of Go
+          import paths or recursive import patterns under packages. An empty
+          packages list selects the remaining packages. This mode keeps the
+          Test and Quality checks and runs their work in separate jobs.
+        required: false
+        type: string
+        default: ''
+      bootstrap_ref:
+        description: go-makefile revision used to bootstrap Make targets.
+        required: false
+        type: string
+        default: main
       go_version_file:
         description: >-
           Path to the consumer's go.mod file. Defaults to the repository root
@@ -130,6 +144,7 @@ on:
 
 env:
   GH_TOKEN: ${{ github.token }}
+  GO_MK_API_REF: ${{ inputs.bootstrap_ref }}
 
 jobs:
   prepare:
@@ -440,7 +455,7 @@ jobs:
   quality:
     name: ${{ matrix.name }}
     needs: [prepare]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && inputs.test_shards == '' }}
     continue-on-error: ${{ matrix.continue_on_error }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
@@ -449,7 +464,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.job_matrix) }}
-    steps:
+    steps: &go-check-steps
       - name: Require prepare success
         if: needs.prepare.result != 'success'
         run: |
@@ -551,7 +566,7 @@ jobs:
             ${{ format('go-mk-build-v1-{0}-{1}-{2}-{3}-{4}-{5}',
             runner.os, runner.arch,
             steps.setup-go.outputs.go-version, steps.go-build-generation.outputs.image,
-            format('quality-{0}-{1}-{2}', inputs.working_directory, inputs.job_layout, strategy.job-index),
+            format('{0}-{1}-{2}-{3}', github.job, inputs.working_directory, inputs.job_layout, strategy.job-index),
             hashFiles(format('{0}/go.mod', inputs.working_directory),
               format('{0}/go.sum', inputs.working_directory),
               format('{0}/go.work', inputs.working_directory),
@@ -560,7 +575,9 @@ jobs:
         with:
           path: ${{ github.workspace }}/.make/ci-go-build
           key: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-${{ steps.go-build-generation.outputs.week }}
-          restore-keys: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-
+          restore-keys: |
+            ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-
+            ${{ inputs.test_shards != '' && steps.go-mk-cgo-cache.outputs.cgo_cache_enabled != 'true' && format('go-mk-build-v1-{0}-{1}-{2}-{3}-quality-{4}-split-{5}-', runner.os, runner.arch, steps.setup-go.outputs.go-version, steps.go-build-generation.outputs.image, inputs.working_directory, github.job == 'test-shards' && '0' || '1') || '' }}
       # The first matrix job saves the tool cache and refreshes @latest packages weekly.
       - name: Choose the Go tool cache key
         id: go-tool-cache-key
@@ -600,12 +617,28 @@ jobs:
       - name: Run pre-make commands
         if: needs.prepare.outputs.run == 'true' && inputs.pre_make_commands != ''
         run: ${{ inputs.pre_make_commands }}
+      - name: Cache the compiled golangci-lint executable
+        id: golangci-executable
+        if: needs.prepare.outputs.run == 'true' && matrix.install_golangci_lint && inputs.golangci_lint_install_mode == 'goinstall'
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/go-mk-golangci-bin/golangci-lint${{ runner.os == 'Windows' && '.exe' || '' }}
+          key: >-
+            go-mk-golangci-bin-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-build-generation.outputs.image }}-${{ steps.setup-go.outputs.go-version }}-${{ inputs.golangci_lint_version }}-${{ steps.go-build-generation.outputs.week }}
+      - name: Add the cached linter to PATH
+        if: steps.golangci-executable.outputs.cache-hit == 'true'
+        shell: bash
+        env:
+          GOLANGCI_BIN: ${{ runner.temp }}/go-mk-golangci-bin
+        run: printf '%s\n' "$GOLANGCI_BIN" >> "$GITHUB_PATH"
       - name: Install golangci-lint
-        if: needs.prepare.outputs.run == 'true' && (matrix.install_golangci_lint || (inputs.test_uses_golangci_lint && matrix.command == 'make test'))
+        if: needs.prepare.outputs.run == 'true' && (matrix.install_golangci_lint || (inputs.test_uses_golangci_lint && (matrix.command == '' || matrix.command == 'make test')))
         uses: golangci/golangci-lint-action@v9
+        env:
+          GOBIN: ${{ runner.temp }}/go-mk-golangci-bin
         with:
           version: ${{ inputs.golangci_lint_version }}
-          install-mode: ${{ inputs.golangci_lint_install_mode }}
+          install-mode: ${{ steps.golangci-executable.outputs.cache-hit == 'true' && 'none' || inputs.golangci_lint_install_mode }}
           install-only: true
           # go-mk stores analysis outside the action's default cache path.
           skip-cache: true
@@ -630,10 +663,14 @@ jobs:
         continue-on-error: true
         env:
           GOCACHE: ${{ github.workspace }}/.make/ci-go-build
-          GO_MK_CI_PRIMARY_COMMAND: ${{ matrix.command }}
+          GO_MK_CI_PRIMARY_COMMAND: ${{ matrix.command || 'make test' }}
           GO_MK_CI_PRIMARY_REPORT: ${{ runner.temp }}/go-mk-primary-checks.out
-          GO_MK_CI_REPORT_GOLANGCI_RUN: ${{ matrix.command == 'make build-check' }}
-          GO_MK_TEST_PREINSTALLED_GOLANGCI_LINT: ${{ inputs.test_uses_golangci_lint && matrix.command == 'make test' }}
+          GO_MK_CI_REPORT_GOLANGCI_RUN: ${{ matrix.command == 'make build-check' && (matrix.check_shard == '' || matrix.check_shard == 'golangci') }}
+          GO_MK_TEST_PREINSTALLED_GOLANGCI_LINT: ${{ inputs.test_uses_golangci_lint && (matrix.command == '' || matrix.command == 'make test') }}
+          GO_MK_BUILD_CHECK_SHARD: ${{ matrix.check_shard }}
+          GO_MK_VET_SHARD: ${{ matrix.vet_shard }}
+          GO_MK_TEST_SHARDS: ${{ inputs.test_shards }}
+          GO_MK_TEST_SHARD: ${{ inputs.test_shards != '' && matrix.command == '' && matrix.name || '' }}
         run: |
           set -o pipefail
           bash -o pipefail -c "${GO_MK_CI_PRIMARY_COMMAND}" 2>&1 | tee "${GO_MK_CI_PRIMARY_REPORT}"
@@ -686,3 +723,82 @@ jobs:
             cat "${GO_MK_CI_SECONDARY_REPORT}" >&2
           fi
           exit 1
+
+  test-shards:
+    name: Test packages / ${{ matrix.name }}
+    needs: [prepare]
+    if: ${{ !cancelled() && inputs.test_shards != '' && needs.prepare.result == 'success' && needs.prepare.outputs.run == 'true' }}
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.test_shards) }}
+    steps: *go-check-steps
+
+  quality-shards:
+    name: Quality checks / ${{ matrix.name }}
+    needs: [prepare]
+    if: ${{ !cancelled() && inputs.test_shards != '' && needs.prepare.result == 'success' && needs.prepare.outputs.run == 'true' }}
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Vet 1
+            command: make build-check
+            secondary_command: ''
+            check_shard: vet
+            vet_shard: '1/3'
+          - name: Vet 2
+            command: make build-check
+            check_shard: vet
+            vet_shard: '2/3'
+          - name: Vet 3
+            command: make build-check
+            check_shard: vet
+            vet_shard: '3/3'
+          - name: Golangci lint
+            command: make build-check
+            check_shard: golangci
+            install_golangci_lint: true
+            lint_cache_slug: golangci
+          - name: Format
+            command: make build-check
+            check_shard: format
+            install_golangci_lint: true
+          - name: Remaining checks
+            command: make build-check
+            check_shard: remaining
+    steps: *go-check-steps
+
+  test-result:
+    name: Test
+    needs: [prepare, test-shards]
+    if: ${{ !cancelled() && inputs.test_shards != '' }}
+    runs-on: ${{ inputs.runs_on }}
+    steps:
+      - name: Require all test shards
+        env:
+          PREPARE: ${{ needs.prepare.result }}
+          RUN_CHECKS: ${{ needs.prepare.outputs.run }}
+          SHARDS: ${{ needs.test-shards.result }}
+        run: test "$PREPARE" = success && { test "$RUN_CHECKS" = false || test "$SHARDS" = success; }
+
+  quality-result:
+    name: Quality
+    needs: [prepare, quality-shards]
+    if: ${{ !cancelled() && inputs.test_shards != '' }}
+    runs-on: ${{ inputs.runs_on }}
+    steps:
+      - name: Require all quality shards
+        env:
+          PREPARE: ${{ needs.prepare.result }}
+          RUN_CHECKS: ${{ needs.prepare.outputs.run }}
+          SHARDS: ${{ needs.quality-shards.result }}
+        run: test "$PREPARE" = success && { test "$RUN_CHECKS" = false || test "$SHARDS" = success; }

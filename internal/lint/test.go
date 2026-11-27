@@ -21,6 +21,13 @@ func RunTest(
 	}
 
 	args := append([]string{"test", "-vet=off"}, testLDFlags()...)
+	if shard := os.Getenv("GO_MK_TEST_SHARD"); shard != "" {
+		packages, err := ciTestTargets(shard, os.Getenv("GO_MK_TEST_SHARDS"))
+		if err != nil {
+			return err
+		}
+		return run("go", append(append(args, "-count=1"), packages...))
+	}
 	args = append(args, strings.Fields(targets)...)
 
 	return run("go", args)

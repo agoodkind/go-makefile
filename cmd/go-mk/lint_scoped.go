@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"goodkind.io/go-makefile/internal/findings"
@@ -129,7 +130,25 @@ func runVet() error {
 
 // vetCommands selects production files for each package's go vet command.
 func vetCommands() ([][]string, error) {
-	return vet.Commands(expandedPackageTargets, lintEnv)
+	commands, err := vet.Commands(expandedPackageTargets, lintEnv)
+	shard := os.Getenv("GO_MK_VET_SHARD")
+	if err != nil || shard == "" {
+		return commands, err
+	}
+
+	indexText, countText, _ := strings.Cut(shard, "/")
+	index, indexErr := strconv.Atoi(indexText)
+	count, countErr := strconv.Atoi(countText)
+	if indexErr != nil || countErr != nil || index < 1 || index > count {
+		return nil, fmt.Errorf("invalid vet shard %q", shard)
+	}
+
+	var selected [][]string
+	for offset := index - 1; offset < len(commands); offset += count {
+		selected = append(selected, commands[offset])
+	}
+
+	return selected, nil
 }
 
 // runTest runs go test, mirroring run_test. When GO_TEST_LDFLAGS is set it is

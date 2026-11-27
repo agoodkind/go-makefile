@@ -20,6 +20,8 @@ The `build` job is the required gate. On a releasing repository it rolls up the 
 
 `job_layout` defaults to `split`. This mode runs `make test` in `Test` and `make build-check` in `Quality`.
 
+Set `test_shards` to a JSON array of named package groups to run test suites and quality checks in parallel. Each group lists Go import paths or recursive import patterns such as `example/internal/daemon/...`. One group can use an empty package list to claim the remaining packages. The test runner rejects empty shards, overlaps, and uncovered packages. The required `Test` and `Quality` jobs report the results of their respective groups.
+
 `parallel` runs nine `Quality / *` jobs: Vet, Test, Golangci Lint, Format, Gocyclo, Deadcode, Staticcheck Extra, Govulncheck, and Go Version. `single` runs `make build-check` and `make test` in `Checks`. The single job runs both commands before it reports either failure.
 
 Every layout restores the generated cache that `prepare` warmed. The Golangci Lint job restores and saves its results cache in `parallel`. `Quality` and `Checks` own the same cache in serialized layouts. The cache key and weekly refresh stay identical across layouts.

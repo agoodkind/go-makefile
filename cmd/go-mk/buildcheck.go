@@ -6,8 +6,11 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"strings"
 
 	"goodkind.io/go-makefile/internal/checkrun"
 	"goodkind.io/go-makefile/internal/report"
@@ -18,6 +21,10 @@ import (
 // then prints one report. GO_MK_LOG=debug streams each phase for troubleshooting.
 // It returns the exit code, non-zero when any blocking step failed.
 func runBuildCheck() int {
+	if shard := os.Getenv("GO_MK_BUILD_CHECK_SHARD"); shard != "" {
+		return runBuildCheckShard(shard)
+	}
+
 	return checkrun.Build(
 		runNotice,
 		prepareChecks,
@@ -26,6 +33,38 @@ func runBuildCheck() int {
 		buildCheckChecks,
 		runBuildCheckRaw,
 	)
+}
+
+func runBuildCheckShard(shard string) int {
+	if shard == "vet" && os.Getenv("GO_MK_VET_SHARD") == "1/3" {
+		runNotice()
+	}
+
+	var checks []checkrun.Check
+	for _, check := range buildCheckChecks() {
+		if buildCheckShard(check.Name) == shard {
+			checks = append(checks, check)
+		}
+	}
+	if len(checks) == 0 && shard != "golangci" && shard != "format" {
+		return statusFromError(fmt.Errorf("unknown or empty build-check shard %q", shard))
+	}
+
+	return runChecks("go-mk build-check "+shard, checks)
+}
+
+func buildCheckShard(name string) string {
+	name, _, _ = strings.Cut(name, " (")
+	switch name {
+	case "vet":
+		return "vet"
+	case "lint-golangci":
+		return "golangci"
+	case "lint-format":
+		return "format"
+	default:
+		return "remaining"
+	}
 }
 
 // runBuildCheckRaw streams vet, the gates, and Go version for the
