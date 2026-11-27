@@ -6,7 +6,10 @@ import (
 	"goodkind.io/go-makefile/internal/logsummary"
 )
 
-const checkLogEnv = "GO_MK_LOG"
+const (
+	checkLogEnv     = "GO_MK_LOG"
+	buildCheckTitle = "go-mk build-check"
+)
 
 // Build runs default quality checks without vulnerability scanning.
 //
@@ -33,7 +36,7 @@ func Build(
 		return statusFromError(err)
 	}
 
-	return execute("go-mk build-check", plan())
+	return execute(buildCheckTitle, plan())
 }
 
 // Raw runs the default checks with each tool's normal output.

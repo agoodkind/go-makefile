@@ -60,7 +60,7 @@ func writeStderr(text string) {
 
 func main() {
 	if err := config.ValidateAdvisory(); err != nil {
-		slog.Error("Invalid advisory policy", slog.Any("err", err))
+		slog.Error(config.InvalidAdvisoryMessage, slog.Any(logsummary.ErrorKey, err))
 		os.Exit(1)
 	}
 

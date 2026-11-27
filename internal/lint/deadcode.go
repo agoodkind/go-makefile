@@ -16,6 +16,7 @@ const (
 	deadcodeExcludeEnv            = "DEADCODE_EXCLUDE_PATHS"
 	deadcodeBaselineEnv           = "DEADCODE_BASELINE"
 	deadcodeBaselineFile          = ".deadcode-baseline.txt"
+	deadcodeRemediation           = "The deadcode lint gate found unreachable code. Remove the reported code."
 )
 
 // CheckDeadcode runs the analyzer and returns the baseline gate verdict.
@@ -63,7 +64,7 @@ func CheckDeadcode(
 		deadcodeCheck,
 		current,
 		envDefault(deadcodeBaselineEnv, deadcodeBaselineFile),
-		"The deadcode lint gate found unreachable code. Remove the reported code.",
+		deadcodeRemediation,
 		excludePattern,
 		"",
 	)

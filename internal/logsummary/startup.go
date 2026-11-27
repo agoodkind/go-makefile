@@ -2,6 +2,13 @@ package logsummary
 
 import "log/slog"
 
+const (
+	// ErrorKey identifies the error in a structured log event.
+	ErrorKey = "err"
+
+	invocationMessage = "go-mk invoked"
+)
+
 // RunCLI sets up logging before running the command.
 //
 // Capability probes write machine-readable output and skip normal logging setup.
@@ -14,7 +21,7 @@ func RunCLI(
 ) int {
 	if !capabilityProbe() {
 		setupLogging()
-		slog.Debug("go-mk invoked")
+		slog.Debug(invocationMessage)
 	}
 
 	return run()

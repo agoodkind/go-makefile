@@ -8,9 +8,21 @@ import (
 )
 
 const (
-	advisoryUnusedFinding      = "main.go:3:6: func futureCaller is unused (unused)"
-	advisoryErrcheckFinding    = "main.go:5:2: error return value is not checked (errcheck)"
-	advisoryUnreachableFinding = "main.go:3:6: unreachable func: futureCaller"
+	advisoryUnusedLabel        = "(unused)"
+	advisoryErrcheckLabel      = "(errcheck)"
+	advisoryUnreachableLabel   = "unreachable func"
+	advisoryUnusedFinding      = "main.go:3:6: func futureCaller is unused " + advisoryUnusedLabel
+	advisoryErrcheckFinding    = "main.go:5:2: error return value is not checked " + advisoryErrcheckLabel
+	advisoryUnreachableFinding = "main.go:3:6: " + advisoryUnreachableLabel + ": futureCaller"
+	advisoryGolangciGate       = "golangci-lint"
+	advisoryDeadcodeGate       = "deadcode"
+	advisoryUnusedCase         = "unused only"
+	advisoryErrcheckCase       = "unchecked error"
+	advisoryDeadcodeCase       = "unreachable function"
+	advisoryBaselineFile       = "baseline.txt"
+	advisoryFindingBreak       = "\n"
+	advisoryUnexpectedOutcome  = "got status %v and exit %d, want %v and %d"
+	advisoryOmittedFinding     = "report omitted %q: %v"
 )
 
 func TestBaselineGateAdvisoryFindings(t *testing.T) {
@@ -23,26 +35,26 @@ func TestBaselineGateAdvisoryFindings(t *testing.T) {
 		exit     int
 	}{
 		{
-			name:     "unused only",
-			gate:     "golangci-lint",
+			name:     advisoryUnusedCase,
+			gate:     advisoryGolangciGate,
 			findings: []string{advisoryUnusedFinding},
-			message:  "(unused)",
+			message:  advisoryUnusedLabel,
 			status:   report.StatusAdvisory,
 			exit:     0,
 		},
 		{
-			name:     "unchecked error",
-			gate:     "golangci-lint",
+			name:     advisoryErrcheckCase,
+			gate:     advisoryGolangciGate,
 			findings: []string{advisoryUnusedFinding, advisoryErrcheckFinding},
-			message:  "(errcheck)",
+			message:  advisoryErrcheckLabel,
 			status:   report.StatusFailed,
 			exit:     1,
 		},
 		{
-			name:     "unreachable function",
-			gate:     "deadcode",
+			name:     advisoryDeadcodeCase,
+			gate:     advisoryDeadcodeGate,
 			findings: []string{advisoryUnreachableFinding},
-			message:  "unreachable func",
+			message:  advisoryUnreachableLabel,
 			status:   report.StatusAdvisory,
 			exit:     0,
 		},
@@ -62,7 +74,7 @@ func TestBaselineGateAdvisoryFindings(t *testing.T) {
 						passed, err := runGateAndPrint(
 							test.gate,
 							test.findings,
-							"baseline.txt",
+							advisoryBaselineFile,
 							"",
 							"",
 							"",
@@ -80,17 +92,14 @@ func TestBaselineGateAdvisoryFindings(t *testing.T) {
 				)
 
 				if result.Status != test.status || exit != test.exit {
-					t.Fatalf(
-						"got status %v and exit %d, want %v and %d",
-						result.Status,
-						exit,
-						test.status,
-						test.exit,
-					)
+					t.Fatalf(advisoryUnexpectedOutcome, result.Status, exit, test.status, test.exit)
 				}
 
-				if !strings.Contains(strings.Join(result.Findings, "\n"), test.message) {
-					t.Errorf("report omitted %q: %v", test.message, result.Findings)
+				if !strings.Contains(
+					strings.Join(result.Findings, advisoryFindingBreak),
+					test.message,
+				) {
+					t.Errorf(advisoryOmittedFinding, test.message, result.Findings)
 				}
 			},
 		)

@@ -10,16 +10,23 @@ import (
 )
 
 const (
-	analyzerPrefix = " ("
-	analyzerSuffix = ")"
+	// InvalidAdvisoryMessage labels an advisory configuration error at startup.
+	InvalidAdvisoryMessage = "Invalid advisory policy"
+
+	analyzerPrefix        = " ("
+	analyzerSuffix        = ")"
+	analyzerArrayRequired = "advisory check requires an analyzer array for %q"
+	analyzerNameRequired  = "advisory analyzer requires a name for %q"
+	policyObjectRequired  = "advisory policy requires a JSON object"
+	checkNameRequired     = "advisory check requires a name"
 )
 
 //go:embed advisory.json
 var advisoryJSON string
 
 var (
-	errPolicyObject = errors.New("advisory policy requires a JSON object")
-	errCheckName    = errors.New("advisory check requires a name")
+	errPolicyObject = errors.New(policyObjectRequired)
+	errCheckName    = errors.New(checkNameRequired)
 
 	advisory, advisoryError = decodeAdvisory(advisoryJSON)
 )
@@ -79,12 +86,12 @@ func decodeAdvisory(data string) (map[string][]string, error) {
 		}
 
 		if analyzers == nil {
-			return nil, fmt.Errorf("advisory check requires an analyzer array for %q", check)
+			return nil, fmt.Errorf(analyzerArrayRequired, check)
 		}
 
 		for _, analyzer := range analyzers {
 			if strings.TrimSpace(analyzer) == "" {
-				return nil, fmt.Errorf("advisory analyzer requires a name for %q", check)
+				return nil, fmt.Errorf(analyzerNameRequired, check)
 			}
 		}
 	}

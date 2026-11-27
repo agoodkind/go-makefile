@@ -1,15 +1,21 @@
 package checkrun
 
 import (
+	"fmt"
 	"log/slog"
 
 	"goodkind.io/go-makefile/internal/report"
 )
 
-const goVersionCheck = "go-version"
+const (
+	// GoVersionTitle identifies the standalone Go version report.
+	GoVersionTitle = "go-mk go-version-check"
 
-// GoVersionTitle identifies the standalone Go version report.
-const GoVersionTitle = "go-mk go-version-check"
+	goVersionCheck         = "go-version"
+	goVersionBehindMessage = "go version behind latest stable"
+	goVersionBehindFinding = "Installed Go %s is behind the latest stable Go %s."
+	goVersionUpgradeNotice = "Update the installed Go toolchain when practical."
+)
 
 // GoVersion compares the installed Go version with the latest stable release.
 //
@@ -41,10 +47,10 @@ func GoVersion(
 		}
 	}
 
-	slog.Warn("go version behind latest stable")
+	slog.Warn(goVersionBehindMessage)
 	findings := []string{
-		"Installed Go " + installedVersion + " is behind the latest stable Go " + latestVersion + ".",
-		"Update the installed Go toolchain when practical.",
+		fmt.Sprintf(goVersionBehindFinding, installedVersion, latestVersion),
+		goVersionUpgradeNotice,
 	}
 
 	return Diagnostic(goVersionCheck, findings...)
