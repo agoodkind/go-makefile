@@ -125,6 +125,7 @@ on:
 
 env:
   GH_TOKEN: ${{ github.token }}
+  GO_TEST_TARGETS: -count=1 -timeout=20m ./...
 
 jobs:
   prepare:
@@ -268,7 +269,7 @@ jobs:
     # Fork pull requests cannot use the credentials required by this matrix.
     needs: prepare
     if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
-    uses: agoodkind/go-makefile/.github/workflows/_build.yml@main
+    uses: agoodkind/go-makefile/.github/workflows/_build.yml@codex/ci-cache-reuse-benchmark
     secrets: inherit
     with:
       cgo: ${{ inputs.cgo }}
