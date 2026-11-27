@@ -596,8 +596,23 @@ func TestHelperTouchesNothingUnderMakeOnNotModified(t *testing.T) {
 		t.Fatalf("cold provision exit = %d, want 0: %s", code, stderr)
 	}
 
-	// Snapshot every path under .make, directories included, with its mtime.
 	makeDir := filepath.Join(dir, ".make")
+	// Backdate the fixture so even a same-tick rewrite changes the mtime.
+	oldStamp := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
+	if err := filepath.Walk(
+		makeDir,
+		func(path string, _ os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			return os.Chtimes(path, oldStamp, oldStamp)
+		},
+	); err != nil {
+		t.Fatalf("backdate .make: %v", err)
+	}
+
+	// Snapshot every path under .make, directories included, with its mtime.
 	snapshot := func() map[string]time.Time {
 		seen := map[string]time.Time{}
 		if err := filepath.Walk(
@@ -618,10 +633,6 @@ func TestHelperTouchesNothingUnderMakeOnNotModified(t *testing.T) {
 		return seen
 	}
 	before := snapshot()
-
-	// Wait past the filesystem's timestamp granularity so a rewrite is
-	// visible rather than landing in the same tick.
-	time.Sleep(1100 * time.Millisecond)
 
 	_, stderr, code := runHelper(
 		t,
@@ -1090,6 +1101,9 @@ var (
 // BuiltTestEngine gives external command fixtures the cached real engine.
 var BuiltTestEngine = builtTestEngine
 
+// SeedTestEngine installs the shared test engine in a consumer's cache.
+var SeedTestEngine = seedTestEngine
+
 func builtTestEngine(t *testing.T) string {
 	t.Helper()
 	root := repoRootForTest(t)
@@ -1548,7 +1562,7 @@ func TestHelperServesDiskWhenUpstreamTimesOutAndStateIsRecent(t *testing.T) {
 	dir := t.TempDir()
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(-10*time.Minute).Unix())
-	server.Stall(5 * time.Second)
+	server.StallUntilCanceled()
 	stateBefore := readStateFile(t, dir)
 	modTimeBefore := statStateFile(t, dir).ModTime()
 
@@ -1637,11 +1651,7 @@ func TestHelperFallsBackToDiskWhenUpstreamTimesOutAndStateIsStale(t *testing.T) 
 	dir := t.TempDir()
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(-2*time.Hour).Unix())
-	// Longer than FETCH_SPEED_TIME (3s) so every attempt's speed-limit abort
-	// fires from lack of progress rather than the stall happening to end
-	// first; how much longer does not matter, since each retry opens a
-	// fresh connection and the server sleeps again from scratch.
-	server.Stall(10 * time.Second)
+	server.StallUntilCanceled()
 
 	_, stderr, code := runHelper(
 		t,
@@ -1709,15 +1719,7 @@ func TestHelperFallsBackToCacheWithFutureTimestamp(t *testing.T) {
 func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
-	// Long enough that the speed-limit abort (not the stall ending) is what
-	// stops each attempt; kept short (rather than merely "longer than
-	// FETCH_SPEED_TIME") because the test server's own handler goroutines
-	// keep sleeping for the full stall duration even after curl gives up
-	// client-side, and the httptest.Server's Close (run via t.Cleanup)
-	// blocks on each of those goroutines unwinding, so a needlessly long
-	// stall here inflates the test's reported wall time well past what the
-	// helper itself actually takes.
-	server.Stall(10 * time.Second)
+	server.StallUntilCanceled()
 
 	start := time.Now()
 	_, stderr, code := runHelper(
@@ -1728,10 +1730,6 @@ func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
 		},
 	)
 	elapsed := time.Since(start)
-	// Logged unconditionally (not just on failure) because the overall test
-	// duration Go reports also includes the fetch server's cleanup, which
-	// blocks until the stalled connection's own goroutine unwinds; that is
-	// unrelated to the bound this test is asserting.
 	t.Logf("helper took %s against a stalled upstream", elapsed)
 
 	if code == 0 {

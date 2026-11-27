@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"text/template"
+
+	gomk "goodkind.io/go-makefile/cmd/go-mk"
 )
 
 func TestMakeEntryPoints(t *testing.T) {
@@ -28,11 +30,7 @@ func TestMakeEntryPoints(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	engine := filepath.Join(t.TempDir(), "go-mk")
-	build := exec.Command("go", "build", "-o", engine, ".")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build go-mk: %v\n%s", err, output)
-	}
+	engine := gomk.BuiltTestEngine(t)
 
 	for _, layout := range []string{"binary", "library"} {
 		for _, source := range []string{"canonical", "embedded"} {
@@ -92,6 +90,24 @@ func TestMakeEntryPoints(t *testing.T) {
 						}
 					}
 
+					// Bare Make also provisions the fixture for the rejection cases.
+					command := exec.Command("make")
+					command.Dir = consumer
+					command.Env = append(
+						os.Environ(),
+						"GO_MK_DEV_DIR="+repoRoot,
+						"GOWORK=off",
+						"MAKEFLAGS=",
+					)
+					output, err := command.CombinedOutput()
+					if err != nil {
+						t.Fatalf("bare make failed: %v\n%s", err, output)
+					}
+
+					if !strings.Contains(string(output), "Canonical entry points:") {
+						t.Fatalf("bare make did not print help: %s", output)
+					}
+
 					for _, target := range []string{"check", "lint"} {
 						for _, scenario := range []struct {
 							name      string
@@ -113,7 +129,9 @@ func TestMakeEntryPoints(t *testing.T) {
 									command.Dir = consumer
 									command.Env = append(
 										os.Environ(),
-										"GO_MK_DEV_DIR="+repoRoot,
+										"GO_MK_DEV_DIR=",
+										"GO_MK_BIN="+engine,
+										"_GO_MK_PROVISIONED=1",
 										"GOWORK=off",
 										"MAKEFLAGS=",
 									)
@@ -150,23 +168,6 @@ func TestMakeEntryPoints(t *testing.T) {
 								},
 							)
 						}
-					}
-
-					command := exec.Command("make")
-					command.Dir = consumer
-					command.Env = append(
-						os.Environ(),
-						"GO_MK_DEV_DIR="+repoRoot,
-						"GOWORK=off",
-						"MAKEFLAGS=",
-					)
-					output, err := command.CombinedOutput()
-					if err != nil {
-						t.Fatalf("bare make failed: %v\n%s", err, output)
-					}
-
-					if !strings.Contains(string(output), "Canonical entry points:") {
-						t.Fatalf("bare make did not print help: %s", output)
 					}
 				},
 			)

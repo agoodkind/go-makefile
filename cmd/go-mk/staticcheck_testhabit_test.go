@@ -1,11 +1,15 @@
 package main_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+
+	gomk "goodkind.io/go-makefile/cmd/go-mk"
 )
 
 const (
@@ -109,14 +113,17 @@ func newConsumerRepository(t *testing.T, commitDate string) string {
 		".make/golangci.yml":    "version: \"2\"\n",
 		".gitignore":            ".make/\n",
 		appliedNoticeFile:       "1\n",
-		"Makefile": "GO_MK_DEV_DIR := " + repoRoot + "\n_GO_MK_PROVISIONED := 1\ninclude " + filepath.Join(
-			repoRoot,
-			"go.mk",
-		) + "\n",
+		"Makefile": "GO_MK_DEV_DIR := " + repoRoot + "\n" +
+			"GO_MK_BUILD_REPO :=\n" +
+			"GO_MK_BIN := $(CURDIR)/.make/go-mk\n" +
+			"STATICCHECK_EXTRA_BIN := " + builtTestAnalyzer(t, repoRoot) + "\n" +
+			"_GO_MK_PROVISIONED := 1\ninclude " + filepath.Join(repoRoot, "go.mk") + "\n",
 	}
 	for name, content := range files {
 		writeConsumerFile(t, consumerDir, name, content)
 	}
+
+	gomk.SeedTestEngine(t, consumerDir)
 
 	runConsumerGit(t, consumerDir, commitDate, "init", "--quiet", "--initial-branch=main")
 	runConsumerGit(t, consumerDir, commitDate, "add", ".")
@@ -131,6 +138,29 @@ func newConsumerRepository(t *testing.T, commitDate string) string {
 	)
 
 	return consumerDir
+}
+
+var (
+	buildTestAnalyzerOnce sync.Once
+	testAnalyzerPath      string
+	testAnalyzerError     error
+)
+
+func builtTestAnalyzer(t *testing.T, repoRoot string) string {
+	t.Helper()
+	buildTestAnalyzerOnce.Do(func() {
+		testAnalyzerPath = filepath.Join(filepath.Dir(gomk.BuiltTestEngine(t)), "staticcheck-extra")
+		command := exec.Command("go", "build", "-o", testAnalyzerPath, "./cmd/staticcheck-extra")
+		command.Dir = filepath.Join(repoRoot, "staticcheck")
+		if output, err := command.CombinedOutput(); err != nil {
+			testAnalyzerError = fmt.Errorf("build staticcheck-extra: %w\n%s", err, output)
+		}
+	})
+	if testAnalyzerError != nil {
+		t.Fatal(testAnalyzerError)
+	}
+
+	return testAnalyzerPath
 }
 
 func writeConsumerFile(t *testing.T, consumerDir, name, content string) {

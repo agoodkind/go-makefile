@@ -1,17 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -422,38 +419,45 @@ func TestSignAndNotarizeDarwinBinaryRetriesThenSucceeds(t *testing.T) {
 }
 
 func TestSignAndNotarizeDarwinBinaryReturnsLastError(t *testing.T) {
-	quill := relProcQuill(t)
-	workDir := relProcEnvironment(t)
+	originalRun := releaseRunProcess
+	originalSleep := releaseSleep
+	t.Cleanup(func() {
+		releaseRunProcess = originalRun
+		releaseSleep = originalSleep
+	})
 
-	for _, entry := range os.Environ() {
-		key, _, _ := strings.Cut(entry, "=")
-		if strings.HasPrefix(key, "QUILL_") {
-			t.Setenv(key, "")
+	finalError := errors.New("notarization rejected")
+	calls := 0
+	releaseRunProcess = func(tool string, args []string, _ []string) error {
+		calls++
+		if tool != "quill" || !slices.Equal(
+			args,
+			[]string{"sign-and-notarize", "dist/program", "-vv"},
+		) {
+			t.Fatalf("signing command = %s %v", tool, args)
 		}
+		if calls == darwinSignAttempts {
+			return finalError
+		}
+
+		return errStubRetry
+	}
+	var delays []time.Duration
+	releaseSleep = func(delay time.Duration) {
+		delays = append(delays, delay)
 	}
 
-	binPath := filepath.Join(workDir, "not-macho")
-	if err := os.WriteFile(binPath, []byte("not a Mach-O binary\n"), 0o600); err != nil {
-		t.Fatalf("write signing input: %v", err)
+	err := signAndNotarizeDarwinBinary("quill", "dist/program", "")
+	if !errors.Is(err, finalError) {
+		t.Fatalf("signing error = %v, want the final error %v", err, finalError)
 	}
-
-	relProcDisableRetryDelay(t)
-	var logs bytes.Buffer
-	originalLogger := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(originalLogger) })
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-	err := signAndNotarizeDarwinBinary(quill, binPath, "")
-	var exitError *exec.ExitError
-	if !errors.As(err, &exitError) {
-		t.Fatalf("signAndNotarizeDarwinBinary() error = %v, want process exit error", err)
+	if calls != darwinSignAttempts || len(delays) != calls-1 {
+		t.Fatalf("signing made %d attempts and scheduled %d delays", calls, len(delays))
 	}
-
-	if exitError.ExitCode() != 1 {
-		t.Fatalf("quill exit code = %d, want 1", exitError.ExitCode())
-	}
-
-	if got := strings.Count(logs.String(), `msg="release run process"`); got != darwinSignAttempts {
-		t.Fatalf("quill attempts = %d, want %d\n%s", got, darwinSignAttempts, logs.String())
+	for _, delay := range delays {
+		if delay != darwinSignRetryInterval {
+			t.Fatalf("retry delay = %s, want %s", delay, darwinSignRetryInterval)
+		}
 	}
 }
 
@@ -1290,101 +1294,6 @@ func relProcAssertHook(t *testing.T, fixture relProcFixture, wantRan bool) {
 	if got := relProcReadFile(t, fixture.markerPath); got != "hook\n" {
 		t.Fatalf("hook marker = %q, want one hook invocation", got)
 	}
-}
-
-var (
-	relProcQuillOnce   sync.Once
-	relProcQuillBinary []byte
-	relProcQuillError  error
-)
-
-func relProcQuill(t *testing.T) string {
-	t.Helper()
-	relProcQuillOnce.Do(func() {
-		const installSpec = "github.com/anchore/quill/cmd/quill@v0.7.1"
-		goPath, err := exec.LookPath("go")
-		if err != nil {
-			relProcQuillError = fmt.Errorf("find Go toolchain: %w", err)
-			return
-		}
-
-		installDir := t.TempDir()
-		cacheCommand := exec.Command(goPath, "env", "GOMODCACHE", "GOCACHE")
-		cacheCommand.Dir = installDir
-		cacheCommand.Env = []string{
-			"HOME=" + os.Getenv("HOME"),
-			"GOENV=off",
-			"GOWORK=off",
-			"PATH=" + filepath.Dir(goPath) + string(os.PathListSeparator) + "/usr/bin:/bin",
-		}
-
-		for _, key := range []string{"GOPATH", "GOMODCACHE", "GOCACHE"} {
-			if value := os.Getenv(key); value != "" {
-				cacheCommand.Env = append(cacheCommand.Env, key+"="+value)
-			}
-		}
-
-		cacheOutput, err := cacheCommand.CombinedOutput()
-		if err != nil {
-			relProcQuillError = fmt.Errorf("resolve ambient Go caches: %w\n%s", err, cacheOutput)
-			return
-		}
-
-		cachePaths := strings.Split(strings.TrimSpace(string(cacheOutput)), "\n")
-		if len(cachePaths) != 2 {
-			relProcQuillError = fmt.Errorf(
-				"resolve ambient Go caches: want two paths, got %q",
-				cacheOutput,
-			)
-			return
-		}
-
-		command := exec.Command(goPath, "install", installSpec)
-		command.Dir = installDir
-		command.Env = []string{
-			"HOME=" + installDir,
-			"GOBIN=" + installDir,
-			"GOPATH=" + filepath.Join(installDir, "go"),
-			"GOMODCACHE=" + cachePaths[0],
-			"GOCACHE=" + cachePaths[1],
-			"GOENV=off",
-			"GOWORK=off",
-			"GOTOOLCHAIN=local",
-			"CGO_ENABLED=0",
-			"GOOS=" + runtime.GOOS,
-			"GOARCH=" + runtime.GOARCH,
-			"PATH=" + filepath.Dir(goPath) + string(os.PathListSeparator) + "/usr/bin:/bin",
-		}
-		if output, err := command.CombinedOutput(); err != nil {
-			relProcQuillError = fmt.Errorf(
-				"go install %s failed; downloading quill is required: %w\n%s",
-				installSpec,
-				err,
-				output,
-			)
-			return
-		}
-
-		relProcQuillBinary, relProcQuillError = os.ReadFile(filepath.Join(installDir, "quill"))
-	})
-	if relProcQuillError != nil {
-		t.Fatalf("install real quill: %v", relProcQuillError)
-	}
-
-	// Each invocation copies the installed binary because test cleanup removes temporary directories.
-	quillPath := filepath.Join(t.TempDir(), "quill")
-	if err := os.WriteFile(quillPath, relProcQuillBinary, 0o755); err != nil {
-		t.Fatalf("write installed quill binary: %v", err)
-	}
-
-	return quillPath
-}
-
-func relProcDisableRetryDelay(t *testing.T) {
-	t.Helper()
-	originalDelay := darwinSignRetryInterval
-	t.Cleanup(func() { darwinSignRetryInterval = originalDelay })
-	darwinSignRetryInterval = 0
 }
 
 var errStubRetry = sentinelRetryError("retry me")
