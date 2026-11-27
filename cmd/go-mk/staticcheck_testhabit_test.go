@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	gomk "goodkind.io/go-makefile/cmd/go-mk"
+	"goodkind.io/go-makefile/internal/lint"
 )
 
 const (
@@ -27,6 +28,8 @@ const (
 )
 
 func TestStaticcheckExtraBaselinesOlderTestFindingsOnce(t *testing.T) {
+	t.Parallel()
+
 	consumerDir := newConsumerRepository(t, beforeNoticeDate)
 
 	output, err := runConsumerMake(consumerDir, "staticcheck-extra", testAnalyzerFlags)
@@ -78,6 +81,8 @@ func TestStaticcheckExtraBaselinesOlderTestFindingsOnce(t *testing.T) {
 }
 
 func TestStaticcheckExtraDoesNotBaselineAConsumerNewerThanTheNotice(t *testing.T) {
+	t.Parallel()
+
 	consumerDir := newConsumerRepository(t, afterNoticeDate)
 
 	output, err := runConsumerMake(consumerDir, "staticcheck-extra", testAnalyzerFlags)
@@ -117,6 +122,7 @@ func newConsumerRepository(t *testing.T, commitDate string) string {
 			"GO_MK_BUILD_REPO :=\n" +
 			"GO_MK_BIN := $(CURDIR)/.make/go-mk\n" +
 			"STATICCHECK_EXTRA_BIN := " + builtTestAnalyzer(t, repoRoot) + "\n" +
+			"GOLANGCI_LINT := " + builtTestLinter(t) + "\n" +
 			"_GO_MK_PROVISIONED := 1\ninclude " + filepath.Join(repoRoot, "go.mk") + "\n",
 	}
 	for name, content := range files {
@@ -144,7 +150,39 @@ var (
 	buildTestAnalyzerOnce sync.Once
 	testAnalyzerPath      string
 	testAnalyzerError     error
+	buildTestLinterOnce   sync.Once
+	testLinterPath        string
+	testLinterError       error
 )
+
+func builtTestLinter(t *testing.T) string {
+	t.Helper()
+	buildTestLinterOnce.Do(func() {
+		if os.Getenv("GO_MK_TEST_PREINSTALLED_GOLANGCI_LINT") == "true" {
+			testLinterPath, testLinterError = exec.LookPath("golangci-lint")
+			return
+		}
+
+		spec, err := lint.GolangciInstallSpec()
+		if err != nil {
+			testLinterError = err
+			return
+		}
+
+		bin := filepath.Dir(gomk.BuiltTestEngine(t))
+		testLinterPath = filepath.Join(bin, "golangci-lint")
+		command := exec.Command("go", "install", spec)
+		command.Env = append(os.Environ(), "GOBIN="+bin, "GOWORK=off")
+		if output, err := command.CombinedOutput(); err != nil {
+			testLinterError = fmt.Errorf("install fixture lint tools: %w\n%s", err, output)
+		}
+	})
+	if testLinterError != nil {
+		t.Fatal(testLinterError)
+	}
+
+	return testLinterPath
+}
 
 func builtTestAnalyzer(t *testing.T, repoRoot string) string {
 	t.Helper()

@@ -19,6 +19,8 @@ import "testing"
 func loopLimit() int { return 3 }
 
 func TestIntegerLoop(t *testing.T) {
+	t.Parallel()
+
 	total := 0
 	for index := 0; index < loopLimit(); index++ {
 		total += index
@@ -32,13 +34,12 @@ func TestIntegerLoop(t *testing.T) {
 // TestNoticeBaselinesMultilineGolangciDiagnostics checks historical and later
 // findings through the real linter.
 func TestNoticeBaselinesMultilineGolangciDiagnostics(t *testing.T) {
+	t.Parallel()
+
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 	engine := gomk.BuiltTestEngine(t)
 
-	linter, err := exec.LookPath("golangci-lint")
-	if err != nil {
-		t.Fatalf("locate golangci-lint: %v", err)
-	}
+	linter := builtTestLinter(t)
 
 	writeConsumerFile(t, consumer, "widget/range_test.go", multilineLoopSource)
 	runConsumerGit(t, consumer, beforeNoticeDate, "add", ".")
@@ -72,7 +73,7 @@ func TestNoticeBaselinesMultilineGolangciDiagnostics(t *testing.T) {
 		"_GO_MK_NOTICES_FILE=" + noticesPath,
 		"GOLANGCI_LINT=" + linter,
 		"GOLANGCI_LINT_FLAGS=-c .make/golangci.yml",
-		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml",
+		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --allow-parallel-runners",
 		"GOLANGCI_LINT_TARGETS=./widget",
 	}
 	output, err := command.CombinedOutput()
@@ -147,13 +148,12 @@ func unusedMapped() int { return 2 } // input.proto:7: original reference (typec
 // TestNoticeExcludesSourceLinesFromBaseline checks that a notice baselines a
 // located unused finding and excludes its source line.
 func TestNoticeExcludesSourceLinesFromBaseline(t *testing.T) {
+	t.Parallel()
+
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 	engine := gomk.BuiltTestEngine(t)
 
-	linter, err := exec.LookPath("golangci-lint")
-	if err != nil {
-		t.Fatalf("locate golangci-lint: %v", err)
-	}
+	linter := builtTestLinter(t)
 
 	writeConsumerFile(t, consumer, "widget/helper.go", excerptSource)
 	runConsumerGit(t, consumer, beforeNoticeDate, "add", ".")
@@ -187,7 +187,7 @@ func TestNoticeExcludesSourceLinesFromBaseline(t *testing.T) {
 		"_GO_MK_NOTICES_FILE=" + noticesPath,
 		"GOLANGCI_LINT=" + linter,
 		"GOLANGCI_LINT_FLAGS=-c .make/golangci.yml",
-		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml",
+		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --allow-parallel-runners",
 		"GOLANGCI_LINT_TARGETS=./widget",
 	}
 	output, err := command.CombinedOutput()
@@ -226,13 +226,12 @@ func TestNoticeExcludesSourceLinesFromBaseline(t *testing.T) {
 // TestNoticeRejectsMappedCompileError checks a source-mapped compiler failure
 // through the real linter before a notice records its baseline.
 func TestNoticeRejectsMappedCompileError(t *testing.T) {
+	t.Parallel()
+
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 	engine := gomk.BuiltTestEngine(t)
 
-	linter, err := exec.LookPath("golangci-lint")
-	if err != nil {
-		t.Fatalf("locate golangci-lint: %v", err)
-	}
+	linter := builtTestLinter(t)
 
 	const source = "package widget\n\n//line input.proto:7\nvar Broken = missingMappedValue\n"
 	const configuration = "version: \"2\"\nlinters:\n  default: none\n  enable: [unused]\n"
@@ -254,7 +253,7 @@ func TestNoticeRejectsMappedCompileError(t *testing.T) {
 		"_GO_MK_NOTICES_FILE=" + filepath.Join(consumer, "notices.txt"),
 		"GOLANGCI_LINT=" + linter,
 		"GOLANGCI_LINT_FLAGS=-c .make/golangci.yml",
-		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml",
+		"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --allow-parallel-runners",
 		"GOLANGCI_LINT_TARGETS=./widget",
 	}
 	output, err := command.CombinedOutput()

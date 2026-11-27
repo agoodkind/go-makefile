@@ -8,6 +8,8 @@ import (
 )
 
 func TestDuplicateReplayPreservesTheOriginalCutoff(t *testing.T) {
+	t.Parallel()
+
 	for _, scenario := range []string{
 		"formatting",
 		"later declaration changed",

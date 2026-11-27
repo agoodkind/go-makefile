@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +17,8 @@ import (
 )
 
 func TestGovulncheckInstallationFailureIsAdvisory(t *testing.T) {
+	t.Parallel()
+
 	dir, env := govulncheckProject(t)
 	env["GOVULNCHECK_INSTALL"] = "example.invalid/unavailable/cmd/govulncheck@v0.0.0"
 	output := govulncheckCommand(t, dir, env, "govulncheck")
@@ -32,6 +35,8 @@ func TestGovulncheckInstallationFailureIsAdvisory(t *testing.T) {
 }
 
 func TestBuildCheckLeavesGovulncheckStandalone(t *testing.T) {
+	t.Parallel()
+
 	dir, env := govulncheckProject(t)
 	download := exec.Command("go", "mod", "download")
 	download.Dir = filepath.Join(repoRootForTest(t), "staticcheck")
@@ -78,6 +83,8 @@ func TestBuildCheckLeavesGovulncheckStandalone(t *testing.T) {
 }
 
 func TestGovulncheckUsesGOBIN(t *testing.T) {
+	t.Parallel()
+
 	dir, env := govulncheckProject(t)
 	govulncheckCopyBinary(t, env["GOBIN"])
 	output := govulncheckCommand(t, dir, env, "govulncheck")
@@ -85,23 +92,34 @@ func TestGovulncheckUsesGOBIN(t *testing.T) {
 }
 
 func TestGovulncheckFallsBackToGOPATHBin(t *testing.T) {
-	dir, env := govulncheckProject(t)
-	env["GOBIN"] = ""
-	env["PATH"] = govulncheckFallbackBin + string(os.PathListSeparator) + os.Getenv("PATH")
-	govulncheckCopyBinary(t, filepath.Join(env["GOPATH"], "bin"))
-	output := govulncheckCommand(t, dir, env, "govulncheck")
-	govulncheckRequireFindings(t, output)
-}
+	t.Parallel()
 
-func TestGovulncheckUsesFirstGOPATHEntry(t *testing.T) {
-	dir, env := govulncheckProject(t)
-	env["GOBIN"] = ""
-	env["PATH"] = govulncheckFallbackBin + string(os.PathListSeparator) + os.Getenv("PATH")
-	first := env["GOPATH"]
-	env["GOPATH"] = first + string(os.PathListSeparator) + filepath.Join(dir, "second")
-	govulncheckCopyBinary(t, filepath.Join(first, "bin"))
-	output := govulncheckCommand(t, dir, env, "govulncheck")
-	govulncheckRequireFindings(t, output)
+	firstPath := filepath.Join("go", "first")
+	secondPath := filepath.Join("go", "second")
+	for _, paths := range [][]string{{firstPath}, {firstPath, secondPath}} {
+		var binary string
+		result := runGovulncheckStepWith(govulncheckConfig{
+			install: func(string) error { return nil },
+			goPath: func(name string) (string, error) {
+				switch name {
+				case "GOBIN":
+					return "", nil
+				case "GOPATH":
+					return strings.Join(paths, string(os.PathListSeparator)), nil
+				default:
+					return "", fmt.Errorf("unexpected Go environment variable %q", name)
+				}
+			},
+			run: func(name string, _ []string) ([]byte, error) {
+				binary = name
+				return nil, nil
+			},
+		})
+		want := filepath.Join(firstPath, "bin", "govulncheck")
+		if result.Status != report.StatusOK || binary != want {
+			t.Fatalf("GOPATH %v ran %q with status %v, want %q", paths, binary, result.Status, want)
+		}
+	}
 }
 
 func TestGovulncheckEmptyGOPATHIsAdvisory(t *testing.T) {
@@ -153,6 +171,8 @@ func TestGovulncheckGOBINLookupFailureIsAdvisory(t *testing.T) {
 }
 
 func TestGovulncheckFindingsAreAdvisory(t *testing.T) {
+	t.Parallel()
+
 	dir, env := govulncheckProject(t)
 	govulncheckCopyBinary(t, env["GOBIN"])
 	scanner := exec.Command(
@@ -173,6 +193,8 @@ func TestGovulncheckFindingsAreAdvisory(t *testing.T) {
 }
 
 func TestGovulncheckExecutionFailureIsAdvisory(t *testing.T) {
+	t.Parallel()
+
 	dir, env := govulncheckProject(t)
 	govulncheckCopyBinary(t, env["GOBIN"])
 	missing := filepath.Join(dir, "missing-database")
@@ -188,15 +210,11 @@ func TestGovulncheckExecutionFailureIsAdvisory(t *testing.T) {
 	)
 }
 
-// Go 1.27 computes GOBIN from GOPATH before the engine can use its fallback.
-const govulncheckFallbackToolchain = "go1.26.4"
-
 var (
-	govulncheckToolsOnce   sync.Once
-	govulncheckToolsDir    string
-	govulncheckToolsErr    error
-	govulncheckCaches      []string
-	govulncheckFallbackBin string
+	govulncheckToolsOnce sync.Once
+	govulncheckToolsDir  string
+	govulncheckToolsErr  error
+	govulncheckCaches    []string
 )
 
 func govulncheckTools(t *testing.T) string {
@@ -280,40 +298,7 @@ func govulncheckTools(t *testing.T) string {
 				err,
 				output,
 			)
-			return
 		}
-
-		command = exec.Command("go", "env", "GOROOT")
-		command.Dir = govulncheckToolsDir
-		command.Env = testProcessEnvironment(map[string]string{
-			"HOME":               govulncheckToolsDir,
-			"GOENV":              "off",
-			"GOFLAGS":            "-modcacherw",
-			"TEST_TELEMETRY_DIR": telemetryDir,
-			"GOWORK":             "off",
-			"GOTOOLCHAIN":        govulncheckFallbackToolchain,
-			"GOBIN":              "",
-			"GOPATH":             filepath.Join(govulncheckToolsDir, "go"),
-			"GOMODCACHE":         govulncheckCaches[0],
-			"GOCACHE":            govulncheckCaches[1],
-			"GOPROXY":            "https://proxy.golang.org",
-			"GOSUMDB":            "sum.golang.org",
-		})
-		var stderr strings.Builder
-		command.Stderr = &stderr
-		output, err := command.Output()
-		if err != nil {
-			govulncheckToolsErr = fmt.Errorf(
-				"download fallback Go toolchain %s: %w\n%s",
-				govulncheckFallbackToolchain,
-				err,
-				stderr.String(),
-			)
-
-			return
-		}
-
-		govulncheckFallbackBin = filepath.Join(strings.TrimSpace(string(output)), "bin")
 	})
 	if govulncheckToolsErr != nil {
 		t.Fatalf("prepare real govulncheck: %v", govulncheckToolsErr)
@@ -353,16 +338,12 @@ func govulncheckProject(t *testing.T) (string, map[string]string) {
 		"GOVULNCHECK_INSTALL": ".",
 		"GOVULNCHECK_TARGETS": "./...",
 	}
-	for name, value := range env {
-		t.Setenv(name, value)
+	env["TEST_TELEMETRY_DIR"] = filepath.Join(dir, "telemetry")
+	writeFile(t, filepath.Join(env["TEST_TELEMETRY_DIR"], "mode"), "off\n")
+	configDir := env["XDG_CONFIG_HOME"]
+	if runtime.GOOS == "darwin" {
+		configDir = filepath.Join(dir, "Library", "Application Support")
 	}
-
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		t.Fatalf("resolve fixture Go telemetry directory: %v", err)
-	}
-
-	// GOTELEMETRY is not settable. The mode file prevents telemetry child processes.
 	writeFile(t, filepath.Join(configDir, "go", "telemetry", "mode"), "off\n")
 	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/probe\n\ngo 1.24\n")
 	writeFile(
@@ -398,8 +379,6 @@ func govulncheckProject(t *testing.T) (string, map[string]string) {
 	env["GOVULNDB"] = (&url.URL{Scheme: "file", Path: database}).String()
 	// The pinned scanner accepts the database through -db and ignores GOVULNDB.
 	env["GOVULNCHECK_TARGETS"] = "-db " + env["GOVULNDB"] + " ./..."
-	t.Setenv("GOVULNDB", env["GOVULNDB"])
-	t.Setenv("GOVULNCHECK_TARGETS", env["GOVULNCHECK_TARGETS"])
 
 	return dir, env
 }

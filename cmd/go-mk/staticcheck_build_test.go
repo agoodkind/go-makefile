@@ -7,6 +7,8 @@ import (
 )
 
 func TestStaticcheckExtraReportsACompilerErrorOnce(t *testing.T) {
+	t.Parallel()
+
 	consumerDir := newConsumerRepository(t, afterNoticeDate)
 	writeConsumerFile(
 		t,
@@ -71,6 +73,8 @@ func TestStaticcheckExtraReportsACompilerErrorOnce(t *testing.T) {
 }
 
 func TestStaticcheckExtraReportsACompletedAnalysis(t *testing.T) {
+	t.Parallel()
+
 	consumerDir := newConsumerRepository(t, afterNoticeDate)
 	writeConsumerFile(
 		t,

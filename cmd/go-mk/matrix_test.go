@@ -6,13 +6,15 @@ import (
 )
 
 func TestNoticeRecordsProductionFindingsForAnotherPlatform(t *testing.T) {
-	consumer := newConsumerRepository(t, beforeNoticeDate)
+	t.Parallel()
+
+	consumer := newConsumerRepositoryWithNotice(t, "14")
 	writeConsumerFile(t, consumer, "cmd/tool/main.go", "package main\nfunc main() {}\n")
 	writeConsumerFile(
 		t,
 		consumer,
 		"cmd/tool/work_linux.go",
-		"package main\nfunc work() { for {} }\n",
+		"package main\n\nfunc work() { for {} }\n",
 	)
 	runConsumerGit(t, consumer, beforeNoticeDate, "add", ".")
 	runConsumerGit(t, consumer, beforeNoticeDate, "commit", "-qm", "Add historical Linux command")

@@ -14,7 +14,9 @@ const (
 // The notice runs in the freebsd pass on every host. That pass does not build
 // the linux test file.
 func TestNoticeRecordsTestFindingsInFilesForAnotherPlatform(t *testing.T) {
-	consumerDir := newConsumerRepository(t, beforeNoticeDate)
+	t.Parallel()
+
+	consumerDir := newConsumerRepositoryWithNotice(t, "2")
 	writeConsumerFile(
 		t,
 		consumerDir,
@@ -54,11 +56,18 @@ func TestNoticeRecordsTestFindingsInFilesForAnotherPlatform(t *testing.T) {
 // For another platform, go-mk analyzes with cgo off, and the cgo package does
 // not build.
 func TestNoticeRecordsNoBuildErrorsFromAnotherPlatform(t *testing.T) {
-	consumerDir := newConsumerRepository(t, beforeNoticeDate)
+	t.Parallel()
+
+	consumerDir := newConsumerRepositoryWithNotice(t, "2")
 	writeConsumerFile(t, consumerDir, "cgoonly/cgoonly.go", cgoOnlyPackage)
 	writeConsumerFile(t, consumerDir, "user/user.go", cgoUserPackage)
 
-	output, err := runConsumerMake(consumerDir, "staticcheck-extra", testAnalyzerFlags)
+	output, err := runConsumerMake(
+		consumerDir,
+		"staticcheck-extra",
+		"GO_MK_PLATFORMS=",
+		testAnalyzerFlags,
+	)
 	if err != nil {
 		t.Fatalf("gate failed after the notice: %v\n%s", err, output)
 	}
@@ -74,22 +83,20 @@ func TestNoticeRecordsNoBuildErrorsFromAnotherPlatform(t *testing.T) {
 		}
 	}
 
-	if applied := readConsumerFile(
-		t,
-		consumerDir,
-		appliedNoticeFile,
-	); applied != "1\n2\n3\n14\n15\n16\n18\n19\n22\n" {
-		t.Fatalf("applied notices = %q, want all notices", applied)
+	if applied := readConsumerFile(t, consumerDir, appliedNoticeFile); applied != "1\n2\n" {
+		t.Fatalf("applied notices = %q, want notices 1 and 2", applied)
 	}
 }
 
 func TestNoticeStopsWhenAnotherPlatformPackageDoesNotBuild(t *testing.T) {
+	t.Parallel()
+
 	otherOS := "darwin"
 	if runtime.GOOS == "darwin" {
 		otherOS = "linux"
 	}
 
-	consumerDir := newConsumerRepository(t, beforeNoticeDate)
+	consumerDir := newConsumerRepositoryWithNotice(t, "2")
 	writeConsumerFile(t, consumerDir, "cgoonly/cgoonly.go", cgoOnlyPackage)
 	writeConsumerFile(t, consumerDir, "user/user.go", cgoUserPackage)
 	writeConsumerFile(
@@ -99,7 +106,12 @@ func TestNoticeStopsWhenAnotherPlatformPackageDoesNotBuild(t *testing.T) {
 		"//go:build "+otherOS+"\n\npackage user_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/consumer/user\"\n)\n\nfunc TestValue(t *testing.T) {\n\tif user.Value() != 1 {\n\t\tt.Fatal(\"Value() != 1\")\n\t}\n}\n",
 	)
 
-	output, _ := runConsumerMake(consumerDir, "staticcheck-extra", testAnalyzerFlags)
+	output, _ := runConsumerMake(
+		consumerDir,
+		"staticcheck-extra",
+		"GO_MK_PLATFORMS="+runtime.GOOS+"/"+runtime.GOARCH+" "+otherOS+"/"+runtime.GOARCH,
+		testAnalyzerFlags,
+	)
 	if !strings.Contains(output, "staticcheck-extra cannot build ./user for "+otherOS+"/") {
 		t.Fatalf("output lacks the build prerequisite for ./user:\n%s", output)
 	}

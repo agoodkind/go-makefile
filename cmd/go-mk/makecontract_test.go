@@ -8,19 +8,19 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	gomk "goodkind.io/go-makefile/cmd/go-mk"
 )
 
 func TestMakeRejectsConsumerRecipeReplacements(t *testing.T) {
+	t.Parallel()
+
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	engine := filepath.Join(t.TempDir(), "go-mk")
-	build := exec.Command("go", "build", "-o", engine, ".")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build go-mk: %v\n%s", err, output)
-	}
+	engine := gomk.BuiltTestEngine(t)
 
 	for _, makeName := range []string{"make", "gmake"} {
 		makePath, err := exec.LookPath(makeName)

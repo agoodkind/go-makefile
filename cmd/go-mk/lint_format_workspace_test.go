@@ -7,6 +7,8 @@ import (
 )
 
 func TestLintFormatCreatesGoWorkForAWorkspaceModule(t *testing.T) {
+	t.Parallel()
+
 	consumerDir := newConsumerRepository(t, afterNoticeDate)
 	writeConsumerFile(t, consumerDir, "lib/go.mod", "module example.com/lib\n\ngo 1.26\n")
 	writeConsumerFile(

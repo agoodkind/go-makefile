@@ -3,67 +3,33 @@ package main_test
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
-	"text/template"
-
-	gomk "goodkind.io/go-makefile/cmd/go-mk"
 )
 
 func historyFailureConsumer(t *testing.T, scenario string) string {
 	t.Helper()
-	consumer := duplicateReplayConsumer(t)
+	consumer := noticeGitRepository(t, noticeGitEnvironment(t), beforeNoticeDate)
+	if err := os.Mkdir(filepath.Join(consumer, ".make"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	contents, err := os.ReadFile(filepath.Join("testdata", "preparation.mk"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	preparation, err := template.New("preparation").Parse(string(contents))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var rendered strings.Builder
-	if err := preparation.Execute(
-		&rendered,
-		struct{ Engine string }{Engine: gomk.BuiltTestEngine(t)},
-	); err != nil {
-		t.Fatal(err)
-	}
-
-	writeConsumerFile(
-		t,
-		consumer,
-		"Makefile",
-		rendered.String()+"\n"+readConsumerFile(t, consumer, "Makefile"),
-	)
-	original := readConsumerFile(t, consumer, "widget/widget.go")
+	writeConsumerFile(t, consumer, "Makefile", string(contents))
+	writeConsumerFile(t, consumer, "fixture.go", "package notice\n\nfunc Example() {}\n")
 	if scenario == "preparation" {
 		writeConsumerFile(t, consumer, "history-prepare-failure", "fail historical preparation\n")
-	} else {
-		writeConsumerFile(
-			t,
-			consumer,
-			"widget/widget.go",
-			"package widget\n\nfunc Double(value int) int { return missingValue }\n",
-		)
 	}
 
 	runConsumerGit(t, consumer, beforeNoticeDate, "add", ".")
-	runConsumerGit(
-		t,
-		consumer,
-		beforeNoticeDate,
-		"commit",
-		"-qm",
-		"Record a real historical failure",
-	)
+	runConsumerGit(t, consumer, beforeNoticeDate, "commit", "-qm", "Record historical preparation")
 	if scenario == "preparation" {
 		if err := os.Remove(filepath.Join(consumer, "history-prepare-failure")); err != nil {
 			t.Fatal(err)
 		}
-	} else {
-		writeConsumerFile(t, consumer, "widget/widget.go", original)
 	}
 
 	runConsumerGit(t, consumer, "2026-11-08T00:00:00Z", "add", ".")
@@ -72,8 +38,9 @@ func historyFailureConsumer(t *testing.T, scenario string) string {
 		consumer,
 		"2026-11-08T00:00:00Z",
 		"commit",
+		"--allow-empty",
 		"-qm",
-		"Repair the current preparation and source",
+		"Record the current source",
 	)
 
 	return consumer
