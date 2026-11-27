@@ -67,8 +67,8 @@ func defaultGovulncheckConfig() govulncheckConfig {
 
 func runGovulncheckStepWith(config govulncheckConfig) report.StepResult {
 	return checkrun.ScanVulnerabilities(
-		lintEnvDefault("GOVULNCHECK_INSTALL", defaultGovulncheckInstall),
-		splitWords(lintEnvDefault("GOVULNCHECK_TARGETS", "./...")),
+		defaultGovulncheckInstall,
+		lintEnvDefault,
 		config.install,
 		config.goPath,
 		config.run,
@@ -77,7 +77,7 @@ func runGovulncheckStepWith(config govulncheckConfig) report.StepResult {
 
 func runStandaloneGovulncheck() int {
 	return checkrun.PrintStep(
-		"go-mk govulncheck",
+		checkrun.VulnerabilityTitle,
 		runGovulncheckStepWith(defaultGovulncheckConfig()),
 		writeStdout,
 	)

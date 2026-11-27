@@ -21,8 +21,13 @@ import (
 	"sort"
 	"strconv"
 
-	"goodkind.io/go-makefile/internal/checkpolicy"
+	"goodkind.io/go-makefile/config"
 	"goodkind.io/go-makefile/internal/findings"
+)
+
+const (
+	failedStatusLabel   = "FAILED"
+	advisoryStatusLabel = "ADVISORY"
 )
 
 // GateResult records the outcome of a baseline comparison. Passed is false
@@ -87,7 +92,7 @@ func Evaluate(
 
 func findingsPass(gateName string, lines []string) bool {
 	for _, line := range lines {
-		if !checkpolicy.AdvisoryFinding(gateName, line) {
+		if !config.AdvisoryFinding(gateName, line) {
 			return false
 		}
 	}
@@ -186,11 +191,11 @@ func countGoneKeys(currentKeys, baselineKeys map[string]struct{}) int {
 // ---- Render ----
 func Render(result GateResult) []string {
 	if !result.Passed {
-		return renderFindings(result, "FAILED")
+		return renderFindings(result, failedStatusLabel)
 	}
 
 	if len(result.NewFindings) > 0 {
-		return renderFindings(result, "ADVISORY")
+		return renderFindings(result, advisoryStatusLabel)
 	}
 
 	return renderPassed(result)

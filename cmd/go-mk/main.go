@@ -18,11 +18,35 @@ import (
 	"strings"
 	"time"
 
+	"goodkind.io/go-makefile/config"
 	"goodkind.io/go-makefile/internal/baseline"
 	"goodkind.io/go-makefile/internal/capture"
 	"goodkind.io/go-makefile/internal/findings"
 	"goodkind.io/go-makefile/internal/lintgate"
+	"goodkind.io/go-makefile/internal/logsummary"
 )
+
+const (
+	actionNormalize  findingsAction = "normalize"
+	actionKey        findingsAction = "key"
+	actionBaseline   findingsAction = "baseline"
+	actionMap        findingsAction = "map"
+	actionPrint      findingsAction = "print"
+	actionRanges     findingsAction = "ranges"
+	actionLineFilter findingsAction = "linefilter"
+)
+
+const errMissingManifestPath sentinelError = "--manifest requires a path"
+
+const errMissingKeyFile sentinelError = "map action requires --keyfile"
+
+const errMissingRangeFile sentinelError = "linefilter action requires --rangefile"
+
+const errMissingProbeOutput sentinelError = "--probe requires --probe-out"
+
+const errMissingFindingsPath sentinelError = "gate requires --findings"
+
+const errMissingBaselinePath sentinelError = "gate requires --baseline"
 
 // writeStdout writes user-facing output to standard output.
 func writeStdout(text string) {
@@ -35,13 +59,12 @@ func writeStderr(text string) {
 }
 
 func main() {
-	if capabilityProbe() {
-		os.Exit(run())
+	if err := config.ValidateAdvisory(); err != nil {
+		slog.Error("Invalid advisory policy", slog.Any("err", err))
+		os.Exit(1)
 	}
 
-	setupLogging()
-	slog.Debug("go-mk invoked")
-	os.Exit(run())
+	os.Exit(logsummary.RunCLI(capabilityProbe, setupLogging, run))
 }
 
 func capabilityProbe() bool {
@@ -135,16 +158,6 @@ func writeManifest(manifest baseline.Manifest, emitJSON bool) error {
 // exposes, one per awk action. A named string type lets the compiler reason
 // about the closed set and keeps the dispatch switch off bare string literals.
 type findingsAction string
-
-const (
-	actionNormalize  findingsAction = "normalize"
-	actionKey        findingsAction = "key"
-	actionBaseline   findingsAction = "baseline"
-	actionMap        findingsAction = "map"
-	actionPrint      findingsAction = "print"
-	actionRanges     findingsAction = "ranges"
-	actionLineFilter findingsAction = "linefilter"
-)
 
 // findingsOptions holds the parsed flags for the findings subcommand. The
 // command layer fills it from argv and the findings package consumes the values,
@@ -726,18 +739,6 @@ func readFindingsFile(path string) ([]string, error) {
 type sentinelError string
 
 func (errorValue sentinelError) Error() string { return string(errorValue) }
-
-const errMissingManifestPath sentinelError = "--manifest requires a path"
-
-const errMissingKeyFile sentinelError = "map action requires --keyfile"
-
-const errMissingRangeFile sentinelError = "linefilter action requires --rangefile"
-
-const errMissingProbeOutput sentinelError = "--probe requires --probe-out"
-
-const errMissingFindingsPath sentinelError = "gate requires --findings"
-
-const errMissingBaselinePath sentinelError = "gate requires --baseline"
 
 type unknownOptionError struct {
 	option string

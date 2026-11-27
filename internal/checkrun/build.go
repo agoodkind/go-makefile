@@ -6,6 +6,8 @@ import (
 	"goodkind.io/go-makefile/internal/logsummary"
 )
 
+const checkLogEnv = "GO_MK_LOG"
+
 // Build runs default quality checks without vulnerability scanning.
 //
 // It prepares tools before reporting results.
@@ -23,7 +25,7 @@ func Build(
 	debug func() int,
 ) int {
 	notice()
-	if logsummary.ParseMode(os.Getenv("GO_MK_LOG")) == logsummary.ModeDebug {
+	if logsummary.ParseMode(os.Getenv(checkLogEnv)) == logsummary.ModeDebug {
 		return debug()
 	}
 

@@ -1,0 +1,6 @@
+{
+  "deadcode": [],
+  "go-version": [],
+  "govulncheck": [],
+  "golangci-lint": ["unused"]
+}

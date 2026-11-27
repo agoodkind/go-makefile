@@ -7,10 +7,13 @@ import (
 	"goodkind.io/go-makefile/internal/report"
 )
 
+const (
+	advisoryUnusedFinding      = "main.go:3:6: func futureCaller is unused (unused)"
+	advisoryErrcheckFinding    = "main.go:5:2: error return value is not checked (errcheck)"
+	advisoryUnreachableFinding = "main.go:3:6: unreachable func: futureCaller"
+)
+
 func TestBaselineGateAdvisoryFindings(t *testing.T) {
-	const unused = "main.go:3:6: func futureCaller is unused (unused)"
-	const errcheck = "main.go:5:2: error return value is not checked (errcheck)"
-	const unreachable = "main.go:3:6: unreachable func: futureCaller"
 	tests := []struct {
 		name     string
 		gate     string
@@ -22,7 +25,7 @@ func TestBaselineGateAdvisoryFindings(t *testing.T) {
 		{
 			name:     "unused only",
 			gate:     "golangci-lint",
-			findings: []string{unused},
+			findings: []string{advisoryUnusedFinding},
 			message:  "(unused)",
 			status:   report.StatusAdvisory,
 			exit:     0,
@@ -30,7 +33,7 @@ func TestBaselineGateAdvisoryFindings(t *testing.T) {
 		{
 			name:     "unchecked error",
 			gate:     "golangci-lint",
-			findings: []string{unused, errcheck},
+			findings: []string{advisoryUnusedFinding, advisoryErrcheckFinding},
 			message:  "(errcheck)",
 			status:   report.StatusFailed,
 			exit:     1,
@@ -38,7 +41,7 @@ func TestBaselineGateAdvisoryFindings(t *testing.T) {
 		{
 			name:     "unreachable function",
 			gate:     "deadcode",
-			findings: []string{unreachable},
+			findings: []string{advisoryUnreachableFinding},
 			message:  "unreachable func",
 			status:   report.StatusAdvisory,
 			exit:     0,

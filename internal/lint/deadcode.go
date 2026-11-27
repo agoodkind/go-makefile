@@ -5,6 +5,19 @@ import (
 	"path/filepath"
 )
 
+const (
+	deadcodeCheck                 = "deadcode"
+	deadcodeInstallEnv            = "DEADCODE_INSTALL"
+	deadcodeDefaultInstall        = "golang.org/x/tools/cmd/deadcode@latest"
+	deadcodeRawFile               = "deadcode.raw.out"
+	deadcodeFindingsFile          = "deadcode.out"
+	deadcodeDefaultExcludeEnv     = "DEADCODE_DEFAULT_EXCLUDE_PATHS"
+	deadcodeDefaultExcludePattern = `_test\.go:`
+	deadcodeExcludeEnv            = "DEADCODE_EXCLUDE_PATHS"
+	deadcodeBaselineEnv           = "DEADCODE_BASELINE"
+	deadcodeBaselineFile          = ".deadcode-baseline.txt"
+)
+
 // CheckDeadcode runs the analyzer and returns the baseline gate verdict.
 //
 // Preparation and capture errors stop the check before it evaluates the baseline.
@@ -26,15 +39,13 @@ func CheckDeadcode(
 	}
 
 	if !toolsPrepared {
-		if err := install(
-			envDefault("DEADCODE_INSTALL", "golang.org/x/tools/cmd/deadcode@latest"),
-		); err != nil {
+		if err := install(envDefault(deadcodeInstallEnv, deadcodeDefaultInstall)); err != nil {
 			return errorStatus(err)
 		}
 	}
 
-	rawPath := filepath.Join(directory, "deadcode.raw.out")
-	findingsPath := filepath.Join(directory, "deadcode.out")
+	rawPath := filepath.Join(directory, deadcodeRawFile)
+	findingsPath := filepath.Join(directory, deadcodeFindingsFile)
 	if err := capture(rawPath, findingsPath); err != nil {
 		return errorStatus(err)
 	}
@@ -45,13 +56,13 @@ func CheckDeadcode(
 	}
 
 	excludePattern := ExcludePattern(
-		envDefault("DEADCODE_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
-		os.Getenv("DEADCODE_EXCLUDE_PATHS"),
+		envDefault(deadcodeDefaultExcludeEnv, deadcodeDefaultExcludePattern),
+		os.Getenv(deadcodeExcludeEnv),
 	)
 	passed, err := evaluate(
-		"deadcode",
+		deadcodeCheck,
 		current,
-		envDefault("DEADCODE_BASELINE", ".deadcode-baseline.txt"),
+		envDefault(deadcodeBaselineEnv, deadcodeBaselineFile),
 		"The deadcode lint gate found unreachable code. Remove the reported code.",
 		excludePattern,
 		"",

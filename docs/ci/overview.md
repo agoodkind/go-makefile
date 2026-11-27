@@ -28,7 +28,7 @@ Every quality job also restores the cgo dependency cache that the compile leg fo
 
 ## Make a check advisory
 
-Add the check to the [advisory registry](../../internal/checkpolicy/advisory.go). Use an empty analyzer list for a whole check, or list the analyzers to make advisory.
+Add the check to [config/advisory.json](../../config/advisory.json). Use `[]` for a whole check, or list the analyzers to make advisory.
 
 ## The release dry run
 

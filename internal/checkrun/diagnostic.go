@@ -1,7 +1,7 @@
 package checkrun
 
 import (
-	"goodkind.io/go-makefile/internal/checkpolicy"
+	"goodkind.io/go-makefile/config"
 	"goodkind.io/go-makefile/internal/report"
 )
 
@@ -12,7 +12,7 @@ import (
 //	result := Diagnostic("go-version", "lookup failed")
 func Diagnostic(name string, findings ...string) report.StepResult {
 	status := report.StatusFailed
-	if checkpolicy.AdvisoryCheck(name) {
+	if config.AdvisoryCheck(name) {
 		status = report.StatusAdvisory
 	}
 

@@ -37,7 +37,7 @@ func runGoVersionStep() (report.StepResult, int) {
 
 func runGoVersionCheck() int {
 	result, _ := runGoVersionStep()
-	return checkrun.PrintStep("go-mk go-version-check", result, writeStdout)
+	return checkrun.PrintStep(checkrun.GoVersionTitle, result, writeStdout)
 }
 
 // installedGoVersion returns the Go version available on PATH without the

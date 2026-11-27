@@ -6,6 +6,11 @@ import (
 	"goodkind.io/go-makefile/internal/report"
 )
 
+const goVersionCheck = "go-version"
+
+// GoVersionTitle identifies the standalone Go version report.
+const GoVersionTitle = "go-mk go-version-check"
+
 // GoVersion compares the installed Go version with the latest stable release.
 //
 // Check policy determines the status for an outdated version or a lookup error.
@@ -18,17 +23,17 @@ func GoVersion(
 ) report.StepResult {
 	installedVersion, err := installed()
 	if err != nil {
-		return Diagnostic("go-version", err.Error())
+		return Diagnostic(goVersionCheck, err.Error())
 	}
 
 	latestVersion, err := latest()
 	if err != nil {
-		return Diagnostic("go-version", err.Error())
+		return Diagnostic(goVersionCheck, err.Error())
 	}
 
 	if compare(installedVersion, latestVersion) >= 0 {
 		return report.StepResult{
-			Name:        "go-version",
+			Name:        goVersionCheck,
 			Status:      report.StatusOK,
 			Note:        "",
 			Findings:    nil,
@@ -42,5 +47,5 @@ func GoVersion(
 		"Update the installed Go toolchain when practical.",
 	}
 
-	return Diagnostic("go-version", findings...)
+	return Diagnostic(goVersionCheck, findings...)
 }
