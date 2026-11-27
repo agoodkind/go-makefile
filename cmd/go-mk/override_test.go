@@ -8,10 +8,14 @@ import (
 )
 
 func TestHistoryPreparationValidatesMakefileOverrides(t *testing.T) {
+	t.Parallel()
+
 	for _, scenario := range []string{"relative", "absolute", "symlink", "nonregular"} {
 		t.Run(
 			scenario,
 			func(t *testing.T) {
+				t.Parallel()
+
 				consumer := duplicateReplayConsumer(t)
 				override := "Makefile"
 				switch scenario {

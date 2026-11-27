@@ -9,6 +9,8 @@ import (
 )
 
 func TestStaticcheckExtraInGitHubActionsDoesNotApplyANotice(t *testing.T) {
+	t.Parallel()
+
 	consumerDir := newConsumerRepository(t, beforeNoticeDate)
 
 	command := exec.Command("make", "staticcheck-extra", testAnalyzerFlags)

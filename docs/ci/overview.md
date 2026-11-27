@@ -24,6 +24,12 @@ The `build` job is the required gate. On a releasing repository it rolls up the 
 
 Every layout restores the generated cache that `prepare` warmed. The Golangci Lint job restores and saves its results cache in `parallel`. `Quality` and `Checks` own the same cache in serialized layouts. The cache key and weekly refresh stay identical across layouts.
 
+Each quality and compile job saves its own compiled Go packages. The cache key includes the Go version, runner, job, and dependency inputs. Every week, the job restores the last compatible cache and saves a refreshed copy after it succeeds. The compile matrix also keys the cache by target, cross compiler image, and native dependency inputs.
+
+Manifest preparation uses the host Go cache restored by setup-go. Build and quality commands select their job cache after the workflow resolves native dependency keys and restores that cache.
+
+Quality jobs use the golangci-lint executable installed by the action and its bundled formatters. The workflow preserves an explicit `GOLANGCI_LINT` setting. An absolute path must identify an executable. The `golangci_lint_version` workflow input selects the installed release.
+
 Every quality job also restores the cgo dependency cache that the compile leg for the same platform saved. Quality jobs never save that cache. The `go_tool_packages` builds share one cache. A cache hit skips the source build of `go_tool_packages`. The cache key includes the package list, the Go version, and the ISO week. The first job in the matrix saves that cache on a miss.
 
 ## Make a check advisory

@@ -9,6 +9,8 @@ import (
 
 // TestMakeFmtAppliesSourceRules formats a real consumer and preserves short calls.
 func TestMakeFmtAppliesSourceRules(t *testing.T) {
+	t.Parallel()
+
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 	settings, err := os.ReadFile(filepath.Join("testdata", "format.yml"))
 	if err != nil {

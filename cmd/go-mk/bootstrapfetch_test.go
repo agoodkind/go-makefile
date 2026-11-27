@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -85,6 +86,8 @@ func helperFiles() map[string]string {
 }
 
 func TestHelperColdProvisionWritesEveryAsset(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -139,6 +142,8 @@ func TestHelperColdProvisionWritesEveryAsset(t *testing.T) {
 // check without the helper ever having run. Pinning the exact code and the
 // helper's own wording rules that out.
 func TestHelperLeavesAssetsIntactWhenUpstreamIsUnreachable(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	writeAsset(t, dir, "go.mk", "# warm go.mk\n")
 	writeAsset(t, dir, "golangci.yml", "version: \"2\"\n")
@@ -184,6 +189,8 @@ func TestHelperLeavesAssetsIntactWhenUpstreamIsUnreachable(t *testing.T) {
 // correct here, but nothing exercised it. It also asserts the surviving
 // assets are byte-for-byte identical to what was there before the run.
 func TestHelperLeavesAssetsIntactWhenTarballIsIncomplete(t *testing.T) {
+	t.Parallel()
+
 	files := helperFiles()
 	delete(files, "notices.txt")
 	delete(files, "scripts/go-mk-sync.sh")
@@ -250,6 +257,8 @@ func TestHelperLeavesAssetsIntactWhenTarballIsIncomplete(t *testing.T) {
 // replaces a read-only file without error; a directory is the shape it must
 // refuse. A directory also blocks root, so this needs no root skip.
 func TestHelperMidInstallFailureExitsNonZero(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -300,6 +309,8 @@ func TestHelperMidInstallFailureExitsNonZero(t *testing.T) {
 // that directory rather than replacing the link: the asset silently lands
 // somewhere outside .make and the install still reports success for that step.
 func TestHelperRefusesAnAssetPathThatSymlinksToADirectory(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -350,6 +361,8 @@ func TestHelperRefusesAnAssetPathThatSymlinksToADirectory(t *testing.T) {
 // left the recorded ETag in place even though .make now holds local edits that
 // never came from upstream.
 func TestHelperDevDirReplacesItsOwnFileAndClearsState(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -432,6 +445,8 @@ func TestHelperDevDirReplacesItsOwnFileAndClearsState(t *testing.T) {
 // GO_MK_DEV_DIR would send its ETag, receive 304, and treat the half-replaced
 // tree as current upstream content indefinitely.
 func TestHelperDevDirPartialInstallLeavesNoState(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -515,6 +530,8 @@ func TestHelperDevDirPartialInstallLeavesNoState(t *testing.T) {
 // TestHelperFallsBackToCacheWhenStateCannotBeCleared verifies that a failed
 // live update preserves and serves the existing complete tree.
 func TestHelperFallsBackToCacheWhenStateCannotBeCleared(t *testing.T) {
+	t.Parallel()
+
 	if os.Geteuid() == 0 {
 		t.Skip("runs as root, where an unwritable directory cannot block removal")
 	}
@@ -583,6 +600,8 @@ func TestHelperFallsBackToCacheWhenStateCannotBeCleared(t *testing.T) {
 // codeload, two consecutive warm parses moved .make's mtime while every file
 // under it stayed identical.
 func TestHelperTouchesNothingUnderMakeOnNotModified(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -701,18 +720,23 @@ func isDiagnosticLogPath(makeDir string, path string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
-// TestHelperSerializesConcurrentParses covers the lock. Two parses in one
-// consumer directory each stage their own archive and install asset by asset,
-// so without serialization their copies interleave and .make ends up holding a
-// mix of two trees while the state file records whichever finished last. Every
-// later run then validates that mixed tree against one archive's ETag, gets a
-// 304, and keeps it. Both parses exit 0, so nothing reports it.
-//
-// The assertion is that .make is internally consistent afterwards: every asset
-// comes from the same generation. A mixed tree fails it.
 func TestHelperSerializesConcurrentParses(t *testing.T) {
 	const parallel = 4
 	dir := t.TempDir()
+
+	helper := filepath.Join(repoRootForTest(t), "scripts", "go-mk-bootstrap.sh")
+	seedTestEngine(t, dir)
+	t.Chdir(dir)
+	lock, err := provisionLockDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pidFile := filepath.Join(lock, "pid")
+	type process struct {
+		started chan struct{}
+		pid     int
+	}
+	processes := make([]process, parallel)
 
 	// Each server serves a distinct generation, so an interleaved install is
 	// visible as assets from different generations landing together.
@@ -728,31 +752,25 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 			"scripts/go-mk-sync.sh":      "#!/usr/bin/env bash\n# " + generation + "\nexit 0\n",
 			"scripts/go-mk-bootstrap.sh": "#!/usr/bin/env bash\n# " + generation + "\nexit 0\n",
 		}
+		process := &processes[index]
+		process.started = make(chan struct{})
 		servers[index] = newFetchServer(t, files)
+		servers[index].mutex.Lock()
+		servers[index].beforeResponse = func(request *http.Request) {
+			select {
+			case <-process.started:
+			case <-request.Context().Done():
+				return
+			}
+
+			owner, err := os.ReadFile(pidFile)
+			if err != nil || strings.TrimSpace(string(owner)) != strconv.Itoa(process.pid) {
+				t.Errorf("parse %d fetched with lock owner %q: %v", process.pid, owner, err)
+			}
+		}
+		servers[index].mutex.Unlock()
 	}
 
-	// Each server holds its response for stallPerParse, which makes the
-	// critical section long enough to observe directly. Serialized, the four
-	// parses cost at least three stalls end to end. Unserialized they overlap
-	// and finish in about one.
-	//
-	// Timing is the assertion rather than a mixed tree, because a mixed tree
-	// needs the install loops to interleave, and the install is a handful of
-	// small copies. Confirmed: with four parses and no lock, the tree came out
-	// consistent every time, so that assertion passed against the very bug it
-	// was meant to catch.
-	const stallPerParse = 2 * time.Second
-
-	for _, server := range servers {
-		server.Stall(stallPerParse)
-	}
-
-	// Resolve the helper path on THIS goroutine. repoRootForTest fatals, and
-	// the goroutines below must not call anything that does.
-	helper := filepath.Join(repoRootForTest(t), "scripts", "go-mk-bootstrap.sh")
-	seedTestEngine(t, dir)
-
-	start := time.Now()
 	var group sync.WaitGroup
 	codes := make([]int, len(servers))
 	stderrs := make([]string, len(servers))
@@ -766,6 +784,10 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 				helper,
 				dir,
 				map[string]string{"GO_MK_CODELOAD_BASE": base},
+				func(pid int) {
+					processes[slot].pid = pid
+					close(processes[slot].started)
+				},
 			)
 			codes[slot] = code
 			stderrs[slot] = stderr
@@ -786,11 +808,6 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 		}
 	}
 
-	// Every parse must SUCCEED, not merely be serialized. Discarding the exit
-	// codes would let "one parse won and the other three waited out the
-	// timeout and failed" satisfy both the elapsed-time bound and the
-	// consistent-tree check below, which is serialization by rejection rather
-	// than by waiting.
 	for slot, code := range codes {
 		if code != 0 {
 			t.Fatalf(
@@ -801,19 +818,9 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 				stderrs[slot],
 			)
 		}
-	}
-
-	elapsed := time.Since(start)
-	t.Logf("%d concurrent parses took %s with a %s stall each", parallel, elapsed, stallPerParse)
-
-	if minimum := 3 * stallPerParse; elapsed < minimum {
-		t.Fatalf(
-			"%d concurrent parses took %s, want at least %s: they overlapped, "+
-				"so provisioning is not serialized and two installs can interleave",
-			parallel,
-			elapsed,
-			minimum,
-		)
+		if len(servers[slot].Requests()) == 0 {
+			t.Errorf("parse %d never requested an archive", slot)
+		}
 	}
 
 	// Every asset must name the same generation. Which one wins is not
@@ -859,6 +866,8 @@ func TestHelperSerializesConcurrentParses(t *testing.T) {
 }
 
 func TestHelperProvisionedRejectsDirectoryInPlaceOfAsset(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	// Seed every required asset, then replace exactly one with a directory.
 	// Listing the assets by hand here is what made this test pass for the
@@ -901,6 +910,8 @@ func TestHelperProvisionedRejectsDirectoryInPlaceOfAsset(t *testing.T) {
 // main used to return 0 unconditionally afterward, exiting success with an
 // incomplete .make.
 func TestHelperDevDirIncompleteFailsLoudly(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	devDir := t.TempDir()
 	writeDevDirAsset(t, devDir, "go.mk", "# dev go.mk\n")
@@ -992,7 +1003,7 @@ func runHelper(t *testing.T, dir string, env map[string]string) (string, string,
 	}
 
 	command.Env = testProcessEnvironment(defaults)
-	stdout, stderr, code, err := runHelperCommand(command)
+	stdout, stderr, code, err := runHelperCommand(command, nil)
 	if err != nil {
 		t.Fatalf("run helper: %v", err)
 	}
@@ -1007,11 +1018,18 @@ func runHelper(t *testing.T, dir string, env map[string]string) (string, string,
 // test does not actually stop and the failure can be lost or reported against
 // something unrelated. runHelper above is the ordinary same-goroutine path and
 // still fatals directly.
-func runHelperCommand(command *exec.Cmd) (string, string, int, error) {
+func runHelperCommand(command *exec.Cmd, started func(int)) (string, string, int, error) {
 	var stdout, stderr strings.Builder
 	command.Stdout = &stdout
 	command.Stderr = &stderr
-	err := command.Run()
+	if err := command.Start(); err != nil {
+		return "", "", 0, err
+	}
+	if started != nil {
+		started(command.Process.Pid)
+	}
+
+	err := command.Wait()
 	code := 0
 	var exitErr *exec.ExitError
 	if err != nil {
@@ -1032,6 +1050,7 @@ func runHelperFromGoroutine(
 	helper string,
 	dir string,
 	env map[string]string,
+	started func(int),
 ) (string, string, int, error) {
 	command := exec.Command("bash", helper)
 	command.Dir = dir
@@ -1046,7 +1065,7 @@ func runHelperFromGoroutine(
 
 	command.Env = testProcessEnvironment(defaults)
 
-	return runHelperCommand(command)
+	return runHelperCommand(command, started)
 }
 
 func asExitError(err error, target **exec.ExitError) bool {
@@ -1170,6 +1189,8 @@ func copyFile(source string, dest string) error {
 }
 
 func TestHelperColdProvisionRecordsState(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -1204,6 +1225,8 @@ func TestHelperColdProvisionRecordsState(t *testing.T) {
 }
 
 func TestHelperServesDiskWhenUpstreamReturnsNotModified(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -1306,6 +1329,8 @@ func statStateFile(t *testing.T, dir string) os.FileInfo {
 }
 
 func TestHelperReprovisionsWhenUpstreamMoved(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -1351,6 +1376,8 @@ func TestHelperReprovisionsWhenUpstreamMoved(t *testing.T) {
 // rather than validating against content this run never confirmed), warns
 // loudly, and still returns success.
 func TestHelperDegradesWhenUpstreamServesNoETag(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	server.SetETagEnabled(false)
 	dir := t.TempDir()
@@ -1392,6 +1419,8 @@ func TestHelperDegradesWhenUpstreamServesNoETag(t *testing.T) {
 // verified against that leftover etag). The fix must remove the stale
 // state file, not merely skip writing a new one.
 func TestHelperClearsStaleStateWhenUpstreamStopsServingETag(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -1437,6 +1466,8 @@ func TestHelperClearsStaleStateWhenUpstreamStopsServingETag(t *testing.T) {
 // does not match the current ref, forcing a real fetch instead of a
 // conditional probe.
 func TestHelperDoesNotReuseETagAcrossRef(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 
@@ -1558,6 +1589,8 @@ func warmMake(t *testing.T, dir string) {
 }
 
 func TestHelperServesDiskWhenUpstreamTimesOutAndStateIsRecent(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 	warmMake(t, dir)
@@ -1647,6 +1680,8 @@ func unreachableCodeloadBase(t *testing.T) string {
 // long the stall actually lasts; --retry still applies on top of that (see
 // TestHelperBoundsRetryTimeWhenUpstreamStalls for the measured total).
 func TestHelperFallsBackToDiskWhenUpstreamTimesOutAndStateIsStale(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 	warmMake(t, dir)
@@ -1684,6 +1719,8 @@ func TestHelperFallsBackToDiskWhenUpstreamTimesOutAndStateIsStale(t *testing.T) 
 // covers the stall shape, so between the two the suite exercises both ways
 // a real network failure reaches this branch.
 func TestHelperFallsBackToCacheWithFutureTimestamp(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Add(2*time.Hour).Unix())
@@ -1717,6 +1754,8 @@ func TestHelperFallsBackToCacheWithFutureTimestamp(t *testing.T) {
 // this asserts a wall-clock ceiling tuned to the current architecture, not
 // just eventual failure.
 func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 	server.StallUntilCanceled()
@@ -1769,6 +1808,8 @@ func TestHelperBoundsRetryTimeWhenUpstreamStalls(t *testing.T) {
 // ordinary CI/host jitter could read as a false max-time regression; 12 KB
 // measures ~5-6s, leaving roughly 9-10s of margin instead.
 func TestHelperCompletesWhenUpstreamTricklesAboveSpeedLimit(t *testing.T) {
+	t.Parallel()
+
 	files := helperFiles()
 	files["notices.txt"] = randomAssetBody(12 * 1024)
 	server := newFetchServer(t, files)
@@ -1817,6 +1858,8 @@ func TestHelperCompletesWhenUpstreamTricklesAboveSpeedLimit(t *testing.T) {
 // through to provision, which fails loudly with its own local-cause
 // message when the same broken TMPDIR blocks its staging directory too.
 func TestHelperDoesNotReuseWhenLocalSetupFailsBeforeAnyRequest(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 	warmMake(t, dir)
@@ -1879,6 +1922,8 @@ func TestHelperDoesNotReuseWhenLocalSetupFailsBeforeAnyRequest(t *testing.T) {
 // If-None-Match and must be a real 200, not a 304 the helper then trusts
 // without having downloaded anything this run.
 func TestHelperAlwaysProvisionsUnconditionallyInCI(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 	warmMake(t, dir)
@@ -1936,6 +1981,8 @@ func TestHelperAlwaysProvisionsUnconditionallyInCI(t *testing.T) {
 // soften an unreachable upstream. CI must fail loudly rather than silently
 // serving assets that were never re-validated this run.
 func TestHelperFailsInCIWhenUpstreamIsUnreachableDespiteFreshState(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	warmMake(t, dir)
 	writeState(t, dir, "main", `"cached-etag"`, time.Now().Unix())
@@ -1961,6 +2008,8 @@ func TestHelperFailsInCIWhenUpstreamIsUnreachableDespiteFreshState(t *testing.T)
 // ordinary conditional-validation behavior, not the unconditional-fetch
 // path meant for a real GitHub Actions job.
 func TestHelperTreatsGithubActionsWithoutRunIdAsLocal(t *testing.T) {
+	t.Parallel()
+
 	server := newFetchServer(t, helperFiles())
 	dir := t.TempDir()
 

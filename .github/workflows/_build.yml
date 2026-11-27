@@ -1,13 +1,6 @@
 name: Build
 
-# Shared compile component. It cross-compiles the platforms the `platforms`
-# input names (default all four) and uploads each platform's raw binaries as a
-# build-<goos>-<goarch> artifact, scoped to the calling module when
-# `working_directory` names one (see the plan job below), so two calls in the
-# same workflow run for different modules never collide. It never signs,
-# notarizes, archives, tags, or publishes; the package component consumes
-# these artifacts for that. darwin targets cross-compile on Ubuntu by default,
-# or build natively on the macOS runner named by the `darwin_runner` input.
+# Build and upload one artifact per target platform. The package workflow consumes these artifacts.
 
 on:
   workflow_call:
@@ -60,10 +53,6 @@ on:
         type: string
         default: "."
 
-# The go-mk bootstrap fetch (bootstrap.mk / go.mk) downloads a single codeload
-# tarball, which spends no GITHUB_TOKEN core-REST budget, with a
-# raw.githubusercontent.com per-file fallback. GH_TOKEN stays set for any gh CLI
-# step but is no longer required by the fetch.
 env:
   GH_TOKEN: ${{ github.token }}
 
@@ -80,26 +69,9 @@ jobs:
           PLATFORMS: ${{ inputs.platforms }}
           DARWIN_RUNNER: ${{ inputs.darwin_runner }}
           WORKING_DIRECTORY: ${{ inputs.working_directory }}
-        # Emit one matrix row per requested platform. linux rows run natively
-        # per-arch. freebsd rows are a pure-Go cross-compile from the same
-        # ubuntu-24.04 runner linux/amd64 uses, for both arches: unlike
-        # linux/arm64 there is no freebsd cgo cross toolchain to run natively,
-        # so a native arm64 runner buys nothing. darwin rows either
-        # cross-compile in the goreleaser-cross container (default) or run
-        # natively on the requested macOS runner; only cross rows carry
-        # cc/cxx, which the cross-specific steps key on.
-        #
-        # module_suffix scopes every artifact name this workflow uploads to the
-        # calling module, derived from working_directory so a multi-module
-        # consumer that calls this reusable workflow more than once in the same
-        # run (once per Go module) never collides on the shared
-        # build-<goos>-<goarch> artifact name. GitHub Actions expressions have
-        # no string-replace function, so the slug is computed here in shell:
-        # every character outside [A-Za-z0-9] becomes a dash, runs of dashes
-        # collapse to one, and leading/trailing dashes are stripped. The
-        # default working_directory "." has no alphanumeric characters, so it
-        # collapses to an empty slug and module_suffix is empty, leaving every
-        # single-module consumer's artifact names byte-for-byte unchanged.
+        # FreeBSD jobs cross-compile from Linux amd64. Darwin jobs use the
+        # cross compiler unless the caller supplies a macOS runner.
+        # A module suffix prevents artifact collisions across workflow calls.
         run: |
           module_slug="$(printf '%s' "${WORKING_DIRECTORY}" | sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+//; s/-+$//')"
           if [ -n "${module_slug}" ]; then
@@ -164,10 +136,7 @@ jobs:
         with:
           fetch-depth: 0
           submodules: ${{ inputs.submodules }}
-      # Inside the darwin cross container the job runs as root while the checkout
-      # is owned by the runner user, so git refuses later submodule and stamp
-      # commands with "detected dubious ownership". Trust every workspace path so
-      # the top repo and any nested submodules are usable. Host runners skip this.
+      # The cross compiler container runs as root, but the runner owns the checkout.
       - name: Trust workspace for git in container
         if: matrix.container != ''
         run: git config --global --add safe.directory '*'
@@ -190,13 +159,7 @@ jobs:
             ${{ inputs.working_directory }}/go.sum
             ${{ inputs.working_directory }}/go.work
             ${{ inputs.working_directory }}/go.work.sum
-      # A compiler cache must be replaced whenever the sources it holds objects
-      # for change. Go module files miss one such source: a submodule carrying C
-      # or C++ code is pinned by a commit recorded in the index, so bumping that
-      # pin changes what gets compiled while leaving every tracked file the same.
-      # Fold the pins into the cache key so that bump replaces the cache instead
-      # of leaving a stale one in place. A repository without submodules produces
-      # a constant digest, so its key is unaffected.
+      # The compiler caches depend on native sources in pinned submodules.
       - name: Fingerprint submodule pins
         id: submodule-pins
         if: inputs.cgo
@@ -219,14 +182,7 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ~/.ccache
-          # The key ends at the dependency digest, matching the linux ccache
-          # above, so a run whose dependencies are unchanged hits it exactly and
-          # the save below is skipped. A run-scoped suffix here could never hit,
-          # so the save always fired and every run left a permanent entry no
-          # later run could match. A repository shares one ten gigabyte cache
-          # budget, and eviction reclaims whatever was touched least recently
-          # rather than whatever is useless, so entries written once and never
-          # read push out the caches that other jobs do read.
+          # Reuse one ccache entry per dependency set.
           key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ matrix.container }}-${{ matrix.cc }}-${{ hashFiles(format('{0}/go.mod', inputs.working_directory), format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory)) }}-${{ steps.submodule-pins.outputs.digest }}
           restore-keys: |
             ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-release-${{ matrix.goos }}-${{ matrix.goarch }}-${{ matrix.container }}-${{ matrix.cc }}-
@@ -243,12 +199,7 @@ jobs:
           } >> "${GITHUB_ENV}"
       - name: Declare cgo build target
         if: inputs.cgo
-        # Publish the per-job target tuple so a consumer's make-layer
-        # go-mk-cgo-deps prerequisite sees a target os/arch that agrees with the
-        # cross compiler below and provisions into the same per-target prefix
-        # the go-mk release engine uses, instead of falling back to the host
-        # tuple (a darwin cross job would otherwise localize Mach-O objects
-        # with the linux toolchain).
+        # Use the target tuple for cgo dependencies and their install prefix.
         run: |
           {
             echo "GO_MK_TARGET_GOOS=${{ matrix.goos }}"
@@ -256,17 +207,8 @@ jobs:
           } >> "${GITHUB_ENV}"
       - name: Configure darwin cross compilers
         if: matrix.cc != '' && inputs.cgo
-        # Pass the cross compiler under dedicated GO_MK_CC / GO_MK_CXX rather than
-        # the global CC / CXX, so go-mk applies it only to the target build and
-        # its cgo-dep provisioning. Host-tool builds in this job (the go-mk binary)
-        # then compile with the container's host compiler.
-        #
-        # ccache interposes through masquerade symlinks named after the compilers,
-        # prepended to PATH, rather than a two-word "ccache o64-clang" value:
-        # consumer dep recipes may invoke "$CC" as a single word (agent-gate's
-        # pcre2 script does), and a two-word CC fails there with exit 127. When
-        # ccache runs under a compiler's name it finds the real compiler later
-        # in PATH, so GO_MK_CC stays the plain compiler name.
+        # Reserve the cross compiler for the target build and its native dependencies.
+        # Compiler symlinks let recipes invoke CC or CXX as a single command.
         run: |
           mkdir -p "${HOME}/.ccache"
           wrapper_dir="${RUNNER_TEMP}/ccache-masquerade"
@@ -315,8 +257,30 @@ jobs:
         with:
           path: ${{ steps.go-mk-cache.outputs.cgo_cache_paths }}
           key: go-mk-cgo-${{ runner.os }}-${{ runner.arch }}-${{ github.repository_id }}-${{ steps.go-mk-cache.outputs.cgo_cache_key }}
+      - name: Identify the Go cache generation
+        id: go-build-generation
+        shell: bash
+        run: printf 'week=%s\nimage=%s\n' "$(date -u +%G-%V)" "${ImageOS:-}" >> "$GITHUB_OUTPUT"
+      - name: Cache compiled Go packages
+        uses: actions/cache@v6
+        env:
+          GO_BUILD_KEY: >-
+            ${{ format('go-mk-build-v1-{0}-{1}-{2}-{3}-{4}-{5}',
+            runner.os, runner.arch,
+            steps.setup-go.outputs.go-version, steps.go-build-generation.outputs.image,
+            format('compile-{0}-{1}-{2}-{3}', inputs.working_directory, matrix.goos, matrix.goarch, matrix.container),
+            hashFiles(format('{0}/go.mod', inputs.working_directory),
+              format('{0}/go.sum', inputs.working_directory),
+              format('{0}/go.work', inputs.working_directory),
+              format('{0}/go.work.sum', inputs.working_directory),
+              format('{0}/Makefile', inputs.working_directory), '.gitmodules')) }}
+        with:
+          path: ${{ github.workspace }}/.make/ci-go-build
+          key: ${{ env.GO_BUILD_KEY }}-${{ inputs.cgo }}-${{ steps.submodule-pins.outputs.digest }}-${{ steps.go-mk-cache.outputs.cgo_cache_key }}-${{ steps.go-build-generation.outputs.week }}
+          restore-keys: ${{ env.GO_BUILD_KEY }}-${{ inputs.cgo }}-${{ steps.submodule-pins.outputs.digest }}-${{ steps.go-mk-cache.outputs.cgo_cache_key }}-
       - name: Compile
         env:
+          GOCACHE: ${{ github.workspace }}/.make/ci-go-build
           RELEASE_STAGE: compile
           RELEASE_TAG: ${{ inputs.release_tag }}
           RELEASE_PLATFORMS: ${{ matrix.goos }}/${{ matrix.goarch }}
@@ -352,10 +316,6 @@ jobs:
         with:
           path: ~/.ccache
           key: ${{ steps.darwin-ccache-restore.outputs.cache-primary-key }}
-      # Upload this platform's raw compiled binaries under dist/<name>_<os>_<arch>/.
-      # The package job downloads them back into dist to sign and archive
-      # without recompiling. module_suffix (see the plan job) scopes the name
-      # so a multi-module consumer's calls do not collide.
       - uses: actions/upload-artifact@v7
         with:
           name: build${{ needs.plan.outputs.module_suffix }}-${{ matrix.goos }}-${{ matrix.goarch }}

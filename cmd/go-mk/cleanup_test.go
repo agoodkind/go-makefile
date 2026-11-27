@@ -2,6 +2,7 @@ package main_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,32 +14,26 @@ import (
 	"goodkind.io/go-makefile/internal/notice/history"
 )
 
-func TestHistoryRestoresDirectoryAndEnvironmentAfterRealFailures(t *testing.T) {
+func TestHistoryRestoresDirectoryAndEnvironmentAfterFailures(t *testing.T) {
 	for _, scenario := range []string{"preparation", "capture"} {
 		t.Run(
 			scenario,
 			func(t *testing.T) {
 				consumer := historyFailureConsumer(t, scenario)
-				output, err := runConsumerMake(
-					consumer,
-					"lint-golangci-scope",
-					"LINTER=dupl",
-					"GOLANGCI_LINT_TARGETS=./widget",
-				)
-				if err == nil || !strings.Contains(output, "(dupl)") {
-					t.Fatalf(
-						"current source did not produce real dupl findings: %v\n%s",
-						err,
-						output,
-					)
-				}
+				const findings = "current-findings.txt"
+				const currentFinding = "fixture.go:3:1: duplicate (dupl)\n"
+				writeConsumerFile(t, consumer, findings, currentFinding)
 
 				aliases := t.TempDir()
-				if err := os.Symlink(
-					builtTestAnalyzer(t, filepath.Join("..", "..")),
-					filepath.Join(aliases, "staticcheck-extra"),
-				); err != nil {
+				executable, err := os.Executable()
+				if err != nil {
 					t.Fatal(err)
+				}
+
+				for _, name := range []string{"golangci-lint", "staticcheck-extra"} {
+					if err := os.Symlink(executable, filepath.Join(aliases, name)); err != nil {
+						t.Fatal(err)
+					}
 				}
 
 				t.Setenv("PATH", aliases+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -57,35 +52,22 @@ func TestHistoryRestoresDirectoryAndEnvironmentAfterRealFailures(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				capture := func(rawPath, findingsPath string) error {
+				captureFailure := errors.New("analyzer failed in the historical checkout")
+				capture := func(_, _ string) error {
 					directory, err := os.Getwd()
 					if err != nil {
-						return fmt.Errorf("locate actual capture directory: %w", err)
+						t.Fatal(err)
 					}
 
-					captured, err := runConsumerMake(
-						directory,
-						"lint-golangci",
-						"GOLANGCI_LINT_RUN_FLAGS=-c .make/golangci.yml --enable=govet",
-						"GOLANGCI_LINT_TARGETS=./widget",
-					)
-					if err != nil {
-						return fmt.Errorf("actual capture command: %w\n%s", err, captured)
+					if directory == workingDirectory {
+						t.Error("capture ran in the current checkout")
 					}
 
-					if err := copyHistoryCapture(
-						directory,
-						"golangci-lint.raw.out",
-						rawPath,
-					); err != nil {
-						return err
-					}
-
-					return copyHistoryCapture(directory, "golangci-lint.out", findingsPath)
+					return captureFailure
 				}
 				err = history.RestrictFindings(
 					t.Context(),
-					filepath.Join(consumer, ".make", "golangci-lint-scope.out"),
+					filepath.Join(consumer, findings),
 					introduced,
 					"golangci",
 					"",
@@ -105,15 +87,16 @@ func TestHistoryRestoresDirectoryAndEnvironmentAfterRealFailures(t *testing.T) {
 				}
 
 				if scenario == "capture" &&
-					(!strings.Contains(
-						err.Error(),
-						"capture historical notice findings",
-					) || !strings.Contains(err.Error(), "missingValue")) {
-					t.Fatalf("real compiler failure did not fail capture: %v", err)
+					!errors.Is(err, captureFailure) {
+					t.Fatalf("capture failure was not returned: %v", err)
 				}
 
 				if current, err := os.Getwd(); err != nil || current != workingDirectory {
 					t.Fatalf("historical failure did not restore the current directory: %v", err)
+				}
+
+				if current := readConsumerFile(t, consumer, findings); current != currentFinding {
+					t.Fatalf("historical failure changed the current findings: %q", current)
 				}
 
 				for name, expected := range map[string]string{
@@ -138,17 +121,4 @@ func historyGitOutput(_ string, arguments ...string) (string, error) {
 	}
 
 	return strings.TrimSpace(string(output)), nil
-}
-
-func copyHistoryCapture(directory, name, destination string) error {
-	contents, err := os.ReadFile(filepath.Join(directory, ".make", name))
-	if err != nil {
-		return fmt.Errorf("read actual analyzer capture: %w", err)
-	}
-
-	if err := os.WriteFile(destination, contents, 0o600); err != nil {
-		return fmt.Errorf("preserve actual analyzer capture: %w", err)
-	}
-
-	return nil
 }

@@ -1,7 +1,6 @@
-override GO_MK_BIN := {{.Engine}}
+ifneq ($(wildcard history-prepare-failure),)
+$(error Historical preparation failed)
+endif
 
-.PHONY: notice-prepare-check
-go-mk-workspace: notice-prepare-check
-
-notice-prepare-check:
-	test ! -f history-prepare-failure
+.PHONY: go-mk-workspace go-mk-cgo-deps
+go-mk-workspace go-mk-cgo-deps:
