@@ -573,47 +573,18 @@ func captureDeadcodeFindings(rawPath, findingsPath string) error {
 	return writeFindingsFile(findingsPath, extracted)
 }
 
-// runLintDeadcode runs the deadcode gate, mirroring run_lint_deadcode.
 func runLintDeadcode() int {
-	if err := ensureMakeDir(); err != nil {
-		return statusFromError(err)
-	}
-
-	if !checksToolsPrepared {
-		if err := installGoTool(
-			lintEnvDefault("DEADCODE_INSTALL", "golang.org/x/tools/cmd/deadcode@latest"),
-		); err != nil {
-			return statusFromError(err)
-		}
-	}
-
-	rawPath := filepath.Join(makeDir, "deadcode.raw.out")
-	findingsPath := filepath.Join(makeDir, "deadcode.out")
-	if err := captureDeadcodeFindings(rawPath, findingsPath); err != nil {
-		return statusFromError(err)
-	}
-
-	current, err := readFileLines(findingsPath)
-	if err != nil {
-		return statusFromError(err)
-	}
-
-	excludePattern := lint.ExcludePattern(
-		lintEnvDefault("DEADCODE_DEFAULT_EXCLUDE_PATHS", `_test\.go:`),
-		os.Getenv("DEADCODE_EXCLUDE_PATHS"),
+	return lint.CheckDeadcode(
+		makeDir,
+		checksToolsPrepared,
+		ensureMakeDir,
+		lintEnvDefault,
+		installGoTool,
+		captureDeadcodeFindings,
+		readFileLines,
+		runGateAndPrint,
+		statusFromError,
 	)
-	if _, err := runGateAndPrint(
-		"deadcode",
-		current,
-		lintEnvDefault("DEADCODE_BASELINE", ".deadcode-baseline.txt"),
-		"The deadcode lint gate found unreachable code. Remove the reported code.",
-		excludePattern,
-		"",
-	); err != nil {
-		return statusFromError(err)
-	}
-
-	return 0
 }
 
 // reportToolFailure prints the FAILED block for a tool that exited non-zero

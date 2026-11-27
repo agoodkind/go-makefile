@@ -28,9 +28,7 @@ Every quality job also restores the cgo dependency cache that the compile leg fo
 
 ## Make a check advisory
 
-Set `StatusAdvisory` in the [step result](../../internal/report/report.go), include the findings, and return exit status `0`. If the check also runs as a standalone command, print the findings and return `0` there too.
-
-To make only certain lint findings advisory, change the [baseline gate verdict](../../internal/lintgate/lintgate.go). Return a passing verdict with the findings intact when every new finding is advisory. Any blocking finding still fails the gate.
+Add the check to the [advisory registry](../../internal/checkpolicy/advisory.go). Use an empty analyzer list for a whole check, or list the analyzers to make advisory.
 
 ## The release dry run
 

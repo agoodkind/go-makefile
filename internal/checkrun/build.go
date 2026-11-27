@@ -36,7 +36,7 @@ func Build(
 
 // Raw runs the default checks with each tool's normal output.
 //
-// It combines vet and lint failures. The Go version check remains advisory.
+// It returns a nonzero exit status when a check fails.
 //
 // Example:
 //
@@ -57,7 +57,9 @@ func Raw(
 		status = code
 	}
 
-	version()
+	if code := version(); code != 0 {
+		status = code
+	}
 
 	return status
 }

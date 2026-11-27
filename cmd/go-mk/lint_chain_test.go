@@ -7,21 +7,41 @@ import (
 	"goodkind.io/go-makefile/internal/report"
 )
 
-func TestGolangciUnusedFindingsAreAdvisory(t *testing.T) {
+func TestBaselineGateAdvisoryFindings(t *testing.T) {
 	const unused = "main.go:3:6: func futureCaller is unused (unused)"
 	const errcheck = "main.go:5:2: error return value is not checked (errcheck)"
+	const unreachable = "main.go:3:6: unreachable func: futureCaller"
 	tests := []struct {
 		name     string
+		gate     string
 		findings []string
+		message  string
 		status   report.Status
 		exit     int
 	}{
-		{name: "unused only", findings: []string{unused}, status: report.StatusAdvisory, exit: 0},
+		{
+			name:     "unused only",
+			gate:     "golangci-lint",
+			findings: []string{unused},
+			message:  "(unused)",
+			status:   report.StatusAdvisory,
+			exit:     0,
+		},
 		{
 			name:     "unchecked error",
+			gate:     "golangci-lint",
 			findings: []string{unused, errcheck},
+			message:  "(errcheck)",
 			status:   report.StatusFailed,
 			exit:     1,
+		},
+		{
+			name:     "unreachable function",
+			gate:     "deadcode",
+			findings: []string{unreachable},
+			message:  "unreachable func",
+			status:   report.StatusAdvisory,
+			exit:     0,
 		},
 	}
 
@@ -34,10 +54,10 @@ func TestGolangciUnusedFindingsAreAdvisory(t *testing.T) {
 				t.Cleanup(func() { gateCollecting = false })
 
 				result, exit := runOneGate(
-					"lint-golangci",
+					test.gate,
 					func() int {
 						passed, err := runGateAndPrint(
-							"golangci-lint",
+							test.gate,
 							test.findings,
 							"baseline.txt",
 							"",
@@ -66,8 +86,8 @@ func TestGolangciUnusedFindingsAreAdvisory(t *testing.T) {
 					)
 				}
 
-				if !strings.Contains(strings.Join(result.Findings, "\n"), "(unused)") {
-					t.Errorf("report omitted unused finding: %v", result.Findings)
+				if !strings.Contains(strings.Join(result.Findings, "\n"), test.message) {
+					t.Errorf("report omitted %q: %v", test.message, result.Findings)
 				}
 			},
 		)

@@ -5,18 +5,20 @@ import (
 	"strings"
 	"testing"
 
+	"goodkind.io/go-makefile/internal/checkrun"
 	"goodkind.io/go-makefile/internal/report"
 )
 
 func TestOutdatedInstalledGoVersionIsAdvisory(t *testing.T) {
-	result := goVersionStepWith(goVersionConfig{
-		installedVersion: func() (string, error) {
+	result := checkrun.GoVersion(
+		func() (string, error) {
 			return "1.26.4", nil
 		},
-		latestVersion: func() (string, error) {
+		func() (string, error) {
 			return "1.26.5", nil
 		},
-	})
+		compareGoVersions,
+	)
 
 	if result.Status != report.StatusAdvisory {
 		t.Fatalf("status = %v, want advisory", result.Status)
@@ -31,14 +33,15 @@ func TestOutdatedInstalledGoVersionIsAdvisory(t *testing.T) {
 }
 
 func TestGoVersionLookupFailureIsAdvisory(t *testing.T) {
-	result := goVersionStepWith(goVersionConfig{
-		installedVersion: func() (string, error) {
+	result := checkrun.GoVersion(
+		func() (string, error) {
 			return "1.26.5", nil
 		},
-		latestVersion: func() (string, error) {
+		func() (string, error) {
 			return "", errors.New("network unavailable")
 		},
-	})
+		compareGoVersions,
+	)
 
 	if result.Status != report.StatusAdvisory {
 		t.Fatalf("status = %v, want advisory", result.Status)
@@ -50,14 +53,15 @@ func TestGoVersionLookupFailureIsAdvisory(t *testing.T) {
 }
 
 func TestCurrentGoVersionIsOK(t *testing.T) {
-	result := goVersionStepWith(goVersionConfig{
-		installedVersion: func() (string, error) {
+	result := checkrun.GoVersion(
+		func() (string, error) {
 			return "1.26.5", nil
 		},
-		latestVersion: func() (string, error) {
+		func() (string, error) {
 			return "1.26.5", nil
 		},
-	})
+		compareGoVersions,
+	)
 
 	if result.Status != report.StatusOK {
 		t.Fatalf("status = %v, want ok", result.Status)

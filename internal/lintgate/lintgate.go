@@ -20,8 +20,8 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
-	"strings"
 
+	"goodkind.io/go-makefile/internal/checkpolicy"
 	"goodkind.io/go-makefile/internal/findings"
 )
 
@@ -87,7 +87,7 @@ func Evaluate(
 
 func findingsPass(gateName string, lines []string) bool {
 	for _, line := range lines {
-		if gateName != "golangci-lint" || !strings.HasSuffix(line, " (unused)") {
+		if !checkpolicy.AdvisoryFinding(gateName, line) {
 			return false
 		}
 	}
