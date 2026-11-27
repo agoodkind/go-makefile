@@ -1,10 +1,54 @@
 package lint
 
 import (
+	_ "embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 )
+
+//go:embed tools.json
+var toolPins []byte
+
+type toolPin struct {
+	Override string `json:"override"`
+	Install  string `json:"install"`
+}
+
+var readToolPins = sync.OnceValues(func() ([]toolPin, error) {
+	var pins []toolPin
+	if err := json.Unmarshal(toolPins, &pins); err != nil {
+		return nil, fmt.Errorf("read lint tools.json: %w", err)
+	}
+
+	for _, pin := range pins {
+		if pin.Override == "" || pin.Install == "" {
+			return nil, fmt.Errorf(
+				"each pin in lint tools.json requires an override and install specification",
+			)
+		}
+	}
+
+	return pins, nil
+})
+
+func GolangciInstallSpec() (string, error) {
+	pins, err := readToolPins()
+	if err != nil {
+		return "", err
+	}
+
+	for _, pin := range pins {
+		if pin.Override == "GOLANGCI_LINT_INSTALL" {
+			return pin.spec(), nil
+		}
+	}
+
+	return "", fmt.Errorf("declare GOLANGCI_LINT_INSTALL in lint tools.json")
+}
 
 func PrepareTools(install func(string) error, executable func(string) bool) error {
 	binary := os.Getenv("GOLANGCI_LINT")
@@ -16,25 +60,24 @@ func PrepareTools(install func(string) error, executable func(string) bool) erro
 		return nil
 	}
 
-	tools := [...]struct {
-		variable string
-		spec     string
-	}{
-		{"GOLANGCI_LINT_INSTALL", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0"},
-		{"GOFUMPT_INSTALL", "mvdan.cc/gofumpt@v0.10.0"},
-		{"GOIMPORTS_INSTALL", "golang.org/x/tools/cmd/goimports@v0.45.0"},
+	pins, err := readToolPins()
+	if err != nil {
+		return err
 	}
 
-	for _, tool := range tools {
-		spec := os.Getenv(tool.variable)
-		if spec == "" {
-			spec = tool.spec
-		}
-
-		if err := install(spec); err != nil {
+	for _, pin := range pins {
+		if err := install(pin.spec()); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func (pin toolPin) spec() string {
+	if override := strings.TrimSpace(os.Getenv(pin.Override)); override != "" {
+		return override
+	}
+
+	return pin.Install
 }

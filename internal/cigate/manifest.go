@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"goodkind.io/go-makefile/internal/lint"
 )
 
 func Run(
@@ -105,11 +107,9 @@ func (gate entry) restoresLintCache(defaultLintGates string) bool {
 }
 
 func lintCacheKeys(modulePrefix string, now time.Time) (string, string, error) {
-	linter := strings.TrimSpace(os.Getenv("GOLANGCI_LINT_INSTALL"))
-	if linter == "" {
-		return "", "", fmt.Errorf(
-			"set GOLANGCI_LINT_INSTALL to the golangci-lint install specification",
-		)
+	linter, err := lint.GolangciInstallSpec()
+	if err != nil {
+		return "", "", err
 	}
 
 	dependencies, err := lintDependencyHash()
