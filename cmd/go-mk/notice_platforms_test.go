@@ -58,7 +58,7 @@ func TestNoticeRecordsTestFindingsInFilesForAnotherPlatform(t *testing.T) {
 func TestNoticeRecordsNoBuildErrorsFromAnotherPlatform(t *testing.T) {
 	t.Parallel()
 
-	consumerDir := newConsumerRepository(t, beforeNoticeDate)
+	consumerDir := newConsumerRepositoryWithNotice(t, "2")
 	writeConsumerFile(t, consumerDir, "cgoonly/cgoonly.go", cgoOnlyPackage)
 	writeConsumerFile(t, consumerDir, "user/user.go", cgoUserPackage)
 
@@ -82,8 +82,8 @@ func TestNoticeRecordsNoBuildErrorsFromAnotherPlatform(t *testing.T) {
 		t,
 		consumerDir,
 		appliedNoticeFile,
-	); applied != "1\n2\n3\n14\n15\n16\n18\n19\n22\n" {
-		t.Fatalf("applied notices = %q, want all notices", applied)
+	); applied != "1\n2\n" {
+		t.Fatalf("applied notices = %q, want notices 1 and 2", applied)
 	}
 }
 

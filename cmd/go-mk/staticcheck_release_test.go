@@ -15,6 +15,8 @@ import (
 )
 
 func TestStaticcheckReleaseFailurePreservesInstalledAnalyzer(t *testing.T) {
+	t.Parallel()
+
 	environment := noticeGitEnvironment(t)
 	engine := gomk.BuiltTestEngine(t)
 	directory := t.TempDir()
@@ -23,15 +25,12 @@ func TestStaticcheckReleaseFailurePreservesInstalledAnalyzer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	build := exec.Command("go", "build", "-o", installed, "./cmd/staticcheck-extra")
-	build.Dir = filepath.Join("..", "..", "staticcheck")
-	build.Env = append(environment, "GOPROXY=https://proxy.golang.org", "GOSUMDB=sum.golang.org")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build installed analyzer: %v\n%s", err, output)
+	before, err := os.ReadFile(builtTestAnalyzer(t, filepath.Join("..", "..")))
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	before, err := os.ReadFile(installed)
-	if err != nil {
+	if err := os.WriteFile(installed, before, 0o755); err != nil {
 		t.Fatal(err)
 	}
 

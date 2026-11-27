@@ -10,7 +10,7 @@ import (
 func TestNoticeUsesTheOriginalAdoptionDateAfterAModuleMove(t *testing.T) {
 	t.Parallel()
 
-	repositoryDir := newConsumerRepository(t, beforeNoticeDate)
+	repositoryDir := newConsumerRepositoryWithNotice(t, "2")
 	moduleEntries := []string{"go.mod", "widget", ".gitignore", appliedNoticeFile, "Makefile"}
 	if err := os.MkdirAll(filepath.Join(repositoryDir, "gateway"), 0o755); err != nil {
 		t.Fatalf("create gateway: %v", err)

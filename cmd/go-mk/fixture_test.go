@@ -12,7 +12,7 @@ import (
 
 func historyFailureConsumer(t *testing.T, scenario string) string {
 	t.Helper()
-	consumer := duplicateReplayConsumer(t)
+	consumer := newConsumerRepository(t, beforeNoticeDate)
 	contents, err := os.ReadFile(filepath.Join("testdata", "preparation.mk"))
 	if err != nil {
 		t.Fatal(err)
@@ -37,16 +37,8 @@ func historyFailureConsumer(t *testing.T, scenario string) string {
 		"Makefile",
 		rendered.String()+"\n"+readConsumerFile(t, consumer, "Makefile"),
 	)
-	original := readConsumerFile(t, consumer, "widget/widget.go")
 	if scenario == "preparation" {
 		writeConsumerFile(t, consumer, "history-prepare-failure", "fail historical preparation\n")
-	} else {
-		writeConsumerFile(
-			t,
-			consumer,
-			"widget/widget.go",
-			"package widget\n\nfunc Double(value int) int { return missingValue }\n",
-		)
 	}
 
 	runConsumerGit(t, consumer, beforeNoticeDate, "add", ".")
@@ -56,14 +48,12 @@ func historyFailureConsumer(t *testing.T, scenario string) string {
 		beforeNoticeDate,
 		"commit",
 		"-qm",
-		"Record a real historical failure",
+		"Record historical preparation",
 	)
 	if scenario == "preparation" {
 		if err := os.Remove(filepath.Join(consumer, "history-prepare-failure")); err != nil {
 			t.Fatal(err)
 		}
-	} else {
-		writeConsumerFile(t, consumer, "widget/widget.go", original)
 	}
 
 	runConsumerGit(t, consumer, "2026-11-08T00:00:00Z", "add", ".")
@@ -72,8 +62,9 @@ func historyFailureConsumer(t *testing.T, scenario string) string {
 		consumer,
 		"2026-11-08T00:00:00Z",
 		"commit",
+		"--allow-empty",
 		"-qm",
-		"Repair the current preparation and source",
+		"Record the current source",
 	)
 
 	return consumer

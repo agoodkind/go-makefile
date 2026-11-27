@@ -134,7 +134,7 @@ func TestUpgradeNoticeRejectsUncommittedViolation(t *testing.T) {
 
 	engine := gomk.BuiltTestEngine(t)
 	tempDir := t.TempDir()
-	consumer := newConsumerRepository(t, beforeNoticeDate)
+	consumer := newConsumerRepositoryWithNotice(t, "21")
 	repository, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -164,12 +164,11 @@ func TestUpgradeNoticeRejectsUncommittedViolation(t *testing.T) {
 		"go-mk-notice",
 		"GO_MK_BIN=" + engine,
 		"TMPDIR=" + tempDir,
+		"_GO_MK_NOTICES_FILE=" + filepath.Join(consumer, ".make/dated-notices.txt"),
 		"GO_MK_NOTICE_MAKEFILE=" + filepath.Join(repository, "go.mk"),
 		"GO_MK_PLATFORMS=" + runtime.GOOS + "/" + runtime.GOARCH,
 		"GOLANGCI_LINT_FLAGS=-c .make/upgrade.yml",
 		"GOLANGCI_LINT_RUN_FLAGS=-c .make/upgrade.yml",
-		"STATICCHECK_EXTRA_BUILD_REPO=" + filepath.Join(repository, "staticcheck"),
-		"STATICCHECK_EXTRA_BUILD_PKG=./cmd/staticcheck-extra",
 	}
 	if output, err := runConsumerMake(consumer, arguments...); err != nil {
 		t.Fatalf("upgrade notice failed: %v\n%s", err, output)
