@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -70,5 +71,25 @@ func Commands(
 		commands = append(commands, arguments)
 	}
 
-	return commands, nil
+	return selectShard(commands, os.Getenv("GO_MK_VET_SHARD"))
+}
+
+func selectShard(commands [][]string, shard string) ([][]string, error) {
+	if shard == "" {
+		return commands, nil
+	}
+
+	indexText, countText, _ := strings.Cut(shard, "/")
+	index, indexErr := strconv.Atoi(indexText)
+	count, countErr := strconv.Atoi(countText)
+	if indexErr != nil || countErr != nil || index < 1 || index > count {
+		return nil, fmt.Errorf("invalid vet shard %q", shard)
+	}
+
+	var selected [][]string
+	for offset := index - 1; offset < len(commands); offset += count {
+		selected = append(selected, commands[offset])
+	}
+
+	return selected, nil
 }

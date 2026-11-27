@@ -19,7 +19,7 @@ import (
 // It returns the exit code, non-zero when any blocking step failed.
 func runBuildCheck() int {
 	return checkrun.Build(
-		runNotice,
+		runNoticeFor,
 		prepareChecks,
 		statusFromError,
 		runChecks,
