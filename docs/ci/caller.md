@@ -42,18 +42,8 @@ After checkout and Go setup, call the [quality gate action](../../.github/action
 
 The action accepts `vet`, `test`, `lint-golangci`, `lint-format`, `lint-gocyclo`, `lint-deadcode`, `staticcheck-extra`, `govulncheck`, and `go-version-check`. Use `build-check` to run the configured group of build checks in one step, including the cgo and platform stub checks. Each step returns the result of its Make target.
 
-The action restores golangci-lint analysis for `lint-golangci` and for `build-check` when `LINT_GATES` includes that linter. It reads the paths and install specification from `go-mk-cache-manifest`, refreshes the key weekly, and uses `go-mk-golangci-cache-save-decision` to verify the analysis before saving. All gates can reuse the Go build and module caches configured by the job.
+The action restores golangci-lint analysis for `lint-golangci` and for `build-check` when `LINT_GATES` includes that linter. The quality gate manifest reports cache paths and keys. The action uses `go-mk-golangci-cache-save-decision` to verify the lint cache before saving it. All gates can reuse the Go build and module caches configured by the job.
 
 For jobs that compile cgo packages, pass `cgo-toolchain-id` from the compile job that saved the native dependency cache. Set `GO_MK_TARGET_GOOS` and `GO_MK_TARGET_GOARCH` in the environment that runs Make. The gate restores the dependency cache when the manifest reports a matching key.
 
-For a Docker Compose job, set `compose-service` to an existing service and prepare its image before calling the gate. Mount the checkout at the same absolute path on the runner and in the service. Set the service's working directory to the Go module. Pass `makefile` when the service invokes an explicit file such as `bootstrap.mk`.
-
-```yaml
-- name: Check the gateway in Docker
-  uses: agoodkind/go-makefile/.github/actions/quality-gate@main
-  with:
-    gate: build-check
-    working-directory: gateway
-    compose-service: check
-    makefile: bootstrap.mk
-```
+The action runs Make in the job environment, including inside a GitHub Actions job container. Jobs that start a Docker Compose service can call the same Make targets inside that service. To use the gate cache, set `GO_MK_CI_QUALITY_GATE` to the target and run `make go-mk-quality-gate-manifest`. Make the service's cache paths available at the same absolute paths to the steps that restore and save them. Mount the current step's `GITHUB_OUTPUT` file and set `GITHUB_OUTPUT` inside the service to its mount path.
