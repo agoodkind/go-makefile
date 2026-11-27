@@ -288,7 +288,7 @@ jobs:
     # value sees a binary that fails the release's cgo-stub check fail here first.
     needs: prepare
     if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.releases == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
-    uses: agoodkind/go-makefile/.github/workflows/_build.yml@main
+    uses: agoodkind/go-makefile/.github/workflows/_build.yml@codex/ci-compiled-go-cache-benchmark
     secrets: inherit
     with:
       cgo: ${{ inputs.cgo }}
