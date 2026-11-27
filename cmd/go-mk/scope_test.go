@@ -8,6 +8,8 @@ import (
 )
 
 func TestHistoricalNoticeRunsOnlyItsScopedAnalyzer(t *testing.T) {
+	t.Parallel()
+
 	consumer := newConsumerRepository(t, beforeNoticeDate)
 	const source = `package widget
 import "strings"

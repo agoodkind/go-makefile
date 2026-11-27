@@ -1158,6 +1158,7 @@ func relProcCgoCommandFixture(t *testing.T) (string, relProcFixture) {
 		t.Fatalf("find go: %v", err)
 	}
 
+	engine := builtTestEngine(t)
 	buildDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(buildDir, "gitconfig"), nil, 0o600); err != nil {
 		t.Fatalf("write build git config: %v", err)
@@ -1165,7 +1166,7 @@ func relProcCgoCommandFixture(t *testing.T) (string, relProcFixture) {
 
 	for key, value := range map[string]string{
 		"HOME":                buildDir,
-		"GOCACHE":             filepath.Join(buildDir, "cache"),
+		"GOCACHE":             filepath.Join(filepath.Dir(engine), "release-go-cache"),
 		"GOPATH":              filepath.Join(buildDir, "go"),
 		"GOMODCACHE":          filepath.Join(buildDir, "modules"),
 		"GOENV":               "off",
@@ -1185,7 +1186,6 @@ func relProcCgoCommandFixture(t *testing.T) (string, relProcFixture) {
 		t.Setenv(key, value)
 	}
 
-	engine := builtTestEngine(t)
 	fixture := relProcCgoFixture(t)
 	t.Setenv("PATH", filepath.Dir(goPath)+string(os.PathListSeparator)+"/usr/bin:/bin")
 

@@ -64,10 +64,12 @@ by one fetched file, `go.mk`.
   gocyclo, deadcode, govulncheck, gofumpt, goimports, staticcheck-extra),
   because go.mk installs them. By default, `staticcheck-extra` uses a
   verified binary from the shared rolling release; `STATICCHECK_EXTRA_INSTALL`
-  selects a source installation. The other `*_INSTALL` variables select tool
-  package versions. Scaffold removes managed tool directives on every run and
-  leaves project-specific tools alone; run `go mod tidy` afterward to prune
-  their dependencies.
+  selects a source installation. The [lint tool pins](internal/lint/tools.json)
+  set the package versions for golangci-lint, gofumpt, and goimports. Each
+  `*_INSTALL` variable overrides its tool's pin. Set `GOLANGCI_LINT` to an
+  absolute executable path to use a preinstalled golangci-lint release with
+  bundled formatters. Scaffold removes managed tool directives on every run.
+  Run `go mod tidy` afterward to prune their dependencies.
 - Lint gates diff tool findings against committed baseline files and fail only on
   new findings. Scaffold adds repo-local `.gitignore` allowlist rules for future
   baseline files and `.go-mk-applied-notices`, but it does not create them during

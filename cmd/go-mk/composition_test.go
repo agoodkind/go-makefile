@@ -40,6 +40,7 @@ func compositionConsumer(t *testing.T, source string) (string, []string) {
 
 	return consumer, []string{
 		"GO_MK_BIN=" + gomk.BuiltTestEngine(t),
+		"GOLANGCI_LINT_INSTALL=unavailable.invalid/unused@v0.0.0",
 		"GOLANGCI_LINT_FLAGS=-c .make/composition.yml",
 		"GOLANGCI_LINT_RUN_FLAGS=-c .make/composition.yml --allow-parallel-runners --output.text.print-issued-lines=false",
 		"GOLANGCI_FMT_FILES=widget/composition.go",
@@ -48,6 +49,8 @@ func compositionConsumer(t *testing.T, source string) (string, []string) {
 }
 
 func TestMakeFormatCompositionAcceptsCanonicalSource(t *testing.T) {
+	t.Parallel()
+
 	consumer, arguments := compositionConsumer(t, compositionSource)
 
 	for _, target := range []string{"lint-format", "lint-golangci"} {
@@ -67,6 +70,8 @@ func TestMakeFormatCompositionAcceptsCanonicalSource(t *testing.T) {
 }
 
 func TestMakeFormatCompositionRejectsUnformattedSource(t *testing.T) {
+	t.Parallel()
+
 	const source = "package widget\nfunc message()string{return \"hello\"}"
 	consumer, arguments := compositionConsumer(t, source)
 	output, err := runConsumerMake(consumer, append([]string{"lint-format"}, arguments...)...)
@@ -90,6 +95,8 @@ func TestMakeFormatCompositionRejectsUnformattedSource(t *testing.T) {
 }
 
 func TestMakeFormatCompositionRetainsUnrelatedFinding(t *testing.T) {
+	t.Parallel()
+
 	source := compositionSource + "\nfunc Print() { println(\"rejected\") }\n"
 	consumer, arguments := compositionConsumer(t, source)
 	output, err := runConsumerMake(consumer, append([]string{"fmt"}, arguments...)...)
@@ -110,6 +117,8 @@ func TestMakeFormatCompositionRetainsUnrelatedFinding(t *testing.T) {
 }
 
 func TestMakeFormatCompositionPreservesFormatterFailure(t *testing.T) {
+	t.Parallel()
+
 	const source = "package widget\nfunc broken(\n"
 	consumer, arguments := compositionConsumer(t, source)
 	output, err := runConsumerMake(consumer, append([]string{"lint-format"}, arguments...)...)

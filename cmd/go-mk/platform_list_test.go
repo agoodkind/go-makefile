@@ -7,6 +7,8 @@ import (
 )
 
 func TestGoMkPlatformsWritesTheModuleList(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name      string
 		makeArgs  []string

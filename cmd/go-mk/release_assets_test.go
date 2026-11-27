@@ -6,6 +6,8 @@ import (
 )
 
 func TestReleaseAssetsListsEveryBinaryAndPlatform(t *testing.T) {
+	t.Parallel()
+
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
