@@ -597,8 +597,8 @@ jobs:
           GO_BUILD_KEY: ${{ format('go-mk-build-v1-{0}-{1}-{2}-{3}-{4}-{5}', runner.os, runner.arch, steps.setup-go.outputs.go-version, steps.go-build-generation.outputs.image, format('quality-{0}-{1}-{2}', inputs.working_directory, inputs.job_layout, strategy.job-index), hashFiles(format('{0}/go.mod', inputs.working_directory), format('{0}/go.sum', inputs.working_directory), format('{0}/go.work', inputs.working_directory), format('{0}/go.work.sum', inputs.working_directory), format('{0}/Makefile', inputs.working_directory), '.gitmodules')) }}
         with:
           path: ${{ env.GOCACHE }}
-          key: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-${{ steps.go-build-generation.outputs.week }}
-          restore-keys: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cache.outputs.generated_cache_key }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-
+          key: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-${{ steps.go-build-generation.outputs.week }}
+          restore-keys: ${{ env.GO_BUILD_KEY }}-${{ steps.go-mk-cgo-cache.outputs.cgo_cache_key }}-
       # Cache the Go tool packages that every quality job installs. A source
       # build of these tools takes most of a minute per job. The key includes
       # the package list, the Go version, and the ISO week. An @latest package
