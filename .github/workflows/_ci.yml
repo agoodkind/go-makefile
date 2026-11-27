@@ -483,6 +483,7 @@ jobs:
       contents: read
     env:
       GOCACHE: ${{ github.workspace }}/.make/ci-go-build
+      GO_TEST_TARGETS: -count=1 ./...
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.job_matrix) }}
